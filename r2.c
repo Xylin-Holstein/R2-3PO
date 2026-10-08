@@ -102,6 +102,21 @@ static pthread_mutex_t tasks_lock =
 
 static volatile sig_atomic_t shutting_down = 0;
 
+/* ============================================================
+   CORE LIFECYCLE STATE
+   ============================================================ */
+
+static pthread_t hands_thread;
+static pthread_t diary_thread;
+
+static int hands_thread_started = 0;
+static int diary_thread_started = 0;
+static int core_initialized = 0;
+static int startup_memory_loaded = 0;
+static int watch_running = 0;
+static int diary_initialized = 0;
+
+
 
 /* ============================================================
    SYSTEM PROMPT
@@ -4890,17 +4905,372 @@ static void sigint_handler(
    MAIN
    ============================================================ */
 
-int main(void)
-{
-    signal(
-        SIGINT,
-        sigint_handler
-    );
+/* ============================================================
+   PUBLIC CORE BRIDGE
+   ============================================================ */
 
-    signal(
-        SIGTERM,
-        sigint_handler
+int r2_is_shutting_down(void){ return shutting_down ? 1 : 0; }
+int r2_is_initialized(void){ return core_initialized ? 1 : 0; }
+const char *r2_model_name(void){ return MODEL; }
+
+int r2_thinking_active(void)
+{
+    return core_initialized && !shutting_down && diary_thread_started;
+}
+
+int r2_think_interval(void){ return THINK_INTERVAL; }
+
+int r2_worker_count(void)
+{
+    return (hands_thread_started ? 1 : 0) +
+           (diary_thread_started ? 1 : 0);
+}
+
+long r2_memory_count(void)
+{
+    if (!db) return 0;
+    sqlite3_stmt *st = NULL;
+    long count = 0;
+
+    pthread_mutex_lock(&db_lock);
+
+    if (sqlite3_prepare_v2(
+            db, "SELECT COUNT(*) FROM memories;", -1, &st, NULL
+        ) == SQLITE_OK) {
+        if (sqlite3_step(st) == SQLITE_ROW)
+            count = sqlite3_column_int64(st, 0);
+    }
+
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&db_lock);
+    return count;
+}
+
+char *r2_retrieve_memories(const char *query)
+{
+    return get_relevant_memories(
+        query ? query : "",
+        MAX_RELEVANT_MEMORIES
     );
+}
+
+int r2_save_memory(const char *memory, const char *category)
+{
+    if (!memory || !*memory) return -1;
+    return save_memory(
+        memory,
+        (category && *category) ? category : "other"
+    );
+}
+
+int r2_load_startup_memories(void)
+{
+    return startup_memory_loaded ? 0 : -1;
+}
+
+char *r2_process_tools(const char *input)
+{
+    return input ? process_tools(input) : NULL;
+}
+
+int r2_diary_active(void)
+{
+    return diary_initialized ? 1 : 0;
+}
+
+int r2_write_diary(void)
+{
+    char *ctx = r2_diary_build_reflection_context(10);
+    if (!ctx) return -1;
+
+    const char *prompt =
+        "You are R2-3PO's private autonomous reflection process.\n"
+        "The information supplied to you is private diary/reflection context.\n"
+        "Write a private diary reflection based ONLY on the information supplied.\n"
+        "Do not merely summarize it. Look for changes in understanding, "
+        "connections, unanswered questions, technical discoveries, uncertainty, "
+        "and patterns over time.\n"
+        "Do not invent events, conversations, sensory experiences, or actions.\n"
+        "Write naturally in first person as R2.\n"
+        "Return ONLY the private diary reflection.";
+
+    Message m = { "user", ctx, 0 };
+    char *reflection = ollama_chat(&m, 1, prompt);
+    free(ctx);
+
+    if (!reflection) return -1;
+
+    int rc = r2_diary_write(reflection);
+    free(reflection);
+    return rc;
+}
+
+int r2_think(void)
+{
+    if (!core_initialized || shutting_down) return -1;
+    return r2_write_diary();
+}
+
+int r2_eyes_start(void)
+{
+    return eyes ? r2_eyes_open_camera(eyes) : -1;
+}
+
+int r2_eyes_stop(void)
+{
+    if (!eyes) return -1;
+    r2_eyes_close(eyes);
+    return 0;
+}
+
+int r2_eyes_status(void)
+{
+    return eyes ? (r2_eyes_is_open(eyes) ? 1 : 0) : 0;
+}
+
+int r2_ears_start(void)
+{
+    return ears ? r2_ears_open_microphone(ears) : -1;
+}
+
+int r2_ears_stop(void)
+{
+    if (!ears) return -1;
+    r2_ears_close(ears);
+    return 0;
+}
+
+int r2_ears_status(void)
+{
+    return ears ? (r2_ears_is_open(ears) ? 1 : 0) : 0;
+}
+
+int r2_watch_active(void){ return watch_running ? 1 : 0; }
+
+int r2_watch_start(void)
+{
+    if (!core_initialized || shutting_down) return -1;
+    watch_running = 1;
+    return 0;
+}
+
+int r2_watch_stop(void)
+{
+    watch_running = 0;
+    return 0;
+}
+
+void r2_watch_status(void)
+{
+    printf("[R2 Watch] %s\n",
+           watch_running ? "ACTIVE" : "STOPPED");
+}
+
+void r2_request_shutdown(void)
+{
+    shutting_down = 1;
+    pthread_cond_broadcast(&task_queue_cond);
+}
+
+int r2_request_restart(void)
+{
+    r2_request_shutdown();
+    return 0;
+}
+
+void r2_status(void)
+{
+    printf(
+        "\n================ R2 STATUS ================================\n"
+        "Initialized       : %s\n"
+        "Shutting down     : %s\n"
+        "Model             : %s\n"
+        "Memory records    : %ld\n"
+        "Startup memory    : %s (%d records)\n"
+        "Relevant memory   : %d records/turn\n"
+        "Thinking          : %s\n"
+        "Workers           : %d\n"
+        "Eyes              : %s\n"
+        "Ears              : %s\n"
+        "Watch             : %s\n"
+        "============================================================\n",
+        r2_is_initialized() ? "YES" : "NO",
+        r2_is_shutting_down() ? "YES" : "NO",
+        MODEL,
+        r2_memory_count(),
+        startup_memory_loaded ? "LOADED" : "NOT LOADED",
+        MAX_STARTUP_MEMORIES,
+        MAX_RELEVANT_MEMORIES,
+        r2_thinking_active() ? "ACTIVE" : "INACTIVE",
+        r2_worker_count(),
+        r2_eyes_status() ? "OPEN" : "CLOSED",
+        r2_ears_status() ? "OPEN" : "CLOSED",
+        r2_watch_active() ? "ACTIVE" : "STOPPED"
+    );
+}
+
+void r2_diagnostics(void)
+{
+    printf(
+        "\n================ R2 DIAGNOSTICS ===========================\n"
+        "Core initialized : %d\n"
+        "Shutdown flag    : %d\n"
+        "DB available     : %s\n"
+        "Memory count     : %ld\n"
+        "Message count    : %zu\n"
+        "Hands worker     : %s\n"
+        "Diary worker     : %s\n"
+        "Diary subsystem  : %s\n"
+        "Eyes object      : %s\n"
+        "Ears object      : %s\n"
+        "Watch state      : %s\n"
+        "Think interval   : %d seconds\n"
+        "============================================================\n",
+        core_initialized,
+        shutting_down ? 1 : 0,
+        db ? "YES" : "NO",
+        r2_memory_count(),
+        messages.count,
+        hands_thread_started ? "RUNNING" : "STOPPED",
+        diary_thread_started ? "RUNNING" : "STOPPED",
+        diary_initialized ? "READY" : "OFFLINE",
+        eyes ? "PRESENT" : "NULL",
+        ears ? "PRESENT" : "NULL",
+        watch_running ? "ACTIVE" : "STOPPED",
+        THINK_INTERVAL
+    );
+}
+
+char *r2_talk(const char *message)
+{
+    if (!core_initialized || shutting_down || !message)
+        return NULL;
+
+    handle_completed_messages();
+
+    pthread_mutex_lock(&messages_lock);
+
+    if (message_add("user", message) != 0) {
+        pthread_mutex_unlock(&messages_lock);
+        return NULL;
+    }
+
+    pthread_mutex_unlock(&messages_lock);
+
+    char *reply = chat_with_relevant_memories(message);
+    if (!reply) return NULL;
+
+    char *tools = process_tools(reply);
+
+    if (tools && *tools) {
+        pthread_mutex_lock(&messages_lock);
+
+        int assistant_rc = message_add("assistant", reply);
+        int tool_rc = message_add("user", tools);
+
+        pthread_mutex_unlock(&messages_lock);
+
+        free(reply);
+        free(tools);
+
+        if (assistant_rc != 0 || tool_rc != 0)
+            return NULL;
+
+        reply = chat_with_relevant_memories(message);
+        if (!reply) return NULL;
+    } else {
+        free(tools);
+    }
+
+    pthread_mutex_lock(&messages_lock);
+
+    if (message_add("assistant", reply) != 0)
+        fprintf(stderr,
+                "[R2] Failed to add assistant response "
+                "to conversation context.\n");
+
+    pthread_mutex_unlock(&messages_lock);
+
+    char *md = memory_decision(message, reply);
+
+    if (md) {
+        char *p = trim(md);
+
+        if (strcasecmp(p, "NONE") && strchr(p, '|')) {
+            char *sep = strchr(p, '|');
+            *sep = '\0';
+
+            char *cat = trim(p);
+            char *memory = trim(sep + 1);
+
+            if (*memory && save_memory(memory, cat) == 0)
+                printf("[R2 remembered: %s]\n", memory);
+        }
+
+        free(md);
+    }
+
+    return reply;
+}
+
+int r2_conversation(void)
+{
+    if (!core_initialized)
+        return -1;
+
+    char *line = NULL;
+    size_t linecap = 0;
+
+    while (!shutting_down) {
+        handle_completed_messages();
+
+        printf("You: ");
+        fflush(stdout);
+
+        ssize_t nr = getline(&line, &linecap, stdin);
+        if (nr < 0) break;
+
+        if (nr && line[nr - 1] == '\n')
+            line[nr - 1] = '\0';
+
+        if (!strcasecmp(line, "quit") ||
+            !strcasecmp(line, "exit") ||
+            !strcasecmp(line, "shutdown")) {
+            printf("\nR2-3PO: Goodbye.\n");
+            break;
+        }
+
+        if (!*line) continue;
+
+        char *reply = r2_talk(line);
+
+        if (!reply) {
+            fprintf(stderr,
+                    "\nR2-3PO: Ollama request failed.\n");
+            continue;
+        }
+
+        printf("\nR2-3PO: %s\n\n", reply);
+        free(reply);
+    }
+
+    free(line);
+    return 0;
+}
+
+/* ============================================================
+   CORE INITIALIZATION / SHUTDOWN
+   ============================================================ */
+
+int r2_init(void)
+{
+    shutting_down = 0;
+    watch_running = 0;
+    startup_memory_loaded = 0;
+
+    signal(SIGINT, sigint_handler);
+    signal(SIGTERM, sigint_handler);
+
 
     /* --------------------------------------------------------
        DIRECTORIES
@@ -4944,6 +5314,8 @@ int main(void)
             "could not initialize R2 diary"
         );
     }
+
+    diary_initialized = 1;
 
     if (r2_eyes_init(&eyes) != 0) {
         r2_diary_shutdown();
@@ -5224,9 +5596,6 @@ int main(void)
        START BACKGROUND THREADS
        ======================================================== */
 
-    pthread_t hands_thread;
-    pthread_t diary_thread;
-
     if (
         pthread_create(
             &hands_thread,
@@ -5241,10 +5610,10 @@ int main(void)
         db = NULL;
         curl_global_cleanup();
 
-        die(
-            "could not start hands worker"
-        );
+        return -1;
     }
+
+    hands_thread_started = 1;
 
     if (
         pthread_create(
@@ -5266,15 +5635,17 @@ int main(void)
             NULL
         );
 
+        hands_thread_started = 0;
+
         r2_diary_shutdown();
         sqlite3_close(db);
         db = NULL;
         curl_global_cleanup();
 
-        die(
-            "could not start diary worker"
-        );
+        return -1;
     }
+
+    diary_thread_started = 1;
 
     /* ========================================================
        ONLINE MESSAGE
@@ -5314,344 +5685,89 @@ int main(void)
         THINK_INTERVAL
     );
 
-    /* ========================================================
-       MAIN CONVERSATION LOOP
-       ======================================================== */
 
-    char *line = NULL;
-    size_t linecap = 0;
 
-    while (!shutting_down) {
+    core_initialized = 1;
+    startup_memory_loaded = 1;
 
-        handle_completed_messages();
+    return 0;
+}
 
-        printf("You: ");
-        fflush(stdout);
-
-        ssize_t nr =
-            getline(
-                &line,
-                &linecap,
-                stdin
-            );
-
-        if (nr < 0)
-            break;
-
-        if (
-            nr &&
-            line[nr - 1] == '\n'
-        )
-            line[nr - 1] = '\0';
-
-        if (
-            !strcasecmp(
-                line,
-                "quit"
-            ) ||
-            !strcasecmp(
-                line,
-                "exit"
-            ) ||
-            !strcasecmp(
-                line,
-                "shutdown"
-            )
-        ) {
-
-            printf(
-                "\nR2-3PO: Goodbye.\n"
-            );
-
-            break;
-        }
-
-        pthread_mutex_lock(
-            &messages_lock
-        );
-
-        if (
-            message_add(
-                "user",
-                line
-            ) != 0
-        ) {
-
-            pthread_mutex_unlock(
-                &messages_lock
-            );
-
-            fprintf(
-                stderr,
-                "\nR2-3PO: Could not add your message "
-                "to the conversation context.\n"
-            );
-
-            continue;
-        }
-
-        pthread_mutex_unlock(
-            &messages_lock
-        );
-
-        /*
-           Retrieve relevant persistent memories AFTER the user
-           message has been stored.
-
-           chat_with_relevant_memories() creates a temporary copy
-           for Ollama and inserts the retrieved memories BEFORE
-           the current user message.
-
-           The retrieved memories are not permanently appended to
-           the conversation.
-
-           Newly saved memories therefore become searchable without
-           restarting R2.
-        */
-        char *reply =
-            chat_with_relevant_memories(
-                line
-            );
-
-        if (!reply) {
-
-            fprintf(
-                stderr,
-                "\nR2-3PO: Ollama request failed.\n"
-            );
-
-            continue;
-        }
-
-        char *tools =
-            process_tools(reply);
-
-        if (
-            tools &&
-            *tools
-        ) {
-
-            pthread_mutex_lock(
-                &messages_lock
-            );
-
-            int assistant_rc =
-                message_add(
-                    "assistant",
-                    reply
-                );
-
-            int tool_rc =
-                message_add(
-                    "user",
-                    tools
-                );
-
-            pthread_mutex_unlock(
-                &messages_lock
-            );
-
-            free(reply);
-            free(tools);
-
-            if (
-                assistant_rc != 0 ||
-                tool_rc != 0
-            ) {
-
-                fprintf(
-                    stderr,
-                    "\nR2-3PO: Failed to store tool "
-                    "interaction in conversation context.\n"
-                );
-
-                continue;
-            }
-
-            /*
-               The follow-up still receives relevant persistent
-               memories dynamically.
-
-               chat_with_relevant_memories() searches backwards
-               for the actual current user message, so the memory
-               context is inserted before the original question,
-               not after the tool result.
-            */
-            reply =
-                chat_with_relevant_memories(
-                    line
-                );
-
-            if (!reply) {
-
-                fprintf(
-                    stderr,
-                    "\nR2-3PO: Ollama follow-up failed.\n"
-                );
-
-                continue;
-            }
-
-        } else {
-
-            free(tools);
-        }
-
-        printf(
-            "\nR2-3PO: %s\n\n",
-            reply
-        );
-
-        pthread_mutex_lock(
-            &messages_lock
-        );
-
-        if (
-            message_add(
-                "assistant",
-                reply
-            ) != 0
-        ) {
-
-            fprintf(
-                stderr,
-                "[R2] Failed to add assistant response "
-                "to conversation context.\n"
-            );
-        }
-
-        pthread_mutex_unlock(
-            &messages_lock
-        );
-
-        char *md =
-            memory_decision(
-                line,
-                reply
-            );
-
-        if (md) {
-
-            char *p =
-                trim(md);
-
-            if (
-                strcasecmp(
-                    p,
-                    "NONE"
-                ) &&
-                strchr(
-                    p,
-                    '|'
-                )
-            ) {
-
-                char *sep =
-                    strchr(
-                        p,
-                        '|'
-                    );
-
-                *sep = '\0';
-
-                char *cat =
-                    trim(p);
-
-                char *memory =
-                    trim(sep + 1);
-
-                if (*memory) {
-
-                    if (
-                        save_memory(
-                            memory,
-                            cat
-                        ) == 0
-                    ) {
-
-                        printf(
-                            "[R2 remembered: %s]\n",
-                            memory
-                        );
-                    }
-                }
-            }
-
-            free(md);
-        }
-
-        free(reply);
-    }
-
-    /* ========================================================
-       SHUTDOWN
-       ======================================================== */
-
-    free(line);
+void r2_shutdown(void)
+{
+    if (!core_initialized && !db && !eyes && !ears)
+        return;
 
     shutting_down = 1;
+    watch_running = 0;
 
-    pthread_cond_broadcast(
-        &task_queue_cond
-    );
+    pthread_cond_broadcast(&task_queue_cond);
 
-    pthread_join(
-        diary_thread,
-        NULL
-    );
+    if (diary_thread_started) {
+        pthread_join(diary_thread, NULL);
+        diary_thread_started = 0;
+    }
 
-    pthread_join(
-        hands_thread,
-        NULL
-    );
+    if (hands_thread_started) {
+        pthread_join(hands_thread, NULL);
+        hands_thread_started = 0;
+    }
 
-    r2_ears_shutdown(ears);
-    ears = NULL;
+    if (ears) {
+        r2_ears_shutdown(ears);
+        ears = NULL;
+    }
 
-    r2_eyes_shutdown(eyes);
-    eyes = NULL;
+    if (eyes) {
+        r2_eyes_shutdown(eyes);
+        eyes = NULL;
+    }
 
-    r2_diary_shutdown();
+    if (diary_initialized) {
+        r2_diary_shutdown();
+        diary_initialized = 0;
+    }
 
-    /* --------------------------------------------------------
-       DATABASE CLEANUP
-       -------------------------------------------------------- */
+    if (db) {
+        pthread_mutex_lock(&db_lock);
 
-    pthread_mutex_lock(
-        &db_lock
-    );
+        sqlite3_exec(
+            db,
+            "COMMIT",
+            NULL,
+            NULL,
+            NULL
+        );
 
-    sqlite3_exec(
-        db,
-        "COMMIT",
-        NULL,
-        NULL,
-        NULL
-    );
+        pthread_mutex_unlock(&db_lock);
 
-    pthread_mutex_unlock(
-        &db_lock
-    );
-
-    sqlite3_close(db);
-
-    db = NULL;
-
-    /* --------------------------------------------------------
-       CURL CLEANUP
-       -------------------------------------------------------- */
+        sqlite3_close(db);
+        db = NULL;
+    }
 
     curl_global_cleanup();
-
-    /* --------------------------------------------------------
-       MESSAGE CLEANUP
-       -------------------------------------------------------- */
-
     message_free_all();
 
-    printf(
-        "[R2-3PO shut down.]\n"
-    );
+    core_initialized = 0;
+    startup_memory_loaded = 0;
+
+    printf("[R2-3PO shut down.]\n");
+}
+
+
+/* ============================================================
+   PROGRAM ENTRY
+   ============================================================ */
+
+int main(void)
+{
+    if (r2_init() != 0)
+        return 1;
+
+    extern int r2_shell_run(void);
+    r2_shell_run();
+
+    r2_shutdown();
 
     return 0;
 }
