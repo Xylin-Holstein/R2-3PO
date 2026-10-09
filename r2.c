@@ -6740,6 +6740,7 @@ int r2_init(void)
                      "R2 persistent reality engine could not initialize.",
                      "Core startup stopped because self/world continuity could not be made available.",
                      "r2_init");
+        r2_altself_shutdown();
         r2_log_shutdown();
         r2_diary_shutdown();
         diary_initialized = 0;
@@ -6749,6 +6750,7 @@ int r2_init(void)
     }
 
     if (r2_eyes_init(&eyes) != 0) {
+        r2_altself_shutdown();
         r2_log_shutdown();
         r2_diary_shutdown();
         sqlite3_close(db);
@@ -6761,6 +6763,7 @@ int r2_init(void)
         r2_eyes_shutdown(eyes);
         eyes = NULL;
 
+        r2_altself_shutdown();
         r2_log_shutdown();
         r2_diary_shutdown();
         sqlite3_close(db);
@@ -6779,6 +6782,7 @@ int r2_init(void)
         ) != CURLE_OK
     ) {
 
+        r2_altself_shutdown();
         r2_log_shutdown();
         r2_diary_shutdown();
         sqlite3_close(db);
@@ -6841,6 +6845,7 @@ int r2_init(void)
         r2_eyes_shutdown(eyes);
         eyes = NULL;
 
+        r2_altself_shutdown();
         r2_log_shutdown();
         r2_diary_shutdown();
         sqlite3_close(db);
@@ -7216,6 +7221,7 @@ void r2_shutdown(void)
 
     if (r2_log_is_initialized()) {
         r2_log_session_end("normal shutdown");
+        r2_altself_shutdown();
         r2_log_shutdown();
     }
 
