@@ -256,9 +256,9 @@ static void shell_help(void)
         "      Search the chronological Life Log.\n"
         "\n"
         "  give <item> <quantity> [| description | container]\n"
-        "      Creator command: create item stacks from nothing; give money <quantity> creates separate physical money items.\n"
+        "      Creator command: create item stacks from nothing; give money <dollars> adds cash.\n"
         "\n"
-        "  gameboy [status|verify|list|insert <rom>|eject|power on|power off|press <button>]\n"
+        "  gameboy [status|list|insert <rom>|eject|power on|power off|press <button>]\n"
         "      Operate the virtual console; power on launches mGBA with the inserted ROM.\n"
         "\n"
         "  addictions\n"
@@ -1282,24 +1282,21 @@ static int shell_give(const char *arg)
 {
     if (!arg || !*arg) {
         printf("Usage: give <item> <quantity> [| description | container]\n");
-        printf("       give money <quantity> creates individual physical money items.\n");
+        printf("       give money <quantity> creates separate physical money items.\n");
         return 1;
     }
-
     char *copy = strdup(arg);
     if (!copy) {
         printf("[Creator] Memory allocation failed.\n");
         return 1;
     }
-
     char *fields[3] = {0};
     int count = 0;
     char *save = NULL;
     for (char *part = strtok_r(copy, "|", &save);
          part && count < 3;
-         part = strtok_r(NULL, "|", &save)) {
+         part = strtok_r(NULL, "|", &save))
         fields[count++] = shell_trim(part);
-    }
 
     char *head = fields[0] ? fields[0] : copy;
     char *space = strrchr(head, ' ');
@@ -1318,26 +1315,22 @@ static int shell_give(const char *arg)
         free(copy);
         return 1;
     }
-
     const char *destination = count >= 3 && fields[2] && *fields[2]
         ? fields[2] : "pockets";
     const char *description = count >= 2 && fields[1] && *fields[1]
         ? fields[1] : "Created from nothing by the user through the creator give command";
     int rc = 0;
     int money = !strcasecmp(name, "money");
-
     if (money) {
         if (amount > 1000.0) {
             printf("[Creator] A single money gift is limited to 1000 separate objects.\n");
             free(copy);
             return 1;
         }
-        /* "give money 5" means five separate physical inventory objects,
-           not a $5 deposit or one stack with quantity five. Each object has
-           its own .r2item mirror and Life Log/collection-memory trail. */
+        /* One object and one .r2item mirror per unit; never interpret quantity
+           as dollars or collapse separate money pieces into one stack. */
         for (int i = 1; i <= (int)amount; ++i) {
-            char item_name[64];
-            char item_description[512];
+            char item_name[96], item_description[512];
             snprintf(item_name, sizeof(item_name), "money gift %ld %ld %d",
                      (long)time(NULL), (long)getpid(), i);
             snprintf(item_description, sizeof(item_description),
@@ -1361,7 +1354,6 @@ static int shell_give(const char *arg)
             printf("[Creator] Could not create %s in %s; check location and container access.\n",
                    name, destination);
     }
-
     if (rc == 0 && r2_log_is_initialized()) {
         char summary[512], details[1024];
         if (money) {
@@ -1391,15 +1383,19 @@ static int shell_gameboy(const char *arg)
         return 1;
     }
 
-    /* Invoke the console with execv rather than system(): user-supplied text
-       is tokenized into arguments and is never interpreted by a shell. */
+    /* execv avoids interpreting user-supplied subcommands through a shell. */
     char *argv[10] = {0};
     int argc = 0;
     char *save = NULL;
-    for (char *part = strtok_r(copy, " \t", &save);
-         part && argc < 8;
-         part = strtok_r(NULL, " \t", &save)) {
+    char *part = strtok_r(copy, " \t", &save);
+    while (part) {
+        if (argc >= 8) {
+            printf("[Game Boy Advance] Too many command arguments.\n");
+            free(copy);
+            return 1;
+        }
         argv[++argc] = part;
+        part = strtok_r(NULL, " \t", &save);
     }
     if (argc == 0) {
         argv[0] = (char *)device;
@@ -1422,7 +1418,6 @@ static int shell_gameboy(const char *arg)
         perror("[Game Boy Advance] execv");
         _exit(127);
     }
-
     int status = 0;
     while (waitpid(child, &status, 0) < 0) {
         if (errno == EINTR) continue;
