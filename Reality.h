@@ -1,0 +1,44 @@
+#ifndef R2_REALITY_H
+#define R2_REALITY_H
+
+#include <stddef.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/*
+ * R2 Reality Engine
+ *
+ * One persistent source of truth for:
+ *   - SELF continuity: R2's changing needs, condition, intentions and state.
+ *   - WORLD continuity: room, objects, containers, ownership and elapsed time.
+ *
+ * The engine owns r2_reality_* tables in the existing r2_memory.db.
+ * It does not replace the core memory, Life Log, or reflective diary.
+ */
+int r2_reality_init(void);
+void r2_reality_shutdown(void);
+int r2_reality_is_initialized(void);
+int r2_reality_tick(void);
+
+/* Caller frees all returned strings. */
+char *r2_reality_status(void);
+char *r2_reality_room_look(void);
+char *r2_reality_list(const char *container);
+char *r2_reality_context(void);
+
+/* Persistent object/container operations. */
+int r2_reality_add_item(const char *name, const char *description,
+                        const char *container, int quantity);
+int r2_reality_move_item(const char *name, const char *container);
+int r2_reality_remove_item(const char *name);
+int r2_reality_set_self(const char *key, const char *value,
+                        const char *evidence);
+char *r2_reality_get_self(const char *key);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
