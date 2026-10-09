@@ -957,6 +957,9 @@ int r2_reality_init(void)
         "INSERT OR IGNORE INTO r2_tv_state(id,power,source_kind,source_value) VALUES(1,0,'input',1);"
         "CREATE TABLE IF NOT EXISTS r2_tv_devices (name TEXT PRIMARY KEY COLLATE NOCASE, connection_kind TEXT NOT NULL CHECK(connection_kind IN ('input','rf')), port INTEGER NOT NULL, connected INTEGER NOT NULL DEFAULT 1 CHECK(connected IN (0,1)), updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, CHECK((connection_kind='input' AND port BETWEEN 2 AND 4) OR (connection_kind='rf' AND port BETWEEN 2 AND 13)));"
         "CREATE UNIQUE INDEX IF NOT EXISTS r2_tv_one_device_per_port ON r2_tv_devices(connection_kind,port) WHERE connected=1;"
+        "CREATE TABLE IF NOT EXISTS r2_tv_vcr_tapes (media_path TEXT PRIMARY KEY, position_seconds REAL NOT NULL DEFAULT 0 CHECK(position_seconds>=0), updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
+        "CREATE TABLE IF NOT EXISTS r2_tv_vcr_state (id INTEGER PRIMARY KEY CHECK(id=1), cassette_path TEXT, transport TEXT NOT NULL DEFAULT 'stop' CHECK(transport IN ('play','pause','stop')), updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(cassette_path) REFERENCES r2_tv_vcr_tapes(media_path));"
+        "INSERT OR IGNORE INTO r2_tv_vcr_state(id,cassette_path,transport) VALUES(1,NULL,'stop');"
         "CREATE TABLE IF NOT EXISTS r2_reality_containers (name TEXT PRIMARY KEY, kind TEXT NOT NULL, description TEXT, parent TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "CREATE TABLE IF NOT EXISTS r2_reality_objects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL COLLATE NOCASE UNIQUE, description TEXT, quantity INTEGER NOT NULL DEFAULT 1 CHECK(quantity>0), container TEXT NOT NULL DEFAULT 'room', owner TEXT NOT NULL DEFAULT 'R2', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(container) REFERENCES r2_reality_containers(name));"
         "CREATE INDEX IF NOT EXISTS r2_reality_objects_container_idx ON r2_reality_objects(container);"
@@ -2227,4 +2230,104 @@ int r2_reality_tv_disconnect(const char *name)
     snprintf(detail, sizeof(detail), "%s was disconnected; any tuned source now has no signal unless another device supplies it.", name);
     bridge_event("tv_device_disconnected", "An external device was disconnected from R2's CRT television.", detail, 1, 0);
     return 0;
+}
+
+/* Path-keyed tape identities preserve position through eject/reinsert and restarts.
+ * Reality owns transport state; the GUI is only the video renderer. */
+static int tv_vcr_media_path_valid(const char *path)
+{
+    if (!path || path[0] != '/' || strlen(path) > 1024 ||
+        strchr(path, '\n') || strchr(path, '\r')) return 0;
+    const char *dot = strrchr(path, '.');
+    if (!dot) return 0;
+    static const char *extensions[] = {
+        ".avi", ".mkv", ".mp4", ".m4v", ".mov", ".mpeg", ".mpg",
+        ".wmv", ".webm", ".ogv", ".flv", ".ts", ".vob", ".3gp",
+        ".asf", ".m2ts", ".mts", ".mp3", ".wav", ".flac", ".ogg",
+        ".m4a", ".aac"
+    };
+    int supported = 0;
+    for (size_t i = 0; i < sizeof(extensions) / sizeof(extensions[0]); ++i)
+        if (!strcasecmp(dot, extensions[i])) { supported = 1; break; }
+    if (!supported) return 0;
+    struct stat info;
+    return stat(path, &info) == 0 && S_ISREG(info.st_mode) && access(path, R_OK) == 0;
+}
+
+int r2_reality_tv_vcr_insert(const char *media_path)
+{
+    if (!reality_db || !reality_ready || !tv_vcr_media_path_valid(media_path)) return -1;
+    pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "INSERT OR IGNORE INTO r2_tv_vcr_tapes(media_path,position_seconds) VALUES(?,0)",
+        -1, &st, NULL);
+    if (rc == SQLITE_OK) { bind_text(st, 1, media_path); rc = sqlite3_step(st); }
+    if (st) sqlite3_finalize(st);
+    st = NULL;
+    if (rc == SQLITE_DONE) {
+        rc = sqlite3_prepare_v2(reality_db,
+            "UPDATE r2_tv_vcr_state SET cassette_path=?,transport='stop',updated_at=CURRENT_TIMESTAMP WHERE id=1",
+            -1, &st, NULL);
+        if (rc == SQLITE_OK) { bind_text(st, 1, media_path); rc = sqlite3_step(st); }
+    }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reality_lock);
+    if (rc != SQLITE_DONE) return -1;
+    char detail[1200];
+    snprintf(detail, sizeof(detail), "Inserted VCR tape: %s. Its saved playback position is retained.", media_path);
+    bridge_event("vcr_tape_inserted", "A tape was inserted into R2's built-in VCR.", detail, 1, 0);
+    return 0;
+}
+
+int r2_reality_tv_vcr_transport(const char *action)
+{
+    if (!reality_db || !reality_ready || !action) return -1;
+    int eject = !strcasecmp(action, "eject");
+    if (!eject && strcasecmp(action, "play") && strcasecmp(action, "pause") &&
+        strcasecmp(action, "stop")) return -1;
+    pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *st = NULL;
+    int rc = SQLITE_ERROR;
+    if (eject) {
+        rc = sqlite3_prepare_v2(reality_db,
+            "UPDATE r2_tv_vcr_state SET cassette_path=NULL,transport='stop',updated_at=CURRENT_TIMESTAMP WHERE id=1 AND cassette_path IS NOT NULL",
+            -1, &st, NULL);
+    } else if (!strcasecmp(action, "play")) {
+        rc = sqlite3_prepare_v2(reality_db,
+            "UPDATE r2_tv_vcr_state SET transport='play',updated_at=CURRENT_TIMESTAMP WHERE id=1 AND cassette_path IS NOT NULL",
+            -1, &st, NULL);
+    } else {
+        rc = sqlite3_prepare_v2(reality_db,
+            "UPDATE r2_tv_vcr_state SET transport=?,updated_at=CURRENT_TIMESTAMP WHERE id=1 AND cassette_path IS NOT NULL",
+            -1, &st, NULL);
+        if (rc == SQLITE_OK) bind_text(st, 1, action);
+    }
+    if (rc == SQLITE_OK) rc = sqlite3_step(st);
+    int changed = rc == SQLITE_DONE ? sqlite3_changes(reality_db) : 0;
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reality_lock);
+    if (rc != SQLITE_DONE || changed == 0) return -1;
+    char detail[128];
+    snprintf(detail, sizeof(detail), "Built-in VCR transport changed to %s.", eject ? "eject" : action);
+    bridge_event(eject ? "vcr_tape_ejected" : "vcr_transport_changed",
+                 eject ? "The tape was ejected from R2's built-in VCR." : "R2's built-in VCR transport changed.",
+                 detail, 1, 0);
+    return 0;
+}
+
+int r2_reality_tv_vcr_set_position(double seconds)
+{
+    if (!reality_db || !reality_ready || !isfinite(seconds) || seconds < 0.0 || seconds > 604800.0) return -1;
+    pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "UPDATE r2_tv_vcr_tapes SET position_seconds=?,updated_at=CURRENT_TIMESTAMP "
+        "WHERE media_path=(SELECT cassette_path FROM r2_tv_vcr_state WHERE id=1 AND cassette_path IS NOT NULL)",
+        -1, &st, NULL);
+    if (rc == SQLITE_OK) { sqlite3_bind_double(st, 1, seconds); rc = sqlite3_step(st); }
+    int changed = rc == SQLITE_DONE ? sqlite3_changes(reality_db) : 0;
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reality_lock);
+    return rc == SQLITE_DONE && changed > 0 ? 0 : -1;
 }
