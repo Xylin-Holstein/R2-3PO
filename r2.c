@@ -7823,8 +7823,9 @@ void r2_shutdown(void)
     r2_visual_shutdown();
     r2_altself_shutdown();
 
-    /* Close the reality engine before the shared Life Log/diary/core DB. */
+    /* Close independent persistent engines before the shared Life Log/diary/core DB. */
     r2_reality_shutdown();
+    r2_reward_shutdown();
 
     if (r2_log_is_initialized()) {
         r2_log_session_end("normal shutdown");
