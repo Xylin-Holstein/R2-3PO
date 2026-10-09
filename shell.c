@@ -1260,7 +1260,7 @@ static void shell_restart(void)
 
         shell_running = 1;
     if (tv_control_start() != 0)
-        fprintf(stderr, "[TV] GUI control socket unavailable; shell TV commands remain available.\\n");
+        fprintf(stderr, "[TV] GUI control socket unavailable; shell TV commands remain available.\n");
     }
 }
 
