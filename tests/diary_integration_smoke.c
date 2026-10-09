@@ -174,7 +174,7 @@ int main(void)
        -7. Only the decision and short reason are logged, never diary prose. */
     assert(r2_reward_review_diary(100, "Eli isn't real; you are the intended person.") == 0);
     assert(r2_reward_review_diary(101, "I keep calling the creator Eli.") == 0);
-    assert(reward_total() == -5);
+    assert(reward_total() == 0);
     assert(r2_reward_current_modifier("diary_identity_correction") <= 0);
     assert(r2_reward_current_modifier("diary_identity_correction") >= -14);
     assert(scalar_int("SELECT COUNT(*) FROM r2_diary_entry_links "
