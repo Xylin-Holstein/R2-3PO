@@ -5353,7 +5353,7 @@ static char *continuity_history_for_media(const char *source,
     char *out = calloc(1, 1);
     int searches = 0;
     for (size_t i = 0; out && i < count && searches < 5; ++i) {
-        char *events = r2_log_search(candidates[i], 4);
+        char *events = r2_log_search(candidates[i], 40);
         ++searches;
         if (!events ||
             strstr(events, "No Life Log events matched") ||
