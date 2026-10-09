@@ -42,11 +42,11 @@ def main() -> int:
         emulator = Path(temp) / "fake-mgba"
         launch_args = Path(temp) / "mgba-arguments.json"
         emulator.write_text(
-            "#!/usr/bin/env python3\\n"
-            "import json, os, sys, time\\n"
-            "from pathlib import Path\\n"
-            "Path(" + repr(str(launch_args)) + ").write_text(json.dumps(sys.argv[1:]))\\n"
-            "time.sleep(60)\\n",
+            "#!/usr/bin/env python3\n"
+            "import json, os, sys, time\n"
+            "from pathlib import Path\n"
+            "Path(" + repr(str(launch_args)) + ").write_text(json.dumps(sys.argv[1:]))\n"
+            "time.sleep(60)\n",
             encoding="utf-8",
         )
         emulator.chmod(0o755)
