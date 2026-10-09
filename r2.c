@@ -7080,7 +7080,7 @@ static char *r2_talk_impl(const char *message)
            memory/history-augmented prompt once before giving up on this turn. */
         r2_log_event(R2_LOG_SYSTEM, "conversation_generation_retry",
                      "R2's first contextual response attempt failed; refreshing context and retrying once.",
-                     "The original user turn remains in memory; the temporary intent summary is reused if available.",
+                     "The original user turn remains in memory; the refreshed attempt rebuilds relevant context from the current message and available memories.",
                      "r2_talk");
         (void)refresh_reality_context_message();
         reply = chat_with_relevant_memories(message);
