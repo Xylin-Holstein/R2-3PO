@@ -4125,10 +4125,10 @@ static char *process_tools(
     if (strstr(reply, "[ALTERNATE_LIST]")) {
         char *branches = r2_altself_list(20);
         if (branches) {
-            APPEND("ALTERNATE-SELF LAB RESULT (all entries are hypothetical):\\n%s\\n", branches);
+            APPEND("ALTERNATE-SELF LAB RESULT (all entries are hypothetical):\n%s\n", branches);
             free(branches);
         } else {
-            APPEND("ALTERNATE-SELF LAB ERROR: branch storage is unavailable.\\n");
+            APPEND("ALTERNATE-SELF LAB ERROR: branch storage is unavailable.\n");
         }
     }
 
@@ -4138,10 +4138,10 @@ static char *process_tools(
         if (sscanf(alt_marker + strlen("[ALTERNATE_SHOW]"), "%lld", &branch_id) == 1 && branch_id > 0) {
             char *branch = r2_altself_show((int64_t)branch_id);
             if (branch) {
-                APPEND("ALTERNATE-SELF BRANCH (hypothetical only):\\n%s\\n", branch);
+                APPEND("ALTERNATE-SELF BRANCH (hypothetical only):\n%s\n", branch);
                 free(branch);
-            } else APPEND("ALTERNATE-SELF LAB ERROR: branch could not be read.\\n");
-        } else APPEND("ALTERNATE-SELF LAB ERROR: expected a positive branch ID.\\n");
+            } else APPEND("ALTERNATE-SELF LAB ERROR: branch could not be read.\n");
+        } else APPEND("ALTERNATE-SELF LAB ERROR: expected a positive branch ID.\n");
     }
 
     alt_marker = strstr(reply, "[ALTERNATE_COMPARE]");
@@ -4151,10 +4151,10 @@ static char *process_tools(
             first_id > 0 && second_id > 0) {
             char *branches = r2_altself_compare((int64_t)first_id, (int64_t)second_id);
             if (branches) {
-                APPEND("ALTERNATE-SELF COMPARISON INPUT (hypothetical branches; not factual events):\\n%s\\n", branches);
+                APPEND("ALTERNATE-SELF COMPARISON INPUT (hypothetical branches; not factual events):\n%s\n", branches);
                 free(branches);
-            } else APPEND("ALTERNATE-SELF LAB ERROR: branches could not be compared.\\n");
-        } else APPEND("ALTERNATE-SELF LAB ERROR: expected two positive branch IDs.\\n");
+            } else APPEND("ALTERNATE-SELF LAB ERROR: branches could not be compared.\n");
+        } else APPEND("ALTERNATE-SELF LAB ERROR: expected two positive branch IDs.\n");
     }
 
     if (strstr(reply, "[READ_DIARY]")) {
