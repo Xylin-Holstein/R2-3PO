@@ -1259,8 +1259,6 @@ static void shell_restart(void)
         );
 
         shell_running = 1;
-    if (tv_control_start() != 0)
-        fprintf(stderr, "[TV] GUI control socket unavailable; shell TV commands remain available.\n");
     }
 }
 
@@ -2385,6 +2383,9 @@ int r2_shell_run(void)
 
     shell_shutdown = 0;
     shell_running = 1;
+
+    if (tv_control_start() != 0)
+        fprintf(stderr, "[TV] GUI control socket unavailable; shell TV commands remain available.\n");
 
     signal(
         SIGINT,
