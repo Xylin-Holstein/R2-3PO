@@ -1658,6 +1658,32 @@ int r2_reality_remove_item(const char *name)
 }
 
 
+/* Convert the learned -2..+2 subjective food rating into the shared
+ * 0..100 enjoyment scale used by the habit evaluator. Fullness/satiety is
+ * deliberately independent; unrated food starts neutral, not pre-liked. */
+static int food_preference_enjoyment_score(const char *food)
+{
+    if (!food || !*food || !reality_db) return 50;
+    int score = 50;
+    pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_prepare_v2(reality_db,
+        "SELECT satisfaction_sum * 1.0 / rating_count FROM r2_food_preferences "
+        "WHERE food_name=? COLLATE NOCASE AND rating_count>0",
+        -1, &st, NULL) == SQLITE_OK) {
+        bind_text(st, 1, food);
+        if (sqlite3_step(st) == SQLITE_ROW) {
+            double average = sqlite3_column_double(st, 0);
+            score = (int)lround(50.0 + average * 25.0);
+            if (score < 0) score = 0;
+            if (score > 100) score = 100;
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reality_lock);
+    return score;
+}
+
 static int reality_eat_internal(const char *food, double fullness, int consume_tracked_item, double energy_override)
 {
     if (!food || !*food || !r2_reality_is_initialized()) return -1;
@@ -1775,9 +1801,15 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
     snprintf(details, sizeof(details), "Food=%s; modeled satisfaction increase=%.1f/100; modeled hunger reduction=%.1f/100; tracked object consumed=%s; these are simulated need values, not measured biological quantities.",
              food, fullness, fullness, consumed_tracked_item ? "yes" : "no");
     bridge_event("food_consumed", summary, details, 1, 0);
-    /* A real eating choice feeds the shared habit evaluator. It reads the
-       target's learned enjoyment instead of resetting it to a fixed value. */
-    (void)r2_addiction_record_choice(food, "food", 50, "eating", details);
+    /* A real eating choice feeds the shared habit evaluator using R2's
+       accumulated subjective ratings for this food; unrated food is neutral. */
+    int learned_enjoyment = food_preference_enjoyment_score(food);
+    char habit_details[1400];
+    snprintf(habit_details, sizeof(habit_details),
+             "%s; learned food enjoyment=%d/100 (0-100 mapping from -2..+2 preference ratings).",
+             details, learned_enjoyment);
+    (void)r2_addiction_record_choice(food, "food", learned_enjoyment,
+                                    "eating", habit_details);
     return 0;
 }
 
@@ -1890,9 +1922,10 @@ int r2_reality_rate_food(const char *food, int satisfaction, const char *notes)
     snprintf(details,sizeof(details),"Food=%s; ingredients=%s; sensory description=%s; enjoyment_rating=%d/2; reason=%s. This is a learned subjective simulation, not an externally verified reaction.",
         food,*ingredients?ingredients:"not specified",*taste?taste:"not specified",satisfaction,notes?notes:"not supplied");
     bridge_event("food_preference_learned",summary,details,1,0);
-    /* The existing -2..+2 food feedback scale maps onto the shared 0..100
-       enjoyment scale without making fullness and enjoyment the same value. */
-    (void)r2_addiction_rate_enjoyment(food, "food", (satisfaction + 2) * 25,
+    /* Synchronize the habit evaluator with the accumulated average rating,
+       so one rating informs enjoyment but does not erase earlier experience. */
+    int learned_enjoyment = food_preference_enjoyment_score(food);
+    (void)r2_addiction_rate_enjoyment(food, "food", learned_enjoyment,
                                       "food_feedback", notes);
     return 0;
 }
