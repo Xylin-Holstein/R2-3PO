@@ -29,7 +29,7 @@ MEDIA_EXTENSIONS = (
 
 def send_control_command(command: str) -> str:
     """Send a bounded request to R2; C routes it through Reality APIs."""
-    allowed = {"power on", "power off", "vcr play", "vcr pause", "vcr stop", "vcr eject"}
+    allowed = {"display opened", "display closed", "power on", "power off", "vcr play", "vcr pause", "vcr stop", "vcr eject"}
     valid = command in allowed
     valid = valid or (
         command.startswith("input ") and command[6:].isdigit()
@@ -134,6 +134,9 @@ class CRTDisplay:
         self._last_position_save = time.monotonic()
         self._vlc_error_shown = False
         root.protocol("WM_DELETE_WINDOW", self.close)
+        # Record the GUI opening through Reality, even while the modeled TV is off.
+        # The event also represents the requested forced-attention cue.
+        root.after(100, self.display_opened)
         self.refresh()
 
     @staticmethod
@@ -291,8 +294,20 @@ class CRTDisplay:
             self._last_transport = transport
         self._save_vcr_position()
 
+    def display_opened(self) -> None:
+        try:
+            response = send_control_command("display opened")
+            self.feedback.configure(text=response, fg="#a6b99c")
+        except (OSError, RuntimeError, ValueError) as exc:
+            self.feedback.configure(text=f"Could not record TV display opening: {exc}", fg="#e0b0a0")
+
     def close(self) -> None:
         self._save_vcr_position(force=True)
+        try:
+            send_control_command("display closed")
+        except (OSError, RuntimeError, ValueError):
+            # Closing the window must still work if R2 has already stopped.
+            pass
         if self._player:
             self._player.stop()
         self.root.destroy()
