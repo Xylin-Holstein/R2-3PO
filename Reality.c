@@ -221,6 +221,34 @@ static int food_metric(const char *food, double *fullness, double *energy)
 }
 
 
+
+static void food_attributes(const char *food, char *ingredients, size_t ingredients_cap,
+                           char *taste, size_t taste_cap)
+{
+    if (ingredients && ingredients_cap) ingredients[0] = '\0';
+    if (taste && taste_cap) taste[0] = '\0';
+    if (!food || !*food) return;
+    char path[1200];
+    snprintf(path, sizeof(path), "%s/room/food_metrics.xml", R2_ROOT);
+    FILE *fp = fopen(path, "r");
+    if (!fp) return;
+    char line[4096];
+    while (fgets(line, sizeof(line), fp)) {
+        const char *tag = strcasestr(line, "<food");
+        const char *comment = strstr(line, "<!--");
+        if (!tag || (comment && comment < tag)) continue;
+        char name[512] = {0};
+        if (xml_attribute(line, "name", name, sizeof(name)) != 0 ||
+            strcasecmp(name, food) != 0) continue;
+        if (ingredients && ingredients_cap)
+            (void)xml_attribute(line, "ingredients", ingredients, ingredients_cap);
+        if (taste && taste_cap)
+            (void)xml_attribute(line, "taste", taste, taste_cap);
+        break;
+    }
+    fclose(fp);
+}
+
 static char *food_metrics_context(void)
 {
     char path[1200];
@@ -241,9 +269,12 @@ static char *food_metrics_context(void)
         const char *comment = strstr(line, "<!--");
         if (!tag || (comment && comment < tag)) continue;
         char name[512] = {0}, full[128] = {0}, en[128] = {0};
+        char ingredients[1024] = {0}, taste[1024] = {0};
         if (xml_attribute(line, "name", name, sizeof(name)) != 0 ||
             xml_attribute(line, "fullness", full, sizeof(full)) != 0)
             continue;
+        (void)xml_attribute(line, "ingredients", ingredients, sizeof(ingredients));
+        (void)xml_attribute(line, "taste", taste, sizeof(taste));
         char *end = NULL;
         double f = strtod(full, &end);
         if (end == full || *end || f < 0.0 || f > 100.0) continue;
@@ -254,7 +285,7 @@ static char *food_metrics_context(void)
             if (end != en && !*end && parsed >= 0.0 && parsed <= 100.0) e = parsed;
         }
         char entry[1024];
-        int n = snprintf(entry, sizeof(entry), "%s: fullness %.1f/100, energy bonus %.1f\n", name, f, e);
+        int n = snprintf(entry, sizeof(entry), "%s: fullness %.1f/100, energy bonus %.1f; ingredients: %s; sensory description: %s\n", name, f, e, *ingredients ? ingredients : "not specified", *taste ? taste : "not specified");
         if (n <= 0) continue;
         if (len + (size_t)n + 1 > cap) {
             size_t next = cap * 2;
@@ -817,6 +848,8 @@ int r2_reality_eat(const char *food, double fullness)
     if (energy_bonus < 0.0) energy_bonus = 0.0;
     if (energy_bonus > 100.0) energy_bonus = 100.0;
     if (r2_reality_tick() != 0) return -1;
+    char ingredients[1024] = {0}, taste[1024] = {0};
+    food_attributes(food, ingredients, sizeof(ingredients), taste, sizeof(taste));
 
     char container[REALITY_MAX_TEXT + 1] = {0};
     char description[REALITY_MAX_TEXT + 1] = {0};
@@ -879,6 +912,20 @@ int r2_reality_eat(const char *food, double fullness)
             "INSERT INTO r2_reality_self_facts(key,value,evidence) VALUES('starvation_72h_logged','no','Reset by qualifying food intake') ON CONFLICT(key) DO UPDATE SET value='no',evidence='Reset by qualifying food intake',updated_at=CURRENT_TIMESTAMP",
             -1, &st, NULL) == SQLITE_OK)
             sqlite3_step(st);
+        if (st) sqlite3_finalize(st);
+    }
+    if (rc == SQLITE_DONE) {
+        st = NULL;
+        if (sqlite3_prepare_v2(reality_db,
+            "INSERT INTO r2_food_experiences(food_name,ingredients,fullness,energy_bonus,eaten_at) VALUES(?,?,?,?,?)",
+            -1, &st, NULL) == SQLITE_OK) {
+            bind_text(st, 1, food);
+            bind_text(st, 2, ingredients);
+            sqlite3_bind_double(st, 3, fullness);
+            sqlite3_bind_double(st, 4, energy_bonus);
+            sqlite3_bind_int64(st, 5, (sqlite3_int64)time(NULL));
+            if (sqlite3_step(st) != SQLITE_DONE) rc = SQLITE_ERROR;
+        } else rc = SQLITE_ERROR;
         if (st) sqlite3_finalize(st);
     }
     pthread_mutex_unlock(&reality_lock);
