@@ -148,6 +148,9 @@ int r2_thinking_active(void);
  */
 char *r2_retrieve_memories(const char *query);
 
+/* Return recent saved memories for read-only remote browsing; caller frees. */
+char *r2_memories_recent(int limit);
+
 
 /*
  * Save a memory through R2's existing memory system.
