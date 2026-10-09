@@ -5400,10 +5400,22 @@ char *r2_vision_search(const char *query, int limit)
 static void *vision_watch_worker(void *unused)
 {
     (void)unused;
+    char source_name[512] = "Eyes";
+    pthread_mutex_lock(&visual_capture_lock);
+    R2VisionEvent initial_event;
+    if (eyes && r2_eyes_get_event(eyes, &initial_event) == 0 &&
+        initial_event.source_name[0])
+        snprintf(source_name, sizeof(source_name), "%s", initial_event.source_name);
+    pthread_mutex_unlock(&visual_capture_lock);
+
+    char start_details[768];
+    snprintf(start_details, sizeof(start_details),
+             "source=%s; observation=periodic visual sampling; interval=approximately 15 seconds; "
+             "frames are analyzed individually, not as continuous motion.",
+             source_name);
     r2_log_event(R2_LOG_LIFECYCLE, "vision_watch_started",
                  "R2 continuous visual observation started.",
-                 "The watcher analyzes one frame approximately every 15 seconds; it does not infer motion between sampled frames.",
-                 "vision_watch");
+                 start_details, source_name);
 
     while (!shutting_down && vision_watch_running) {
         char *description = vision_analyze_current_frame(
@@ -5413,8 +5425,8 @@ static void *vision_watch_worker(void *unused)
             "This is perceptual input for R2's own thinking, not a decision.", 0);
         if (description) {
             r2_log_event(R2_LOG_SENSORY, "vision_watch_observation",
-                         "Continuous visual observation completed.",
-                         description, "vision_watch");
+                         "R2 analyzed a frame during continuous visual observation.",
+                         description, source_name);
 
             free(description);
         }
@@ -5439,12 +5451,12 @@ static void *vision_watch_worker(void *unused)
                     r2_log_sensory("vision_source_ended",
                                    "R2's visual source reached its end.",
                                    "Continuous observation stopped because the source supplied no more frames.",
-                                   "Eyes");
+                                   source_name);
                 else
                     r2_log_sensory("vision_watch_capture_failed",
                                    "R2's continuous visual observer could not capture another frame.",
                                    "The source stopped or Eyes returned a capture error.",
-                                   "vision_watch");
+                                   source_name);
                 vision_watch_running = 0;
                 break;
             }
@@ -5462,7 +5474,9 @@ static void *vision_watch_worker(void *unused)
     }
 
     r2_log_event(R2_LOG_LIFECYCLE, "vision_watch_stopped",
-                 "R2 continuous visual observation stopped.", NULL, "vision_watch");
+                 "R2 continuous visual observation stopped.",
+                 "The observation worker exited; consult visual sensory events to determine whether the source ended or capture failed.",
+                 source_name);
     return NULL;
 }
 
