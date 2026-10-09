@@ -36,6 +36,9 @@ BUTTON_KEYS = {
 DEFAULT_PRESS_MS = 120
 MAX_PRESS_MS = 5000
 
+# Keep newly created DB/WAL/save files group-writable for the shared r2 group.
+os.umask(0o002)
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
