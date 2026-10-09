@@ -312,19 +312,32 @@ if [ -n "${DISPLAY:-}" ] && [ -f "$R2_SOURCE/V-Webcam.py" ]; then
     fi
 
     if python3 -c 'import tkinter' >/dev/null 2>&1 && command -v xauth >/dev/null 2>&1; then
-        VWEBCAM_AUTH="/tmp/r2-vwebcam-r2/Xauthority"
-        sudo -u r2 -- mkdir -p /tmp/r2-vwebcam-r2
-        sudo -u r2 -- chmod 0700 /tmp/r2-vwebcam-r2
-        sudo -u r2 -- touch "$VWEBCAM_AUTH"
-        sudo -u r2 -- chmod 0600 "$VWEBCAM_AUTH"
-        if xauth extract - "$DISPLAY" 2>/dev/null | sudo -u r2 -- xauth -f "$VWEBCAM_AUTH" merge -; then
+        VWEBCAM_DIR="/tmp/r2-vwebcam-r2"
+        VWEBCAM_AUTH="$VWEBCAM_DIR/Xauthority"
+
+        # /tmp may contain a stale directory or authority file from an
+        # earlier launch under another owner. Repair ownership as root,
+        # then let only the dedicated r2 account access the cookie.
+        if ! sudo install -d -o r2 -g r2 -m 0700 "$VWEBCAM_DIR" ||
+           ! sudo chown r2:r2 "$VWEBCAM_DIR" ||
+           ! sudo chmod 0700 "$VWEBCAM_DIR"; then
+            echo "WARNING: Could not prepare the private V-Webcam authorization directory."
+        else
+            # Remove a stale file (possibly owned by root) before creating
+            # a fresh cookie file as r2. Never make this directory world-writable.
+            sudo rm -f "$VWEBCAM_AUTH"
+            if ! sudo -u r2 -- touch "$VWEBCAM_AUTH" ||
+               ! sudo -u r2 -- chmod 0600 "$VWEBCAM_AUTH"; then
+                echo "WARNING: Could not create the private V-Webcam authorization file."
+            elif xauth extract - "$DISPLAY" 2>/dev/null | sudo -u r2 -- xauth -f "$VWEBCAM_AUTH" merge -; then
             echo "Starting V-Webcam monitor..."
             sudo -u r2 -- env HOME=/home/r2 DISPLAY="$DISPLAY" XAUTHORITY="$VWEBCAM_AUTH" \
                 python3 "$R2_SOURCE/V-Webcam.py" \
                 >> "$R2_ROOT/V-Webcam.log" 2>&1 &
             sleep 1
-        else
-            echo "WARNING: Could not copy the desktop X11 authorization cookie; V-Webcam will not open."
+            else
+                echo "WARNING: Could not copy the desktop X11 authorization cookie; V-Webcam will not open."
+            fi
         fi
     else
         echo "WARNING: V-Webcam requires python3-tk and xauth; its window was not started."
