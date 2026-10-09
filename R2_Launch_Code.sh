@@ -274,6 +274,39 @@ echo "For private remote access, use Tailscale and do not port-forward port 8765
 echo "R2's conversation model remains llama3; vision perception is handled by the separate local model."
 echo "If it is not installed, run: ollama pull qwen2.5vl:3b"
 echo
+
+# ------------------------------------------------------------
+# R2 REMOTE ACCESS TOKEN
+#
+# PEACE is the Android app's saved token LABEL, not the secret.
+# Generate a fresh high-entropy secret on each launch unless
+# one was explicitly supplied by the caller.
+# ------------------------------------------------------------
+
+if [ -z "${R2_REMOTE_TOKEN:-}" ]; then
+    if ! command -v openssl >/dev/null 2>&1; then
+        echo "ERROR: openssl is required to generate R2's remote access token."
+        echo "R2 was NOT launched."
+        read -p "Press Enter to exit..."
+        exit 1
+    fi
+
+    R2_REMOTE_TOKEN="$(openssl rand -hex 32)" || {
+        echo "ERROR: Could not generate R2's remote access token."
+        echo "R2 was NOT launched."
+        read -p "Press Enter to exit..."
+        exit 1
+    }
+    export R2_REMOTE_TOKEN
+    echo "Remote access token generated for Android app label: PEACE"
+    echo "This token changes on each launch. Update PEACE in the Android app with the new token:"
+    printf '%s\n' "$R2_REMOTE_TOKEN"
+    echo "Keep this token private."
+else
+    echo "Using the R2_REMOTE_TOKEN supplied in this terminal (Android app label: PEACE)."
+    echo "Token was not printed."
+fi
+echo
 echo "Modules compiled:"
 echo "    r2.c"
 echo "    shell.c"
