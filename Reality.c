@@ -4,6 +4,7 @@
 
 #include "Reality.h"
 #include "Addiction.h"
+#include "Reward.h"
 #include "r2_diary.h"
 #include "Log.h"
 #include "Visual.h"
@@ -1810,6 +1811,8 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
              details, learned_enjoyment);
     (void)r2_addiction_record_choice(food, "food", learned_enjoyment,
                                     "eating", habit_details);
+    (void)r2_reward_apply(food, "food_consumed", 2,
+        "Food consumption completed and modeled hunger/satiety state was updated.", 0);
     return 0;
 }
 
