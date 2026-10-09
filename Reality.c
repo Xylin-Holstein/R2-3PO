@@ -406,32 +406,37 @@ static char *food_metrics_context(void)
 static void update_hunger_locked(double elapsed)
 {
     sqlite3_stmt *st = NULL;
-    double hunger = 0.0, since_meal = 0.0, sleepiness = 0.0, energy = 100.0;
+    double hunger = 0.0, satisfaction = 0.0, since_meal = 0.0, sleepiness = 0.0, energy = 100.0;
     int rc = sqlite3_prepare_v2(reality_db,
-        "SELECT hunger, seconds_since_meal, sleepiness, energy FROM r2_reality_self WHERE id=1",
+        "SELECT hunger, seconds_since_meal, sleepiness, energy, satisfaction FROM r2_reality_self WHERE id=1",
         -1, &st, NULL);
     if (rc == SQLITE_OK && sqlite3_step(st) == SQLITE_ROW) {
         hunger = sqlite3_column_double(st, 0);
         since_meal = sqlite3_column_double(st, 1);
         sleepiness = sqlite3_column_double(st, 2);
         energy = sqlite3_column_double(st, 3);
+        satisfaction = sqlite3_column_double(st, 4);
     }
     if (st) sqlite3_finalize(st);
     hunger += elapsed * HUNGER_PER_SECOND;
+    satisfaction -= elapsed * HUNGER_PER_SECOND;
     sleepiness += elapsed * HUNGER_PER_SECOND;
     energy -= elapsed * HUNGER_PER_SECOND;
     if (hunger > 100.0) hunger = 100.0;
+    if (satisfaction < 0.0) satisfaction = 0.0;
+    if (satisfaction > 100.0) satisfaction = 100.0;
     if (sleepiness > 100.0) sleepiness = 100.0;
     if (energy < 0.0) energy = 0.0;
     since_meal += elapsed;
     st = NULL;
     if (sqlite3_prepare_v2(reality_db,
-        "UPDATE r2_reality_self SET hunger=?, seconds_since_meal=?, sleepiness=?, energy=?, updated_at=CURRENT_TIMESTAMP WHERE id=1",
+        "UPDATE r2_reality_self SET hunger=?, seconds_since_meal=?, sleepiness=?, energy=?, satisfaction=?, updated_at=CURRENT_TIMESTAMP WHERE id=1",
         -1, &st, NULL) == SQLITE_OK) {
         sqlite3_bind_double(st, 1, hunger);
         sqlite3_bind_double(st, 2, since_meal);
         sqlite3_bind_double(st, 3, sleepiness);
         sqlite3_bind_double(st, 4, energy);
+        sqlite3_bind_double(st, 5, satisfaction);
         sqlite3_step(st);
     }
     if (st) sqlite3_finalize(st);
@@ -877,7 +882,7 @@ int r2_reality_init(void)
         "CREATE TABLE IF NOT EXISTS r2_food_preferences (food_name TEXT PRIMARY KEY COLLATE NOCASE, satisfaction_sum REAL NOT NULL DEFAULT 0, rating_count INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL);"
         "CREATE TABLE IF NOT EXISTS r2_food_experience_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);"
         "INSERT OR IGNORE INTO r2_food_experience_meta(key,value) VALUES('schema_version','1');"
-        "CREATE TABLE IF NOT EXISTS r2_reality_self (id INTEGER PRIMARY KEY CHECK(id=1), hunger REAL NOT NULL DEFAULT 0, seconds_since_meal REAL NOT NULL DEFAULT 0, sleepiness REAL NOT NULL DEFAULT 0, energy REAL NOT NULL DEFAULT 100, last_tick INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
+        "CREATE TABLE IF NOT EXISTS r2_reality_self (id INTEGER PRIMARY KEY CHECK(id=1), hunger REAL NOT NULL DEFAULT 0, satisfaction REAL NOT NULL DEFAULT 0, seconds_since_meal REAL NOT NULL DEFAULT 0, sleepiness REAL NOT NULL DEFAULT 0, energy REAL NOT NULL DEFAULT 100, last_tick INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "INSERT OR IGNORE INTO r2_reality_self(id,hunger,seconds_since_meal,sleepiness,energy,last_tick) VALUES(1,0,0,0,100,strftime('%s','now'));"
         "CREATE TABLE IF NOT EXISTS r2_reality_self_facts (key TEXT PRIMARY KEY, value TEXT NOT NULL, evidence TEXT, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "CREATE TABLE IF NOT EXISTS r2_money_account (id INTEGER PRIMARY KEY CHECK(id=1),cash_cents INTEGER NOT NULL DEFAULT 0 CHECK(cash_cents>=0),bank_cents INTEGER NOT NULL DEFAULT 0 CHECK(bank_cents>=0),updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
@@ -895,6 +900,25 @@ int r2_reality_init(void)
         "('wallet','inventory','R2''s wallet inside his pockets','pockets'),"
         "('fridge','container','The fridge outside R2''s room','outside');";
     if (exec_sql(schema) != 0) {
+        sqlite3_close(reality_db); reality_db = NULL;
+        pthread_mutex_unlock(&reality_lock); return -1;
+    }
+    /* Upgrade old persistent databases in place; preserve existing need state. */
+    int has_satisfaction = 0;
+    sqlite3_stmt *columns = NULL;
+    if (sqlite3_prepare_v2(reality_db, "PRAGMA table_info(r2_reality_self)", -1, &columns, NULL) == SQLITE_OK) {
+        while (sqlite3_step(columns) == SQLITE_ROW) {
+            const unsigned char *column_name = sqlite3_column_text(columns, 1);
+            if (column_name && !strcasecmp((const char *)column_name, "satisfaction")) {
+                has_satisfaction = 1;
+                break;
+            }
+        }
+    }
+    if (columns) sqlite3_finalize(columns);
+    if (!has_satisfaction && exec_sql(
+        "ALTER TABLE r2_reality_self ADD COLUMN satisfaction REAL NOT NULL DEFAULT 0") != 0) {
+        fprintf(stderr, "[R2 Reality] Could not add the satisfaction need to persistent state.\\n");
         sqlite3_close(reality_db); reality_db = NULL;
         pthread_mutex_unlock(&reality_lock); return -1;
     }
@@ -1129,11 +1153,11 @@ char *r2_reality_status(void)
     if (!out) return NULL;
     pthread_mutex_lock(&reality_lock);
     sqlite3_stmt *st=NULL;
-    double hunger=0, since=0, sleepiness=0, energy=100;
-    if (sqlite3_prepare_v2(reality_db,"SELECT hunger,seconds_since_meal,sleepiness,energy FROM r2_reality_self WHERE id=1",-1,&st,NULL)==SQLITE_OK &&
+    double hunger=0, satisfaction=0, since=0, sleepiness=0, energy=100;
+    if (sqlite3_prepare_v2(reality_db,"SELECT hunger,seconds_since_meal,sleepiness,energy,satisfaction FROM r2_reality_self WHERE id=1",-1,&st,NULL)==SQLITE_OK &&
         sqlite3_step(st)==SQLITE_ROW) {
         hunger=sqlite3_column_double(st,0); since=sqlite3_column_double(st,1);
-        sleepiness=sqlite3_column_double(st,2); energy=sqlite3_column_double(st,3);
+        sleepiness=sqlite3_column_double(st,2); energy=sqlite3_column_double(st,3); satisfaction=sqlite3_column_double(st,4);
     }
     if(st) sqlite3_finalize(st);
     int count=0;
@@ -1150,8 +1174,8 @@ char *r2_reality_status(void)
     if(st) sqlite3_finalize(st);
     pthread_mutex_unlock(&reality_lock);
     const char *hstate = hunger < 25 ? "satisfied" : hunger < 50 ? "getting hungry" : hunger < 75 ? "hungry" : hunger < 100 ? "very hungry" : "starving";
-    snprintf(out,4096,"SELF CONTINUITY\nHunger: %.1f/100 (%s)\nTime since meal: %.1f hours\nSleepiness: %.1f/100\nEnergy: %.1f/100\nModeled world time elapsed: %lld days, %lld hours\nObjects tracked in the world: %d\nAfter 72 hours without food, prolonged starvation is recorded; needs do not magically reset on restart.\n",
-        hunger,hstate,since/3600.0,sleepiness,energy,
+    snprintf(out,4096,"SELF CONTINUITY\nSatisfaction: %.1f/100\nHunger: %.1f/100 (%s)\nTime since meal: %.1f hours\nSleepiness: %.1f/100\nEnergy: %.1f/100\nModeled world time elapsed: %lld days, %lld hours\nObjects tracked in the world: %d\nAfter 72 hours without food, prolonged starvation is recorded; needs do not magically reset on restart.\n",
+        satisfaction,hunger,hstate,since/3600.0,sleepiness,energy,
         (long long)(world_elapsed/86400),(long long)((world_elapsed%86400)/3600),count);
     return out;
 }
@@ -1527,11 +1551,12 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
     st = NULL;
 
     int rc = sqlite3_prepare_v2(reality_db,
-        "UPDATE r2_reality_self SET hunger=MAX(0,hunger-?), seconds_since_meal=0, energy=MIN(100,energy+?), updated_at=CURRENT_TIMESTAMP WHERE id=1",
+        "UPDATE r2_reality_self SET hunger=MAX(0,hunger-?), satisfaction=MIN(100,satisfaction+?), seconds_since_meal=0, energy=MIN(100,energy+?), updated_at=CURRENT_TIMESTAMP WHERE id=1",
         -1, &st, NULL);
     if (rc == SQLITE_OK) {
         sqlite3_bind_double(st, 1, fullness);
-        sqlite3_bind_double(st, 2, energy_bonus);
+        sqlite3_bind_double(st, 2, fullness);
+        sqlite3_bind_double(st, 3, energy_bonus);
         rc = sqlite3_step(st);
     }
     if (st) sqlite3_finalize(st);
@@ -1591,9 +1616,9 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
     }
 
     char summary[512], details[1024];
-    snprintf(summary, sizeof(summary), "R2 ate %s; his hunger need was reduced by %.1f points.", food, fullness);
-    snprintf(details, sizeof(details), "Food=%s; modeled fullness contribution=%.1f/100; tracked object consumed=%s; this is a modeled value, not a measured biological quantity.",
-             food, fullness, consumed_tracked_item ? "yes" : "no");
+    snprintf(summary, sizeof(summary), "R2 ate %s; satisfaction increased and hunger decreased by the food's %.1f-point fullness value.", food, fullness);
+    snprintf(details, sizeof(details), "Food=%s; modeled satisfaction increase=%.1f/100; modeled hunger reduction=%.1f/100; tracked object consumed=%s; these are simulated need values, not measured biological quantities.",
+             food, fullness, fullness, consumed_tracked_item ? "yes" : "no");
     bridge_event("food_consumed", summary, details, 1, 1);
     return 0;
 }
