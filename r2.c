@@ -2715,8 +2715,8 @@ static char *ollama_chat_with_limit(
             const char *content = msgs[i].content ? msgs[i].content : "";
             int message_priority = 2;
             if (!strncmp(content,
-                         "============================================================\\nIDENTITY AND PERSISTENT MEMORY",
-                         strlen("============================================================\\nIDENTITY AND PERSISTENT MEMORY")))
+                         "============================================================\nIDENTITY AND PERSISTENT MEMORY",
+                         strlen("============================================================\nIDENTITY AND PERSISTENT MEMORY")))
                 message_priority = 0;
             else if (!strncmp(content, "PERSISTENT REALITY CONTEXT",
                               strlen("PERSISTENT REALITY CONTEXT")))
