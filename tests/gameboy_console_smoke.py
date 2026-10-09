@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sqlite3
 import sys
 import tempfile
 import time
@@ -86,6 +87,20 @@ def main() -> int:
         assert result["power_state"] == "off"
         assert result["cartridge_inserted"] is False
         assert result["game_running"] is False
+
+        # gameboy.db is only the single cartridge slot; no history or power
+        # state is stored in it. Runtime/event data belongs in State/.
+        slot_db = sqlite3.connect(root / "gameboy.db")
+        tables = {row[0] for row in slot_db.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )}
+        assert tables == {"cartridge_slot"}
+        slot = slot_db.execute(
+            "SELECT rom_path, rom_title FROM cartridge_slot WHERE id=1"
+        ).fetchone()
+        assert slot == (None, None)
+        slot_db.close()
+        assert (root / "State" / "console_state.db").is_file()
 
     print("Game Boy console state-machine smoke test passed.")
     return 0
