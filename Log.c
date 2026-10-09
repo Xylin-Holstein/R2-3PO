@@ -1280,12 +1280,59 @@ int64_t r2_log_belief(const char *belief_key,
 {
     if (!valid_text(belief_key) || !valid_text(belief) || !valid_text(status))
         return -1;
+    /*
+     * Compare the new belief against the previously stored version before
+     * updating it. A revision is a dated event with both versions preserved,
+     * not a silent overwrite or an assumption that the new version is true.
+     */
+    char previous_belief[4096] = "";
+    int64_t previous_event_id = -1;
+    int had_previous = 0;
+    pthread_mutex_lock(&log_lock);
+    sqlite3_stmt *previous_st = NULL;
+    if (log_initialized && log_db &&
+        sqlite3_prepare_v2(log_db,
+            "SELECT belief,last_event_id FROM r2_log_beliefs WHERE belief_key=?;",
+            -1, &previous_st, NULL) == SQLITE_OK) {
+        sqlite3_bind_text(previous_st, 1, belief_key, -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(previous_st) == SQLITE_ROW) {
+            const unsigned char *prior =
+                sqlite3_column_text(previous_st, 0);
+            snprintf(previous_belief, sizeof(previous_belief), "%s",
+                     prior ? (const char *)prior : "");
+            previous_event_id = sqlite3_column_int64(previous_st, 1);
+            had_previous = 1;
+        }
+    }
+    sqlite3_finalize(previous_st);
+    pthread_mutex_unlock(&log_lock);
+
+    int revised = had_previous && strcmp(previous_belief, belief) != 0;
     char details[8192];
-    snprintf(details, sizeof(details), "key=%s\nstatus=%s\nconfidence=%.4f\nevidence=%s",
-             belief_key, status, confidence, evidence ? evidence : "(not provided)");
-    int64_t event_id = r2_log_event(R2_LOG_BELIEF, "belief_updated",
-                                    belief, details, origin);
+    if (revised) {
+        snprintf(details, sizeof(details),
+                 "key=%s\nchange=belief_revision\n"
+                 "previous_belief=%s\nnew_belief=%s\n"
+                 "status=%s\nconfidence=%.4f\nevidence=%s\n"
+                 "Interpretation: a recorded belief changed. This event alone "
+                 "does not establish why it changed or which version is true. "
+                 "Compare the dated evidence, sources, context, and assumptions.",
+                 belief_key, previous_belief, belief, status, confidence,
+                 evidence ? evidence : "(not provided)");
+    } else {
+        snprintf(details, sizeof(details),
+                 "key=%s\nstatus=%s\nconfidence=%.4f\nevidence=%s",
+                 belief_key, status, confidence,
+                 evidence ? evidence : "(not provided)");
+    }
+    int64_t event_id = r2_log_event(
+        R2_LOG_BELIEF,
+        revised ? "belief_revised" : "belief_updated",
+        belief, details, origin);
     if (event_id <= 0) return event_id;
+    if (revised && previous_event_id > 0)
+        r2_log_link(previous_event_id, event_id, "belief_revised_by",
+                    "The newer event records a changed belief; investigate the evidence and cause rather than assuming either version is correct.");
 
     char utc[40], local[48];
     timestamp_pair(utc, sizeof(utc), local, sizeof(local));
