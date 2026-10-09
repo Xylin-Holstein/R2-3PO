@@ -3,7 +3,7 @@ set -euo pipefail
 
 SOURCE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 TARGET_DIR="${R2_GAMEBOY_DIR:-/home/x/R2_Home/Devices/GameBoyAdvance}"
-POCKET_DIR="${R2_POCKET_DIR:-/home/x/R2_Home/pockets}"
+POCKET_DIR="${R2_POCKET_DIR:-/home/x/R2_Home/Pockets}"
 DESKTOP_DIR="${R2_DESKTOP_DIR:-/home/x/.local/share/applications}"
 MGBA_PATH="${R2_MGBA_EXECUTABLE:-/usr/games/mgba-qt}"
 
