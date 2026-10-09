@@ -5965,6 +5965,8 @@ char *r2_memories_recent(int limit)
             updated ? (const char *)updated : "unknown");
         if (hn < 0) continue;
         size_t header_len = (size_t)hn;
+        if (header_len >= sizeof(header))
+            header_len = sizeof(header) - 1;
         size_t needed = used + header_len + (size_t)memory_len + 3;
         if (needed > capacity) {
             size_t next_capacity = capacity;
