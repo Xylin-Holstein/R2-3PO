@@ -4311,6 +4311,131 @@ static char *extract_marker(
    TOOL PROCESSING
    ============================================================ */
 
+/* Game Boy console bridge: argv-based execution, never a shell command. */
+static int run_gameboy_console(const char *subcommand,
+                               const char *arg1,
+                               const char *arg2,
+                               char *output,
+                               size_t output_size)
+{
+    const char *configured = getenv("R2_GAMEBOY_CONSOLE");
+    const char *path = configured && *configured
+        ? configured
+        : R2_ROOT "/Devices/GameBoyAdvance/GameBoyAdvance";
+    int pipes[2];
+    pid_t pid;
+    int status = 0;
+    size_t used = 0;
+
+    if (!subcommand || !output || output_size < 2 || pipe(pipes) != 0)
+        return -1;
+    output[0] = '\0';
+    pid = fork();
+    if (pid < 0) {
+        close(pipes[0]);
+        close(pipes[1]);
+        return -1;
+    }
+    if (pid == 0) {
+        char *argv[7];
+        int n = 0;
+        int nullfd;
+        close(pipes[0]);
+        if (dup2(pipes[1], STDOUT_FILENO) < 0)
+            _exit(126);
+        close(pipes[1]);
+        nullfd = open("/dev/null", O_WRONLY);
+        if (nullfd >= 0) {
+            (void)dup2(nullfd, STDERR_FILENO);
+            close(nullfd);
+        }
+        argv[n++] = (char *)path;
+        argv[n++] = (char *)"--json";
+        argv[n++] = (char *)subcommand;
+        if (arg1) argv[n++] = (char *)arg1;
+        if (arg2) argv[n++] = (char *)arg2;
+        argv[n] = NULL;
+        execv(path, argv);
+        _exit(127);
+    }
+
+    close(pipes[1]);
+    for (;;) {
+        char buffer[1024];
+        ssize_t count = read(pipes[0], buffer, sizeof(buffer));
+        if (count == 0) break;
+        if (count < 0) {
+            if (errno == EINTR) continue;
+            close(pipes[0]);
+            (void)waitpid(pid, &status, 0);
+            return -1;
+        }
+        if (used + 1 < output_size) {
+            size_t copy = (size_t)count;
+            if (copy > output_size - used - 1)
+                copy = output_size - used - 1;
+            memcpy(output + used, buffer, copy);
+            used += copy;
+            output[used] = '\0';
+        }
+    }
+    close(pipes[0]);
+    while (waitpid(pid, &status, 0) < 0) {
+        if (errno == EINTR) continue;
+        return -1;
+    }
+    if (WIFEXITED(status))
+        return WEXITSTATUS(status);
+    return -1;
+}
+
+static int gameboy_json_bool(struct json_object *object, const char *key,
+                             int fallback)
+{
+    struct json_object *value = NULL;
+    if (!object || !json_object_object_get_ex(object, key, &value))
+        return fallback;
+    return json_object_get_boolean(value) ? 1 : 0;
+}
+
+static const char *gameboy_json_string(struct json_object *object,
+                                       const char *key,
+                                       const char *fallback)
+{
+    struct json_object *value = NULL;
+    if (!object || !json_object_object_get_ex(object, key, &value) ||
+        !json_object_is_type(value, json_type_string))
+        return fallback;
+    return json_object_get_string(value);
+}
+
+static void gameboy_end_activity_sessions(const char *reason)
+{
+    (void)r2_log_activity_end("gameboy:virtual", "unknown", reason,
+        "context=virtual; game-specific state was not verified at shutdown");
+    (void)r2_log_activity_end("gameboy:physical", "unknown", reason,
+        "context=physical; Game Boy Advance console session ended");
+}
+
+static void gameboy_start_activity_sessions(const char *title)
+{
+    char virtual_name[600];
+    char details[1200];
+    const char *game = title && *title ? title : "unknown game";
+    snprintf(virtual_name, sizeof(virtual_name), "Playing %s inside the game", game);
+    snprintf(details, sizeof(details),
+             "context=physical; device=GameBoyAdvance; game_title=%s; "
+             "this records R2 operating the console, not the character's actions",
+             game);
+    (void)r2_log_activity_start("gameboy:physical",
+                                "Playing the Game Boy Advance", details);
+    snprintf(details, sizeof(details),
+             "context=virtual; device=GameBoyAdvance; game_title=%s; "
+             "gameplay events require independent verification",
+             game);
+    (void)r2_log_activity_start("gameboy:virtual", virtual_name, details);
+}
+
 static char *process_tools(
     const char *reply)
 {
