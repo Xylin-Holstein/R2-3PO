@@ -595,6 +595,9 @@ int r2_diary_init(void)
         return -1;
     }
 
+    /* Bound lock waits when the kernel, Life Log, and diary share this DB. */
+    sqlite3_busy_timeout(r2_diary_db, 5000);
+
     /*
      * WAL improves behavior when the diary and R2 kernel
      * access the same database.
@@ -645,6 +648,8 @@ int r2_diary_init(void)
         sqlite3_free(
             error_message
         );
+        sqlite3_close(r2_diary_db);
+        r2_diary_db = NULL;
 
         return -1;
     }
@@ -682,6 +687,8 @@ int r2_diary_init(void)
         fprintf(stderr, "[R2 DIARY] Could not create diary linkage table: %s\n",
                 error_message ? error_message : "unknown error");
         sqlite3_free(error_message);
+        sqlite3_close(r2_diary_db);
+        r2_diary_db = NULL;
         return -1;
     }
 
@@ -796,12 +803,19 @@ static int r2_diary_link_entry(int64_t entry_id, const char *created_at)
         rc = sqlite3_prepare_v2(r2_diary_db,
             "SELECT id FROM r2_log_events WHERE event_type='diary_entry_linked' "
             "AND details GLOB ? ORDER BY id DESC LIMIT 1;", -1, &st, NULL);
-        if (rc == SQLITE_OK) {
-            sqlite3_bind_text(st, 1, pattern, -1, SQLITE_TRANSIENT);
-            if (sqlite3_step(st) == SQLITE_ROW)
-                event_id = sqlite3_column_int64(st, 0);
+        if (rc != SQLITE_OK) {
+            if (st) sqlite3_finalize(st);
+            return -1;
         }
-        if (st) sqlite3_finalize(st);
+        sqlite3_bind_text(st, 1, pattern, -1, SQLITE_TRANSIENT);
+        rc = sqlite3_step(st);
+        if (rc == SQLITE_ROW)
+            event_id = sqlite3_column_int64(st, 0);
+        else if (rc != SQLITE_DONE) {
+            sqlite3_finalize(st);
+            return -1;
+        }
+        sqlite3_finalize(st);
         st = NULL;
 
         if (event_id <= 0) {
@@ -919,10 +933,20 @@ int r2_diary_reconnect_history(int limit)
         free(pending);
         return -1;
     }
-    for (int i = 0; i < count; ++i)
+    int failed = 0;
+    for (int i = 0; i < count; ++i) {
         if (r2_diary_link_entry(pending[i].id, pending[i].created_at) == 0)
             linked++;
+        else
+            failed++;
+    }
     free(pending);
+    if (failed > 0) {
+        fprintf(stderr,
+                "[R2 DIARY] Reconciliation left %d entr%s pending for retry.\n",
+                failed, failed == 1 ? "y" : "ies");
+        return -1;
+    }
     return linked;
 }
 
