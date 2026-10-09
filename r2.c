@@ -5185,7 +5185,9 @@ static char *process_tools(
                        message ? message : "command completed");
             }
 
-            if (command_ok && !is_status) {
+            if (command_ok && command &&
+                (!strcmp(command, "insert") || !strcmp(command, "eject") ||
+                 !strcmp(command, "power"))) {
                 char summary[1024];
                 snprintf(summary, sizeof(summary), "Game Boy Advance: %s",
                          message ? message : "console command completed");
