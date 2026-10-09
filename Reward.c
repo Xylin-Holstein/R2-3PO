@@ -95,6 +95,7 @@ int r2_reward_apply(const char *target, const char *source, int points,
     if (modifier < -14) modifier = -14;
     sqlite3_int64 expires = now + REWARD_DECAY_SECONDS;
     int rc;
+    int committed = 0;
     sqlite3_stmt *st = NULL;
 
     pthread_mutex_lock(&reward_lock);
@@ -133,14 +134,17 @@ int r2_reward_apply(const char *target, const char *source, int points,
         st = NULL;
         if (rc == SQLITE_DONE) {
             rc = sqlite3_exec(reward_db, "COMMIT;", NULL, NULL, NULL);
-            if (rc != SQLITE_OK)
+            if (rc == SQLITE_OK) {
+                committed = 1;
+            } else {
                 (void)sqlite3_exec(reward_db, "ROLLBACK;", NULL, NULL, NULL);
+            }
         } else {
             (void)sqlite3_exec(reward_db, "ROLLBACK;", NULL, NULL, NULL);
         }
     }
     pthread_mutex_unlock(&reward_lock);
-    if (rc != SQLITE_DONE) return -1;
+    if (!committed) return -1;
 
     char summary[512], details[1600];
     snprintf(summary, sizeof(summary), "R2 recorded a %s learning signal (%+d points) for %s.",
