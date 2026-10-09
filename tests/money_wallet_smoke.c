@@ -54,7 +54,7 @@ int main(void) {
     assert(mkdir(legacy,0755)==0);
     assert(mkdir(legacy_wallet,0755)==0);
     snprintf(migrated,sizeof(migrated),"%s/legacy_item.r2item",legacy);
-    FILE *lf=fopen(migrated,"w"); assert(lf); fputs("legacy pocket item\n",lf); fclose(lf);
+    lf=fopen(migrated,"w"); assert(lf); fputs("legacy pocket item\n",lf); fclose(lf);
     snprintf(migrated,sizeof(migrated),"%s/legacy_wallet_item.r2item",legacy_wallet);
     lf=fopen(migrated,"w"); assert(lf); fputs("legacy wallet item\n",lf); fclose(lf);
     assert(r2_reality_init()==0);
