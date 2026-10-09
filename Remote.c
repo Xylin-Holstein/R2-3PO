@@ -267,6 +267,21 @@ static void handle_request(int fd)
         respond_json(fd, 200, "OK", o);
         json_object_put(o);
     } else if (strcmp(method, "GET") == 0 &&
+               strncmp(path, "/api/conversation", 17) == 0) {
+        char count_text[16];
+        int count = 50;
+        if (query_value(path, "limit", count_text, sizeof(count_text))) {
+            int v = atoi(count_text);
+            if (v > 0 && v <= 200) count = v;
+        }
+        char *turns_json = r2_log_conversation_recent_json(count);
+        struct json_object *turns = turns_json ? json_tokener_parse(turns_json) : NULL;
+        struct json_object *o = json_object_new_object();
+        json_object_object_add(o, "turns", turns ? turns : json_object_new_array());
+        respond_json(fd, 200, "OK", o);
+        json_object_put(o);
+        free(turns_json);
+    } else if (strcmp(method, "GET") == 0 &&
                (strncmp(path, "/api/diary", 10) == 0)) {
         char count_text[16];
         int count = 20;
