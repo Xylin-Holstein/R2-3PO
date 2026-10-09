@@ -2924,6 +2924,27 @@ static char *chat_with_relevant_memories(
             history_length += found_length;
             history[history_length] = '\0';
             free(found);
+
+            if (history && searches <= 4) {
+                char *journal_found = r2_sj_search(keywords[k], 2);
+                if (journal_found &&
+                    !strstr(journal_found, "No Sensory Journal entries matched") &&
+                    !strstr(journal_found, "The Sensory Journal contains no entries")) {
+                    size_t journal_length = strlen(journal_found);
+                    if (journal_length > 1800) journal_length = 1800;
+                    if (history_length + journal_length + 2 <= 10000) {
+                        char *journal_grown = realloc(history, history_length + journal_length + 2);
+                        if (journal_grown) {
+                            history = journal_grown;
+                            if (history_length) history[history_length++] = '\n';
+                            memcpy(history + history_length, journal_found, journal_length);
+                            history_length += journal_length;
+                            history[history_length] = '\0';
+                        }
+                    }
+                }
+                free(journal_found);
+            }
         }
 
         if (history && history_length) {
