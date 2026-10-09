@@ -696,6 +696,15 @@ static void shell_vision(const char *argument)
         return;
     }
 
+    if (!strcasecmp(argument, "status")) {
+        printf("Vision library: %s\\n", r2_vision_available() ? "READY" : "UNAVAILABLE");
+        printf("Vision model: %s\\n", r2_vision_model_name());
+        printf("Eyes input: %s\\n", r2_eyes_status() > 0 ? "OPEN" : "CLOSED");
+        printf("Continuous observation: %s\\n",
+               r2_vision_watch_active() ? "ACTIVE" : "STOPPED");
+        return;
+    }
+
     if (!strcasecmp(argument, "see")) {
         char *result = r2_vision_see(
             "Describe what is visible in the current frame. Identify objects, visible text, "
