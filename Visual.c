@@ -585,7 +585,7 @@ static char *visual_query(const char *sql, const char *query, int limit)
         const unsigned char *desc = sqlite3_column_text(st, 3);
         const unsigned char *path = sqlite3_column_text(st, 4);
         char line[8192];
-        int n = snprintf(line, sizeof(line), "[%s] source=%s model=%s image=%s\\n%s\\n\\n",
+        int n = snprintf(line, sizeof(line), "[%s] source=%s model=%s image=%s\n%s\n\n",
             created ? (const char *)created : "?",
             source ? (const char *)source : "?",
             model ? (const char *)model : "?",
@@ -610,7 +610,7 @@ static char *visual_query(const char *sql, const char *query, int limit)
         b.data = next;
         memcpy(b.data + b.length, line, add);
         b.length += add;
-        b.data[b.length] = '\\0';
+        b.data[b.length] = '\0';
     }
 
     if (rc != SQLITE_DONE)
@@ -623,7 +623,7 @@ static char *visual_query(const char *sql, const char *query, int limit)
         return NULL;
     }
     if (!b.data)
-        b.data = strdup("(No visual experiences found.)\\n");
+        b.data = strdup("(No visual experiences found.)\n");
     return b.data;
 }
 
