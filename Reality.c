@@ -286,7 +286,7 @@ static char *food_metrics_context(void)
         }
         char entry[1024];
         int n = snprintf(entry, sizeof(entry), "%s: fullness %.1f/100, energy bonus %.1f; ingredients: %s; sensory description: %s\n", name, f, e, *ingredients ? ingredients : "not specified", *taste ? taste : "not specified");
-        if (n <= 0) continue;
+        if (n <= 0 || (size_t)n >= sizeof(entry)) continue;
         if (len + (size_t)n + 1 > cap) {
             size_t next = cap * 2;
             char *grown = realloc(out, next);
