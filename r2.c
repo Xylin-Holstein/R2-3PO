@@ -4819,6 +4819,12 @@ static char *process_tools(
             APPEND("REAL WORLD %s: item '%s' %s.\n",
                    rc == 0 ? "RESULT" : "ERROR", fields[1],
                    rc == 0 ? "was removed from the tracked world" : "could not be removed (item may not exist)");
+        } else if(nf>=2&&!strcasecmp(fields[0],"money_deposit")){
+            double a=atof(fields[1]);int rc=r2_reality_money_deposit(a);APPEND("MONEY %s: deposit $%.2f %s.\n",rc==0?"RESULT":"ERROR",a,rc==0?"saved to piggybank":"failed; check cash");
+        } else if(nf>=2&&!strcasecmp(fields[0],"money_withdraw")){
+            double a=atof(fields[1]);int rc=r2_reality_money_withdraw(a);APPEND("MONEY %s: withdrawal $%.2f %s.\n",rc==0?"RESULT":"ERROR",a,rc==0?"moved to cash":"failed; check bank balance");
+        } else if(nf>=5&&!strcasecmp(fields[0],"buy")){
+            double price=atof(fields[2]);int rc=r2_reality_buy_item(fields[1],fields[3],price,fields[4]);APPEND("PURCHASE %s: %s for $%.2f %s.\n",rc==0?"RESULT":"ERROR",fields[1],price,rc==0?"paid and added":"failed; check funds and destination");
         } else if (nf >= 2 && !strcasecmp(fields[0], "fridge")) {
             char *view = r2_fridge_context();
             APPEND("FRIDGE RESULT:\n%s\n", view ? view : "Fridge database unavailable.");
