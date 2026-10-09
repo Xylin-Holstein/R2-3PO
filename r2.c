@@ -2837,6 +2837,7 @@ static char *ollama_intent_summary(const char *query)
    NORMAL CONVERSATION
    ============================================================ */
 
+static char *chat_copy_all(void) __attribute__((unused));
 static char *chat_copy_all(void)
 {
     pthread_mutex_lock(
