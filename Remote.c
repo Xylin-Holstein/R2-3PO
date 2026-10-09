@@ -234,7 +234,8 @@ static void handle_request(int fd)
         return;
     }
 
-    *separator = '\0';
+    /* Preserve the CRLF ending the final header so header_value() can read it. */
+    separator[2] = '\0';
     char method[16] = {0}, path[2048] = {0}, version[16] = {0};
     if (sscanf(buffer, "%15s %2047s %15s", method, path, version) != 3) {
         respond_error(fd, 400, "Bad Request", "malformed request line");
