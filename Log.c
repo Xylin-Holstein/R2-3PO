@@ -1085,6 +1085,264 @@ int r2_log_system_snapshot(const char *reason)
     return -1;
 }
 
+
+/* ------------------------------------------------------------
+ * STRUCTURED SELF-STATE / BELIEF / CONTINUITY / RELATIONSHIPS
+ * These functions are declared in Log.h and are used by r2.c.
+ * Each structured record also gets a chronological event.
+ * ------------------------------------------------------------ */
+
+int r2_log_link(int64_t from_event_id, int64_t to_event_id,
+                const char *relationship, const char *notes)
+{
+    if (from_event_id <= 0 || to_event_id <= 0 || !valid_text(relationship))
+        return -1;
+    char utc[40], local[48];
+    timestamp_pair(utc, sizeof(utc), local, sizeof(local));
+    (void)local;
+
+    pthread_mutex_lock(&log_lock);
+    sqlite3_stmt *st = NULL;
+    int rc = -1;
+    if (log_initialized && log_db &&
+        sqlite3_prepare_v2(log_db,
+            "INSERT OR IGNORE INTO r2_log_links "
+            "(from_event_id,to_event_id,relationship,notes,created_utc) "
+            "VALUES(?,?,?,?,?);", -1, &st, NULL) == SQLITE_OK) {
+        sqlite3_bind_int64(st, 1, from_event_id);
+        sqlite3_bind_int64(st, 2, to_event_id);
+        sqlite3_bind_text(st, 3, relationship, -1, SQLITE_TRANSIENT);
+        bind_optional_text(st, 4, notes);
+        sqlite3_bind_text(st, 5, utc, -1, SQLITE_TRANSIENT);
+        rc = sqlite3_step(st) == SQLITE_DONE ? 0 : -1;
+    }
+    sqlite3_finalize(st);
+    pthread_mutex_unlock(&log_lock);
+    return rc;
+}
+
+int64_t r2_log_inner_state(const char *state_kind,
+                           const char *description,
+                           const char *evidence,
+                           double confidence,
+                           const char *origin)
+{
+    if (!valid_text(state_kind) || !valid_text(description)) return -1;
+    char details[8192];
+    snprintf(details, sizeof(details), "evidence=%s\nconfidence=%.4f",
+             evidence ? evidence : "(not provided)", confidence);
+    int64_t event_id = r2_log_event(R2_LOG_EMOTION, "inner_state",
+                                    description, details, origin);
+    if (event_id <= 0) return event_id;
+
+    pthread_mutex_lock(&log_lock);
+    sqlite3_stmt *st = NULL;
+    int rc = -1;
+    if (log_initialized && log_db &&
+        sqlite3_prepare_v2(log_db,
+            "INSERT INTO r2_log_inner_states "
+            "(event_id,state_kind,description,evidence,confidence,origin) "
+            "VALUES(?,?,?,?,?,?);", -1, &st, NULL) == SQLITE_OK) {
+        sqlite3_bind_int64(st, 1, event_id);
+        sqlite3_bind_text(st, 2, state_kind, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 3, description, -1, SQLITE_TRANSIENT);
+        bind_optional_text(st, 4, evidence);
+        if (confidence < 0.0) sqlite3_bind_null(st, 5);
+        else sqlite3_bind_double(st, 5, confidence > 1.0 ? 1.0 : confidence);
+        bind_optional_text(st, 6, origin);
+        rc = sqlite3_step(st) == SQLITE_DONE ? 0 : -1;
+    }
+    sqlite3_finalize(st);
+    pthread_mutex_unlock(&log_lock);
+    return rc == 0 ? event_id : -1;
+}
+
+int64_t r2_log_belief(const char *belief_key,
+                      const char *belief,
+                      const char *evidence,
+                      double confidence,
+                      const char *status,
+                      const char *origin)
+{
+    if (!valid_text(belief_key) || !valid_text(belief) || !valid_text(status))
+        return -1;
+    char details[8192];
+    snprintf(details, sizeof(details), "key=%s\nstatus=%s\nconfidence=%.4f\nevidence=%s",
+             belief_key, status, confidence, evidence ? evidence : "(not provided)");
+    int64_t event_id = r2_log_event(R2_LOG_BELIEF, "belief_updated",
+                                    belief, details, origin);
+    if (event_id <= 0) return event_id;
+
+    char utc[40], local[48];
+    timestamp_pair(utc, sizeof(utc), local, sizeof(local));
+    pthread_mutex_lock(&log_lock);
+    sqlite3_stmt *st = NULL;
+    int rc = -1;
+    if (log_initialized && log_db &&
+        sqlite3_prepare_v2(log_db,
+            "INSERT INTO r2_log_beliefs "
+            "(belief_key,belief,evidence,confidence,status,origin,first_seen_utc,last_updated_utc,last_event_id) "
+            "VALUES(?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(belief_key) DO UPDATE SET "
+            "belief=excluded.belief,evidence=excluded.evidence,confidence=excluded.confidence,"
+            "status=excluded.status,origin=excluded.origin,last_updated_utc=excluded.last_updated_utc,"
+            "last_event_id=excluded.last_event_id;",
+            -1, &st, NULL) == SQLITE_OK) {
+        sqlite3_bind_text(st, 1, belief_key, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 2, belief, -1, SQLITE_TRANSIENT);
+        bind_optional_text(st, 3, evidence);
+        if (confidence < 0.0) sqlite3_bind_null(st, 4);
+        else sqlite3_bind_double(st, 4, confidence > 1.0 ? 1.0 : confidence);
+        sqlite3_bind_text(st, 5, status, -1, SQLITE_TRANSIENT);
+        bind_optional_text(st, 6, origin);
+        sqlite3_bind_text(st, 7, utc, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 8, utc, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(st, 9, event_id);
+        rc = sqlite3_step(st) == SQLITE_DONE ? 0 : -1;
+    }
+    sqlite3_finalize(st);
+    pthread_mutex_unlock(&log_lock);
+    return rc == 0 ? event_id : -1;
+}
+
+int64_t r2_log_continuity(const char *item_key,
+                          const char *item_type,
+                          const char *title,
+                          const char *description,
+                          const char *status,
+                          const char *next_action,
+                          const char *origin)
+{
+    if (!valid_text(item_key) || !valid_text(item_type) ||
+        !valid_text(title) || !valid_text(status)) return -1;
+    char details[8192];
+    snprintf(details, sizeof(details), "key=%s\ntype=%s\nstatus=%s\nnext_action=%s\ndescription=%s",
+             item_key, item_type, status, next_action ? next_action : "(none)",
+             description ? description : "(none)");
+    int64_t event_id = r2_log_event(R2_LOG_CONTINUITY, "continuity_updated",
+                                    title, details, origin);
+    if (event_id <= 0) return event_id;
+
+    char utc[40], local[48];
+    timestamp_pair(utc, sizeof(utc), local, sizeof(local));
+    pthread_mutex_lock(&log_lock);
+    sqlite3_stmt *st = NULL;
+    int rc = -1;
+    if (log_initialized && log_db &&
+        sqlite3_prepare_v2(log_db,
+            "INSERT INTO r2_log_continuity "
+            "(item_key,item_type,title,description,status,next_action,origin,first_seen_utc,last_updated_utc,completed_utc,last_event_id) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(item_key) DO UPDATE SET "
+            "item_type=excluded.item_type,title=excluded.title,description=excluded.description,"
+            "status=excluded.status,next_action=excluded.next_action,origin=excluded.origin,"
+            "last_updated_utc=excluded.last_updated_utc,"
+            "completed_utc=CASE WHEN lower(excluded.status) IN ('complete','completed','done') "
+            "THEN excluded.last_updated_utc ELSE r2_log_continuity.completed_utc END,"
+            "last_event_id=excluded.last_event_id;",
+            -1, &st, NULL) == SQLITE_OK) {
+        sqlite3_bind_text(st, 1, item_key, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 2, item_type, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 3, title, -1, SQLITE_TRANSIENT);
+        bind_optional_text(st, 4, description);
+        sqlite3_bind_text(st, 5, status, -1, SQLITE_TRANSIENT);
+        bind_optional_text(st, 6, next_action);
+        bind_optional_text(st, 7, origin);
+        sqlite3_bind_text(st, 8, utc, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 9, utc, -1, SQLITE_TRANSIENT);
+        if (!strcasecmp(status, "complete") || !strcasecmp(status, "completed") ||
+            !strcasecmp(status, "done"))
+            sqlite3_bind_text(st, 10, utc, -1, SQLITE_TRANSIENT);
+        else
+            sqlite3_bind_null(st, 10);
+        sqlite3_bind_int64(st, 11, event_id);
+        rc = sqlite3_step(st) == SQLITE_DONE ? 0 : -1;
+    }
+    sqlite3_finalize(st);
+    pthread_mutex_unlock(&log_lock);
+    return rc == 0 ? event_id : -1;
+}
+
+int64_t r2_log_hypothetical(const char *scenario,
+                            const char *assumptions,
+                            const char *predicted_outcome,
+                            const char *conclusion,
+                            const char *origin)
+{
+    if (!valid_text(scenario)) return -1;
+    size_t cap = 8192;
+    char *details = malloc(cap);
+    if (!details) return -1;
+    snprintf(details, cap, "ASSUMPTIONS:\n%s\nPREDICTED OUTCOME:\n%s\nCONCLUSION:\n%s",
+             assumptions ? assumptions : "(not provided)",
+             predicted_outcome ? predicted_outcome : "(not provided)",
+             conclusion ? conclusion : "(not provided)");
+    int64_t event_id = r2_log_event(R2_LOG_HYPOTHETICAL, "hypothetical_scenario",
+                                    scenario, details, origin);
+    free(details);
+    if (event_id <= 0) return event_id;
+
+    pthread_mutex_lock(&log_lock);
+    sqlite3_stmt *st = NULL;
+    int rc = -1;
+    if (log_initialized && log_db &&
+        sqlite3_prepare_v2(log_db,
+            "INSERT INTO r2_log_hypotheticals "
+            "(event_id,scenario,assumptions,predicted_outcome,conclusion,origin) "
+            "VALUES(?,?,?,?,?,?);", -1, &st, NULL) == SQLITE_OK) {
+        sqlite3_bind_int64(st, 1, event_id);
+        sqlite3_bind_text(st, 2, scenario, -1, SQLITE_TRANSIENT);
+        bind_optional_text(st, 3, assumptions);
+        bind_optional_text(st, 4, predicted_outcome);
+        bind_optional_text(st, 5, conclusion);
+        bind_optional_text(st, 6, origin);
+        rc = sqlite3_step(st) == SQLITE_DONE ? 0 : -1;
+    }
+    sqlite3_finalize(st);
+    pthread_mutex_unlock(&log_lock);
+    return rc == 0 ? event_id : -1;
+}
+
+char *r2_log_status_report(void)
+{
+    pthread_mutex_lock(&log_lock);
+    if (!log_initialized || !log_db) {
+        pthread_mutex_unlock(&log_lock);
+        return strdup("R2 Life Log is not initialized.\n");
+    }
+    const char *sql =
+        "SELECT "
+        "(SELECT count(*) FROM r2_log_events),"
+        "(SELECT count(*) FROM r2_log_sessions),"
+        "(SELECT count(*) FROM r2_log_conversations),"
+        "(SELECT count(*) FROM r2_log_beliefs),"
+        "(SELECT count(*) FROM r2_log_continuity),"
+        "(SELECT count(*) FROM r2_log_events WHERE memory_saved=1);";
+    sqlite3_stmt *st = NULL;
+    long long events = 0, sessions = 0, turns = 0, beliefs = 0, continuity = 0, saved = 0;
+    if (sqlite3_prepare_v2(log_db, sql, -1, &st, NULL) == SQLITE_OK &&
+        sqlite3_step(st) == SQLITE_ROW) {
+        events = sqlite3_column_int64(st, 0);
+        sessions = sqlite3_column_int64(st, 1);
+        turns = sqlite3_column_int64(st, 2);
+        beliefs = sqlite3_column_int64(st, 3);
+        continuity = sqlite3_column_int64(st, 4);
+        saved = sqlite3_column_int64(st, 5);
+    }
+    sqlite3_finalize(st);
+    pthread_mutex_unlock(&log_lock);
+
+    char *report = malloc(512);
+    if (!report) return NULL;
+    snprintf(report, 512,
+             "R2 LIFE LOG STATUS\n"
+             "Events recorded: %lld\nSessions recorded: %lld\n"
+             "Conversation turns archived: %lld\nCurrent belief records: %lld\n"
+             "Continuity records: %lld\nEvents linked to saved memories: %lld\n",
+             events, sessions, turns, beliefs, continuity, saved);
+    return report;
+}
+
 /* ------------------------------------------------------------
  * SEARCH / RECENT HISTORY
  * ------------------------------------------------------------ */
