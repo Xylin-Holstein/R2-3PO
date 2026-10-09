@@ -139,7 +139,7 @@ class TVDisplaySmoke(unittest.TestCase):
             self.assertEqual(TV.send_control_command(command), "OK accepted")
             worker.join(timeout=2)
             self.assertFalse(worker.is_alive())
-            self.assertEqual(received, [command + "\\n"])
+            self.assertEqual(received, [command + "\n])
 
     def test_vcr_client_rejects_invalid_media_and_position(self) -> None:
         with self.assertRaises(ValueError):
