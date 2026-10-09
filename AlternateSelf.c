@@ -90,27 +90,29 @@ int64_t r2_altself_create(const char *name, const char *scenario,
 {
     if (!name || !*name || !scenario || !*scenario) return -1;
     pthread_mutex_lock(&as_lock);
-    int ready = as_ready && as_db != NULL;
+    if (!as_ready || !as_db) {
+        pthread_mutex_unlock(&as_lock);
+        return -1;
+    }
+    if (evidence_event_id > 0) {
+        sqlite3_stmt *check = NULL;
+        int check_rc = sqlite3_prepare_v2(as_db,
+            "SELECT 1 FROM r2_log_events WHERE id=?;", -1, &check, NULL);
+        if (check_rc == SQLITE_OK) {
+            sqlite3_bind_int64(check, 1, evidence_event_id);
+            check_rc = sqlite3_step(check);
+        }
+        sqlite3_finalize(check);
+        if (check_rc != SQLITE_ROW) {
+            pthread_mutex_unlock(&as_lock);
+            return -1;
+        }
+    }
     pthread_mutex_unlock(&as_lock);
-    if (!ready) return -1;
-    char detail[8192];
-    snprintf(detail, sizeof(detail),
-        "ALTERNATE-SELF HYPOTHESIS — NOT A REAL EVENT OR MEMORY\n"
-        "Branch: %s\nScenario: %s\nAssumptions: %s\n"
-        "Predicted outcome: %s\nTentative conclusion: %s\n"
-        "Evidence event ID: %lld\n"
-        "This branch is isolated from factual memory; its outcome has not been observed.",
-        name, scenario, assumptions && *assumptions ? assumptions : "(none supplied)",
-        predicted_outcome && *predicted_outcome ? predicted_outcome : "(not specified)",
-        conclusion && *conclusion ? conclusion : "(not specified)",
-        (long long)evidence_event_id);
+
     int64_t event_id = r2_log_hypothetical(scenario, assumptions,
         predicted_outcome, conclusion, "Alternate-Self Lab; hypothetical only");
     if (event_id < 0) return -1;
-    /* Keep the explicit label and branch identity in the event record. */
-    r2_log_event(R2_LOG_HYPOTHETICAL, "alternate_self_branch_created",
-                 "Created an isolated Alternate-Self hypothetical branch.",
-                 detail, "AlternateSelf.c");
 
     pthread_mutex_lock(&as_lock);
     if (!as_ready || !as_db) { pthread_mutex_unlock(&as_lock); return -1; }
