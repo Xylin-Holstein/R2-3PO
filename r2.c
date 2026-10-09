@@ -1921,16 +1921,22 @@ static char *workspace_read(const char *rel)
 {
     char p[PATH_MAX];
 
-    if (safe_path(rel, p) != 0)
+    if (safe_path(rel, p) != 0) {
+        r2_log_file_event("read", rel ? rel : "(null)", "blocked_or_invalid_path", NULL);
         return NULL;
+    }
 
     struct stat st;
 
-    if (stat(p, &st) != 0 ||
-        !S_ISREG(st.st_mode))
+    if (stat(p, &st) != 0 || !S_ISREG(st.st_mode)) {
+        r2_log_file_event("read", rel, "failed_not_regular_or_missing", NULL);
         return NULL;
+    }
 
-    return read_entire_file(p);
+    char *content = read_entire_file(p);
+    r2_log_file_event("read", rel, content ? "success" : "failed",
+                      content ? "Workspace file content was read by R2." : "File read returned no content.");
+    return content;
 }
 
 
@@ -1940,13 +1946,17 @@ static char *workspace_list(const char *rel)
 
     if (safe_path(
             rel && *rel ? rel : ".",
-            p) != 0)
+            p) != 0) {
+        r2_log_file_event("list", rel && *rel ? rel : ".", "blocked_or_invalid_path", NULL);
         return NULL;
+    }
 
     DIR *d = opendir(p);
 
-    if (!d)
+    if (!d) {
+        r2_log_file_event("list", rel && *rel ? rel : ".", "failed_to_open_directory", NULL);
         return NULL;
+    }
 
     size_t cap = 256;
     size_t len = 0;
@@ -2137,12 +2147,12 @@ static char *workspace_list(const char *rel)
     free(names);
 
     if (len == 0) {
-
         free(out);
-
+        r2_log_file_event("list", rel && *rel ? rel : ".", "success_empty", NULL);
         return strdup("(empty)\n");
     }
 
+    r2_log_file_event("list", rel && *rel ? rel : ".", "success", NULL);
     return out;
 }
 
@@ -2215,8 +2225,12 @@ static int workspace_write(
         }
     }
 
-    if (fclose(f) != 0)
+    if (fclose(f) != 0) {
+        r2_log_file_event("write", rel, "failed_on_close", NULL);
         return -1;
+    }
+
+    r2_log_file_event("write", rel, "success", "Workspace file was written by R2.");
 
     if (out) {
 
@@ -2253,8 +2267,12 @@ static int workspace_delete(
         !S_ISREG(st.st_mode))
         return -1;
 
-    if (unlink(p) != 0)
+    if (unlink(p) != 0) {
+        r2_log_file_event("delete", rel, "failed", NULL);
         return -1;
+    }
+
+    r2_log_file_event("delete", rel, "success", "Workspace file was deleted by R2.");
 
     if (out) {
 
@@ -5899,7 +5917,7 @@ int r2_init(void)
     core_initialized = 1;
     startup_memory_loaded = 1;
 
-    if (r2_log_session_start() == 0) {
+    if (r2_log_is_initialized()) {
         r2_log_milestone("r2_first_successful_start",
                          "R2 completed its first successful core startup.",
                          "Recorded only when the Life Log can verify this is the first occurrence.");
