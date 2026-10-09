@@ -805,8 +805,10 @@ static int r2_diary_link_entry(int64_t entry_id, const char *created_at)
         st = NULL;
 
         if (event_id <= 0) {
+            /* Linker owns the retryable memory-pointer write below. Avoid
+               asking the Log helper to index the same pointer a second time. */
             event_id = r2_log_event_with_memory(R2_LOG_THINKING,
-                "diary_entry_linked", summary, details, "r2_diary.c", 1);
+                "diary_entry_linked", summary, details, "r2_diary.c", 0);
         }
         if (event_id <= 0) return -1;
 
