@@ -23,7 +23,7 @@ You can also compile directly with the same source list and libraries:
 
 ```sh
 gcc -std=c11 -Wall -Wextra -O2 \
-  r2.c shell.c r2_diary.c Log.c Visual.c Ears.c Eyes.c \
+  r2.c shell.c r2_diary.c Log.c Visual.c Ears.c Eyes.c World.c \
   -o r2 \
   -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
 ```
@@ -38,7 +38,8 @@ The build requires these eight C translation units:
 - `Log.c` — life log
 - `Visual.c` — vision-model integration
 - `Ears.c` — audio input
-- `Eyes.c` — visual input\n- `World.c` — Pockets, Wallet, Room, shelf/box storage, object counting, and safe possession movement
+- `Eyes.c` — visual input
+- `World.c` — Pockets, Wallet, Room, shelf/box storage, object counting, and safe possession movement
 
 Their matching headers are included in the repository: `r2.h`, `shell.h`, `r2_diary.h`, `Log.h`, `Visual.h`, `Ears.h`, `Eyes.h`, and `World.h`.
 
