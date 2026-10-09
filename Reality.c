@@ -97,7 +97,7 @@ static void item_slug(const char *name, char *out, size_t cap)
             out[j++] = '_';
     }
     while (j && out[j-1] == '_') --j;
-    if (!j && cap > 1) out[j++] = 'item';
+    if (!j && cap > 1) { snprintf(out, cap, "item"); return; }
     out[j] = '\0';
 }
 
@@ -394,8 +394,6 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
     if(quantity<1) quantity=1;
     if(!r2_reality_is_initialized()) return -1;
     char old_container[REALITY_MAX_TEXT + 1] = {0};
-    char old_description[REALITY_MAX_TEXT + 1] = {0};
-    int old_quantity = 1;
     pthread_mutex_lock(&reality_lock);
     sqlite3_stmt *prior = NULL;
     if (sqlite3_prepare_v2(reality_db, "SELECT container,description,quantity FROM r2_reality_objects WHERE name=? COLLATE NOCASE", -1, &prior, NULL) == SQLITE_OK) {
@@ -404,8 +402,6 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
             const unsigned char *oc = sqlite3_column_text(prior, 0);
             const unsigned char *od = sqlite3_column_text(prior, 1);
             if (oc) snprintf(old_container, sizeof(old_container), "%s", (const char *)oc);
-            if (od) snprintf(old_description, sizeof(old_description), "%s", (const char *)od);
-            old_quantity = sqlite3_column_int(prior, 2);
         }
     }
     if (prior) sqlite3_finalize(prior);
@@ -471,13 +467,24 @@ int r2_reality_move_item(const char *name,const char *container)
 int r2_reality_remove_item(const char *name)
 {
     if(!name||!*name||!r2_reality_is_initialized())return -1;
+    char old_container[REALITY_MAX_TEXT + 1] = {0};
     pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *prior = NULL;
+    if (sqlite3_prepare_v2(reality_db, "SELECT container FROM r2_reality_objects WHERE name=? COLLATE NOCASE", -1, &prior, NULL) == SQLITE_OK) {
+        bind_text(prior, 1, name);
+        if (sqlite3_step(prior) == SQLITE_ROW) {
+            const unsigned char *oc = sqlite3_column_text(prior, 0);
+            if (oc) snprintf(old_container, sizeof(old_container), "%s", (const char *)oc);
+        }
+    }
+    if (prior) sqlite3_finalize(prior);
     sqlite3_stmt *st=NULL;
     int rc=sqlite3_prepare_v2(reality_db,"DELETE FROM r2_reality_objects WHERE name=? COLLATE NOCASE",-1,&st,NULL);
     if(rc==SQLITE_OK){bind_text(st,1,name);rc=sqlite3_step(st);if(rc==SQLITE_DONE&&sqlite3_changes(reality_db)==0)rc=SQLITE_NOTFOUND;}
     if(st)sqlite3_finalize(st);
     pthread_mutex_unlock(&reality_lock);
     if(rc!=SQLITE_DONE)return -1;
+    if (*old_container) mirror_remove(name, old_container);
     char summary[512];snprintf(summary,sizeof(summary),"R2 removed '%s' from his tracked world.",name);
     bridge_event("object_removed",summary,"The object was removed from R2's persistent object inventory.",1,1);
     return 0;
