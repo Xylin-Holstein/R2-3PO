@@ -3,6 +3,7 @@
 
 #include "Visual.h"
 #include "Log.h"
+#include "r2.h"
 
 #include <curl/curl.h>
 #include <json-c/json.h>
@@ -198,6 +199,20 @@ static unsigned char *encode_jpeg(const R2VisionFrame *frame, size_t *jpeg_lengt
     return jpeg;
 }
 
+static int vision_progress(void *userdata,
+                            curl_off_t download_total,
+                            curl_off_t download_now,
+                            curl_off_t upload_total,
+                            curl_off_t upload_now)
+{
+    (void)userdata;
+    (void)download_total;
+    (void)download_now;
+    (void)upload_total;
+    (void)upload_now;
+    return r2_is_shutting_down() ? 1 : 0;
+}
+
 static char *call_vision_model(const char *image_base64, const char *question,
                                const char *model)
 {
@@ -259,6 +274,8 @@ static char *call_vision_model(const char *image_base64, const char *question,
         curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L);
         curl_easy_setopt(curl, CURLOPT_TIMEOUT, 180L);
         curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+        curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, vision_progress);
         CURLcode cc = curl_easy_perform(curl);
         long http_status = 0;
         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_status);
