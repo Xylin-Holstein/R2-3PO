@@ -84,6 +84,7 @@ class RemoteApi(private val baseUrl: String, private val token: String) {
     fun conversation(limit: Int = 50): JSONArray = request("GET", "/api/conversation?limit=$limit").optJSONArray("turns") ?: JSONArray()
     fun diary(limit: Int = 30) = request("GET", "/api/diary?limit=$limit").optString("content")
     fun lifeLog(limit: Int = 50) = request("GET", "/api/life-log?limit=$limit").optString("content")
+    fun recentMemories(limit: Int = 100) = request("GET", "/api/memories?limit=$limit").optString("content")
     fun memories(query: String) = request("GET", "/api/memories?query=" +
         URLEncoder.encode(query, "UTF-8")).optString("content")
 }
