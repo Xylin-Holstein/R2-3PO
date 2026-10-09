@@ -42,7 +42,8 @@ def utc_now() -> str:
 
 
 def ensure_dirs() -> None:
-    for path in (CARTRIDGES, SAVES, STATE, STATE / "mgba-config" / "mgba"):
+    for path in (CARTRIDGES, SAVES, STATE, STATE / "mgba-config" / "mgba",
+                 DB_PATH.parent, STATE_DB_PATH.parent):
         path.mkdir(parents=True, exist_ok=True)
 
 
