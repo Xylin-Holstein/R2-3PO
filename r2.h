@@ -89,6 +89,13 @@ int r2_is_shutting_down(void);
  */
 char *r2_talk(const char *message);
 
+/*
+ * Explicitly begin a distinct live conversation session.
+ * Existing turns remain in the Life Log and persistent memory.
+ * Returns 0 on success, -1 if the core is unavailable.
+ */
+int r2_conversation_session_begin(const char *source);
+
 
 /*
  * Run R2's normal interactive conversation loop.
