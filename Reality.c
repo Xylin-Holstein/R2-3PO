@@ -2243,8 +2243,7 @@ static int tv_vcr_media_path_valid(const char *path)
     static const char *extensions[] = {
         ".avi", ".mkv", ".mp4", ".m4v", ".mov", ".mpeg", ".mpg",
         ".wmv", ".webm", ".ogv", ".flv", ".ts", ".vob", ".3gp",
-        ".asf", ".m2ts", ".mts", ".mp3", ".wav", ".flac", ".ogg",
-        ".m4a", ".aac"
+        ".asf", ".m2ts", ".mts"
     };
     int supported = 0;
     for (size_t i = 0; i < sizeof(extensions) / sizeof(extensions[0]); ++i)
