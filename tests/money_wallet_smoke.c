@@ -57,7 +57,10 @@ int main(void) {
     lf=fopen(migrated,"w"); assert(lf); fputs("legacy pocket item\n",lf); fclose(lf);
     snprintf(migrated,sizeof(migrated),"%s/legacy_wallet_item.r2item",legacy_wallet);
     lf=fopen(migrated,"w"); assert(lf); fputs("legacy wallet item\n",lf); fclose(lf);
+    snprintf(migrated,sizeof(migrated),"%s/cash.txt",legacy_wallet);
+    lf=fopen(migrated,"w"); assert(lf); fputs("cash=999.00\\n",lf); fclose(lf);
     assert(r2_reality_init()==0);
+    assert(access(migrated,F_OK)!=0); /* The old cash.txt was only a stale derived summary. */
     snprintf(migrated,sizeof(migrated),"%s/Pockets/legacy_item.r2item",R2_ROOT);
     assert(access(migrated,F_OK)==0);
     snprintf(migrated,sizeof(migrated),"%s/Pockets/Wallet/legacy_wallet_item.r2item",R2_ROOT);
