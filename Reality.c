@@ -230,12 +230,12 @@ static char *query_text(const char *sql, const char *arg)
     sqlite3_stmt *st = NULL;
     int rc = sqlite3_prepare_v2(reality_db, sql, -1, &st, NULL);
     if (rc == SQLITE_OK && arg) bind_text(st, 1, arg);
-    while (rc == SQLITE_OK && (rc = sqlite3_step(st)) == SQLITE_ROW) {
+    if (rc == SQLITE_OK) while ((rc = sqlite3_step(st)) == SQLITE_ROW) {
         const unsigned char *a = sqlite3_column_text(st, 0);
         const unsigned char *b = sqlite3_column_text(st, 1);
         const unsigned char *c = sqlite3_column_text(st, 2);
         char line[8192];
-        snprintf(line, sizeof(line), "%s%s%s%s%s\n", a?(const char*)a:"", b?" — ":"", b?(const char*)b:"", c?" (":"", c?(const char*)c:"");
+        snprintf(line, sizeof(line), "%s%s%s%s%s%s\n", a?(const char*)a:"", b?" — ":"", b?(const char*)b:"", c?" (":"", c?(const char*)c:"", c?")":"");
         size_t n = strlen(line);
         if (len+n+1 > cap) {
             size_t next=cap;
