@@ -41,7 +41,7 @@ struct response_buffer {
 static size_t response_write(char *ptr, size_t size, size_t nmemb, void *userdata)
 {
     struct response_buffer *b = userdata;
-    if (!b || size && nmemb > SIZE_MAX / size) return 0;
+    if (!b || (size && nmemb > SIZE_MAX / size)) return 0;
     size_t amount = size * nmemb;
     if (amount > R2_VISION_MAX_RESPONSE - b->length) return 0;
     size_t needed = b->length + amount + 1;
