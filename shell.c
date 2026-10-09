@@ -217,6 +217,8 @@ static void shell_help(void)
         "      Move one fridge item into R2's pockets; an empty fridge refills with a burger.\n"
         "  fridge eat <food>\n"
         "      Eat directly from fridge stock without carrying the food.\n"
+        "  fridge store <food>\n"
+        "      Move a tracked item from R2's inventory into the separate fridge database.\n"
         "  world status\n"
         "      Show persistent needs and self-continuity state.\n"
         "\n"        "  eat <food> [| <fullness 0-100>]\n"
@@ -1227,7 +1229,14 @@ static int shell_fridge(const char *argument)
                          "[R2 Fridge] Could not eat that item from the fridge.\n", food);
         return 1;
     }
-    printf("Usage: fridge [look|take <food>|eat <food>]\n");
+    if (shell_starts_with(argument, "store ")) {
+        const char *food = reality_trim((char *)argument + 6);
+        int rc = r2_reality_move_item(food, "fridge");
+        printf(rc == 0 ? "[R2 Fridge] Stored %s from pockets/inventory into the fridge.\n" :
+                         "[R2 Fridge] Could not store that tracked item.\n", food);
+        return 1;
+    }
+    printf("Usage: fridge [look|take <food>|eat <food>|store <food>]\n");
     return 1;
 }
 
