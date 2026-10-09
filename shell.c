@@ -206,6 +206,13 @@ static void shell_help(void)
         "  log search <text>\n"
         "      Search the chronological Life Log.\n"
         "\n"
+        "  journal [recent|search <text>|note <text>]\n"
+        "      Browse sensory/thinking events or add a dated journal note.\n"
+        "\n"
+        "  alternate [list|show <id>|create <fields>|discard <id>|retain <id>|compare <id> <id>]\n"
+        "      Explore isolated hypotheses without changing factual memories.\n"
+        "      create fields: name|scenario|assumptions|predicted outcome|conclusion|evidence event ID\n"
+        "\n"
         "  eyes\n"
         "      Show Eyes status.\n"
         "\n"
@@ -606,6 +613,126 @@ static void shell_log(const char *argument)
     } else {
         printf("[Could not read the Life Log.]\n");
     }
+}
+
+/* ============================================================
+   SENSORY JOURNAL
+   ============================================================ */
+
+static void shell_journal(const char *argument)
+{
+    char *result = NULL;
+    if (!argument || !*argument || !strcasecmp(argument, "recent")) {
+        result = r2_sj_recent(25);
+    } else if (shell_starts_with(argument, "search ")) {
+        result = r2_sj_search(shell_trim((char *)argument + 7), 50);
+    } else if (shell_starts_with(argument, "note ")) {
+        const char *note = shell_trim((char *)argument + 5);
+        int64_t id = r2_sj_note(note, "Manual note entered through the R2 shell.");
+        if (id > 0) printf("[Sensory Journal note recorded as Life Log event %lld.]\n",
+                           (long long)id);
+        else printf("[Could not record the journal note. Is the Life Log initialized?]\n");
+        return;
+    } else if (!strcasecmp(argument, "status")) {
+        result = r2_sj_recent(5);
+    } else {
+        result = r2_sj_search(argument, 50);
+    }
+    if (result) { printf("%s", result); free(result); }
+    else printf("[Could not read the Sensory Journal.]\n");
+}
+
+/* ============================================================
+   ALTERNATE-SELF LAB
+   ============================================================ */
+
+static long long shell_parse_id(const char *text)
+{
+    char *end = NULL;
+    if (!text || !*text) return -1;
+    errno = 0;
+    long long value = strtoll(text, &end, 10);
+    if (errno || end == text || *shell_trim(end) != '\0' || value <= 0)
+        return -1;
+    return value;
+}
+
+static void shell_alternate(const char *argument)
+{
+    if (!argument || !*argument || !strcasecmp(argument, "list")) {
+        char *result = r2_altself_list(25);
+        if (result) { printf("%s", result); free(result); }
+        else printf("[Alternate-Self Lab is unavailable.]\n");
+        return;
+    }
+    if (shell_starts_with(argument, "show ")) {
+        long long id = shell_parse_id(shell_trim((char *)argument + 5));
+        char *result = id > 0 ? r2_altself_show(id) : NULL;
+        if (result) { printf("%s", result); free(result); }
+        else printf("[Usage: alternate show <branch-id>]\n");
+        return;
+    }
+    if (shell_starts_with(argument, "discard ")) {
+        long long id = shell_parse_id(shell_trim((char *)argument + 8));
+        if (id > 0 && r2_altself_discard(id) == 0)
+            printf("[Branch #%lld marked discarded; its history remains preserved.]\n", id);
+        else printf("[Could not discard branch. Use 'alternate list' to check its ID and status.]\n");
+        return;
+    }
+    if (shell_starts_with(argument, "retain ")) {
+        long long id = shell_parse_id(shell_trim((char *)argument + 7));
+        if (id > 0 && r2_altself_retain_hypothesis(id) == 0)
+            printf("[Branch #%lld retained as a hypothesis, not a factual memory.]\n", id);
+        else printf("[Could not retain branch. Use 'alternate list' to check its ID and status.]\n");
+        return;
+    }
+    if (shell_starts_with(argument, "compare ")) {
+        long long first = -1, second = -1;
+        char extra = '\0';
+        if (sscanf(argument + 8, "%lld %lld %c", &first, &second, &extra) == 2 &&
+            first > 0 && second > 0) {
+            char *result = r2_altself_compare(first, second);
+            if (result) { printf("%s", result); free(result); }
+            else printf("[Could not compare those branches.]\n");
+        } else printf("[Usage: alternate compare <branch-id> <branch-id>]\n");
+        return;
+    }
+    if (shell_starts_with(argument, "create ")) {
+        char *fields_text = strdup(argument + 7);
+        if (!fields_text) { printf("[Out of memory.]\n"); return; }
+        char *fields[6] = {0};
+        size_t count = 0;
+        char *cursor = fields_text;
+        while (count < 6) {
+            fields[count++] = cursor;
+            char *separator = strchr(cursor, '|');
+            if (!separator) break;
+            *separator = '\0';
+            cursor = separator + 1;
+        }
+        if (count < 5 || (count == 6 && strchr(fields[5], '|'))) {
+            printf("[Usage: alternate create name|scenario|assumptions|predicted outcome|conclusion|optional evidence event ID]\n");
+            free(fields_text);
+            return;
+        }
+        for (size_t i = 0; i < count; ++i) fields[i] = shell_trim(fields[i]);
+        long long evidence = count >= 6 && *fields[5] ? shell_parse_id(fields[5]) : 0;
+        if (count >= 6 && *fields[5] && evidence < 0) {
+            printf("[Evidence event ID must be a positive integer, or left blank.]\n");
+            free(fields_text);
+            return;
+        }
+        int64_t id = r2_altself_create(fields[0], fields[1], fields[2],
+                                       fields[3], fields[4], evidence > 0 ? evidence : 0);
+        if (id > 0)
+            printf("[Created hypothetical branch #%lld. It is not a real event or factual memory.]\n",
+                   (long long)id);
+        else
+            printf("[Could not create branch. Check that name and scenario are non-empty and the lab is initialized.]\n");
+        free(fields_text);
+        return;
+    }
+    printf("Usage: alternate [list|show <id>|create name|scenario|assumptions|outcome|conclusion|evidence-id|discard <id>|retain <id>|compare <id> <id>]\n");
 }
 
 /* ============================================================
@@ -1163,6 +1290,25 @@ static int shell_dispatch(char *input)
         return 1;
     }
 
+    /* --------------------------------------------------------
+       SENSORY JOURNAL / ALTERNATE-SELF LAB
+       -------------------------------------------------------- */
+    if (!strcasecmp(command, "journal")) {
+        shell_journal(NULL);
+        return 1;
+    }
+    if (shell_starts_with(command, "journal ")) {
+        shell_journal(shell_trim(command + 8));
+        return 1;
+    }
+    if (!strcasecmp(command, "alternate")) {
+        shell_alternate(NULL);
+        return 1;
+    }
+    if (shell_starts_with(command, "alternate ")) {
+        shell_alternate(shell_trim(command + 10));
+        return 1;
+    }
 
     /* --------------------------------------------------------
        DIARY
