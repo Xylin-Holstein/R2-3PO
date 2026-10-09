@@ -30,7 +30,7 @@ def send_control_command(command: str) -> str:
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
         client.settimeout(2.0)
         client.connect(str(SOCKET_PATH))
-        client.sendall((command + "\\n").encode("utf-8"))
+        client.sendall((command + "\n").encode("utf-8"))
         response = client.recv(8192).decode("utf-8", errors="replace")
     if not response.startswith("OK"):
         raise RuntimeError(response or "R2 returned no response")
