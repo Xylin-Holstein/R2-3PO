@@ -551,6 +551,17 @@ static int message_add_ex(
     const char *content,
     int pinned)
 {
+    if (!role || !content)
+        return -1;
+
+    char *role_copy = xstrdup(role);
+    char *content_copy = xstrdup(content);
+    if (!role_copy || !content_copy) {
+        free(role_copy);
+        free(content_copy);
+        return -1;
+    }
+
     /*
        When the conversation reaches MAX_MESSAGES, remove the
        oldest NON-PINNED message.
@@ -577,8 +588,11 @@ static int message_add_ex(
            If absolutely everything is pinned, there is no safe
            message to evict. Do not destroy architectural context.
         */
-        if (remove_index == SIZE_MAX)
+        if (remove_index == SIZE_MAX) {
+            free(role_copy);
+            free(content_copy);
             return -1;
+        }
 
         free(messages.items[remove_index].role);
         free(messages.items[remove_index].content);
@@ -612,18 +626,18 @@ static int message_add_ex(
                 nc * sizeof(*p)
             );
 
-        if (!p)
+        if (!p) {
+            free(role_copy);
+            free(content_copy);
             return -1;
+        }
 
         messages.items = p;
         messages.capacity = nc;
     }
 
-    messages.items[messages.count].role =
-        xstrdup(role);
-
-    messages.items[messages.count].content =
-        xstrdup(content);
+    messages.items[messages.count].role = role_copy;
+    messages.items[messages.count].content = content_copy;
 
     messages.items[messages.count].pinned =
         pinned ? 1 : 0;
