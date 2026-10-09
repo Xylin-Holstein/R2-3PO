@@ -4920,6 +4920,19 @@ static char *process_tools(
 
 #undef APPEND
 
+    if (len > 0) {
+        char *details = malloc(strlen(reply ? reply : "") + len + 128);
+        if (details) {
+            snprintf(details, strlen(reply ? reply : "") + len + 128,
+                     "MODEL TOOL REQUESTS:\n%s\n\nTOOL RESULTS:\n%s",
+                     reply ? reply : "(no model response)", results);
+            r2_log_event(R2_LOG_THINKING, "tool_execution_results",
+                         "R2 attempted one or more tool actions and recorded their results.",
+                         details, "process_tools");
+            free(details);
+        }
+    }
+
     return results;
 }
 
@@ -6130,6 +6143,10 @@ static char *r2_talk_serialized(const char *message)
     if (!core_initialized || shutting_down || !message)
         return NULL;
 
+    r2_log_event(R2_LOG_CONVERSATION, "conversation_request_received",
+                 "R2 received a message for the active conversation interface.",
+                 message, "r2_talk_serialized");
+
     conversation_session_ensure_locked();
     handle_completed_messages();
 
@@ -6147,6 +6164,9 @@ static char *r2_talk_serialized(const char *message)
     if (!reply) {
         message_rollback_to(initial_message_count);
         fprintf(stderr, "[R2] Conversation generation failed; the incomplete turn was removed from live context.\n");
+        r2_log_event(R2_LOG_ERROR, "conversation_generation_failed",
+                     "R2 could not generate a reply to the received message.",
+                     message, "r2_talk_serialized");
         return NULL;
     }
 
@@ -6187,6 +6207,9 @@ static char *r2_talk_serialized(const char *message)
         if (!reply) {
             message_rollback_to(initial_message_count);
             fprintf(stderr, "[R2] Follow-up generation failed; the incomplete turn was removed from live context.\n");
+            r2_log_event(R2_LOG_ERROR, "conversation_followup_failed",
+                         "R2 could not generate a reply after processing tool results.",
+                         message, "r2_talk_serialized");
             return NULL;
         }
     } else {
