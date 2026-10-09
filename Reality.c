@@ -967,7 +967,11 @@ int r2_reality_init(void)
         "('box','container','The general storage box in R2''s room','room'),"
         "('pockets','inventory','R2''s portable pockets','R2'),"
         "('wallet','inventory','R2''s wallet inside his pockets','pockets'),"
-        "('fridge','container','The fridge in R2''s home','home');";
+        "('fridge','container','The fridge in R2''s home','home');"
+        /* The television is initial room furnishing, not a purchased item.
+           INSERT OR IGNORE preserves any later location chosen by R2. */
+        "INSERT OR IGNORE INTO r2_reality_objects(name,description,quantity,container,owner) "
+        "VALUES('TV','CRT television with a built-in VCR and expandable external inputs.',1,'room','R2');";
     if (exec_sql(schema) != 0) {
         sqlite3_close(reality_db); reality_db = NULL;
         pthread_mutex_unlock(&reality_lock); return -1;
