@@ -116,7 +116,8 @@ static int r2_vwebcam_write_status(const R2Eyes *eyes, int active)
     FILE *f = fopen(tmp, "w");
     if (!f) return -1;
     int ok = fprintf(f, "%d\n%s\n%u\n%u\n%llu\n",
-        active && eyes && eyes->open ? 1 : 0,
+        active && eyes && eyes->open &&
+        (eyes->origin == R2_VISION_WORLD || eyes->origin == R2_VISION_VLC) ? 1 : 0,
         (eyes && eyes->source_name[0]) ? eyes->source_name : "No source",
         (eyes && eyes->open) ? eyes->format.width : 0,
         (eyes && eyes->open) ? eyes->format.height : 0,
@@ -129,6 +130,7 @@ static int r2_vwebcam_write_status(const R2Eyes *eyes, int active)
 static void r2_vwebcam_publish_frame(R2Eyes *eyes)
 {
     if (!eyes || !eyes->open || !eyes->frame_buffer ||
+        (eyes->origin != R2_VISION_WORLD && eyes->origin != R2_VISION_VLC) ||
         eyes->format.pixel_format != R2_PIXEL_RGB24)
         return;
 
@@ -893,7 +895,8 @@ static int r2_eyes_open_internal(
 
     r2_eyes_reset_event(eyes);
     r2_eyes_reset_frame(eyes);
-    (void)r2_vwebcam_write_status(eyes, 1);
+    /* Only a physical camera/world input activates the V-Webcam popup. */
+    (void)r2_vwebcam_write_status(eyes, origin == R2_VISION_WORLD);
 
     char details[768];
     snprintf(details, sizeof(details),
