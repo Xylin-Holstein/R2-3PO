@@ -133,7 +133,7 @@ static int valid_media_signature(const char *mime,
     if (!strcmp(mime, "image/jpeg"))
         return length >= 3 && data[0] == 0xff && data[1] == 0xd8 && data[2] == 0xff;
     if (!strcmp(mime, "image/png"))
-        return length >= 8 && memcmp(data, "\\x89PNG\\r\\n\\x1a\\n", 8) == 0;
+        return length >= 8 && memcmp(data, "\x89PNG\r\n\x1a\n", 8) == 0;
     if (!strcmp(mime, "image/webp"))
         return length >= 12 && memcmp(data, "RIFF", 4) == 0 && memcmp(data + 8, "WEBP", 4) == 0;
     if (!strcmp(mime, "video/mp4") || !strcmp(mime, "video/quicktime") ||
