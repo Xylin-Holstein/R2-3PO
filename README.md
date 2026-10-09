@@ -30,7 +30,7 @@ gcc -std=c11 -Wall -Wextra -O2 \
 
 ## Compilation source inventory
 
-The build requires these seven C translation units:
+The build requires these eight C translation units:
 
 - `r2.c` — core
 - `shell.c` — command shell
@@ -40,7 +40,7 @@ The build requires these seven C translation units:
 - `Ears.c` — audio input
 - `Eyes.c` — visual input\n- `World.c` — Pockets, Wallet, Room, shelf/box storage, object counting, and safe possession movement
 
-Their matching headers are included in the repository: `r2.h`, `shell.h`, `r2_diary.h`, `Log.h`, `Visual.h`, `Ears.h`, and `Eyes.h`.
+Their matching headers are included in the repository: `r2.h`, `shell.h`, `r2_diary.h`, `Log.h`, `Visual.h`, `Ears.h`, `Eyes.h`, and `World.h`.
 
 GitHub Actions checks shell-script syntax and compiles this source set on pushes to the audit branch and the configured main branches. A successful compile confirms compilation/linking only; it does not exercise Ollama, live audio/video devices, or the runtime database.
 
