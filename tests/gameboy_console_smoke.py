@@ -65,7 +65,7 @@ def main() -> int:
         moved = run(root, emulator, "move", "Mario.gba", "shelf")
         assert moved["ok"] is True
         result = run(root, emulator, "insert", "Mario.gba", expect_ok=False)
-        assert "retrieve it first" in result["message"]
+        assert "Retrieve it first" in result["message"]
         run(root, emulator, "move", "Mario.gba", "pockets")
         result = run(root, emulator, "insert", "Mario.gba")
         assert result["cartridge_inserted"] is True
