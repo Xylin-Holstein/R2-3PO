@@ -103,8 +103,8 @@ static int bind_text(sqlite3_stmt *st, int n, const char *s)
 }
 
 
-/* Human-inspectable mirror files make room/shelf/box state visible in the
- * workspace. SQLite remains canonical; pockets/wallet are virtual containers. */
+/* Human-inspectable mirror files make room/shelf/box/pockets/wallet state visible.
+ * SQLite remains canonical; mirror files are projections of the inventory database. */
 static void item_slug(const char *name, char *out, size_t cap)
 {
     size_t j = 0;
@@ -425,7 +425,7 @@ static int migrate_legacy_reality(void)
         result = exec_sql("INSERT INTO r2_reality_meta(key,value) VALUES('legacy_reality_migrated','yes') ON CONFLICT(key) DO UPDATE SET value='yes'");
     (void)sqlite3_exec(reality_db, "DETACH DATABASE legacy", NULL, NULL, NULL);
     if (result == 0)
-        fprintf(stderr, "[R2 Reality] Legacy world/needs state migrated into r2_reality.db; r2_memory.db remains intact.\\n");
+        fprintf(stderr, "[R2 Reality] Legacy world/needs state migrated into r2_reality.db; r2_memory.db remains intact.\n");
     return result;
 }
 
