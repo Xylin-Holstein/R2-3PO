@@ -26,7 +26,7 @@ test -f "$TEMP_DIR/Pockets/GameBoyAdvance.desktop"
 grep -Fx "Exec=$TEMP_DIR/device/GameBoyAdvance" \
   "$TEMP_DIR/applications/GameBoyAdvance.desktop" >/dev/null
 grep -Fx "Exec=$TEMP_DIR/device/GameBoyAdvance" \
-  "$TEMP_DIR/pockets/GameBoyAdvance.desktop" >/dev/null
+  "$TEMP_DIR/Pockets/GameBoyAdvance.desktop" >/dev/null
 grep -F "Verified executable mGBA path: $TEMP_DIR/fake-mgba" \
   "$TEMP_DIR/install.log" >/dev/null
 
