@@ -696,7 +696,7 @@ void r2_diary_shutdown(void)
  * ============================================================
  */
 
-int r2_diary_write(
+static int r2_diary_write_impl(
     const char *entry
 )
 {
@@ -872,6 +872,22 @@ int r2_diary_write(
     );
 
     return 0;
+}
+
+
+/*
+ * Serialize diary writes so simultaneous reflection and remote/tool
+ * writes cannot interleave their Markdown mirror entries. SQLite still
+ * provides its own connection-level serialization for readers.
+ */
+static pthread_mutex_t r2_diary_write_lock = PTHREAD_MUTEX_INITIALIZER;
+
+int r2_diary_write(const char *entry)
+{
+    pthread_mutex_lock(&r2_diary_write_lock);
+    int result = r2_diary_write_impl(entry);
+    pthread_mutex_unlock(&r2_diary_write_lock);
+    return result;
 }
 
 
