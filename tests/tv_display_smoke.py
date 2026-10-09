@@ -123,6 +123,7 @@ class TVDisplaySmoke(unittest.TestCase):
         for command in ("vcr play", "vcr pause", "vcr stop", "vcr eject",
                         "vcr insert /tmp/example-film.mp4", "vcr position 42.750"):
             received = []
+            TV.SOCKET_PATH.unlink(missing_ok=True)
             server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             server.bind(str(TV.SOCKET_PATH))
             server.listen(1)
@@ -140,6 +141,7 @@ class TVDisplaySmoke(unittest.TestCase):
             worker.join(timeout=2)
             self.assertFalse(worker.is_alive())
             self.assertEqual(received, [command + "\n"])
+            TV.SOCKET_PATH.unlink(missing_ok=True)
 
     def test_vcr_client_rejects_invalid_media_and_position(self) -> None:
         with self.assertRaises(ValueError):
