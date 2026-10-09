@@ -2550,41 +2550,10 @@ static char *ollama_chat(
         json_object_new_array();
 
     /*
-     * Keep requests within a practical context budget for the local
-     * 3B model. MAX_MESSAGES limits message count, not total size.
-     * Preserve the first system prompt, then retain the newest
-     * contiguous messages that fit. Ollama's num_ctx below provides
-     * the hard model-side context limit.
+     * Do not discard conversation messages in R2's application layer.
+     * Send the full conversation and let the configured Ollama context
+     * window govern what the model can process in a single request.
      */
-    const size_t context_char_budget = 24000;
-    unsigned char *include_message =
-        calloc(count ? count : 1, sizeof(*include_message));
-    size_t context_chars = 0;
-    size_t first_message = 0;
-
-    if (!include_message) {
-        json_object_put(root);
-        return NULL;
-    }
-
-    if (count > 0 && !strcmp(msgs[0].role, "system")) {
-        size_t len = strlen(msgs[0].content);
-        include_message[0] = 1;
-        context_chars = len;
-        first_message = 1;
-    }
-
-    for (size_t i = count; i > first_message; --i) {
-        size_t index = i - 1;
-        size_t len = strlen(msgs[index].content);
-        size_t remaining = context_chars < context_char_budget
-                         ? context_char_budget - context_chars : 0;
-        if (len > remaining)
-            break;
-        include_message[index] = 1;
-        context_chars += len;
-    }
-
     if (system_override) {
 
         struct json_object *m =
@@ -2611,9 +2580,6 @@ static char *ollama_chat(
     }
 
     for (size_t i = 0; i < count; ++i) {
-        if (!include_message[i])
-            continue;
-
         struct json_object *m =
             json_object_new_object();
 
@@ -2632,8 +2598,6 @@ static char *ollama_chat(
         json_object_array_add(arr, m);
     }
 
-    free(include_message);
-
     json_object_object_add(
         root,
         "messages",
@@ -2646,11 +2610,11 @@ static char *ollama_chat(
         json_object_new_boolean(0)
     );
 
-    /* Explicit settings for the local Llama 3.2 3B model. */
+    /* Allocate a larger context window for Llama 3.2 3B on the 16 GB system. */
     struct json_object *options = json_object_new_object();
     if (options) {
         json_object_object_add(options, "num_ctx",
-                               json_object_new_int(8192));
+                               json_object_new_int(32768));
         json_object_object_add(options, "num_predict",
                                json_object_new_int(512));
         json_object_object_add(root, "options", options);
