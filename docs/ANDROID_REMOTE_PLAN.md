@@ -2,7 +2,7 @@
 
 **Working branch:** `feature/android-remote-connection`  
 **Base:** `main`  
-**Status:** architecture plan; implementation has not yet been added.
+**Status:** initial gateway and Android companion implementation committed on this branch; debug APK and core build are being checked by GitHub Actions. Live calling and speech transcription remain unimplemented.
 
 ## Product goal
 
@@ -107,16 +107,17 @@ A practical first version can use push-to-talk or turn-based voice conversation 
 - Add connection state, reconnect handling, and useful errors.
 
 ### Phase 3 — Photo, video, and audio attachments
-- Implement secure upload/download, metadata, limits, progress, and previews.
-- Connect photo analysis to the existing vision subsystem.
-- Add video frame/audio extraction and audio transcription as optional processing stages.
-- Link results to the shared conversation and ensure R2 can refer to the correct uploaded media.
+- [x] Authenticated raw-media upload with a 50 MiB limit and MIME/signature checks.
+- [x] Save uploads under the R2 workspace with generated filenames and restrictive file permissions.
+- [x] Connect uploaded images/videos to R2's existing Eyes/vision path and the shared conversation.
+- [ ] Add audio transcription and richer audio understanding.
+- [ ] Add video frame/audio extraction, media previews, download/history UI, and upload progress.
 
 ### Phase 4 — Live WebRTC call with spoken R2 replies
-- Add authenticated call signaling and WebRTC camera/microphone streams.
-- Add local speech recognition and TTS integration.
-- Add controlled video-frame sampling, speaking/listening state, interruption, and echo prevention.
-- Start with turn-based speech; improve latency and naturalness after end-to-end stability.
+- [ ] Add authenticated call signaling and WebRTC camera/microphone streams.
+- [ ] Add live speech recognition and TTS integration on the PC-side call path.
+- [ ] Add controlled video-frame sampling, speaking/listening state, interruption, and echo prevention.
+- [x] Android can speak completed text replies using the phone's installed TTS engine; this is not a live call.
 
 ### Phase 5 — Security, recovery, and release
 - Test large/invalid uploads, interrupted connections, reconnects, concurrent PC/phone messages, and service restarts.
@@ -135,4 +136,6 @@ A practical first version can use push-to-talk or turn-based voice conversation 
 
 ## Current status
 
-This file captures the agreed scope and proposed implementation order. It is not a claim that the gateway, Android APK, media pipeline, or live-call features already exist.
+Implemented on this branch: authenticated HTTP gateway integrated into the existing R2 process; serialization of full conversation turns; durable conversation history endpoint backed by the existing Life Log conversation table; Android Compose project with chat, diary, Life Log, memory search, status, phone-side TTS, and authenticated photo/video/audio uploads. Image/video uploads invoke the existing visual input path when available. GitHub Actions is configured to compile R2 and build a debug APK.
+
+Not complete yet: live WebRTC calling, live microphone streaming, speech-to-text/audio interpretation, continuous remote transcript push, media preview/download history, and device-tested release packaging. The app intentionally labels live calling as not implemented instead of presenting a fake call button.
