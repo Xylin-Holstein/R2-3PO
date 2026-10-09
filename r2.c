@@ -65,6 +65,7 @@
 #include <errno.h>
 #include <signal.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
@@ -127,9 +128,11 @@ static volatile sig_atomic_t shutting_down = 0;
 
 static pthread_t hands_thread;
 static pthread_t diary_thread;
+static pthread_mutex_t diary_thread_lock = PTHREAD_MUTEX_INITIALIZER;
+static atomic_int diary_running = ATOMIC_VAR_INIT(0);
 
 static int hands_thread_started = 0;
-static int diary_thread_started = 0;
+static atomic_int diary_thread_started = ATOMIC_VAR_INIT(0);
 static int core_initialized = 0;
 static int startup_memory_loaded = 0;
 static int watch_running = 0;
@@ -4804,17 +4807,18 @@ static void *autonomous_thinking(
 {
     (void)arg;
 
-    while (!shutting_down) {
+    while (!shutting_down && atomic_load(&diary_running)) {
 
         for (
             int i = 0;
             i < THINK_INTERVAL &&
-            !shutting_down;
+            !shutting_down &&
+            atomic_load(&diary_running);
             ++i
         )
             sleep(1);
 
-        if (shutting_down)
+        if (shutting_down || !atomic_load(&diary_running))
             break;
 
         uint64_t cycle_started_ms = r2_log_elapsed_ms();
@@ -5233,7 +5237,9 @@ const char *r2_model_name(void){ return MODEL; }
 
 int r2_thinking_active(void)
 {
-    return core_initialized && !shutting_down && diary_thread_started;
+    return core_initialized && !shutting_down &&
+           atomic_load(&diary_thread_started) &&
+           atomic_load(&diary_running);
 }
 
 int r2_think_interval(void){ return THINK_INTERVAL; }
@@ -5327,6 +5333,50 @@ int r2_think(void)
 {
     if (!core_initialized || shutting_down) return -1;
     return r2_write_diary();
+}
+
+int r2_start_thinking(void)
+{
+    if (!core_initialized || shutting_down || !diary_initialized)
+        return -1;
+
+    pthread_mutex_lock(&diary_thread_lock);
+    if (!core_initialized || shutting_down || !diary_initialized) {
+        pthread_mutex_unlock(&diary_thread_lock);
+        return -1;
+    }
+    if (atomic_load(&diary_thread_started)) {
+        pthread_mutex_unlock(&diary_thread_lock);
+        return 0;
+    }
+
+    atomic_store(&diary_running, 1);
+    if (pthread_create(&diary_thread, NULL, autonomous_thinking, NULL) != 0) {
+        atomic_store(&diary_running, 0);
+        pthread_mutex_unlock(&diary_thread_lock);
+        r2_log_event(R2_LOG_ERROR, "autonomous_thinking_start_failed",
+                     "Could not start the autonomous reflection worker.",
+                     NULL, "r2_start_thinking");
+        return -1;
+    }
+    atomic_store(&diary_thread_started, 1);
+    pthread_mutex_unlock(&diary_thread_lock);
+
+    r2_log_event(R2_LOG_LIFECYCLE, "autonomous_thinking_started",
+                 "Autonomous reflection worker started.", NULL,
+                 "r2_start_thinking");
+    return 0;
+}
+
+void r2_stop_thinking(void)
+{
+    pthread_mutex_lock(&diary_thread_lock);
+    atomic_store(&diary_running, 0);
+    if (atomic_load(&diary_thread_started)) {
+        pthread_join(diary_thread, NULL);
+        atomic_store(&diary_thread_started, 0);
+    }
+    pthread_mutex_unlock(&diary_thread_lock);
 }
 
 
@@ -6166,6 +6216,7 @@ int r2_conversation(void)
 int r2_init(void)
 {
     shutting_down = 0;
+    atomic_store(&diary_running, 0);
     watch_running = 0;
     startup_memory_loaded = 0;
 
@@ -6542,6 +6593,7 @@ int r2_init(void)
 
     hands_thread_started = 1;
 
+    atomic_store(&diary_running, 1);
     if (
         pthread_create(
             &diary_thread,
@@ -6550,7 +6602,7 @@ int r2_init(void)
             NULL
         ) != 0
     ) {
-
+        atomic_store(&diary_running, 0);
         shutting_down = 1;
 
         pthread_cond_broadcast(
@@ -6572,7 +6624,7 @@ int r2_init(void)
         return -1;
     }
 
-    diary_thread_started = 1;
+    atomic_store(&diary_thread_started, 1);
 
     /* ========================================================
        ONLINE MESSAGE
@@ -6643,6 +6695,7 @@ void r2_shutdown(void)
         return;
 
     shutting_down = 1;
+    atomic_store(&diary_running, 0);
     watch_running = 0;
     r2_vision_watch_stop();
 
@@ -6654,10 +6707,7 @@ void r2_shutdown(void)
 
     pthread_cond_broadcast(&task_queue_cond);
 
-    if (diary_thread_started) {
-        pthread_join(diary_thread, NULL);
-        diary_thread_started = 0;
-    }
+    r2_stop_thinking();
 
     if (hands_thread_started) {
         pthread_join(hands_thread, NULL);
