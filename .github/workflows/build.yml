@@ -54,7 +54,7 @@ jobs:
             -DR2_WORKSPACE='"/tmp/r2-diary-smoke"' \
             -DR2_DIARY_DATABASE='"/tmp/r2-diary-smoke/R2/r2_memory.db"' \
             -DR2_DIARY_DIR='"/tmp/r2-diary-smoke/R2_Diary"' \
-            tests/diary_integration_smoke.c r2_diary.c -lsqlite3 -lpthread \
+            tests/diary_integration_smoke.c r2_diary.c Reward.c -lsqlite3 -lpthread \
             -o /tmp/r2-diary-integration-smoke
           /tmp/r2-diary-integration-smoke
 
