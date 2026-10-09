@@ -83,6 +83,7 @@
  * an absurd allocation.
  */
 #define R2_MAX_CHUNK_SIZE      (10 * 1024 * 1024)
+#define R2_MAX_TOOL_OUTPUT     (1024 * 1024)
 
 
 /* ============================================================
@@ -1457,36 +1458,42 @@ char *r2_workspace_list(
             +
             16;
 
-        if (
-            length + required + 1
-            >= capacity
-        )
-        {
-            size_t new_capacity =
-                capacity * 2;
+        if (required + 1 > R2_MAX_TOOL_OUTPUT - length) {
+            const char *marker = "[listing truncated at 1 MiB]\\n";
+            size_t marker_length = strlen(marker);
+            if (marker_length + 1 <= R2_MAX_TOOL_OUTPUT - length) {
+                if (length + marker_length + 1 > capacity) {
+                    char *expanded = realloc(result, length + marker_length + 1);
+                    if (expanded) {
+                        result = expanded;
+                        capacity = length + marker_length + 1;
+                    }
+                }
+                if (length + marker_length + 1 <= capacity) {
+                    memcpy(result + length, marker, marker_length + 1);
+                    length += marker_length;
+                }
+            }
+            break;
+        }
 
-            while (
-                length + required + 1
-                >= new_capacity
-            )
-            {
-                new_capacity *= 2;
+        if (length + required + 1 >= capacity) {
+            size_t new_capacity = capacity * 2;
+            if (new_capacity > R2_MAX_TOOL_OUTPUT)
+                new_capacity = R2_MAX_TOOL_OUTPUT;
+            while (length + required + 1 >= new_capacity &&
+                   new_capacity < R2_MAX_TOOL_OUTPUT) {
+                size_t next_capacity = new_capacity * 2;
+                new_capacity = next_capacity > R2_MAX_TOOL_OUTPUT
+                    ? R2_MAX_TOOL_OUTPUT : next_capacity;
             }
 
-            char *expanded =
-                realloc(
-                    result,
-                    new_capacity
-                );
-
-            if (!expanded)
-            {
+            char *expanded = realloc(result, new_capacity);
+            if (!expanded) {
                 closedir(directory);
                 free(result);
-
                 return NULL;
             }
-
             result = expanded;
             capacity = new_capacity;
         }
@@ -1898,41 +1905,44 @@ char *r2_workspace_search(
             continue;
         }
 
-        size_t required =
-            strlen(line)
-            +
-            64;
+        size_t required = strlen(line) + 64;
 
-        if (
-            length + required + 1
-            >= capacity
-        )
-        {
-            size_t new_capacity =
-                capacity * 2;
+        if (required + 1 > R2_MAX_TOOL_OUTPUT - length) {
+            const char *marker = "[search results truncated at 1 MiB]\\n";
+            size_t marker_length = strlen(marker);
+            if (marker_length + 1 <= R2_MAX_TOOL_OUTPUT - length) {
+                if (length + marker_length + 1 > capacity) {
+                    char *expanded = realloc(result, length + marker_length + 1);
+                    if (expanded) {
+                        result = expanded;
+                        capacity = length + marker_length + 1;
+                    }
+                }
+                if (length + marker_length + 1 <= capacity) {
+                    memcpy(result + length, marker, marker_length + 1);
+                    length += marker_length;
+                }
+            }
+            break;
+        }
 
-            while (
-                length + required + 1
-                >= new_capacity
-            )
-            {
-                new_capacity *= 2;
+        if (length + required + 1 >= capacity) {
+            size_t new_capacity = capacity * 2;
+            if (new_capacity > R2_MAX_TOOL_OUTPUT)
+                new_capacity = R2_MAX_TOOL_OUTPUT;
+            while (length + required + 1 >= new_capacity &&
+                   new_capacity < R2_MAX_TOOL_OUTPUT) {
+                size_t next_capacity = new_capacity * 2;
+                new_capacity = next_capacity > R2_MAX_TOOL_OUTPUT
+                    ? R2_MAX_TOOL_OUTPUT : next_capacity;
             }
 
-            char *expanded =
-                realloc(
-                    result,
-                    new_capacity
-                );
-
-            if (!expanded)
-            {
+            char *expanded = realloc(result, new_capacity);
+            if (!expanded) {
                 fclose(file);
                 free(result);
-
                 return NULL;
             }
-
             result = expanded;
             capacity = new_capacity;
         }
