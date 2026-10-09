@@ -1300,14 +1300,17 @@ char *r2_log_status_report(void)
         "SELECT id,utc_time,category,event_type,summary "
         "FROM r2_log_events ORDER BY id DESC LIMIT 1;",
         -1, &st, NULL);
-    if (rc == SQLITE_OK && sqlite3_step(st) == SQLITE_ROW) {
+    if (rc == SQLITE_OK)
+        rc = sqlite3_step(st);
+
+    if (rc == SQLITE_ROW) {
         const unsigned char *utc = sqlite3_column_text(st, 1);
         const unsigned char *category = sqlite3_column_text(st, 2);
         const unsigned char *type = sqlite3_column_text(st, 3);
         const unsigned char *summary = sqlite3_column_text(st, 4);
         if (append_text(&output, &length, &capacity,
-                        "Latest event: #%" PRId64 " at %s (%s/%s)\n"
-                        "  %s\n",
+                        "Latest event: #%" PRId64 " at %s (%s/%s)\\n"
+                        "  %s\\n",
                         sqlite3_column_int64(st, 0),
                         utc ? (const char *)utc : "unknown time",
                         category ? (const char *)category : "unknown",
@@ -1318,9 +1321,9 @@ char *r2_log_status_report(void)
             free(output);
             return NULL;
         }
-    } else if (rc == SQLITE_OK) {
+    } else if (rc == SQLITE_DONE) {
         if (append_text(&output, &length, &capacity,
-                        "Latest event: none\n") != 0) {
+                        "Latest event: none\\n") != 0) {
             sqlite3_finalize(st);
             pthread_mutex_unlock(&log_lock);
             free(output);
@@ -1332,7 +1335,6 @@ char *r2_log_status_report(void)
         free(output);
         return NULL;
     }
-
     sqlite3_finalize(st);
     pthread_mutex_unlock(&log_lock);
     return output;
