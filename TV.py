@@ -23,7 +23,7 @@ POSITION_SAVE_SECONDS = 5
 MEDIA_EXTENSIONS = (
     ".avi", ".mkv", ".mp4", ".m4v", ".mov", ".mpeg", ".mpg", ".wmv",
     ".webm", ".ogv", ".flv", ".ts", ".vob", ".3gp", ".asf", ".m2ts",
-    ".mts", ".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac",
+    ".mts",
 )
 
 
@@ -144,6 +144,9 @@ class CRTDisplay:
 
     def control(self, command: str) -> None:
         try:
+            # Save the outgoing tape before transport changes or inserting another.
+            if command.startswith("vcr ") and not command.startswith("vcr position "):
+                self._save_vcr_position(force=True)
             response = send_control_command(command)
             self.feedback.configure(text=response, fg="#a6b99c")
             self.refresh(schedule=False)
