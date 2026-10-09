@@ -93,6 +93,9 @@ static sqlite3 *db = NULL;
 static R2Eyes *eyes = NULL;
 static R2Ears *ears = NULL;
 static pthread_mutex_t visual_capture_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_t vision_watch_thread;
+static volatile sig_atomic_t vision_watch_running = 0;
+static int vision_watch_thread_started = 0;
 static int query_requests_visual_context(const char *query);
 static char *vision_analyze_current_frame(const char *question, int open_camera);
 
@@ -5205,6 +5208,67 @@ char *r2_vision_search(const char *query, int limit)
     return r2_visual_search(query, limit);
 }
 
+
+static void *vision_watch_worker(void *unused)
+{
+    (void)unused;
+    r2_log_event(R2_LOG_LIFECYCLE, "vision_watch_started",
+                 "R2 continuous visual observation started.",
+                 "The watcher analyzes one frame approximately every 15 seconds; it does not infer motion between sampled frames.",
+                 "vision_watch");
+
+    while (!shutting_down && vision_watch_running) {
+        char *description = vision_analyze_current_frame(
+            "Describe the current frame as a visual observation for R2's experience library. "
+            "Record visible objects, scene layout, readable text, and changes only when directly "
+            "supported by this frame. Do not claim motion from one frame.", 1);
+        if (description) {
+            r2_log_event(R2_LOG_SENSORY, "vision_watch_observation",
+                         "Continuous visual observation completed.",
+                         description, "vision_watch");
+            free(description);
+        }
+
+        for (int i = 0; i < 15 && !shutting_down && vision_watch_running; ++i)
+            sleep(1);
+    }
+
+    r2_log_event(R2_LOG_LIFECYCLE, "vision_watch_stopped",
+                 "R2 continuous visual observation stopped.", NULL, "vision_watch");
+    return NULL;
+}
+
+int r2_vision_watch_start(void)
+{
+    if (!core_initialized || shutting_down || !r2_visual_is_initialized())
+        return -1;
+    if (vision_watch_thread_started) return 0;
+    vision_watch_running = 1;
+    if (pthread_create(&vision_watch_thread, NULL, vision_watch_worker, NULL) != 0) {
+        vision_watch_running = 0;
+        r2_log_event(R2_LOG_ERROR, "vision_watch_start_failed",
+                     "Could not start the visual observation thread.", NULL, "r2_vision_watch_start");
+        return -1;
+    }
+    vision_watch_thread_started = 1;
+    return 0;
+}
+
+int r2_vision_watch_stop(void)
+{
+    vision_watch_running = 0;
+    if (vision_watch_thread_started) {
+        pthread_join(vision_watch_thread, NULL);
+        vision_watch_thread_started = 0;
+    }
+    return 0;
+}
+
+int r2_vision_watch_active(void)
+{
+    return vision_watch_running ? 1 : 0;
+}
+
 int r2_vision_available(void)
 {
     return r2_visual_is_initialized();
@@ -6189,6 +6253,7 @@ void r2_shutdown(void)
 
     shutting_down = 1;
     watch_running = 0;
+    r2_vision_watch_stop();
 
     if (r2_log_is_initialized()) {
         r2_log_system_snapshot("shutdown_begin");
