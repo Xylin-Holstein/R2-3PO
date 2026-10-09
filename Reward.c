@@ -155,7 +155,7 @@ static int64_t find_existing_log_event(sqlite3_int64 reward_id)
     sqlite3_stmt *st = NULL;
     int64_t event_id = 0;
     char pattern[80];
-    snprintf(pattern, sizeof(pattern), "reward_event_id=%lld;%%", (long long)reward_id);
+    snprintf(pattern, sizeof(pattern), "reward_event_id=%lld;*", (long long)reward_id);
     if (sqlite3_open_v2(R2_DIARY_DATABASE, &db,
         SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX, NULL) != SQLITE_OK) {
         if (db) sqlite3_close(db);
@@ -164,7 +164,7 @@ static int64_t find_existing_log_event(sqlite3_int64 reward_id)
     sqlite3_busy_timeout(db, 3000);
     if (sqlite3_prepare_v2(db,
         "SELECT id FROM r2_log_events WHERE event_type='enjoyment_changed' "
-        "AND details LIKE ? ORDER BY id DESC LIMIT 1", -1, &st, NULL) == SQLITE_OK) {
+        "AND details GLOB ? ORDER BY id DESC LIMIT 1", -1, &st, NULL) == SQLITE_OK) {
         sqlite3_bind_text(st, 1, pattern, -1, SQLITE_TRANSIENT);
         if (sqlite3_step(st) == SQLITE_ROW)
             event_id = sqlite3_column_int64(st, 0);
