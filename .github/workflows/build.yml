@@ -36,6 +36,11 @@ jobs:
           python3 -m py_compile Observer.py tests/observer_filter_smoke.py
           python3 tests/observer_filter_smoke.py
 
+      - name: Check CRT TV display and read-only Reality access
+        run: |
+          python3 -m py_compile TV.py tests/tv_display_smoke.py
+          python3 tests/tv_display_smoke.py
+
       - name: Check Game Boy console syntax and lifecycle
         run: |
           python3 -m py_compile GameBoyAdvance.py tests/gameboy_console_smoke.py
