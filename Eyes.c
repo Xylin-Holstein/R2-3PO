@@ -1161,6 +1161,9 @@ int r2_eyes_capture(
     eyes->frame.frame_number =
         eyes->frame_count;
 
+    /* Publish the actual newly captured pixels to the display-only V-Webcam. */
+    r2_vwebcam_publish_frame(eyes);
+
     /*
      * Record a bounded-rate sensory journal heartbeat instead of
      * writing a database row for every 10-fps frame. The full frame
