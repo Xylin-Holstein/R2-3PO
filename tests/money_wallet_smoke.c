@@ -40,7 +40,7 @@ int main(void) {
     char room_root[1200]; snprintf(room_root,sizeof(room_root),"%s/room",R2_ROOT);
     assert(mkdir(room_root,0755)==0);
     /* Upgrade old lowercase and room-local mirror folders without losing portable items. */
-    char legacy[1400], legacy_wallet[1500], legacy_room_pockets[1500], legacy_room_wallet[1500], migrated[1500];
+    char legacy[1400], legacy_wallet[1500], legacy_room_pockets[1500], legacy_room_wallet[1500], migrated[2048];
     snprintf(legacy_room_pockets,sizeof(legacy_room_pockets),"%s/room/pockets",R2_ROOT);
     snprintf(legacy_room_wallet,sizeof(legacy_room_wallet),"%s/room/wallet",R2_ROOT);
     assert(mkdir(legacy_room_pockets,0755)==0);
