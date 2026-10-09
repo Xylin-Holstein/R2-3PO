@@ -12,7 +12,7 @@
    FEATURE CONFIGURATION
    ============================================================ */
 
-#define MODEL "llama3.3"
+#define MODEL "llama3"
 
 #define THINK_INTERVAL 900
 
