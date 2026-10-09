@@ -9,6 +9,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <math.h>
 #include <pthread.h>
 #include <sqlite3.h>
 #include <stdio.h>
@@ -244,6 +245,14 @@ static void update_hunger_locked(double elapsed)
         sqlite3_step(st);
     }
     if (st) sqlite3_finalize(st);
+    st = NULL;
+    if (sqlite3_prepare_v2(reality_db,
+        "INSERT INTO r2_reality_meta(key,value) VALUES('world_elapsed_seconds',?) ON CONFLICT(key) DO UPDATE SET value=CAST(CAST(value AS INTEGER)+CAST(excluded.value AS INTEGER) AS TEXT)",
+        -1, &st, NULL) == SQLITE_OK) {
+        sqlite3_bind_int64(st, 1, (sqlite3_int64)llround(elapsed));
+        sqlite3_step(st);
+    }
+    if (st) sqlite3_finalize(st);
 }
 
 int r2_reality_init(void)
@@ -266,6 +275,7 @@ int r2_reality_init(void)
     sqlite3_exec(reality_db, "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;", NULL, NULL, NULL);
     const char *schema =
         "CREATE TABLE IF NOT EXISTS r2_reality_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);"
+        "INSERT OR IGNORE INTO r2_reality_meta(key,value) VALUES('world_elapsed_seconds','0');"
         "CREATE TABLE IF NOT EXISTS r2_reality_self (id INTEGER PRIMARY KEY CHECK(id=1), hunger REAL NOT NULL DEFAULT 0, seconds_since_meal REAL NOT NULL DEFAULT 0, sleepiness REAL NOT NULL DEFAULT 0, energy REAL NOT NULL DEFAULT 100, last_tick INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "INSERT OR IGNORE INTO r2_reality_self(id,hunger,seconds_since_meal,sleepiness,energy,last_tick) VALUES(1,0,0,0,100,strftime('%s','now'));"
         "CREATE TABLE IF NOT EXISTS r2_reality_self_facts (key TEXT PRIMARY KEY, value TEXT NOT NULL, evidence TEXT, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
@@ -469,10 +479,19 @@ char *r2_reality_status(void)
     if(sqlite3_prepare_v2(reality_db,"SELECT count(*) FROM r2_reality_objects",-1,&st,NULL)==SQLITE_OK &&
        sqlite3_step(st)==SQLITE_ROW) count=sqlite3_column_int(st,0);
     if(st) sqlite3_finalize(st);
+    st = NULL;
+    sqlite3_int64 world_elapsed = 0;
+    if (sqlite3_prepare_v2(reality_db,"SELECT value FROM r2_reality_meta WHERE key='world_elapsed_seconds'",-1,&st,NULL)==SQLITE_OK &&
+        sqlite3_step(st)==SQLITE_ROW) {
+        const unsigned char *v=sqlite3_column_text(st,0);
+        if(v) world_elapsed=(sqlite3_int64)atoll((const char*)v);
+    }
+    if(st) sqlite3_finalize(st);
     pthread_mutex_unlock(&reality_lock);
     const char *hstate = hunger < 25 ? "satisfied" : hunger < 50 ? "getting hungry" : hunger < 75 ? "hungry" : hunger < 100 ? "very hungry" : "starving";
-    snprintf(out,4096,"SELF CONTINUITY\nHunger: %.1f/100 (%s)\nTime since meal: %.1f hours\nSleepiness: %.1f/100\nEnergy: %.1f/100\nObjects tracked in the world: %d\nAfter 72 hours without food, prolonged starvation is recorded; needs do not magically reset on restart.\n",
-        hunger,hstate,since/3600.0,sleepiness,energy,count);
+    snprintf(out,4096,"SELF CONTINUITY\nHunger: %.1f/100 (%s)\nTime since meal: %.1f hours\nSleepiness: %.1f/100\nEnergy: %.1f/100\nModeled world time elapsed: %lld days, %lld hours\nObjects tracked in the world: %d\nAfter 72 hours without food, prolonged starvation is recorded; needs do not magically reset on restart.\n",
+        hunger,hstate,since/3600.0,sleepiness,energy,
+        (long long)(world_elapsed/86400),(long long)((world_elapsed%86400)/3600),count);
     return out;
 }
 
