@@ -94,6 +94,7 @@ static int constant_time_equal(const char *a, const char *b)
 
 static char *header_value(char *headers, const char *name)
 {
+    static char value_buffer[4096];
     size_t nlen = strlen(name);
     char *line = strstr(headers, "\r\n");
     if (!line) return NULL;
@@ -107,8 +108,12 @@ static char *header_value(char *headers, const char *name)
             line[nlen] == ':') {
             char *value = line + nlen + 1;
             while (value < end && (*value == ' ' || *value == '\t')) value++;
-            *end = '\0';
-            return value;
+            size_t length = (size_t)(end - value);
+            if (length >= sizeof(value_buffer))
+                length = sizeof(value_buffer) - 1;
+            memcpy(value_buffer, value, length);
+            value_buffer[length] = '\0';
+            return value_buffer;
         }
         line = end + 2;
     }
