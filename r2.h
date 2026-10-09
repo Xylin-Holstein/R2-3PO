@@ -206,6 +206,7 @@ int r2_write_diary(void);
 /* Simulate a sleep transition and generate/store a private dream report. */
 int r2_sleep_and_dream(double hours);
 int r2_eat_and_learn(const char *food, double fullness);
+int r2_eat_fridge_and_learn(const char *food, double fullness);
 
 
 /*
