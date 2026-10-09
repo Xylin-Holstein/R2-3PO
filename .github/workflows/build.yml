@@ -37,6 +37,9 @@ jobs:
           python3 -m py_compile GameBoyAdvance.py tests/gameboy_console_smoke.py
           python3 tests/gameboy_console_smoke.py
 
+      - name: Exercise Game Boy installer and desktop entry
+        run: bash tests/gameboy_install_smoke.sh
+
       - name: Exercise Alternate-Self Lab persistence
         run: |
           cc -std=c11 -Wall -Wextra -Werror -O2 -I. \
