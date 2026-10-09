@@ -298,6 +298,42 @@ if ! sudo install -d -o r2 -m 0750 "$R2_ROOT/R2_Log"; then
 fi
 
 # ------------------------------------------------------------
+# START V-WEBCAM AS THE DEDICATED R2 USER
+#
+# It observes Eyes' published frames; it does not capture a
+# second stream. Export this desktop's X11 cookie privately so
+# the r2 account can display its own window without xhost +.
+# ------------------------------------------------------------
+
+if [ -n "${DISPLAY:-}" ] && [ -f "$R2_SOURCE/V-Webcam.py" ]; then
+    if ! python3 -c 'import tkinter' >/dev/null 2>&1; then
+        echo "Tkinter is missing; installing the Ubuntu python3-tk package..."
+        sudo apt-get install -y python3-tk
+    fi
+
+    if python3 -c 'import tkinter' >/dev/null 2>&1 && command -v xauth >/dev/null 2>&1; then
+        VWEBCAM_AUTH="$R2_ROOT/.r2-vwebcam.Xauthority"
+        sudo -u r2 -- mkdir -p /tmp/r2-vwebcam-r2
+        sudo -u r2 -- chmod 0700 /tmp/r2-vwebcam-r2
+        sudo -u r2 -- touch "$VWEBCAM_AUTH"
+        sudo -u r2 -- chmod 0600 "$VWEBCAM_AUTH"
+        if xauth extract - "$DISPLAY" 2>/dev/null | sudo -u r2 -- xauth -f "$VWEBCAM_AUTH" merge -; then
+            echo "Starting V-Webcam monitor..."
+            sudo -u r2 -- env HOME=/home/r2 DISPLAY="$DISPLAY" XAUTHORITY="$VWEBCAM_AUTH" \
+                python3 "$R2_SOURCE/V-Webcam.py" \
+                >> "$R2_ROOT/V-Webcam.log" 2>&1 &
+            sleep 1
+        else
+            echo "WARNING: Could not copy the desktop X11 authorization cookie; V-Webcam will not open."
+        fi
+    else
+        echo "WARNING: V-Webcam requires python3-tk and xauth; its window was not started."
+    fi
+else
+    echo "WARNING: No graphical DISPLAY or V-Webcam.py; starting R2 without the V-Webcam window."
+fi
+
+# ------------------------------------------------------------
 # START R2 WITH ITS PRIVATE CLOCK
 # ------------------------------------------------------------
 
