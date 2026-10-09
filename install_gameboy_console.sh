@@ -5,7 +5,19 @@ SOURCE_DIR="$(cd -- "$(dirname -- "\${BASH_SOURCE[0]}")" && pwd)"
 TARGET_DIR="\${R2_GAMEBOY_DIR:-/home/x/R2_Home/Devices/GameBoyAdvance}"
 
 mkdir -p "$TARGET_DIR/Cartridges" "$TARGET_DIR/Saves" "$TARGET_DIR/State"
+# Catch syntax problems before replacing the installed console executable.
+python3 -m py_compile "$SOURCE_DIR/GameBoyAdvance.py"
 install -m 0755 "$SOURCE_DIR/GameBoyAdvance.py" "$TARGET_DIR/GameBoyAdvance"
+
+# Verify the selected emulator path without silently substituting another one.
+MGBA_PATH="${R2_MGBA_EXECUTABLE:-/usr/games/mgba-qt}"
+if [[ -x "$MGBA_PATH" ]]; then
+  echo "Verified executable mGBA path: $MGBA_PATH"
+else
+  echo "WARNING: mGBA is not executable at $MGBA_PATH."
+  echo "Set R2_MGBA_EXECUTABLE to the installed mGBA executable before powering on."
+fi
+"$TARGET_DIR/GameBoyAdvance" --json verify || true
 
 # R2 is launched under the separate Linux account "r2". Give that account
 # write access to its device state/saves while keeping the installer's account
