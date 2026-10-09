@@ -2700,24 +2700,39 @@ static char *ollama_chat_with_limit(
     }
 
     size_t total_chars = 0;
-    for (size_t i = 0; i < count; ++i) {
-        if (!msgs[i].role || strcmp(msgs[i].role, "system") != 0)
-            continue;
-        const char *content = msgs[i].content ? msgs[i].content : "";
-        size_t length = strlen(content);
-        if (length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS)
-            length = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;
-        if (length > OLLAMA_MAX_SYSTEM_TOTAL_CHARS -
-                     (total_chars < OLLAMA_MAX_SYSTEM_TOTAL_CHARS
-                          ? total_chars : OLLAMA_MAX_SYSTEM_TOTAL_CHARS))
-            length = OLLAMA_MAX_SYSTEM_TOTAL_CHARS -
-                     (total_chars < OLLAMA_MAX_SYSTEM_TOTAL_CHARS
-                          ? total_chars : OLLAMA_MAX_SYSTEM_TOTAL_CHARS);
-        if (length == 0) continue;
-        include[i] = 1;
-        limits[i] = length;
-        total_chars += length;
-        if (total_chars >= OLLAMA_MAX_SYSTEM_TOTAL_CHARS) break;
+    /*
+     * Priority matters when the system-context budget is reached. Keep the
+     * core identity/personality prompt first, then the newest canonical Reality
+     * snapshot, then any other system/archive context. Otherwise old pinned
+     * memory blocks can crowd the refreshed hunger/world state out entirely.
+     */
+    for (int priority = 0; priority < 3 &&
+         total_chars < OLLAMA_MAX_SYSTEM_TOTAL_CHARS; ++priority) {
+        for (size_t i = 0; i < count &&
+             total_chars < OLLAMA_MAX_SYSTEM_TOTAL_CHARS; ++i) {
+            if (!msgs[i].role || strcmp(msgs[i].role, "system") != 0)
+                continue;
+            const char *content = msgs[i].content ? msgs[i].content : "";
+            int message_priority = 2;
+            if (!strncmp(content,
+                         "============================================================\\nIDENTITY AND PERSISTENT MEMORY",
+                         strlen("============================================================\\nIDENTITY AND PERSISTENT MEMORY")))
+                message_priority = 0;
+            else if (!strncmp(content, "PERSISTENT REALITY CONTEXT",
+                              strlen("PERSISTENT REALITY CONTEXT")))
+                message_priority = 1;
+            if (message_priority != priority) continue;
+
+            size_t length = strlen(content);
+            if (length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS)
+                length = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;
+            size_t remaining = OLLAMA_MAX_SYSTEM_TOTAL_CHARS - total_chars;
+            if (length > remaining) length = remaining;
+            if (length == 0) continue;
+            include[i] = 1;
+            limits[i] = length;
+            total_chars += length;
+        }
     }
 
     size_t recent_count = 0;
