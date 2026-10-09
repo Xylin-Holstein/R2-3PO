@@ -9,6 +9,15 @@ mkdir -p "$TARGET_DIR/Cartridges" "$TARGET_DIR/Saves" "$TARGET_DIR/State"
 python3 -m py_compile "$SOURCE_DIR/GameBoyAdvance.py"
 install -m 0755 "$SOURCE_DIR/GameBoyAdvance.py" "$TARGET_DIR/GameBoyAdvance"
 
+# Install a real desktop-entry launcher. Do not execute the .desktop file as a
+# shell script; desktop environments read it as application metadata.
+DESKTOP_DIR="${R2_DESKTOP_DIR:-/home/x/.local/share/applications}"
+DESKTOP_ENTRY="$DESKTOP_DIR/GameBoyAdvance.desktop"
+mkdir -p "$DESKTOP_DIR"
+sed "s|^Exec=.*$|Exec=$TARGET_DIR/GameBoyAdvance|" \
+  "$SOURCE_DIR/GameBoyAdvance.desktop" > "$DESKTOP_ENTRY"
+chmod 0644 "$DESKTOP_ENTRY"
+
 # Verify the selected emulator path without silently substituting another one.
 MGBA_PATH="${R2_MGBA_EXECUTABLE:-/usr/games/mgba-qt}"
 if [[ -x "$MGBA_PATH" ]]; then
@@ -43,7 +52,7 @@ Installed R2's Game Boy Advance console:
   Normal game saves: $TARGET_DIR/Saves/
   Runtime/config:    $TARGET_DIR/State/
 
-The external emulator remains at /usr/games/mgba-qt by default.
+Desktop launcher:   /home/x/.local/share/applications/GameBoyAdvance.desktop\nThe external emulator remains at /usr/games/mgba-qt by default.
 Override it with R2_MGBA_EXECUTABLE if its location differs.
 If R2 runs as a separate Linux account, make sure that account can
 read/execute the console and emulator and write to the device directory.
