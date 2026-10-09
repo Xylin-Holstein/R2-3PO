@@ -102,6 +102,8 @@ static R2Ears *ears = NULL;
 static pthread_mutex_t visual_capture_lock = PTHREAD_MUTEX_INITIALIZER;
 /* Keep this process from flooding the local text model with concurrent requests. */
 static pthread_mutex_t ollama_request_lock = PTHREAD_MUTEX_INITIALIZER;
+/* A conversation turn must be atomic so failed-turn rollback cannot erase another turn. */
+static pthread_mutex_t conversation_turn_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t vision_watch_thread;
 static volatile sig_atomic_t vision_watch_running = 0;
 static int vision_watch_thread_started = 0;
@@ -5311,7 +5313,10 @@ static int query_requests_visual_context(const char *query)
     if (!query) return 0;
     const char *terms[] = {
         "what do you see", "what can you see", "look at", "look on",
-        "what are we watching", "what am i showing you", "what am i looking at",
+        "what are we watching", "what were we watching", "what did we watch",
+        "what have we watched", "did we watch", "remember watching", "remember seeing",
+        "what did i show you", "what have you seen", "what did you see",
+        "what am i showing you", "what am i looking at",
         "what is this", "what's this",
         "what is on the screen", "what's on the screen", "what is playing",
         "what's playing", "describe this", "describe the image",
@@ -5919,7 +5924,7 @@ static void log_structured_self_report(const char *reply, int64_t parent_event_i
 }
 
 
-char *r2_talk(const char *message)
+static char *r2_talk_impl(const char *message)
 {
     if (!core_initialized || shutting_down || !message)
         return NULL;
@@ -6066,6 +6071,19 @@ char *r2_talk(const char *message)
         free(md);
     }
 
+    return reply;
+}
+
+/*
+ * Serialize whole turns, not only the HTTP request. Without this, concurrent
+ * callers can interleave user/assistant messages and rollback of one failed
+ * turn can remove another caller's newer messages.
+ */
+char *r2_talk(const char *message)
+{
+    pthread_mutex_lock(&conversation_turn_lock);
+    char *reply = r2_talk_impl(message);
+    pthread_mutex_unlock(&conversation_turn_lock);
     return reply;
 }
 
