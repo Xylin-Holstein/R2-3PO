@@ -144,6 +144,54 @@ int64_t r2_log_world_event(
  */
 int r2_log_system_snapshot(const char *reason);
 
+
+/* Full conversation record, including exact user and assistant text. */
+int64_t r2_log_conversation_turn(const char *user_text,
+                                const char *assistant_text);
+
+/*
+ * Structured self-state. Confidence is 0.0..1.0, or negative if unknown.
+ * Records describe R2's expressed or explicitly evidenced state, not
+ * objectively measured human-like feelings.
+ */
+int64_t r2_log_inner_state(const char *state_kind,
+                           const char *description,
+                           const char *evidence,
+                           double confidence,
+                           const char *origin);
+
+/* Belief ledger retains current state and full revision history in events. */
+int64_t r2_log_belief(const char *belief_key,
+                     const char *belief,
+                     const char *evidence,
+                     double confidence,
+                     const char *status,
+                     const char *origin);
+
+/* Continuity ledger for projects, goals, tasks, questions, and routines. */
+int64_t r2_log_continuity(const char *item_key,
+                          const char *item_type,
+                          const char *title,
+                          const char *description,
+                          const char *status,
+                          const char *next_action,
+                          const char *origin);
+
+/* Link two events by a named relationship. */
+int r2_log_link(int64_t from_event_id, int64_t to_event_id,
+                const char *relationship, const char *notes);
+
+/* Hypothetical records are explicitly segregated from real events. */
+int64_t r2_log_hypothetical(const char *scenario,
+                            const char *assumptions,
+                            const char *predicted_outcome,
+                            const char *conclusion,
+                            const char *origin);
+
+/* Life Log overview. Caller frees returned text. */
+char *r2_log_status_report(void);
+
+
 /*
  * Query helpers return newly allocated strings. The caller must
  * free() the result. A NULL return indicates failure.
