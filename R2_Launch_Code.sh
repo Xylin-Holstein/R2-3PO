@@ -278,64 +278,46 @@ echo
 # ------------------------------------------------------------
 # R2 REMOTE ACCESS TOKEN
 #
-# PEACE is the Android app's saved token LABEL, not the secret.
-# Keep a private token file so the app only needs configuring once.
-# An explicitly exported R2_REMOTE_TOKEN takes precedence.
+# Generate a fresh secret on EVERY launcher run. The remote API also
+# accepts the convenience alias "PEACE", which stands for this run's token.
+# The actual random token is not saved to disk; it is printed below so it
+# can be copied when the full token is preferred.
 # ------------------------------------------------------------
 
-if [ -z "${R2_REMOTE_TOKEN:-}" ]; then
-    PEACE_TOKEN_FILE="$R2_ROOT/PEACE.token"
+unset R2_REMOTE_TOKEN
 
-    if ! command -v openssl >/dev/null 2>&1; then
-        echo "ERROR: openssl is required to generate R2's remote access token."
-        echo "R2 was NOT launched."
-        read -p "Press Enter to exit..."
-        exit 1
-    fi
-
-    if [ -s "$PEACE_TOKEN_FILE" ]; then
-        if ! R2_REMOTE_TOKEN="$(cat "$PEACE_TOKEN_FILE")" || [ -z "$R2_REMOTE_TOKEN" ]; then
-            echo "ERROR: Could not read $PEACE_TOKEN_FILE."
-            echo "R2 was NOT launched."
-            read -p "Press Enter to exit..."
-            exit 1
-        fi
-        chmod 0600 "$PEACE_TOKEN_FILE" || {
-            echo "ERROR: Could not secure $PEACE_TOKEN_FILE."
-            echo "R2 was NOT launched."
-            read -p "Press Enter to exit..."
-            exit 1
-        }
-        echo "Loaded saved remote access token for Android app label: PEACE"
-    else
-        umask 077
-        R2_REMOTE_TOKEN="$(openssl rand -hex 32)" || {
-            echo "ERROR: Could not generate R2's remote access token."
-            echo "R2 was NOT launched."
-            read -p "Press Enter to exit..."
-            exit 1
-        }
-
-        if ! printf '%s\n' "$R2_REMOTE_TOKEN" > "$PEACE_TOKEN_FILE" ||
-           ! chmod 0600 "$PEACE_TOKEN_FILE"; then
-            rm -f "$PEACE_TOKEN_FILE"
-            echo "ERROR: Could not securely save $PEACE_TOKEN_FILE."
-            echo "R2 was NOT launched."
-            read -p "Press Enter to exit..."
-            exit 1
-        fi
-        echo "Generated and saved a new remote access token for Android app label: PEACE"
-        echo "Enter this token in PEACE's Android app settings. It will be reused on future launches:"
-        printf '%s\n' "$R2_REMOTE_TOKEN"
-        echo "Keep this token private."
-    fi
-
-    export R2_REMOTE_TOKEN
-else
-    echo "Using the R2_REMOTE_TOKEN supplied in this terminal (Android app label: PEACE)."
-    echo "Token was not printed or saved to the PEACE token file."
+if ! command -v openssl >/dev/null 2>&1; then
+    echo "ERROR: openssl is required to generate R2's remote access token."
+    echo "R2 was NOT launched."
+    read -p "Press Enter to exit..."
+    exit 1
 fi
+
+umask 077
+R2_REMOTE_TOKEN="$(openssl rand -hex 32)" || {
+    echo "ERROR: Could not generate R2's remote access token."
+    echo "R2 was NOT launched."
+    read -p "Press Enter to exit..."
+    exit 1
+}
+
+if [ "${#R2_REMOTE_TOKEN}" -ne 64 ]; then
+    echo "ERROR: Generated remote access token has an unexpected length."
+    echo "R2 was NOT launched."
+    unset R2_REMOTE_TOKEN
+    read -p "Press Enter to exit..."
+    exit 1
+fi
+
+export R2_REMOTE_TOKEN
+
+echo "Generated a NEW remote access token for this launch."
+echo "Authenticate using either the full token below or the alias: PEACE"
+echo "Full token (changes every time this launcher runs):"
+printf '%s\n' "$R2_REMOTE_TOKEN"
+echo "Keep the full token private. The PEACE alias is accepted by the remote API."
 echo
+
 echo "Modules compiled:"
 echo "    r2.c"
 echo "    shell.c"
