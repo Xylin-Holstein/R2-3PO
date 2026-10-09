@@ -2734,6 +2734,9 @@ static char *ollama_chat_with_limit(
             size_t length = strlen(content);
             if (length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS)
                 length = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;
+            /* Reserve a little system budget for pinned memory after the live snapshot. */
+            if (message_priority == 1 && length > 6000)
+                length = 6000;
             size_t remaining = OLLAMA_MAX_SYSTEM_TOTAL_CHARS - total_chars;
             if (length > remaining) length = remaining;
             if (length == 0) continue;
@@ -2747,6 +2750,8 @@ static char *ollama_chat_with_limit(
     for (size_t i = count; i > 0 && recent_count < OLLAMA_MAX_RECENT_MESSAGES; --i) {
         size_t index = i - 1;
         if (include[index]) continue;
+        /* System messages were already handled under the explicit priority budget. */
+        if (msgs[index].role && !strcmp(msgs[index].role, "system")) continue;
         const char *content = msgs[index].content ? msgs[index].content : "";
         size_t length = strlen(content);
         if (length > OLLAMA_MAX_MESSAGE_CHARS)
