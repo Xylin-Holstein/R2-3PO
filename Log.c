@@ -47,6 +47,7 @@
 #endif
 
 #include <sqlite3.h>
+#include <json-c/json.h>
 
 #define R2_LOG_MAX_TEXT       65536
 #define R2_LOG_DEFAULT_LIMIT  25
@@ -1236,6 +1237,78 @@ static char *query_events(const char *query, int limit)
 char *r2_log_recent(int limit)
 {
     return query_events(NULL, limit);
+}
+
+char *r2_log_conversation_recent_json(int limit)
+{
+    if (limit < 1) limit = 30;
+    if (limit > 200) limit = 200;
+
+    pthread_mutex_lock(&log_lock);
+    if (!log_initialized || !log_db) {
+        pthread_mutex_unlock(&log_lock);
+        return NULL;
+    }
+
+    const char *sql =
+        "SELECT id, utc_time, local_time, user_text, assistant_text "
+        "FROM ("
+        " SELECT c.id AS id, e.utc_time AS utc_time, "
+        " e.local_time AS local_time, c.user_text AS user_text, "
+        " c.assistant_text AS assistant_text "
+        " FROM r2_log_conversations c "
+        " JOIN r2_log_events e ON e.id = c.event_id "
+        " ORDER BY c.id DESC LIMIT ?1"
+        ") ORDER BY id ASC";
+
+    sqlite3_stmt *stmt = NULL;
+    if (sqlite3_prepare_v2(log_db, sql, -1, &stmt, NULL) != SQLITE_OK) {
+        pthread_mutex_unlock(&log_lock);
+        return NULL;
+    }
+    sqlite3_bind_int(stmt, 1, limit);
+
+    struct json_object *array = json_object_new_array();
+    if (!array) {
+        sqlite3_finalize(stmt);
+        pthread_mutex_unlock(&log_lock);
+        return NULL;
+    }
+
+    int step;
+    while ((step = sqlite3_step(stmt)) == SQLITE_ROW) {
+        struct json_object *turn = json_object_new_object();
+        if (!turn) continue;
+        json_object_object_add(turn, "id",
+            json_object_new_int64(sqlite3_column_int64(stmt, 0)));
+        const unsigned char *utc = sqlite3_column_text(stmt, 1);
+        const unsigned char *local = sqlite3_column_text(stmt, 2);
+        const unsigned char *user = sqlite3_column_text(stmt, 3);
+        const unsigned char *assistant = sqlite3_column_text(stmt, 4);
+        json_object_object_add(turn, "utc_time",
+            json_object_new_string(utc ? (const char *)utc : ""));
+        json_object_object_add(turn, "local_time",
+            json_object_new_string(local ? (const char *)local : ""));
+        json_object_object_add(turn, "user",
+            json_object_new_string(user ? (const char *)user : ""));
+        json_object_object_add(turn, "assistant",
+            json_object_new_string(assistant ? (const char *)assistant : ""));
+        json_object_array_add(array, turn);
+    }
+
+    sqlite3_finalize(stmt);
+    pthread_mutex_unlock(&log_lock);
+
+    if (step != SQLITE_DONE) {
+        json_object_put(array);
+        return NULL;
+    }
+
+    const char *serialized = json_object_to_json_string_ext(
+        array, JSON_C_TO_STRING_PLAIN);
+    char *result = serialized ? strdup(serialized) : NULL;
+    json_object_put(array);
+    return result;
 }
 
 char *r2_log_search(const char *query, int limit)
