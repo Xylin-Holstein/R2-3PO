@@ -12,7 +12,25 @@
    FEATURE CONFIGURATION
    ============================================================ */
 
-#define MODEL "llama3"
+#define DEFAULT_MODEL "llama3"
+#define DEFAULT_NUM_CTX 8192L
+#define MAX_CHAT_HISTORY_MESSAGES 48
+
+static const char *r2_chat_model(void)
+{
+    const char *configured = getenv("R2_CHAT_MODEL");
+    return configured && *configured ? configured : DEFAULT_MODEL;
+}
+
+static long r2_chat_num_ctx(void)
+{
+    const char *configured = getenv("R2_CHAT_NUM_CTX");
+    if (!configured || !*configured) return DEFAULT_NUM_CTX;
+    char *end = NULL;
+    long value = strtol(configured, &end, 10);
+    return end && *end == '\\0' && value >= 2048 && value <= 131072
+        ? value : DEFAULT_NUM_CTX;
+}
 
 #define THINK_INTERVAL 900
 
@@ -31,8 +49,8 @@
        and temporarily inject them immediately before the relevant
        user message.
 
-   This gives llama3 both broad historical memory and focused
-   contextual memory.
+   This gives the configured local chat model broad historical
+   memory and focused contextual memory.
 */
 #define MAX_STARTUP_MEMORIES 100
 #define MAX_RELEVANT_MEMORIES 20
@@ -2516,8 +2534,15 @@ static char *ollama_chat(
     json_object_object_add(
         root,
         "model",
-        json_object_new_string(MODEL)
+        json_object_new_string(r2_chat_model())
     );
+
+    struct json_object *options = json_object_new_object();
+    if (options) {
+        json_object_object_add(options, "num_ctx",
+                               json_object_new_int64(r2_chat_num_ctx()));
+        json_object_object_add(root, "options", options);
+    }
 
     struct json_object *arr =
         json_object_new_array();
@@ -2547,9 +2572,17 @@ static char *ollama_chat(
         );
     }
 
-    for (size_t i = 0;
-         i < count;
-         ++i) {
+    /*
+     * Bound the live conversation sent to Ollama. Keep pinned identity and
+     * startup context, plus the most recent turns; unpinned old chat history
+     * must not grow without limit until Ollama rejects the request.
+     */
+    size_t first_recent = count > MAX_CHAT_HISTORY_MESSAGES
+        ? count - MAX_CHAT_HISTORY_MESSAGES : 0;
+
+    for (size_t i = 0; i < count; ++i) {
+        if (i < first_recent && !msgs[i].pinned)
+            continue;
 
         struct json_object *m =
             json_object_new_object();
@@ -5084,7 +5117,7 @@ static void sigint_handler(
 
 int r2_is_shutting_down(void){ return shutting_down ? 1 : 0; }
 int r2_is_initialized(void){ return core_initialized ? 1 : 0; }
-const char *r2_model_name(void){ return MODEL; }
+const char *r2_model_name(void){ return r2_chat_model(); }
 
 int r2_thinking_active(void)
 {
