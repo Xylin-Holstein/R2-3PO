@@ -1020,7 +1020,7 @@ int r2_eyes_open_vlc(
     r2_log_sensory("vision_source_opened",
                    "R2 Eyes began capturing the visible VLC window.",
                    "origin=VLC; frames are raw pixels until a vision model interprets them.",
-                   "VLC");
+                   eyes->source_name);
 
     return 0;
 }
