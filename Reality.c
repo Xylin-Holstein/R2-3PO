@@ -141,7 +141,7 @@ static int money_create_bill(const char *dir)
 }
 static int money_set_dir_balance(const char *dir, sqlite3_int64 cents)
 {
-    if (cents<0 || cents>100000000000LL || ensure_dir_tree(dir)!=0) return -1;
+    if (cents<0 || cents>100000000LL || ensure_dir_tree(dir)!=0) return -1;
     DIR *dp=opendir(dir);
     if (!dp) return -1;
     struct dirent *entry; int result=0;
@@ -2136,7 +2136,7 @@ char *r2_reality_money_context(void)
 }
 static int money_transfer(double amount,int deposit)
 {
-    if(!r2_reality_is_initialized()||!isfinite(amount)||amount<=0.0||amount>1000000000.0)return -1;
+    if(!r2_reality_is_initialized()||!isfinite(amount)||amount<=0.0||amount>1000000.0)return -1;
     sqlite3_int64 cents=(sqlite3_int64)llround(amount*100.0),cash=0,bank=0;
     if(cents<=0||fabs(amount*100.0-(double)cents)>0.0001)return -1;
     char wallet[1200],piggybank[1200];
@@ -2182,7 +2182,7 @@ int r2_reality_money_deposit(double amount){return money_transfer(amount,1);}
 int r2_reality_money_withdraw(double amount){return money_transfer(amount,0);}
 int r2_reality_buy_item(const char *name,const char *description,double price,const char *container)
 {
-    if(!name||!*name||!isfinite(price)||price<=0.0||price>1000000000.0||!r2_reality_is_initialized())return -1;
+    if(!name||!*name||!isfinite(price)||price<=0.0||price>1000000.0||!r2_reality_is_initialized())return -1;
     sqlite3_int64 cents=(sqlite3_int64)llround(price*100.0),cash=0,bank=0,old_cash=0,old_bank=0;
     if(cents<=0||fabs(price*100.0-(double)cents)>0.0001)return -1;
     char wallet[1200],piggybank[1200];

@@ -1331,7 +1331,7 @@ static int shell_give(const char *arg)
         rc = r2_reality_money_receive(amount);
         if (rc == 0)
             printf("[Creator] Added %.0f separate $1 money files to Pockets/Wallet.\n",
-                   amount, destination);
+                   amount);
     } else {
         rc = r2_reality_add_item(name, description, destination, (int)amount);
         if (rc == 0)
@@ -1346,7 +1346,7 @@ static int shell_give(const char *arg)
             snprintf(summary, sizeof(summary), "The user created %.0f separate physical money items for R2.", amount);
             snprintf(details, sizeof(details),
                      "Creator command=give money; individual $1 file count=%.0f; destination=Pockets/Wallet; explicit user creator action.",
-                     amount, destination);
+                     amount);
         } else {
             snprintf(summary, sizeof(summary), "The user created a gift for R2: %s x %.0f.", name, amount);
             snprintf(details, sizeof(details),
