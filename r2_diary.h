@@ -46,6 +46,10 @@ int r2_diary_init(void);
 
 void r2_diary_shutdown(void);
 
+/* Reconcile existing and pending diary entries with Life Log/memory.
+ * Work is bounded per call; returns linked-entry count or -1 on error. */
+int r2_diary_reconnect_history(int limit);
+
 
 /* ============================================================
    DIARY OPERATIONS
