@@ -50,6 +50,7 @@
 #include "r2_diary.h"
 #include "r2.h"
 #include "Log.h"
+#include "Reward.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -1039,6 +1040,11 @@ int r2_diary_write(
     {
         return -1;
     }
+
+    /* Evaluate the explicitly configured identity-correction rule after
+       the authoritative row exists. Reward metadata never copies diary prose. */
+    if (diary_entry_id > 0)
+        (void)r2_reward_review_diary(diary_entry_id, entry);
 
     /* The diary row is authoritative. A failed secondary link remains
        pending and is retried after Life Log initialization on a later run. */
