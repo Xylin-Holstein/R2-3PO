@@ -358,7 +358,7 @@ static const char *SYSTEM_PROMPT =
 "each action succeeded. Never claim success without its result.\n"
 "\n"
 "============================================================\n"
-"REAL BACKGROUND HANDS\\n"
+"REAL BACKGROUND HANDS\n"
 
 "============================================================\n"
 "When you want the computer to perform a task, use:\n"
