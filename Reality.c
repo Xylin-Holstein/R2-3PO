@@ -2161,7 +2161,7 @@ static int money_transfer(double amount,int deposit)
 }
 int r2_reality_money_receive(double amount)
 {
-    if(!r2_reality_is_initialized()||!isfinite(amount)||amount<=0.0||amount>1000000000.0)return -1;
+    if(!r2_reality_is_initialized()||!isfinite(amount)||amount<=0.0||amount>1000000.0)return -1;
     sqlite3_int64 cents=(sqlite3_int64)llround(amount*100.0),cash=0,bank=0;
     if(cents<=0||fabs(amount*100.0-(double)cents)>0.0001)return -1;
     char wallet[1200]; money_dir_path(0,wallet,sizeof(wallet));
