@@ -2060,12 +2060,18 @@ static char *workspace_list(const char *rel)
     size_t nc = 0;
 
     struct dirent *e;
+    int entries_truncated = 0;
 
     while ((e = readdir(d)) != NULL) {
 
         if (!strcmp(e->d_name, ".") ||
             !strcmp(e->d_name, ".."))
             continue;
+
+        if (n >= 10000) {
+            entries_truncated = 1;
+            break;
+        }
 
         if (n == nc) {
 
@@ -2214,6 +2220,22 @@ static char *workspace_list(const char *rel)
 
         free(names[i]);
         names[i] = NULL;
+    }
+
+    if (entries_truncated) {
+        const char *note = "[listing truncated after 10000 entries]\\n";
+        size_t note_length = strlen(note);
+        if (len + note_length + 1 > cap) {
+            char *expanded = realloc(out, len + note_length + 1);
+            if (expanded) {
+                out = expanded;
+                cap = len + note_length + 1;
+            }
+        }
+        if (len + note_length + 1 <= cap) {
+            memcpy(out + len, note, note_length + 1);
+            len += note_length;
+        }
     }
 
     free(names);
