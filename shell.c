@@ -1276,59 +1276,99 @@ static int shell_fridge(const char *argument)
     return 1;
 }
 
+static int shell_parse_amount(const char *text, double *value);
+
 static int shell_give(const char *arg)
 {
     if (!arg || !*arg) {
-        printf("Usage: give <item> <quantity> [| description | container] or give money <dollars>\n");
+        printf("Usage: give <item> <quantity> [| description | container]\\n");
+        printf("       give money <quantity> creates individual physical money items.\\n");
         return 1;
     }
+
     char *copy = strdup(arg);
-    if (!copy) return 1;
+    if (!copy) {
+        printf("[Creator] Memory allocation failed.\\n");
+        return 1;
+    }
+
     char *fields[3] = {0};
     int count = 0;
     char *save = NULL;
-    for (char *part = strtok_r(copy, "|", &save); part && count < 3;
-         part = strtok_r(NULL, "|", &save))
+    for (char *part = strtok_r(copy, "|", &save);
+         part && count < 3;
+         part = strtok_r(NULL, "|", &save)) {
         fields[count++] = shell_trim(part);
+    }
+
     char *head = fields[0] ? fields[0] : copy;
     char *space = strrchr(head, ' ');
     if (!space || space == head || !space[1]) {
-        printf("Usage: give <item> <quantity> [| description | container]\n");
-        free(copy); return 1;
+        printf("Usage: give <item> <quantity> [| description | container]\\n");
+        free(copy);
+        return 1;
     }
-    *space++ = '\0';
+    *space++ = '\\0';
     char *name = shell_trim(head);
     char *amount_text = shell_trim(space);
     double amount = 0.0;
     if (!*name || !shell_parse_amount(amount_text, &amount) ||
         amount <= 0.0 || amount > 1000000.0 || floor(amount) != amount) {
-        printf("[Give] Quantity must be a positive whole number (maximum 1000000).\n");
-        free(copy); return 1;
+        printf("[Give] Quantity must be a positive whole number (maximum 1000000).\\n");
+        free(copy);
+        return 1;
     }
-    int money = !strcasecmp(name, "money") || !strcasecmp(name, "cash");
-    const char *destination = count >= 3 && fields[2] && *fields[2] ? fields[2] : "pockets";
-    int rc;
+
+    const char *destination = count >= 3 && fields[2] && *fields[2]
+        ? fields[2] : "pockets";
+    const char *description = count >= 2 && fields[1] && *fields[1]
+        ? fields[1] : "Created from nothing by the user through the creator give command";
+    int rc = 0;
+    int money = !strcasecmp(name, "money");
+
     if (money) {
-        rc = r2_reality_money_receive(amount);
+        /* "give money 5" means five separate physical inventory objects,
+           not a $5 deposit or one stack with quantity five. Each object has
+           its own .r2item mirror and Life Log/collection-memory trail. */
+        for (int i = 1; i <= (int)amount; ++i) {
+            char item_name[64];
+            char item_description[512];
+            snprintf(item_name, sizeof(item_name), "money %d", i);
+            snprintf(item_description, sizeof(item_description),
+                     "Individual physical money item created by the user; denomination unspecified. Gift batch quantity=%d.",
+                     (int)amount);
+            if (r2_reality_add_item(item_name, item_description, destination, 1) != 0) {
+                fprintf(stderr, "[Creator] Could not create %s in %s; stopping after %d of %.0f items.\\n",
+                        item_name, destination, i - 1, amount);
+                rc = -1;
+                break;
+            }
+        }
         if (rc == 0)
-            printf("[Creator] Gave R2 $%.0f in cash; persistent cash balance and wallet mirror updated.\n", amount);
-        else
-            printf("[Creator] Cash gift failed.\n");
+            printf("[Creator] Created %.0f separate money items in %s; no cash balance or denomination was assumed.\\n",
+                   amount, destination);
     } else {
-        const char *description = count >= 2 && fields[1] && *fields[1]
-            ? fields[1] : "Created by the user through the creator give command";
         rc = r2_reality_add_item(name, description, destination, (int)amount);
         if (rc == 0)
-            printf("[Creator] Created %d x %s in %s.\n", (int)amount, name, destination);
+            printf("[Creator] Created %d x %s in %s.\\n", (int)amount, name, destination);
         else
-            printf("[Creator] Could not create %s in %s; check location and container access.\n", name, destination);
+            printf("[Creator] Could not create %s in %s; check location and container access.\\n",
+                   name, destination);
     }
+
     if (rc == 0 && r2_log_is_initialized()) {
         char summary[512], details[1024];
-        snprintf(summary, sizeof(summary), "The user created a gift for R2: %s x %.0f.", name, amount);
-        snprintf(details, sizeof(details),
-                 "Creator command=give; target=%s; quantity=%.0f; destination=%s; source=explicit user creator action; no purchase or price was involved.",
-                 name, amount, money ? "cash wallet" : destination);
+        if (money) {
+            snprintf(summary, sizeof(summary), "The user created %.0f separate physical money items for R2.", amount);
+            snprintf(details, sizeof(details),
+                     "Creator command=give money; individual item count=%.0f; destination=%s; physical inventory objects only; no dollar value, cash balance, purchase, or denomination was assumed.",
+                     amount, destination);
+        } else {
+            snprintf(summary, sizeof(summary), "The user created a gift for R2: %s x %.0f.", name, amount);
+            snprintf(details, sizeof(details),
+                     "Creator command=give; target=%s; quantity=%.0f; destination=%s; source=explicit user creator action; no purchase or price was involved.",
+                     name, amount, destination);
+        }
         (void)r2_log_event_with_memory(R2_LOG_WORLD, "creator_gift", summary, details, "shell.c", 1);
     }
     free(copy);
@@ -1338,616 +1378,55 @@ static int shell_give(const char *arg)
 static int shell_gameboy(const char *arg)
 {
     const char *device = "/home/x/R2_Home/Devices/GameBoyAdvance/GameBoyAdvance";
-    const char *sub = arg && *arg ? arg : "status";
-    if (strchr(sub, ';') || strchr(sub, '&') || strchr(sub, '|') ||
-        strchr(sub, '\n') || strchr(sub, '
-{
-    if (!text || !value) return 0;
-    errno = 0;
-    char *end = NULL;
-    double parsed = strtod(text, &end);
-    if (end == text || errno == ERANGE || !isfinite(parsed)) return 0;
-    while (end && *end && isspace((unsigned char)*end)) ++end;
-    if (end && *end) return 0;
-    *value = parsed;
-    return 1;
-}
+    const char *sub = (arg && *arg) ? arg : "power on";
+    char *copy = strdup(sub);
+    if (!copy) {
+        printf("[Game Boy Advance] Could not allocate command arguments.\\n");
+        return 1;
+    }
 
-static int shell_money(const char *arg)
-{
-    if(!arg||!*arg||!strcasecmp(arg,"status")){char *s=r2_reality_money_context();printf("%s\n",s?s:"[R2 Money] Unavailable.");free(s);return 1;}
-    if(shell_starts_with(arg,"receive ")){double a=0.0;int rc=shell_parse_amount(arg+8,&a)?r2_reality_money_receive(a):-1;printf(rc==0?"Recorded $%.2f received as cash.\n":"Could not record money received; enter a valid positive amount.\n",a);return 1;}
-    if(shell_starts_with(arg,"deposit ")){double a=0.0;int rc=shell_parse_amount(arg+8,&a)?r2_reality_money_deposit(a):-1;printf(rc==0?"Deposited $%.2f into piggybank.\n":"Deposit failed; enter a valid amount and check cash.\n",a);return 1;}
-    if(shell_starts_with(arg,"withdraw ")){double a=0.0;int rc=shell_parse_amount(arg+9,&a)?r2_reality_money_withdraw(a):-1;printf(rc==0?"Withdrew $%.2f into cash.\n":"Withdrawal failed; enter a valid amount and check bank balance.\n",a);return 1;}
-    if(shell_starts_with(arg,"buy ")){char *copy=strdup(arg+4);if(!copy)return 1;char *p[4]={0};int n=0;char *save=NULL;
-        for(char *t=strtok_r(copy,"|",&save);t&&n<4;t=strtok_r(NULL,"|",&save))p[n++]=shell_trim(t);
-        if(n<2||!*p[0]||!*p[1])printf("Usage: money buy <item> | <price> | <description> | <container>\n");
-        else{double price=0.0;int parsed=shell_parse_amount(p[1],&price);int rc=parsed?r2_reality_buy_item(p[0],n>=3&&*p[2]?p[2]:"Purchased item",price,n>=4&&*p[3]?p[3]:"pockets"):-1;printf(rc==0?"Purchased %s for $%.2f.\n":"Purchase failed; enter a valid price and check funds/destination.\n",p[0],price);}free(copy);return 1;}
-    printf("Usage: money [status|deposit <amount>|withdraw <amount>|buy <item> | <price> | <description> | <container>]\n");return 1;
-}
+    /* Invoke the console with execv rather than system(): user-supplied text
+       is tokenized into arguments and is never interpreted by a shell. */
+    char *argv[10] = {0};
+    int argc = 0;
+    char *save = NULL;
+    for (char *part = strtok_r(copy, " \\t", &save);
+         part && argc < 8;
+         part = strtok_r(NULL, " \\t", &save)) {
+        argv[++argc] = part;
+    }
+    if (argc == 0) {
+        argv[0] = (char *)device;
+        argv[1] = "power";
+        argv[2] = "on";
+        argc = 2;
+    } else {
+        argv[0] = (char *)device;
+    }
+    argv[argc + 1] = NULL;
 
-static long long shell_parse_id(const char *text)
-{
-    char *end = NULL;
-    if (!text || !*text) return -1;
-    errno = 0;
-    long long value = strtoll(text, &end, 10);
-    if (errno || end == text || *shell_trim(end) != '\0' || value <= 0)
-        return -1;
-    return value;
-}
-
-static void shell_alternate(const char *argument)
-{
-    if (!argument || !*argument || !strcasecmp(argument, "list")) {
-        char *result = r2_altself_list(25);
-        if (result) { printf("%s", result); free(result); }
-        else printf("[Alternate-Self Lab is unavailable.]\n");
-        return;
-    }
-    if (shell_starts_with(argument, "show ")) {
-        long long id = shell_parse_id(shell_trim((char *)argument + 5));
-        char *result = id > 0 ? r2_altself_show(id) : NULL;
-        if (result) { printf("%s", result); free(result); }
-        else printf("[Usage: alternate show <branch-id>]\n");
-        return;
-    }
-    if (shell_starts_with(argument, "discard ")) {
-        long long id = shell_parse_id(shell_trim((char *)argument + 8));
-        if (id > 0 && r2_altself_discard(id) == 0)
-            printf("[Branch #%lld marked discarded; its history remains preserved.]\n", id);
-        else printf("[Could not discard branch. Use 'alternate list' to check its ID and status.]\n");
-        return;
-    }
-    if (shell_starts_with(argument, "retain ")) {
-        long long id = shell_parse_id(shell_trim((char *)argument + 7));
-        if (id > 0 && r2_altself_retain_hypothesis(id) == 0)
-            printf("[Branch #%lld retained as a hypothesis, not a factual memory.]\n", id);
-        else printf("[Could not retain branch. Use 'alternate list' to check its ID and status.]\n");
-        return;
-    }
-    if (shell_starts_with(argument, "compare ")) {
-        long long first = -1, second = -1;
-        char extra = '\0';
-        if (sscanf(argument + 8, "%lld %lld %c", &first, &second, &extra) == 2 &&
-            first > 0 && second > 0) {
-            char *result = r2_altself_compare(first, second);
-            if (result) { printf("%s", result); free(result); }
-            else printf("[Could not compare those branches.]\n");
-        } else printf("[Usage: alternate compare <branch-id> <branch-id>]\n");
-        return;
-    }
-    if (shell_starts_with(argument, "create ")) {
-        char *fields_text = strdup(argument + 7);
-        if (!fields_text) { printf("[Out of memory.]\n"); return; }
-        char *fields[6] = {0};
-        size_t count = 0;
-        char *cursor = fields_text;
-        while (count < 6) {
-            fields[count++] = cursor;
-            char *separator = strchr(cursor, '|');
-            if (!separator) break;
-            *separator = '\0';
-            cursor = separator + 1;
-        }
-        if (count < 5 || (count == 6 && strchr(fields[5], '|'))) {
-            printf("[Usage: alternate create name|scenario|assumptions|predicted outcome|conclusion|optional evidence event ID]\n");
-            free(fields_text);
-            return;
-        }
-        for (size_t i = 0; i < count; ++i) fields[i] = shell_trim(fields[i]);
-        long long evidence = count >= 6 && *fields[5] ? shell_parse_id(fields[5]) : 0;
-        if (count >= 6 && *fields[5] && evidence < 0) {
-            printf("[Evidence event ID must be a positive integer, or left blank.]\n");
-            free(fields_text);
-            return;
-        }
-        int64_t id = r2_altself_create(fields[0], fields[1], fields[2],
-                                       fields[3], fields[4], evidence > 0 ? evidence : 0);
-        if (id > 0)
-            printf("[Created hypothetical branch #%lld. It is not a real event or factual memory.]\n",
-                   (long long)id);
-        else
-            printf("[Could not create branch. Check that name and scenario are non-empty and the lab is initialized.]\n");
-        free(fields_text);
-        return;
-    }
-    printf("Usage: alternate [list|show <id>|create name|scenario|assumptions|outcome|conclusion|evidence-id|discard <id>|retain <id>|compare <id> <id>]\n");
-}
-
-
-static int shell_needs(const char *command)
-{
-    if (shell_starts_with(command, "eat ")) {
-        char *copy = strdup(command + 4);
-        if (!copy) return 1;
-        char *sep = strchr(copy, '|');
-        char *food = copy;
-        double fullness = -1.0;
-        if (sep) {
-            *sep = '\0';
-            fullness = atof(reality_trim(sep + 1));
-        }
-        food = reality_trim(food);
-        if (!*food) {
-            printf("Usage: eat <food> [| <fullness 0-100>]\n");
-        } else {
-            int rc = r2_eat_and_learn(food, fullness);
-            printf(rc == 0 ? "[R2 Reality] Food and hunger state updated.\n" :
-                             "[R2 Reality] Eating update failed; check room/food_metrics.xml or supply fullness points.\n");
-        }
+    pid_t child = fork();
+    if (child < 0) {
+        perror("[Game Boy Advance] fork");
         free(copy);
         return 1;
     }
-    if (shell_starts_with(command, "sleep ")) {
-        double hours = atof(command + 6);
-        int rc = r2_sleep_and_dream(hours);
-        printf(rc == 0 ? "[R2 Reality] Sleep transition persisted; dream simulation was attempted.\n" :
-                         "[R2 Reality] Sleep update failed; use a duration from 0 to 48 hours.\n");
+    if (child == 0) {
+        execv(device, argv);
+        perror("[Game Boy Advance] execv");
+        _exit(127);
+    }
+
+    int status = 0;
+    while (waitpid(child, &status, 0) < 0) {
+        if (errno == EINTR) continue;
+        perror("[Game Boy Advance] waitpid");
+        free(copy);
         return 1;
     }
-    if (shell_starts_with(command, "dream ")) {
-        int rc = r2_reality_record_dream(command + 6);
-        printf(rc == 0 ? "[R2 Reality] Dream report recorded.\n" :
-                         "[R2 Reality] Dream report could not be recorded.\n");
-        return 1;
-    }
-    return 0;
-}
-
-static int shell_dispatch(char *input)
-{
-    char *command =
-        shell_trim(input);
-
-    if (!command || !*command)
-        return 1;
-
-
-    /* --------------------------------------------------------
-       HELP
-       -------------------------------------------------------- */
-
-    if (
-        !strcasecmp(command, "help") ||
-        !strcmp(command, "?")
-    ) {
-        shell_help();
-        return 1;
-    }
-
-
-    /* --------------------------------------------------------
-       STATUS
-       -------------------------------------------------------- */
-
-    if (!strcasecmp(command, "status")) {
-        shell_status();
-        return 1;
-    }
-
-
-    /* --------------------------------------------------------
-       DIAGNOSTICS
-       -------------------------------------------------------- */
-
-    if (
-        !strcasecmp(command, "diagnostics") ||
-        !strcasecmp(command, "debug")
-    ) {
-        r2_diagnostics();
-        return 1;
-    }
-
-
-    /* --------------------------------------------------------
-       VERSION
-       -------------------------------------------------------- */
-
-    if (!strcasecmp(command, "version")) {
-        shell_version();
-        return 1;
-    }
-
-
-    /* --------------------------------------------------------
-       THINK
-       -------------------------------------------------------- */
-
-    if (!strcasecmp(command, "think")) {
-        shell_think();
-        return 1;
-    }
-
-
-    /* --------------------------------------------------------
-       THINKING STATUS
-       -------------------------------------------------------- */
-
-    if (
-        !strcasecmp(command, "thinking") ||
-        !strcasecmp(command, "thinking status")
-    ) {
-        shell_thinking_status();
-        return 1;
-    }
-
-
-    /* --------------------------------------------------------
-       MEMORY
-       -------------------------------------------------------- */
-
-    if (
-        !strcasecmp(command, "memory")
-    ) {
-        shell_memory(NULL);
-        return 1;
-    }
-
-    if (shell_starts_with(command, "memory ")) {
-        shell_memory(
-            shell_trim(command + 7)
-        );
-        return 1;
-    }
-
-
-    /* --------------------------------------------------------
-       LIFE LOG
-       -------------------------------------------------------- */
-
-    if (!strcasecmp(command, "log")) {
-        shell_log(NULL);
-        return 1;
-    }
-
-    if (shell_starts_with(command, "log ")) {
-        shell_log(shell_trim(command + 4));
-        return 1;
-    }
-
-
-    /* --------------------------------------------------------
-       PREFERENCE / ADDICTION HISTORY
-       -------------------------------------------------------- */
-    if (!strcasecmp(command, "give") || shell_starts_with(command, "give ")) {
-        shell_give(shell_starts_with(command, "give ") ? shell_trim(command + 5) : NULL);
-        return 1;
-    }
-    if (!strcasecmp(command, "gameboy") || shell_starts_with(command, "gameboy ")) {
-        shell_gameboy(shell_starts_with(command, "gameboy ") ? shell_trim(command + 8) : NULL);
-        return 1;
-    }
-
-    if (!strcasecmp(command, "addictions") || !strcasecmp(command, "addiction")) {
-        shell_addictions();
-        return 1;
-    }
-
-    /* --------------------------------------------------------
-       DIARY
-       -------------------------------------------------------- */
-
-    if (!strcasecmp(command, "diary")) {
-        shell_diary();
-        return 1;
-    }
-
-
-
-    if (shell_starts_with(command, "eat ") ||
-        shell_starts_with(command, "sleep ") ||
-        shell_starts_with(command, "dream ")) {
-        shell_needs(command);
-        return 1;
-    }
-
-    /* --------------------------------------------------------
-       PERSISTENT REALITY / WORLD
-       -------------------------------------------------------- */
-    if (!strcasecmp(command, "room") || shell_starts_with(command, "room ")) {
-        shell_reality(shell_starts_with(command, "room ") ? shell_trim(command + 5) : NULL);
-        return 1;
-    }
-    if (!strcasecmp(command, "pockets") || shell_starts_with(command, "pockets ")) {
-        shell_pockets(shell_starts_with(command, "pockets ") ? shell_trim(command + 8) : NULL);
-        return 1;
-    }
-    if (!strcasecmp(command, "fridge") || shell_starts_with(command, "fridge ")) {
-        shell_fridge(shell_starts_with(command, "fridge ") ? shell_trim(command + 7) : NULL);
-        return 1;
-    }
-    if(!strcasecmp(command,"money")||shell_starts_with(command,"money ")){shell_money(shell_starts_with(command,"money ")?shell_trim(command+6):NULL);return 1;}
-    if (!strcasecmp(command, "alternate")) { shell_alternate(NULL); return 1; }
-    if (shell_starts_with(command, "alternate ")) { shell_alternate(shell_trim(command + 10)); return 1; }
-    if (!strcasecmp(command, "world status")) {
-        shell_reality("status");
-        return 1;
-    }
-
-    /* --------------------------------------------------------
-       EYES
-       -------------------------------------------------------- */
-
-    if (!strcasecmp(command, "eyes")) {
-        shell_eyes(NULL);
-        return 1;
-    }
-
-    if (shell_starts_with(command, "eyes ")) {
-        shell_eyes(
-            shell_trim(command + 5)
-        );
-        return 1;
-    }
-
-
-    /* --------------------------------------------------------
-       VISUAL EXPERIENCE LIBRARY
-       -------------------------------------------------------- */
-
-    if (!strcasecmp(command, "vision")) {
-        shell_vision(NULL);
-        return 1;
-    }
-
-    if (shell_starts_with(command, "vision ")) {
-        shell_vision(shell_trim(command + 7));
-        return 1;
-    }
-
-
-    /* --------------------------------------------------------
-       EARS
-       -------------------------------------------------------- */
-
-    if (!strcasecmp(command, "ears")) {
-        shell_ears(NULL);
-        return 1;
-    }
-
-    if (shell_starts_with(command, "ears ")) {
-        shell_ears(
-            shell_trim(command + 5)
-        );
-        return 1;
-    }
-
-
-    /* --------------------------------------------------------
-       WATCH
-       -------------------------------------------------------- */
-
-    if (!strcasecmp(command, "watch")) {
-        shell_watch(NULL);
-        return 1;
-    }
-
-    if (shell_starts_with(command, "watch ")) {
-        shell_watch(
-            shell_trim(command + 6)
-        );
-        return 1;
-    }
-
-
-    /* --------------------------------------------------------
-       TALK
-       -------------------------------------------------------- */
-
-    if (
-        !strcasecmp(command, "talk")
-    ) {
-        printf(
-            "Usage: talk <message>\n"
-        );
-        return 1;
-    }
-
-    if (shell_starts_with(command, "talk ")) {
-
-        shell_talk(
-            shell_trim(command + 5)
-        );
-
-        return 1;
-    }
-
-
-    /* --------------------------------------------------------
-       CLEAR
-       -------------------------------------------------------- */
-
-    if (
-        !strcasecmp(command, "clear") ||
-        !strcasecmp(command, "cls")
-    ) {
-        shell_clear();
-        return 1;
-    }
-
-
-    /* --------------------------------------------------------
-       SHUTDOWN
-       -------------------------------------------------------- */
-
-    if (
-        !strcasecmp(command, "shutdown") ||
-        !strcasecmp(command, "poweroff")
-    ) {
-        shell_shutdown_r2();
-        return 1;
-    }
-
-
-    /* --------------------------------------------------------
-       RESTART
-       -------------------------------------------------------- */
-
-    if (
-        !strcasecmp(command, "restart") ||
-        !strcasecmp(command, "reboot")
-    ) {
-        shell_restart();
-        return 1;
-    }
-
-
-    /* --------------------------------------------------------
-       EXIT
-       -------------------------------------------------------- */
-
-    if (
-        !strcasecmp(command, "exit") ||
-        !strcasecmp(command, "quit")
-    ) {
-        printf(
-            "[R2 Shell] Leaving shell.\n"
-        );
-
-        shell_running = 0;
-
-        return 1;
-    }
-
-
-    /*
-     * Not a shell command.
-     *
-     * Treat it as ordinary conversation with R2.
-     */
-    shell_conversation(command);
-
-    return 1;
-}
-
-
-/* ============================================================
-   SHELL LOOP
-   ============================================================ */
-
-int r2_shell_run(void)
-{
-    char *line = NULL;
-    size_t capacity = 0;
-
-    shell_shutdown = 0;
-    shell_running = 1;
-
-    signal(
-        SIGINT,
-        shell_signal_handler
-    );
-
-    signal(
-        SIGTERM,
-        shell_signal_handler
-    );
-
-    shell_banner();
-
-    while (
-        shell_running &&
-        !shell_shutdown &&
-        !r2_is_shutting_down()
-    ) {
-
-        shell_prompt();
-
-        errno = 0;
-
-        ssize_t length =
-            getline(
-                &line,
-                &capacity,
-                stdin
-            );
-
-        if (length < 0) {
-
-            if (errno == EINTR) {
-                clearerr(stdin);
-                continue;
-            }
-
-            /*
-             * EOF (Ctrl-D).
-             */
-            printf(
-                "\n[R2 Shell] End of input.\n"
-            );
-
-            break;
-        }
-
-        if (length > 0 && line[length - 1] == '\n')
-            line[length - 1] = '\0';
-
-        char *input =
-            shell_trim(line);
-
-        if (!input || !*input)
-            continue;
-
-        shell_dispatch(input);
-    }
-
-    /*
-     * Watch must not remain active after the shell exits.
-     */
-    if (watch_running) {
-        r2_watch_stop();
-        watch_running = 0;
-    }
-
-    free(line);
-
-    return 0;
-}
-
-
-/* ============================================================
-   SHELL STATE ACCESS
-   ============================================================ */
-
-int r2_shell_is_running(void)
-{
-    return shell_running;
-}
-
-
-int r2_shell_watch_is_running(void)
-{
-    return watch_running;
-}
-
-
-/* ============================================================
-   SHELL SHUTDOWN
-   ============================================================ */
-
-void r2_shell_shutdown(void)
-{
-    if (watch_running) {
-        r2_watch_stop();
-        watch_running = 0;
-    }
-
-    shell_running = 0;
-    shell_shutdown = 1;
-}
-)) {
-        printf("[Game Boy Advance] One literal console subcommand at a time.\n");
-        return 1;
-    }
-    char command[4096];
-    int n = snprintf(command, sizeof(command), "\"%s\" %s", device, sub);
-    if (n <= 0 || (size_t)n >= sizeof(command)) {
-        printf("[Game Boy Advance] Command is too long.\n"); return 1;
-    }
-    int status = system(command);
-    if (status == -1 || !WIFEXITED(status) || WEXITSTATUS(status) != 0)
-        printf("[Game Boy Advance] Command failed. Check installation, inserted ROM, and mGBA path.\n");
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
+        printf("[Game Boy Advance] Command failed. Check installation, inserted ROM, and mGBA path.\\n");
+    free(copy);
     return 1;
 }
 
