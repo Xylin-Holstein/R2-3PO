@@ -539,9 +539,13 @@ def print_result(value: Any, as_json: bool) -> None:
             print(f"Database: {value.get('database')}")
     elif isinstance(value, list):
         if not value:
-            print("No supported cartridges found.")
+            print("No cartridges or pending verified game events.")
         for item in value:
-            print(f"{item['filename']} — {item['title']}")
+            if "filename" in item:
+                print(f"{item['filename']} — {item['title']}")
+            else:
+                print(f"#{item['event_id']} [{item['context']}] {item['summary']} "
+                      f"({item['evidence_source']})")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -558,6 +562,9 @@ def main(argv: list[str] | None = None) -> int:
     press = sub.add_parser("press", help="send one GBA controller button press")
     press.add_argument("button")
     press.add_argument("duration_ms", nargs="?", type=int, default=DEFAULT_PRESS_MS)
+    sub.add_parser("events", help="list verified virtual events waiting for Life Log sync")
+    ack = sub.add_parser("ack_event", help="acknowledge a verified event after Life Log sync")
+    ack.add_argument("event_id", type=int)
     args = parser.parse_args(argv)
     command = args.command or "power"
     state = args.state if args.command == "power" else "on"
@@ -573,6 +580,11 @@ def main(argv: list[str] | None = None) -> int:
             result = eject_cartridge(db)
         elif command == "press":
             result = press_button(db, args.button, args.duration_ms)
+        elif command == "events":
+            result = pending_verified_events(db)
+        elif command == "ack_event":
+            result = {"ok": acknowledge_verified_event(db, args.event_id),
+                      "message": "Verified event acknowledged."}
         elif command == "power":
             result = power_on(db) if state == "on" else power_off(db)
         else:
