@@ -23,7 +23,7 @@
 #include <time.h>
 
 #define R2_VISION_URL "http://127.0.0.1:11434/api/chat"
-#define R2_VISION_DEFAULT_MODEL "gemma3:4b"
+#define R2_VISION_DEFAULT_MODEL R2_OLLAMA_MODEL
 #define R2_VISION_MAX_IMAGE_BYTES (20U * 1024U * 1024U)
 #define R2_VISION_MAX_RESPONSE (1024U * 1024U)
 
@@ -337,12 +337,13 @@ int r2_visual_init(const char *database_path, const char *library_directory)
     if (visual_initialized) { pthread_mutex_unlock(&visual_lock); return 0; }
     snprintf(visual_directory, sizeof(visual_directory), "%s", library_directory);
     const char *configured = getenv("R2_VISION_MODEL");
-    if (configured && strlen(configured) >= sizeof(visual_model)) {
-        pthread_mutex_unlock(&visual_lock);
-        return -1;
+    if (configured && *configured &&
+        strcmp(configured, R2_VISION_DEFAULT_MODEL) != 0) {
+        fprintf(stderr,
+                "[R2 Vision] Ignoring R2_VISION_MODEL=%s; this build uses the unified model %s.\\n",
+                configured, R2_VISION_DEFAULT_MODEL);
     }
-    snprintf(visual_model, sizeof(visual_model), "%s",
-             configured && *configured ? configured : R2_VISION_DEFAULT_MODEL);
+    snprintf(visual_model, sizeof(visual_model), "%s", R2_VISION_DEFAULT_MODEL);
     if (mkdir_one(visual_directory) != 0) {
         pthread_mutex_unlock(&visual_lock);
         return -1;
@@ -406,8 +407,14 @@ int r2_visual_set_model(const char *model)
                *p == '-' || *p == '.' || *p == '/'))
             return -1;
     }
+    if (strcmp(model, R2_VISION_DEFAULT_MODEL) != 0) {
+        fprintf(stderr,
+                "[R2 Vision] Rejected model %s; conversation and vision must share %s.\\n",
+                model, R2_VISION_DEFAULT_MODEL);
+        return -1;
+    }
     pthread_mutex_lock(&visual_lock);
-    snprintf(visual_model, sizeof(visual_model), "%s", model);
+    snprintf(visual_model, sizeof(visual_model), "%s", R2_VISION_DEFAULT_MODEL);
     pthread_mutex_unlock(&visual_lock);
     r2_log_sensory("vision_model_selected",
                    "R2's visual perception model was selected.",
