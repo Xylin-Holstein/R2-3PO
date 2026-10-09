@@ -264,6 +264,7 @@ echo "Modules compiled:"
 echo "    r2.c"
 echo "    shell.c"
 echo "    r2_diary.c"
+echo "    Log.c"
 echo "    Ears.c"
 echo "    Eyes.c"
 echo
