@@ -1798,7 +1798,7 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
 
     char summary[512], details[1024];
     snprintf(summary, sizeof(summary), "R2 ate %s; satisfaction increased and hunger decreased by the food's %.1f-point fullness value.", food, fullness);
-    snprintf(details, sizeof(details), "Food=%s; modeled satisfaction increase=%.1f/100; modeled hunger reduction=%.1f/100; tracked object consumed=%s; these are simulated need values, not measured biological quantities.",
+    snprintf(details, sizeof(details), "Food=%s; modeled satiety increase=%.1f points (maximum 150); modeled hunger reduction=%.1f/100; tracked object consumed=%s; these are simulated need values, not measured biological quantities.",
              food, fullness, fullness, consumed_tracked_item ? "yes" : "no");
     bridge_event("food_consumed", summary, details, 1, 0);
     /* A real eating choice feeds the shared habit evaluator using R2's
