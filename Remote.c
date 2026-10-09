@@ -4,6 +4,7 @@
 #include "Remote.h"
 #include "r2.h"
 #include "r2_diary.h"
+#include "r2_diary.h"
 #include "Log.h"
 
 #include <arpa/inet.h>
@@ -19,6 +20,9 @@
 #include <strings.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <fcntl.h>
+#include <sys/time.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -27,6 +31,7 @@
 #define REMOTE_DEFAULT_PORT 8765
 #define REMOTE_HEADER_MAX 16384
 #define REMOTE_BODY_MAX (2 * 1024 * 1024)
+#define REMOTE_UPLOAD_MAX (50 * 1024 * 1024)
 #define REMOTE_TEXT_MAX 65536
 
 static pthread_t remote_thread;
@@ -216,9 +221,14 @@ static void handle_request(int fd)
         return;
     }
 
+    int is_upload = strcmp(method, "POST") == 0 &&
+                    strcmp(path, "/api/upload") == 0;
     long body_length = content_length(buffer);
-    if (body_length < 0 || body_length > REMOTE_BODY_MAX) {
-        respond_error(fd, 413, "Payload Too Large", "request body exceeds 2 MiB limit");
+    long max_body = is_upload ? REMOTE_UPLOAD_MAX : REMOTE_BODY_MAX;
+    if (body_length < 0 || body_length > max_body) {
+        respond_error(fd, 413, "Payload Too Large",
+                      is_upload ? "upload exceeds 50 MiB limit" :
+                                  "request body exceeds 2 MiB limit");
         free(buffer);
         return;
     }
@@ -252,7 +262,103 @@ static void handle_request(int fd)
         }
     }
 
-    if (strcmp(method, "GET") == 0 && strcmp(path, "/api/status") == 0) {
+    if (is_upload) {
+        char mime[128] = {0};
+        const char *header_mime = header_value(buffer, "Content-Type");
+        if (header_mime) snprintf(mime, sizeof(mime), "%s", header_mime);
+        char *semi = strchr(mime, ';');
+        if (semi) *semi = '\0';
+
+        const char *extension = NULL;
+        const char *media_type = NULL;
+        int inspect_visual = 0;
+        if (!strcmp(mime, "image/jpeg")) { extension = ".jpg"; media_type = "image"; inspect_visual = 1; }
+        else if (!strcmp(mime, "image/png")) { extension = ".png"; media_type = "image"; inspect_visual = 1; }
+        else if (!strcmp(mime, "image/webp")) { extension = ".webp"; media_type = "image"; inspect_visual = 1; }
+        else if (!strcmp(mime, "video/mp4")) { extension = ".mp4"; media_type = "video"; inspect_visual = 1; }
+        else if (!strcmp(mime, "video/quicktime")) { extension = ".mov"; media_type = "video"; inspect_visual = 1; }
+        else if (!strcmp(mime, "video/webm")) { extension = ".webm"; media_type = "video"; inspect_visual = 1; }
+        else if (!strcmp(mime, "audio/mpeg")) { extension = ".mp3"; media_type = "audio"; }
+        else if (!strcmp(mime, "audio/wav") || !strcmp(mime, "audio/x-wav")) { extension = ".wav"; media_type = "audio"; }
+        else if (!strcmp(mime, "audio/ogg")) { extension = ".ogg"; media_type = "audio"; }
+        else if (!strcmp(mime, "audio/mp4")) { extension = ".m4a"; media_type = "audio"; }
+        else if (!strcmp(mime, "audio/aac")) { extension = ".aac"; media_type = "audio"; }
+
+        if (!extension || body_length <= 0) {
+            respond_error(fd, 415, "Unsupported Media Type",
+                          "supported: JPEG/PNG/WebP images, MP4/MOV/WebM videos, MP3/WAV/OGG/M4A/AAC audio");
+        } else {
+            char upload_dir[4096];
+            char upload_path[4096];
+            snprintf(upload_dir, sizeof(upload_dir), "%s/Remote_Uploads", R2_ROOT);
+            if (mkdir(upload_dir, 0700) != 0 && errno != EEXIST) {
+                respond_error(fd, 500, "Internal Server Error", "could not create upload directory");
+            } else {
+                static unsigned long upload_sequence = 0;
+                ++upload_sequence;
+                snprintf(upload_path, sizeof(upload_path), "%s/upload-%ld-%lu%s",
+                         upload_dir, (long)time(NULL), upload_sequence, extension);
+                int out_fd = open(upload_path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+                if (out_fd < 0) {
+                    respond_error(fd, 500, "Internal Server Error", "could not create upload file");
+                } else {
+                    size_t written = 0;
+                    int write_failed = 0;
+                    while (written < (size_t)body_length) {
+                        ssize_t n = write(out_fd, body + written, (size_t)body_length - written);
+                        if (n < 0) {
+                            if (errno == EINTR) continue;
+                            write_failed = 1;
+                            break;
+                        }
+                        if (n == 0) { write_failed = 1; break; }
+                        written += (size_t)n;
+                    }
+                    if (close(out_fd) != 0) write_failed = 1;
+                    if (write_failed) {
+                        unlink(upload_path);
+                        respond_error(fd, 500, "Internal Server Error", "could not save complete upload");
+                    } else {
+                        r2_log_media_event("uploaded", media_type, upload_path,
+                                           "Uploaded from the authenticated Android remote companion.");
+                        char *vision = NULL;
+                        char *reply = NULL;
+                        if (inspect_visual && r2_vision_available() &&
+                            r2_vision_open_file(upload_path) == 0) {
+                            vision = r2_vision_see(
+                                !strcmp(media_type, "image")
+                                    ? "Describe the uploaded image carefully. State visible details and uncertainty."
+                                    : "Describe the current frame of the uploaded video. State that this is a sampled frame, not a complete video summary.");
+                            if (vision) {
+                                char prompt[REMOTE_TEXT_MAX + 1];
+                                snprintf(prompt, sizeof(prompt),
+                                    "I uploaded a %s through the remote app. The file is available at %s. "
+                                    "Your visual subsystem produced this observation: %s "
+                                    "Please respond to me naturally about the uploaded media. "
+                                    "Be clear that a video observation may describe only a sampled frame.",
+                                    media_type, upload_path, vision);
+                                reply = r2_talk(prompt);
+                            }
+                        }
+                        struct json_object *o = json_object_new_object();
+                        json_object_object_add(o, "saved", json_object_new_boolean(1));
+                        json_object_object_add(o, "media_type", json_object_new_string(media_type));
+                        json_object_object_add(o, "path", json_object_new_string(upload_path));
+                        json_object_object_add(o, "vision", json_object_new_string(
+                            vision ? vision : (inspect_visual
+                                ? "Upload saved; visual analysis unavailable."
+                                : "Upload saved. Audio transcription is not configured yet.")));
+                        if (reply)
+                            json_object_object_add(o, "reply", json_object_new_string(reply));
+                        respond_json(fd, 200, "OK", o);
+                        json_object_put(o);
+                        free(vision);
+                        free(reply);
+                    }
+                }
+            }
+        }
+    } else if (strcmp(method, "GET") == 0 && strcmp(path, "/api/status") == 0) {
         struct json_object *o = json_object_new_object();
         json_object_object_add(o, "ok", json_object_new_boolean(1));
         json_object_object_add(o, "service", json_object_new_string("R2-3PO Remote Gateway"));
