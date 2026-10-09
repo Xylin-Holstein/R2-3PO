@@ -986,15 +986,34 @@ int r2_eyes_open_vlc(
     eyes->origin =
         R2_VISION_VLC;
 
+    /*
+     * Preserve the visible VLC window title as source metadata. This is
+     * useful for later history searches, but is not treated as proof of
+     * the actual media contents.
+     */
+    char title_command[256];
+    snprintf(title_command, sizeof(title_command),
+             "xdotool getwindowname %lu 2>/dev/null", window_id);
+    FILE *title_pipe = popen(title_command, "r");
+    char window_title[sizeof(eyes->source_name)] = "VLC";
+    if (title_pipe) {
+        if (!fgets(window_title, sizeof(window_title), title_pipe))
+            snprintf(window_title, sizeof(window_title), "VLC");
+        pclose(title_pipe);
+        size_t title_len = strlen(window_title);
+        while (title_len > 0 &&
+               (window_title[title_len - 1] == '\n' ||
+                window_title[title_len - 1] == '\r'))
+            window_title[--title_len] = '\0';
+        if (title_len == 0)
+            snprintf(window_title, sizeof(window_title), "VLC");
+    }
+    snprintf(eyes->source_name, sizeof(eyes->source_name), "%s", window_title);
+
     eyes->frame_count = 0;
     eyes->timestamp = 0;
 
-    snprintf(
-        eyes->source_name,
-        sizeof(eyes->source_name),
-        "VLC"
-    );
-
+    /* source_name was populated from the visible VLC window title above. */
     r2_eyes_reset_event(eyes);
     r2_eyes_reset_frame(eyes);
 
