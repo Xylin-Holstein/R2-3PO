@@ -6057,6 +6057,54 @@ char *r2_talk(const char *message)
                      "Could not persist a conversation turn in the Life Log.",
                      NULL, "r2_talk");
 
+    /*
+     * Associate this turn with the media inputs that were actually open
+     * while the user and R2 were talking. These are source relationships,
+     * not claims that Ears has transcribed or understood the audio.
+     */
+    if (turn_event_id > 0) {
+        R2VisionEvent visual_event;
+        if (eyes && r2_eyes_is_open(eyes) &&
+            r2_eyes_get_event(eyes, &visual_event) == 0 &&
+            (visual_event.origin == R2_VISION_FILE ||
+             visual_event.origin == R2_VISION_VLC)) {
+            char details[1200];
+            snprintf(details, sizeof(details),
+                     "conversation_event_id=%lld\nvisual_source=%s\n"
+                     "visual_origin=%s\nThe media source was active during this conversation; "
+                     "this association does not assert that its contents were fully understood.",
+                     (long long)turn_event_id, visual_event.source_name,
+                     visual_event.origin == R2_VISION_VLC ? "VLC window" : "file");
+            int64_t association_id = r2_log_event(
+                R2_LOG_CONVERSATION, "conversation_during_visual_media",
+                "A conversation turn occurred while R2 was observing media.",
+                details, visual_event.source_name);
+            if (association_id > 0)
+                r2_log_link(turn_event_id, association_id,
+                            "conversation_occurred_during_media", visual_event.source_name);
+        }
+
+        R2HearingEvent hearing_event;
+        if (ears && r2_ears_is_open(ears) &&
+            r2_ears_get_event(ears, &hearing_event) == 0) {
+            char details[1200];
+            snprintf(details, sizeof(details),
+                     "conversation_event_id=%lld\naudio_source=%s\naudio_origin=%s\n"
+                     "Ears source was active during this conversation; PCM input is not "
+                     "automatically transcribed or semantically interpreted by Ears.",
+                     (long long)turn_event_id, hearing_event.source_name,
+                     hearing_event.origin == R2_HEARING_FILE ? "file" :
+                     hearing_event.origin == R2_HEARING_WORLD ? "world/desktop" : "unknown");
+            int64_t association_id = r2_log_event(
+                R2_LOG_CONVERSATION, "conversation_during_audio_input",
+                "A conversation turn occurred while R2's audio input was active.",
+                details, hearing_event.source_name);
+            if (association_id > 0)
+                r2_log_link(turn_event_id, association_id,
+                            "conversation_occurred_during_audio", hearing_event.source_name);
+        }
+    }
+
     log_structured_self_report(reply, turn_event_id);
 
     char *md = memory_decision(message, reply);
