@@ -8,7 +8,7 @@ GREEN="#42f58d"; BG="#111820"; PANEL="#1a2530"; TEXT="#e8f0f7"; MUTED="#8fa3b7"
 class VWebcam:
  def __init__(self,root):
   self.root=root; root.title("R2-3PO | V-Webcam"); root.configure(bg=BG); root.geometry("1050x700"); root.minsize(640,420)
-  self.paused=False; self.show_focus=True; self.photo=None; self.last=None; self.w=self.h=0
+  self.paused=False; self.show_focus=True; self.photo=None; self.raw_photo=None; self.last=None; self.w=self.h=0
   top=tk.Frame(root,bg=PANEL,padx=12,pady=9); top.pack(fill="x")
   tk.Label(top,text="◉  R2-3PO  /  V-WEBCAM",bg=PANEL,fg=TEXT,font=("DejaVu Sans",13,"bold")).pack(side="left")
   self.live=tk.Label(top,text="● WAITING FOR EYES",bg=PANEL,fg="#ffbd59",font=("DejaVu Sans",9,"bold")); self.live.pack(side="right")
@@ -24,6 +24,7 @@ class VWebcam:
   ttk.Button(row,text="Refresh now",command=self.refresh).pack(side="left",padx=(6,0))
   tk.Label(row,text="Display only • no camera • no control of Eyes",bg=PANEL,fg=MUTED,font=("DejaVu Sans",8)).pack(side="right")
   root.bind("<space>",lambda _e:self.toggle_pause()); root.bind("f",lambda _e:self.toggle_focus()); root.bind("<Escape>",lambda _e:root.iconify())
+  self.canvas.bind("<Configure>",lambda _e:self.fit_image())
   root.after(100,self.tick); self.refresh()
  def toggle_pause(self):
   self.paused=not self.paused; self.pause_btn.configure(text="Resume display" if self.paused else "Pause display")
@@ -46,9 +47,18 @@ class VWebcam:
    try:
     stamp=FRAME.stat().st_mtime_ns
     if stamp!=self.last:
-     self.photo=tk.PhotoImage(file=str(FRAME)); self.w,self.h=self.photo.width(),self.photo.height(); self.last=stamp
-     self.canvas.itemconfigure(self.image,image=self.photo); self.canvas.tag_lower(self.image); self.canvas.coords(self.image,0,0)
+     self.raw_photo=tk.PhotoImage(file=str(FRAME)); self.last=stamp
+     self.fit_image()
    except (OSError,tk.TclError):pass
+  self.draw_focus()
+ def fit_image(self):
+  if not self.raw_photo:return
+  cw,ch=max(1,self.canvas.winfo_width()),max(1,self.canvas.winfo_height())
+  rw,rh=self.raw_photo.width(),self.raw_photo.height()
+  factor=max(1,(max(rw/cw,rh/ch).__ceil__()))
+  self.photo=self.raw_photo.subsample(factor,factor) if factor>1 else self.raw_photo
+  self.w,self.h=self.photo.width(),self.photo.height()
+  self.canvas.itemconfigure(self.image,image=self.photo); self.canvas.tag_lower(self.image); self.canvas.coords(self.image,0,0)
   self.draw_focus()
  def draw_focus(self):
   s,f=self.status(),self.focus(); self.live.configure(text="● EYES ACTIVE" if s["active"] else "● WAITING FOR EYES",fg=GREEN if s["active"] else "#ffbd59")
