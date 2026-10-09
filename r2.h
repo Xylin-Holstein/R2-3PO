@@ -203,6 +203,9 @@ char *r2_process_tools(const char *input);
  */
 int r2_write_diary(void);
 
+/* Simulate a sleep transition and generate/store a private dream report. */
+int r2_sleep_and_dream(double hours);
+
 
 /*
  * Return whether the diary subsystem is currently available.
