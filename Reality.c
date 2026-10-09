@@ -2098,7 +2098,7 @@ char *r2_reality_tv_status(void)
         "CRT TV: %s\nSelected source: %s %d\n",
         power ? "ON" : "OFF",
         !strcmp(kind, "vcr") ? "built-in VCR/input" :
-        !strcmp(kind, "rf") ? "RF channel" : "AV input", value);
+        !strcmp(kind, "rf") ? "RF channel" : (value == 1 ? "built-in VCR/input" : "AV input"), value);
     int signal = !strcmp(kind, "vcr") || (!strcmp(kind, "input") && value == 1);
     if (sqlite3_prepare_v2(reality_db,
         "SELECT name FROM r2_tv_devices WHERE connected=1 AND connection_kind=? AND port=? LIMIT 1",
