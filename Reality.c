@@ -2359,6 +2359,23 @@ char *r2_reality_tv_status(void)
     return out;
 }
 
+int r2_reality_tv_display_event(int opened)
+{
+    if (!reality_db || !reality_ready || (opened != 0 && opened != 1)) return -1;
+    if (opened) {
+        bridge_event("tv_display_opened",
+                     "R2's CRT television window opened, directing his modeled visual attention to the display.",
+                     "The TV interface was launched in R2's environment. This records the forced attention cue requested for the display; it does not claim that Eyes captured or interpreted video frames.",
+                     1, 0);
+    } else {
+        bridge_event("tv_display_closed",
+                     "R2's CRT television window closed.",
+                     "The TV interface closed; this does not imply that the modeled television was powered off or that a tape was ejected.",
+                     0, 0);
+    }
+    return 0;
+}
+
 int r2_reality_tv_power(int on)
 {
     if (!reality_db || !reality_ready || (on != 0 && on != 1)) return -1;
