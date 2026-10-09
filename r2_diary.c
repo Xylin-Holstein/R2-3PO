@@ -624,27 +624,37 @@ int r2_diary_init(void)
                 : "unknown error"
         );
 
-        sqlite3_free(
-            error_message
-        );
+        sqlite3_free(error_message);
 
+        sqlite3_close(r2_diary_db);
+        r2_diary_db = NULL;
         return -1;
     }
 
-    /*
-     * Index for chronological retrieval.
-     */
-    sqlite3_exec(
-        r2_diary_db,
+    sqlite3_busy_timeout(r2_diary_db, 5000);
 
+    /*
+     * Index for chronological retrieval. Treat index-creation errors
+     * as initialization failures instead of silently continuing.
+     */
+    result = sqlite3_exec(
+        r2_diary_db,
         "CREATE INDEX IF NOT EXISTS "
         "idx_diary_created_at "
         "ON diary_entries(created_at);",
-
         NULL,
         NULL,
-        NULL
+        &error_message
     );
+
+    if (result != SQLITE_OK) {
+        fprintf(stderr, "[R2 DIARY] Could not create diary index: %s\\n",
+                error_message ? error_message : "unknown error");
+        sqlite3_free(error_message);
+        sqlite3_close(r2_diary_db);
+        r2_diary_db = NULL;
+        return -1;
+    }
 
     printf(
         "[R2 DIARY] Initialized.\n"
