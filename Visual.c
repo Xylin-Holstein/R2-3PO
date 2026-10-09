@@ -543,56 +543,87 @@ static char *visual_query(const char *sql, const char *query, int limit)
 {
     if (limit < 1) limit = 1;
     if (limit > 100) limit = 100;
+
     struct response_buffer b = {0};
+    int failed = 0;
     pthread_mutex_lock(&visual_lock);
     if (!visual_initialized || !visual_db) {
         pthread_mutex_unlock(&visual_lock);
         return NULL;
     }
+
     sqlite3_stmt *st = NULL;
     int rc = sqlite3_prepare_v2(visual_db, sql, -1, &st, NULL);
-    if (rc == SQLITE_OK) {
-        if (query) {
-            char pattern[2048];
-            snprintf(pattern, sizeof(pattern), "%%%s%%", query);
-            sqlite3_bind_text(st, 1, pattern, -1, SQLITE_TRANSIENT);
-            if (strstr(sql, "source LIKE ?")) {
-                sqlite3_bind_text(st, 2, pattern, -1, SQLITE_TRANSIENT);
-                sqlite3_bind_int(st, 3, limit);
-            } else {
-                sqlite3_bind_int(st, 2, limit);
-            }
-        } else {
-            sqlite3_bind_int(st, 1, limit);
-        }
-        while ((rc = sqlite3_step(st)) == SQLITE_ROW) {
-            const unsigned char *created = sqlite3_column_text(st, 0);
-            const unsigned char *source = sqlite3_column_text(st, 1);
-            const unsigned char *model = sqlite3_column_text(st, 2);
-            const unsigned char *desc = sqlite3_column_text(st, 3);
-            const unsigned char *path = sqlite3_column_text(st, 4);
-            char line[8192];
-            int n = snprintf(line, sizeof(line), "[%s] source=%s model=%s image=%s\n%s\n\n",
-                created ? (const char *)created : "?",
-                source ? (const char *)source : "?",
-                model ? (const char *)model : "?",
-                path ? (const char *)path : "?",
-                desc ? (const char *)desc : "(no description)");
-            if (n > 0) {
-                size_t add = (size_t)n;
-                if (add >= sizeof(line)) add = sizeof(line) - 1;
-                char *next = realloc(b.data, b.length + add + 1);
-                if (!next) break;
-                b.data = next;
-                memcpy(b.data + b.length, line, add);
-                b.length += add;
-                b.data[b.length] = '\0';
-            }
-        }
+    if (rc != SQLITE_OK) {
+        sqlite3_finalize(st);
+        pthread_mutex_unlock(&visual_lock);
+        return NULL;
     }
+
+    if (query) {
+        rc = sqlite3_bind_text(st, 1, query, -1, SQLITE_TRANSIENT);
+        if (rc == SQLITE_OK && strstr(sql, "lower(source)") != NULL) {
+            rc = sqlite3_bind_text(st, 2, query, -1, SQLITE_TRANSIENT);
+            if (rc == SQLITE_OK) rc = sqlite3_bind_int(st, 3, limit);
+        } else if (rc == SQLITE_OK) {
+            rc = sqlite3_bind_int(st, 2, limit);
+        }
+    } else {
+        rc = sqlite3_bind_int(st, 1, limit);
+    }
+
+    if (rc != SQLITE_OK) {
+        sqlite3_finalize(st);
+        pthread_mutex_unlock(&visual_lock);
+        return NULL;
+    }
+
+    while ((rc = sqlite3_step(st)) == SQLITE_ROW) {
+        const unsigned char *created = sqlite3_column_text(st, 0);
+        const unsigned char *source = sqlite3_column_text(st, 1);
+        const unsigned char *model = sqlite3_column_text(st, 2);
+        const unsigned char *desc = sqlite3_column_text(st, 3);
+        const unsigned char *path = sqlite3_column_text(st, 4);
+        char line[8192];
+        int n = snprintf(line, sizeof(line), "[%s] source=%s model=%s image=%s\\n%s\\n\\n",
+            created ? (const char *)created : "?",
+            source ? (const char *)source : "?",
+            model ? (const char *)model : "?",
+            path ? (const char *)path : "?",
+            desc ? (const char *)desc : "(no description)");
+        if (n < 0) {
+            failed = 1;
+            break;
+        }
+
+        size_t add = (size_t)n;
+        if (add >= sizeof(line)) add = sizeof(line) - 1;
+        if (add > SIZE_MAX - b.length - 1) {
+            failed = 1;
+            break;
+        }
+        char *next = realloc(b.data, b.length + add + 1);
+        if (!next) {
+            failed = 1;
+            break;
+        }
+        b.data = next;
+        memcpy(b.data + b.length, line, add);
+        b.length += add;
+        b.data[b.length] = '\\0';
+    }
+
+    if (rc != SQLITE_DONE)
+        failed = 1;
     sqlite3_finalize(st);
     pthread_mutex_unlock(&visual_lock);
-    if (!b.data) b.data = strdup("(No visual experiences found.)\n");
+
+    if (failed) {
+        free(b.data);
+        return NULL;
+    }
+    if (!b.data)
+        b.data = strdup("(No visual experiences found.)\\n");
     return b.data;
 }
 
@@ -609,7 +640,7 @@ char *r2_visual_search(const char *query, int limit)
     if (!query || !*query) return r2_visual_recent(limit);
     return visual_query(
         "SELECT created_utc,source,model,description,image_path "
-        "FROM r2_visual_experiences WHERE description LIKE ? COLLATE NOCASE "
-        "OR source LIKE ? COLLATE NOCASE ORDER BY id DESC LIMIT ?",
+        "FROM r2_visual_experiences WHERE instr(lower(description),lower(?))>0 "
+        "OR instr(lower(source),lower(?))>0 ORDER BY id DESC LIMIT ?",
         query, limit);
 }
