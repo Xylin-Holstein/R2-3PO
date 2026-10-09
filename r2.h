@@ -8,7 +8,7 @@
  *
  * r2.c owns the actual implementation:
  *
- *   - Ollama / llama3
+ *   - Ollama / Gemma 3 multimodal conversation and vision
  *   - conversation
  *   - memory
  *   - relevant-memory retrieval
@@ -30,6 +30,9 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* Single source of truth for every local Ollama inference in R2. */
+#define R2_OLLAMA_MODEL "gemma3:4b"
 
 
 /* ============================================================
@@ -62,6 +65,15 @@ void r2_shutdown(void);
  * Returns non-zero while R2 is shutting down.
  */
 int r2_is_shutting_down(void);
+
+/*
+ * Shared Ollama request gate. Vision uses this same gate as text generation
+ * so the single local model is never asked to run competing inference jobs.
+ * Vision requests are opportunistic and must yield when a foreground turn waits.
+ */
+int r2_ollama_vision_request_begin(void);
+void r2_ollama_vision_request_end(void);
+int r2_ollama_vision_request_should_abort(void);
 
 
 /* ============================================================
@@ -242,7 +254,7 @@ int r2_is_initialized(void);
  *
  * Example:
  *
- *   llama3
+ *   Gemma 3 4B
  *
  * The returned pointer is owned by R2 and must NOT be freed.
  */
