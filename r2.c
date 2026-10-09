@@ -4430,13 +4430,17 @@ static void gameboy_start_activity_sessions(const char *title)
              "context=physical; device=GameBoyAdvance; game_title=%s; "
              "this records R2 operating the console, not the character's actions",
              game);
-    (void)r2_log_activity_start("gameboy:physical",
-                                "Playing the Game Boy Advance", details);
+    int64_t physical_event = r2_log_activity_start(
+        "gameboy:physical", "Playing the Game Boy Advance", details);
     snprintf(details, sizeof(details),
              "context=virtual; device=GameBoyAdvance; game_title=%s; "
              "gameplay events require independent verification",
              game);
-    (void)r2_log_activity_start("gameboy:virtual", virtual_name, details);
+    int64_t virtual_event = r2_log_activity_start(
+        "gameboy:virtual", virtual_name, details);
+    if (physical_event > 0 && virtual_event > 0)
+        (void)r2_log_link(physical_event, virtual_event,
+                          "physical_and_virtual_views_of_same_session", game);
 }
 
 static char *process_tools(
