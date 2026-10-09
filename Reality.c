@@ -382,6 +382,65 @@ int r2_reality_remove_item(const char *name)
     return 0;
 }
 
+
+int r2_reality_eat(const char *food, double fullness)
+{
+    if (!food || !*food || !r2_reality_is_initialized()) return -1;
+    if (fullness < 0.0) fullness = 0.0;
+    if (fullness > 100.0) fullness = 100.0;
+    if (r2_reality_tick() != 0) return -1;
+    pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "UPDATE r2_reality_self SET hunger=MAX(0,hunger-?), seconds_since_meal=CASE WHEN ?>=10 THEN 0 ELSE seconds_since_meal END, energy=MIN(100,energy+?), updated_at=CURRENT_TIMESTAMP WHERE id=1",
+        -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        sqlite3_bind_double(st, 1, fullness);
+        sqlite3_bind_double(st, 2, fullness);
+        sqlite3_bind_double(st, 3, fullness * 0.1);
+        rc = sqlite3_step(st);
+    }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reality_lock);
+    if (rc != SQLITE_DONE) return -1;
+    char summary[512], details[1024];
+    snprintf(summary, sizeof(summary), "R2 ate %s; his hunger need was reduced by %.1f points.", food, fullness);
+    snprintf(details, sizeof(details), "Food=%s; estimated fullness contribution=%.1f/100; this is a modeled food value, not a measured biological quantity.", food, fullness);
+    bridge_event("food_consumed", summary, details, 1, 1);
+    return 0;
+}
+
+int r2_reality_sleep(double hours)
+{
+    if (!r2_reality_is_initialized() || hours <= 0.0 || hours > 48.0) return -1;
+    if (r2_reality_tick() != 0) return -1;
+    pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "UPDATE r2_reality_self SET sleepiness=MAX(0,sleepiness-?), energy=MIN(100,energy+?), updated_at=CURRENT_TIMESTAMP WHERE id=1",
+        -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        sqlite3_bind_double(st, 1, hours * 12.5);
+        sqlite3_bind_double(st, 2, hours * 10.0);
+        rc = sqlite3_step(st);
+    }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reality_lock);
+    if (rc != SQLITE_DONE) return -1;
+    char summary[512], details[1024];
+    snprintf(summary, sizeof(summary), "R2 slept for %.2f modeled hours.", hours);
+    snprintf(details, sizeof(details), "Sleep duration=%.2f hours; sleepiness reduced by %.2f points and energy restored by %.2f points, capped at 100.", hours, hours*12.5, hours*10.0);
+    bridge_event("sleep_completed", summary, details, 1, 1);
+    return 0;
+}
+
+int r2_reality_record_dream(const char *description)
+{
+    if (!description || !*description || strlen(description) > REALITY_MAX_TEXT) return -1;
+    return r2_reality_set_self("last_reported_dream", description,
+        "A dream description explicitly reported or authored by R2; not independently verified.");
+}
+
 int r2_reality_set_self(const char *key,const char *value,const char *evidence)
 {
     if(!key||!*key||!value||strlen(key)>256||strlen(value)>REALITY_MAX_TEXT||!r2_reality_is_initialized())return -1;
