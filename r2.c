@@ -4819,6 +4819,8 @@ static char *process_tools(
             APPEND("REAL WORLD %s: item '%s' %s.\n",
                    rc == 0 ? "RESULT" : "ERROR", fields[1],
                    rc == 0 ? "was removed from the tracked world" : "could not be removed (item may not exist)");
+        } else if(nf>=2&&!strcasecmp(fields[0],"money_receive")){
+            double a=atof(fields[1]);int rc=r2_reality_money_receive(a);APPEND("MONEY %s: received $%.2f %s.\n",rc==0?"RESULT":"ERROR",a,rc==0?"as carried cash":"failed; check amount");
         } else if(nf>=2&&!strcasecmp(fields[0],"money_deposit")){
             double a=atof(fields[1]);int rc=r2_reality_money_deposit(a);APPEND("MONEY %s: deposit $%.2f %s.\n",rc==0?"RESULT":"ERROR",a,rc==0?"saved to piggybank":"failed; check cash");
         } else if(nf>=2&&!strcasecmp(fields[0],"money_withdraw")){
