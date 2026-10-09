@@ -58,6 +58,8 @@ def main() -> int:
     last_id = 0
     connection = None
     last_open_attempt = 0.0
+    allowed_types = tuple(sorted(PUBLIC_EVENT_TYPES))
+    allowed_placeholders = ",".join("?" for _ in allowed_types)
     def poll():
         nonlocal last_id, connection, last_open_attempt
         try:
@@ -69,18 +71,22 @@ def main() -> int:
                     except sqlite3.Error:
                         connection = None
             if connection is not None:
+                latest = connection.execute(
+                    "SELECT COALESCE(MAX(id), 0) FROM r2_log_events"
+                ).fetchone()[0]
+                # Read only approved summaries; private text never enters the UI process.
                 rows = connection.execute(
                     "SELECT id, local_time, category, event_type, summary "
-                    "FROM r2_log_events WHERE id > ? ORDER BY id ASC LIMIT 500",
-                    (last_id,),
+                    "FROM r2_log_events WHERE id > ? AND id <= ? "
+                    "AND category IN ('world','media') "
+                    f"AND event_type IN ({allowed_placeholders}) ORDER BY id ASC",
+                    (last_id, latest, *allowed_types),
                 ).fetchall()
                 for row in rows:
-                    last_id = max(last_id, int(row["id"]))
-                    if not is_observer_event(row["category"], row["event_type"]):
-                        continue
                     summary = " ".join((row["summary"] or "").split())
                     tree.insert("", "end", iid=str(row["id"]),
                                 values=(row["local_time"] or "time unavailable", summary))
+                last_id = int(latest)
                 children = tree.get_children()
                 if len(children) > MAX_ROWS:
                     for item in children[:len(children) - MAX_ROWS]:
