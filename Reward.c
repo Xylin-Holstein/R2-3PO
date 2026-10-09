@@ -52,12 +52,33 @@ static int ensure_db_locked(void)
         " id INTEGER PRIMARY KEY AUTOINCREMENT, target TEXT NOT NULL,"
         " source TEXT NOT NULL, points INTEGER NOT NULL CHECK(points BETWEEN -7 AND 5 AND points<>0),"
         " reason TEXT NOT NULL, occurred_at INTEGER NOT NULL, modifier INTEGER NOT NULL,"
-        " expires_at INTEGER NOT NULL);"
+        " expires_at INTEGER NOT NULL, log_event_id INTEGER);"
         "CREATE INDEX IF NOT EXISTS reward_events_target_time ON reward_events(target,occurred_at);",
         NULL, NULL, NULL) != SQLITE_OK) {
         fprintf(stderr, "[R2 Reward] Schema error: %s\n", sqlite3_errmsg(reward_db));
         sqlite3_close(reward_db);
         reward_db = NULL;
+        return -1;
+    }
+
+    /* Existing ledgers may predate the Life Log cross-reference column. */
+    sqlite3_stmt *columns = NULL;
+    int has_log_event_id = 0;
+    int column_rc = sqlite3_prepare_v2(reward_db,
+        "PRAGMA table_info(reward_events)", -1, &columns, NULL);
+    if (column_rc != SQLITE_OK) return -1;
+    while (sqlite3_step(columns) == SQLITE_ROW) {
+        const unsigned char *name = sqlite3_column_text(columns, 1);
+        if (name && strcmp((const char *)name, "log_event_id") == 0)
+            has_log_event_id = 1;
+    }
+    sqlite3_finalize(columns);
+    if (!has_log_event_id &&
+        sqlite3_exec(reward_db,
+            "ALTER TABLE reward_events ADD COLUMN log_event_id INTEGER",
+            NULL, NULL, NULL) != SQLITE_OK) {
+        fprintf(stderr, "[R2 Reward] Could not add Life Log cross-reference: %s\\n",
+                sqlite3_errmsg(reward_db));
         return -1;
     }
     return 0;
@@ -82,6 +103,82 @@ void r2_reward_shutdown(void)
     pthread_mutex_unlock(&reward_lock);
 }
 
+typedef struct {
+    sqlite3_int64 id;
+    char target[REWARD_TARGET_MAX + 1];
+    char source[129];
+    int points;
+    char reason[REWARD_REASON_MAX + 1];
+    sqlite3_int64 occurred_at;
+    int modifier;
+    sqlite3_int64 expires_at;
+} PendingReward;
+
+static void format_reward_event(const PendingReward *event,
+                                char *summary, size_t summary_size,
+                                char *details, size_t details_size)
+{
+    int duration = (int)(event->expires_at - event->occurred_at);
+    if (duration < 0) duration = 0;
+    snprintf(summary, summary_size,
+        "R2 recorded a %s learning signal (%+d points) for %.240s.",
+        event->points > 0 ? "positive" : "corrective",
+        event->points, event->target);
+    snprintf(details, details_size,
+        "reward_event_id=%lld; target=%s; source=%s; points=%+d; reason=%.900s; "
+        "temporary_enjoyment_modifier=%+d/100; modifier_expires_after_seconds=%d; "
+        "reward_total_is_not_a_measure_of_worth.",
+        (long long)event->id, event->target, event->source, event->points,
+        event->reason, event->modifier, duration);
+}
+
+static int64_t find_existing_log_event(sqlite3_int64 reward_id)
+{
+    sqlite3 *db = NULL;
+    sqlite3_stmt *st = NULL;
+    int64_t event_id = 0;
+    char pattern[80];
+    snprintf(pattern, sizeof(pattern), "reward_event_id=%lld;%%", (long long)reward_id);
+    if (sqlite3_open_v2(R2_DIARY_DATABASE, &db,
+        SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX, NULL) != SQLITE_OK) {
+        if (db) sqlite3_close(db);
+        return 0;
+    }
+    sqlite3_busy_timeout(db, 3000);
+    if (sqlite3_prepare_v2(db,
+        "SELECT id FROM r2_log_events WHERE event_type='enjoyment_changed' "
+        "AND details LIKE ? ORDER BY id DESC LIMIT 1", -1, &st, NULL) == SQLITE_OK) {
+        sqlite3_bind_text(st, 1, pattern, -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(st) == SQLITE_ROW)
+            event_id = sqlite3_column_int64(st, 0);
+    }
+    if (st) sqlite3_finalize(st);
+    sqlite3_close(db);
+    return event_id;
+}
+
+static int store_log_link(sqlite3_int64 reward_id, int64_t log_event_id)
+{
+    sqlite3_stmt *st = NULL;
+    int rc;
+    pthread_mutex_lock(&reward_lock);
+    if (ensure_db_locked() != 0) {
+        pthread_mutex_unlock(&reward_lock);
+        return -1;
+    }
+    rc = sqlite3_prepare_v2(reward_db,
+        "UPDATE reward_events SET log_event_id=? WHERE id=? AND log_event_id IS NULL",
+        -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        sqlite3_bind_int64(st, 1, log_event_id);
+        sqlite3_bind_int64(st, 2, reward_id);
+        rc = sqlite3_step(st);
+    }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reward_lock);
+    return rc == SQLITE_DONE ? 0 : -1;
+}
+
 int r2_reward_apply(const char *target, const char *source, int points,
                     const char *reason, int voluntary_choice)
 {
@@ -97,6 +194,7 @@ int r2_reward_apply(const char *target, const char *source, int points,
     sqlite3_int64 expires = now + REWARD_DECAY_SECONDS;
     int rc;
     int committed = 0;
+    sqlite3_int64 reward_id = 0;
     sqlite3_stmt *st = NULL;
 
     pthread_mutex_lock(&reward_lock);
@@ -118,6 +216,8 @@ int r2_reward_apply(const char *target, const char *source, int points,
             sqlite3_bind_int(st, 6, modifier);
             sqlite3_bind_int64(st, 7, expires);
             rc = sqlite3_step(st);
+            if (rc == SQLITE_DONE)
+                reward_id = sqlite3_last_insert_rowid(reward_db);
         }
         if (st) sqlite3_finalize(st);
         st = NULL;
@@ -135,38 +235,107 @@ int r2_reward_apply(const char *target, const char *source, int points,
         st = NULL;
         if (rc == SQLITE_DONE) {
             rc = sqlite3_exec(reward_db, "COMMIT;", NULL, NULL, NULL);
-            if (rc == SQLITE_OK) {
-                committed = 1;
-            } else {
-                (void)sqlite3_exec(reward_db, "ROLLBACK;", NULL, NULL, NULL);
-            }
+            if (rc == SQLITE_OK) committed = 1;
+            else (void)sqlite3_exec(reward_db, "ROLLBACK;", NULL, NULL, NULL);
         } else {
             (void)sqlite3_exec(reward_db, "ROLLBACK;", NULL, NULL, NULL);
         }
     }
     pthread_mutex_unlock(&reward_lock);
-    if (!committed) return -1;
+    if (!committed || reward_id <= 0) return -1;
 
+    PendingReward event = {0};
+    event.id = reward_id;
+    snprintf(event.target, sizeof(event.target), "%s", target);
+    snprintf(event.source, sizeof(event.source), "%s", source);
+    event.points = points;
+    snprintf(event.reason, sizeof(event.reason), "%s", reason);
+    event.occurred_at = now;
+    event.modifier = modifier;
+    event.expires_at = expires;
     char summary[512], details[1600];
-    snprintf(summary, sizeof(summary), "R2 recorded a %s learning signal (%+d points) for %s.",
-             points > 0 ? "positive" : "corrective", points, target);
-    snprintf(details, sizeof(details),
-        "target=%s; source=%s; points=%+d; reason=%.900s; temporary_enjoyment_modifier=%+d/100; "
-        "modifier_expires_after_seconds=%d; reward_total_is_not_a_measure_of_worth.",
-        target, source, points, reason, modifier, REWARD_DECAY_SECONDS);
+    format_reward_event(&event, summary, sizeof(summary), details, sizeof(details));
 
-    /* Public summary is a generic state change; private diary text is never
-       passed here. The detailed reason should therefore be a short, nonprivate
-       outcome description supplied by the calling subsystem. */
-    if (r2_log_is_initialized())
-        (void)r2_log_event_with_memory(R2_LOG_WORLD, "enjoyment_changed",
-            summary, details, "Reward.c", 1);
+    /* The reward row points back to its Life Log event; the event details carry
+       reward_event_id so startup recovery can find an event created just
+       before a crash without duplicating it. */
+    if (r2_log_is_initialized()) {
+        int64_t log_event_id = r2_log_event_with_memory(R2_LOG_WORLD,
+            "enjoyment_changed", summary, details, "Reward.c", 1);
+        if (log_event_id > 0)
+            (void)store_log_link(reward_id, log_event_id);
+    }
 
     if (voluntary_choice)
         (void)r2_addiction_record_choice(target, "activity",
             points >= 0 ? (50 + points * 5) : (50 + points * 4),
             "reinforcement", details);
     return 0;
+}
+
+int r2_reward_reconnect_history(int limit)
+{
+    PendingReward *pending = NULL;
+    sqlite3_stmt *st = NULL;
+    int rc, count = 0, linked = 0;
+    if (!r2_log_is_initialized()) return -1;
+    if (limit <= 0) limit = 100;
+    if (limit > 500) limit = 500;
+
+    pending = calloc((size_t)limit, sizeof(*pending));
+    if (!pending) return -1;
+    pthread_mutex_lock(&reward_lock);
+    if (ensure_db_locked() != 0) {
+        pthread_mutex_unlock(&reward_lock);
+        free(pending);
+        return -1;
+    }
+    rc = sqlite3_prepare_v2(reward_db,
+        "SELECT id,target,source,points,reason,occurred_at,modifier,expires_at "
+        "FROM reward_events WHERE log_event_id IS NULL OR log_event_id=0 "
+        "ORDER BY id LIMIT ?", -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        sqlite3_bind_int(st, 1, limit);
+        while ((rc = sqlite3_step(st)) == SQLITE_ROW && count < limit) {
+            PendingReward *item = &pending[count++];
+            const unsigned char *target_text = sqlite3_column_text(st, 1);
+            const unsigned char *source_text = sqlite3_column_text(st, 2);
+            const unsigned char *reason_text = sqlite3_column_text(st, 4);
+            item->id = sqlite3_column_int64(st, 0);
+            snprintf(item->target, sizeof(item->target), "%s",
+                target_text ? (const char *)target_text : "unknown");
+            snprintf(item->source, sizeof(item->source), "%s",
+                source_text ? (const char *)source_text : "unknown");
+            item->points = sqlite3_column_int(st, 3);
+            snprintf(item->reason, sizeof(item->reason), "%s",
+                reason_text ? (const char *)reason_text : "");
+            item->occurred_at = sqlite3_column_int64(st, 5);
+            item->modifier = sqlite3_column_int(st, 6);
+            item->expires_at = sqlite3_column_int64(st, 7);
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reward_lock);
+    if (rc != SQLITE_DONE && rc != SQLITE_ROW) {
+        free(pending);
+        return -1;
+    }
+
+    for (int i = 0; i < count; ++i) {
+        PendingReward *item = &pending[i];
+        int64_t log_event_id = find_existing_log_event(item->id);
+        if (log_event_id <= 0) {
+            char summary[512], details[1600];
+            format_reward_event(item, summary, sizeof(summary), details, sizeof(details));
+            log_event_id = r2_log_event_with_memory(R2_LOG_WORLD,
+                "enjoyment_changed", summary, details, "Reward.c", 1);
+        }
+        if (log_event_id > 0 &&
+            store_log_link(item->id, log_event_id) == 0)
+            linked++;
+    }
+    free(pending);
+    return linked;
 }
 
 int r2_reward_current_modifier(const char *target)
