@@ -46,6 +46,14 @@ Their matching headers are included in the repository: `r2.h`, `shell.h`, `r2_di
 GitHub Actions checks shell-script syntax and compiles this source set on pushes to the audit branch and the configured main branches. A successful compile confirms compilation/linking only; it does not exercise Ollama, live audio/video devices, or the runtime database.
 
 
+## Choice Lab, age, senses, and money
+
+The Choice Lab is open-ended, not an enumerated menu: R2 can consider any proposed choice using current needs, memories, self-facts, and learned preferences. It supports counterfactual sensory reasoning without actually activating Eyes/Ears, changing the world, or confusing imagined details with observations. He can ask what he might learn by looking somewhere or whether new information would change a preference; predictions must be labeled uncertain. Existing food/ingredient ratings and taste metrics inform preference reasoning, and only real experiences or explicit feedback update preferences.
+
+R2's age is measured from the original conversation file's filesystem creation timestamp when available and saved in Reality metadata so later edits do not reset it. If the filesystem does not expose birth time, file modification time is used as a persisted fallback. If the file is absent, age is not guessed.
+
+Money is a crude persistent prototype, not a built-in shop. `money` shows carried cash and bank balance; `money deposit 30` moves $30 cash into `room/piggybank/`; `money withdraw 10` returns $10 to cash. `money buy Chair | 20 | A chair | room` deducts the price (cash first, then bank) and adds the item to the chosen container. No starting funds, store stock, products, or prices are hardcoded.
+
 ## Persistent reality, room, and inventory
 
 The Reality engine stores self-continuity, world-continuity, current objects,
@@ -66,6 +74,7 @@ On startup, R2 creates these workspace directories if missing:
 - `room/pockets/` and `room/wallet/` — physical inventory folders for carried items
 - `room/toy_box/` — the named toy-storage container
 - `room/fridge/` — human-readable mirror files for the separate fridge inventory
+- `room/piggybank/` — bank-account mirror file (`account.txt`); SQLite remains authoritative
 
 The dedicated reality database stores current objects, needs, collection-memory events, food experiences, and learned preferences. The fridge has its own independent `r2_fridge.db`; its stock is not stored in the room inventory database. If the fridge is completely empty, it generates one burger with configured fullness of 100/100 and energy bonus 10. R2 can inspect it with `fridge`, move one item into his pockets with `fridge take burger`, eat directly from it with `fridge eat burger`, or store a tracked inventory item with `fridge store burger`. World actions that add an item to or move an item into the `fridge` container write to the fridge database rather than the room-object database. In this prototype the fridge can be interacted with from anywhere; a later world-layout pass can restrict it to the kitchen. The physical folders `room/pockets/`, `room/wallet/`, and `room/toy_box/` mirror tracked items in those containers. If an object is in R2's pockets, its `.r2item` file is placed in `room/pockets/`; moving it elsewhere updates its mirror location. Current inventory stays exact even when the collection-memory record loses precision. On startup, R2 creates `room/food_metrics.xml` if it is missing. Put one XML entry per line inside the `<foods>` root, for example `<food name="burger" fullness="100" energy="10" ingredients="bread,beef,cheese" taste="savory, warm, salty" />`. `fullness` is the hunger reduction (0–100); `energy` is an optional energy bonus; `ingredients` is a comma-separated ingredient list; `taste` is an optional sensory description. These fields describe food, not a hard-coded like/dislike. If `eat <food>` has no explicit value, R2 looks up the food by name in this file and reports an error rather than guessing when no metric exists.
 
