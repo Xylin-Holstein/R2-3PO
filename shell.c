@@ -215,6 +215,27 @@ static void shell_help(void)
         "  eyes stop\n"
         "      Stop the existing Eyes subsystem.\n"
         "\n"
+        "  vision\n"
+        "      Show recent visual experiences.\n"
+        "\n"
+        "  vision see [question]\n"
+        "      Analyze a captured frame using R2's local vision model.\n"
+        "\n"
+        "  vision vlc\n"
+        "      Connect Eyes to a visible VLC window.\n"
+        "\n"
+        "  vision file <path>\n"
+        "      Open an image or video file as visual input.\n"
+        "\n"
+        "  vision search <text>\n"
+        "      Search the visual experience library.\n"
+        "\n"
+        "  vision model <name>\n"
+        "      Select the local Ollama vision model.\n"
+        "\n"
+        "  vision close\n"
+        "      Close the current visual source.\n"
+        "\n"
         "  ears\n"
         "      Show Ears status.\n"
         "\n"
@@ -661,14 +682,14 @@ static void shell_eyes(const char *argument)
 static void shell_vision(const char *argument)
 {
     if (!r2_vision_available()) {
-        printf("[Visual Experience Library is unavailable. Check R2 startup logs.]\\n");
+        printf("[Visual Experience Library is unavailable. Check R2 startup logs.]\n");
         return;
     }
 
     if (!argument || !*argument || !strcasecmp(argument, "recent")) {
         char *result = r2_vision_recent(10);
         if (result) { printf("%s", result); free(result); }
-        else printf("[Could not read visual experiences.]\\n");
+        else printf("[Could not read visual experiences.]\n");
         return;
     }
 
@@ -676,39 +697,39 @@ static void shell_vision(const char *argument)
         char *result = r2_vision_see(
             "Describe what is visible in the current frame. Identify objects, visible text, "
             "layout, and relevant details. Separate direct observations from uncertain inference.");
-        if (result) { printf("R2 sees:\\n%s\\n", result); free(result); }
-        else printf("[Visual analysis failed. Check that the vision model is installed and Eyes can capture a frame.]\\n");
+        if (result) { printf("R2 sees:\n%s\n", result); free(result); }
+        else printf("[Visual analysis failed. Check that the vision model is installed and Eyes can capture a frame.]\n");
         return;
     }
 
     if (shell_starts_with(argument, "see ")) {
         const char *question = shell_trim((char *)argument + 4);
         char *result = r2_vision_see(question);
-        if (result) { printf("R2 sees:\\n%s\\n", result); free(result); }
-        else printf("[Visual analysis failed. Check that the vision model is installed and Eyes can capture a frame.]\\n");
+        if (result) { printf("R2 sees:\n%s\n", result); free(result); }
+        else printf("[Visual analysis failed. Check that the vision model is installed and Eyes can capture a frame.]\n");
         return;
     }
 
     if (!strcasecmp(argument, "vlc")) {
         if (r2_vision_open_vlc() == 0)
-            printf("[Eyes connected to the visible VLC window. Use 'vision see' or 'vision watch' after it opens.]\\n");
+            printf("[Eyes connected to the visible VLC window. Use 'vision see' or 'vision watch' after it opens.]\n");
         else
-            printf("[Could not open VLC capture. Ensure VLC is visible in the graphical desktop session.]\\n");
+            printf("[Could not open VLC capture. Ensure VLC is visible in the graphical desktop session.]\n");
         return;
     }
 
     if (shell_starts_with(argument, "file ")) {
         const char *path = shell_trim((char *)argument + 5);
         if (r2_vision_open_file(path) == 0)
-            printf("[Eyes opened visual file: %s]\\n", path);
+            printf("[Eyes opened visual file: %s]\n", path);
         else
-            printf("[Could not open visual file: %s]\\n", path);
+            printf("[Could not open visual file: %s]\n", path);
         return;
     }
 
     if (!strcasecmp(argument, "close")) {
-        if (r2_vision_close() == 0) printf("[Visual input closed.]\\n");
-        else printf("[No visual input could be closed.]\\n");
+        if (r2_vision_close() == 0) printf("[Visual input closed.]\n");
+        else printf("[No visual input could be closed.]\n");
         return;
     }
 
@@ -716,20 +737,20 @@ static void shell_vision(const char *argument)
         const char *query = shell_trim((char *)argument + 7);
         char *result = r2_vision_search(query, 25);
         if (result) { printf("%s", result); free(result); }
-        else printf("[Could not search visual experiences.]\\n");
+        else printf("[Could not search visual experiences.]\n");
         return;
     }
 
     if (shell_starts_with(argument, "model ")) {
         const char *model = shell_trim((char *)argument + 6);
         if (r2_vision_set_model(model) == 0)
-            printf("[Vision model set to %s. Make sure this model is installed in Ollama.]\\n", model);
+            printf("[Vision model set to %s. Make sure this model is installed in Ollama.]\n", model);
         else
-            printf("[Invalid vision model name.]\\n");
+            printf("[Invalid vision model name.]\n");
         return;
     }
 
-    printf("Usage: vision [recent|see [question]|search <text>|model <ollama-model>|vlc|file <path>|close]\\n");
+    printf("Usage: vision [recent|see [question]|search <text>|model <ollama-model>|vlc|file <path>|close]\n");
 }
 
 /* ============================================================
