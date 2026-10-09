@@ -2349,34 +2349,38 @@ static int workspace_delete(
     const char *rel,
     char out[PATH_MAX])
 {
-    char p[PATH_MAX];
+    char resolved[PATH_MAX];
 
-    if (safe_path(rel, p) != 0 ||
-        !strcmp(p, R2_WORKSPACE))
+    if (!rel || !*rel || safe_path(rel, resolved) != 0 ||
+        !strcmp(resolved, R2_WORKSPACE))
+        return -1;
+
+    /*
+     * safe_path resolves the target to verify containment. For deletion,
+     * however, operate on the directory entry the caller named: otherwise
+     * deleting an in-workspace symlink would delete its target instead.
+     */
+    char entry_path[PATH_MAX];
+    int written = snprintf(entry_path, sizeof(entry_path), "%s/%s",
+                           R2_WORKSPACE, rel);
+    if (written < 0 || (size_t)written >= sizeof(entry_path))
         return -1;
 
     struct stat st;
-
-    if (stat(p, &st) != 0 ||
-        !S_ISREG(st.st_mode))
+    if (lstat(entry_path, &st) != 0 ||
+        (!S_ISREG(st.st_mode) && !S_ISLNK(st.st_mode)))
         return -1;
 
-    if (unlink(p) != 0) {
+    if (unlink(entry_path) != 0) {
         r2_log_file_event("delete", rel, "failed", NULL);
         return -1;
     }
 
-    r2_log_file_event("delete", rel, "success", "Workspace file was deleted by R2.");
+    r2_log_file_event("delete", rel, "success",
+                      "Workspace directory entry was deleted by R2.");
 
-    if (out) {
-
-        snprintf(
-            out,
-            PATH_MAX,
-            "%s",
-            p + strlen(R2_WORKSPACE) + 1
-        );
-    }
+    if (out)
+        snprintf(out, PATH_MAX, "%s", rel);
 
     return 0;
 }
