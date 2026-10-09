@@ -30,16 +30,52 @@ gcc -std=c11 -Wall -Wextra -O2 \
 
 ## Compilation source inventory
 
-The build requires these seven C translation units:
+The build requires these eight C translation units:
 
 - `r2.c` — core
 - `shell.c` — command shell
 - `r2_diary.c` — diary subsystem
-- `Log.c` — life log
+- `Log.c` — factual Life Log chronology
+- `Reality.c` — persistent self-continuity, world state, room objects, needs, and inventory containers
 - `Visual.c` — vision-model integration
 - `Ears.c` — audio input
 - `Eyes.c` — visual input
 
-Their matching headers are included in the repository: `r2.h`, `shell.h`, `r2_diary.h`, `Log.h`, `Visual.h`, `Ears.h`, and `Eyes.h`.
+Their matching headers are included in the repository: `r2.h`, `shell.h`, `r2_diary.h`, `Log.h`, `Reality.h`, `Visual.h`, `Ears.h`, and `Eyes.h`.
 
 GitHub Actions checks shell-script syntax and compiles this source set on pushes to the audit branch and the configured main branches. A successful compile confirms compilation/linking only; it does not exercise Ollama, live audio/video devices, or the runtime database.
+
+
+## Persistent reality, room, and inventory
+
+The Reality engine stores self-continuity and world-continuity in separate
+`r2_reality_*` tables in the existing `r2_memory.db`. It shares the database
+file with the core memory, diary, and Life Log without replacing their tables.
+World changes are recorded in the Life Log and indexed in persistent memory;
+major object changes also create a short factual diary note. The engine supplies
+the current authoritative state to each conversation turn.
+
+On startup, R2 creates these workspace directories if missing:
+
+- `room/` — objects currently in the room
+- `room/shelf/` — physical shelf location
+- `room/box/` — physical storage-box location
+
+The database also provides `pockets` and `wallet` inventory containers.
+
+Shell examples:
+
+```text
+room
+room add Toy | Small plastic toy | shelf | 1
+room move Toy | pockets
+pockets
+pockets wallet Toy
+wallet
+room move Toy | box
+world status
+```
+
+R2 can use the `[WORLD]` tool marker to inspect the room, record or move
+objects, and persist explicitly evidenced self-state facts. These operations
+return a result to the model; R2 must not claim success when a write fails.
