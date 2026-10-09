@@ -23,6 +23,10 @@ PUBLIC_EVENT_TYPES = frozenset({
     # Explicitly public Game Boy device/session facts; raw button presses stay private to the device log.
     "gameboy_device_action", "gameboy_game_started", "gameboy_console_powered_off",
     "gameboy_game_event",
+    # CRT/VCR device events are public, factual world/media events.
+    "tv_display_opened", "tv_display_closed", "tv_power", "tv_source_selected",
+    "tv_rf_tuned", "tv_device_connected", "tv_device_disconnected",
+    "vcr_tape_inserted", "vcr_transport_changed", "vcr_tape_ejected",
 })
 def is_observer_event(category: str, event_type: str) -> bool:
     """True only for explicitly approved factual event types/categories."""
@@ -97,30 +101,44 @@ def main() -> int:
                 latest = connection.execute(
                     "SELECT COALESCE(MAX(id), 0) FROM r2_log_events"
                 ).fetchone()[0]
-                # Establish a cursor on first connection to avoid duplicating old history
-                # each time the observer opens; Activity.txt records new live events.
+                # Populate the window with recent approved history on first connect.
+                # Historical rows are not appended again to Activity.txt; only new live
+                # events are appended, so reopening the observer never duplicates history.
                 if last_id is None:
+                    rows = connection.execute(
+                        "SELECT id, local_time, category, event_type, summary "
+                        "FROM r2_log_events WHERE id <= ? "
+                        "AND category IN ('world','media') "
+                        f"AND event_type IN ({allowed_placeholders}) ORDER BY id DESC LIMIT ?",
+                        (latest, *allowed_types, MAX_ROWS),
+                    ).fetchall()
+                    for row in reversed(rows):
+                        summary = " ".join((row["summary"] or "").split())
+                        local_time = row["local_time"] or "time unavailable"
+                        tree.insert("", "end", iid=str(row["id"]),
+                                    values=(local_time, summary))
                     last_id = int(latest)
-                # Read only approved summaries; private text never enters the UI process.
-                rows = connection.execute(
-                    "SELECT id, local_time, category, event_type, summary "
-                    "FROM r2_log_events WHERE id > ? AND id <= ? "
-                    "AND category IN ('world','media') "
-                    f"AND event_type IN ({allowed_placeholders}) ORDER BY id ASC",
-                    (last_id, latest, *allowed_types),
-                ).fetchall()
-                for row in rows:
-                    summary = " ".join((row["summary"] or "").split())
-                    local_time = row["local_time"] or "time unavailable"
-                    tree.insert("", "end", iid=str(row["id"]),
-                                values=(local_time, summary))
-                    try:
-                        append_activity_line(ACTIVITY_FILE, local_time, summary, int(row["id"]))
-                        activity_file_error = False
-                    except OSError as exc:
-                        activity_file_error = True
-                        status.set(f"Live window · Activity.txt write failed: {exc}")
-                last_id = int(latest)
+                else:
+                    # Read only newly added approved summaries; private text never enters the UI.
+                    rows = connection.execute(
+                        "SELECT id, local_time, category, event_type, summary "
+                        "FROM r2_log_events WHERE id > ? AND id <= ? "
+                        "AND category IN ('world','media') "
+                        f"AND event_type IN ({allowed_placeholders}) ORDER BY id ASC",
+                        (last_id, latest, *allowed_types),
+                    ).fetchall()
+                    for row in rows:
+                        summary = " ".join((row["summary"] or "").split())
+                        local_time = row["local_time"] or "time unavailable"
+                        tree.insert("", "end", iid=str(row["id"]),
+                                    values=(local_time, summary))
+                        try:
+                            append_activity_line(ACTIVITY_FILE, local_time, summary, int(row["id"]))
+                            activity_file_error = False
+                        except OSError as exc:
+                            activity_file_error = True
+                            status.set(f"Live window · Activity.txt write failed: {exc}")
+                    last_id = int(latest)
                 children = tree.get_children()
                 if len(children) > MAX_ROWS:
                     for item in children[:len(children) - MAX_ROWS]:
