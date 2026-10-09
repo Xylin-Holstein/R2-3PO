@@ -45,6 +45,9 @@ jobs:
           python3 -m py_compile TV.py tests/tv_display_smoke.py
           python3 tests/tv_display_smoke.py
 
+      - name: Exercise TV room-device installer
+        run: bash tests/tv_install_smoke.sh
+
       - name: Exercise physical money wallet authority and restart behavior
         run: |
           ROOT=/tmp/r2-wallet-smoke
