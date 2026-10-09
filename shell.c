@@ -41,6 +41,7 @@
 
 #include "shell.h"
 #include "r2.h"
+#include "Log.h"
 
 
 /* ============================================================
@@ -195,6 +196,15 @@ static void shell_help(void)
         "\n"
         "  diary\n"
         "      Trigger a diary-writing operation.\n"
+        "\n"
+        "  log\n"
+        "      Show the latest Life Log events.\n"
+        "\n"
+        "  log status\n"
+        "      Show Life Log counts and current session information.\n"
+        "\n"
+        "  log search <text>\n"
+        "      Search the chronological Life Log.\n"
         "\n"
         "  eyes\n"
         "      Show Eyes status.\n"
@@ -537,6 +547,39 @@ static void shell_diary(void)
     }
 }
 
+
+
+/* ============================================================
+   LIFE LOG
+   ============================================================ */
+
+static void shell_log(const char *argument)
+{
+    char *result = NULL;
+
+    if (!r2_log_is_initialized()) {
+        printf("[R2 Life Log is not initialized.]\\n");
+        return;
+    }
+
+    if (!argument || !*argument) {
+        result = r2_log_recent(25);
+    } else if (!strcasecmp(argument, "status")) {
+        result = r2_log_status_report();
+    } else if (shell_starts_with(argument, "search ")) {
+        const char *query = shell_trim((char *)argument + 7);
+        result = r2_log_search(query, 50);
+    } else {
+        result = r2_log_search(argument, 50);
+    }
+
+    if (result) {
+        printf("%s", result);
+        free(result);
+    } else {
+        printf("[Could not read the Life Log.]\\n");
+    }
+}
 
 /* ============================================================
    EYES
@@ -967,6 +1010,21 @@ static int shell_dispatch(char *input)
         shell_memory(
             shell_trim(command + 7)
         );
+        return 1;
+    }
+
+
+    /* --------------------------------------------------------
+       LIFE LOG
+       -------------------------------------------------------- */
+
+    if (!strcasecmp(command, "log")) {
+        shell_log(NULL);
+        return 1;
+    }
+
+    if (shell_starts_with(command, "log ")) {
+        shell_log(shell_trim(command + 4));
         return 1;
     }
 
