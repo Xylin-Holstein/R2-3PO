@@ -2,6 +2,9 @@
 #define _POSIX_C_SOURCE 200809L
 #define _XOPEN_SOURCE 700
 
+#include <stdlib.h>
+#include <stddef.h>
+
 /* ============================================================
    R2 CONFIGURATION
    ============================================================ */
@@ -31,7 +34,7 @@ static long r2_chat_num_ctx(void)
     if (!configured || !*configured) return DEFAULT_NUM_CTX;
     char *end = NULL;
     long value = strtol(configured, &end, 10);
-    return end && *end == '\\0' && value >= 2048 && value <= 131072
+    return end && *end == '\0' && value >= 2048 && value <= 131072
         ? value : DEFAULT_NUM_CTX;
 }
 
@@ -5575,7 +5578,7 @@ void r2_status(void)
         "============================================================\n",
         r2_is_initialized() ? "YES" : "NO",
         r2_is_shutting_down() ? "YES" : "NO",
-        MODEL,
+        r2_chat_model(),
         r2_memory_count(),
         startup_memory_loaded ? "LOADED" : "NOT LOADED",
         MAX_STARTUP_MEMORIES,
