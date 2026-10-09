@@ -1090,6 +1090,31 @@ char *r2_reality_status(void)
     return out;
 }
 
+/* libfaketime intentionally gives R2 a private 1999 clock. Age is a
+ * real elapsed-time calculation, so read the host boot epoch and kernel
+ * uptime rather than comparing the file's real birth time with R2's fake
+ * wall clock. Both values come from procfs and are unaffected by LD_PRELOAD. */
+static sqlite3_int64 real_epoch_seconds(void)
+{
+    FILE *fp = fopen("/proc/stat", "r");
+    if (!fp) return 0;
+    char line[256];
+    long long boot_epoch = 0;
+    while (fgets(line, sizeof(line), fp)) {
+        if (sscanf(line, "btime %lld", &boot_epoch) == 1) break;
+    }
+    fclose(fp);
+    if (boot_epoch <= 0) return 0;
+
+    fp = fopen("/proc/uptime", "r");
+    if (!fp) return 0;
+    double uptime = 0.0;
+    int parsed = fscanf(fp, "%lf", &uptime);
+    fclose(fp);
+    if (parsed != 1 || !isfinite(uptime) || uptime < 0.0) return 0;
+    return (sqlite3_int64)boot_epoch + (sqlite3_int64)uptime;
+}
+
 static char *origin_age_context(void)
 {
     char path[1400]; snprintf(path,sizeof(path),"%s/r2_original_conversation.txt",R2_HOME);
@@ -1114,7 +1139,11 @@ static char *origin_age_context(void)
             return strdup("AGE: original conversation file exists, but its filesystem creation time is unavailable; age is not guessed.");
         return strdup("AGE: original conversation file is not present yet; age is not established.");
     }
-    sqlite3_int64 days=((sqlite3_int64)time(NULL)>started)?((sqlite3_int64)time(NULL)-started)/86400:0;char out[256];
+    sqlite3_int64 now = real_epoch_seconds();
+    if (now <= 0)
+        return strdup("AGE: the host's real elapsed time is unavailable; age is not guessed from R2's private clock.");
+    sqlite3_int64 days = now > started ? (now - started) / 86400 : 0;
+    char out[256];
     if(days<30)snprintf(out,sizeof(out),"AGE: about %lld days since the original conversation file was created.",(long long)days);
     else if(days<365){double m=(double)days/30.436875;if(m>=5.5&&m<=6.5)snprintf(out,sizeof(out),"AGE: about half a year old (%lld days).",(long long)days);else snprintf(out,sizeof(out),"AGE: about %d months old, measured from the original conversation file's creation time.",(int)(m+0.5));}
     else{int y=(int)(days/365.2425),m=(int)(((double)days-y*365.2425)/30.436875+0.5);if(m>=12){y++;m=0;}
