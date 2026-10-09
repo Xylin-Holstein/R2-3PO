@@ -695,16 +695,20 @@ int r2_log_session_end(const char *reason)
     }
 
     sqlite3_finalize(statement);
-    current_session_id = 0;
     pthread_mutex_unlock(&log_lock);
 
     if (rc != SQLITE_DONE && rc != SQLITE_OK)
         return -1;
 
+    /* Keep the active session ID until its final event is written. */
     r2_log_event(R2_LOG_LIFECYCLE, "session_ended",
                  "R2 process session ended.",
                  reason ? reason : "No shutdown reason supplied.",
                  "Log.c");
+
+    pthread_mutex_lock(&log_lock);
+    current_session_id = 0;
+    pthread_mutex_unlock(&log_lock);
 
     return 0;
 }
