@@ -132,7 +132,8 @@ static void r2_vwebcam_publish_frame(const R2Eyes *e) {
         scale=sx<sy?sx:sy;
     }
     unsigned int dw=(unsigned int)(sw*scale),dh=(unsigned int)(sh*scale);
-    if(!dw)dw=1;if(!dh)dh=1;
+    if (!dw) dw = 1;
+    if (!dh) dh = 1;
     char tmp[256],path[256];
     snprintf(tmp,sizeof(tmp),"%s/frame.tmp.ppm",R2_VWEBCAM_DIR);
     snprintf(path,sizeof(path),"%s/frame.ppm",R2_VWEBCAM_DIR);
