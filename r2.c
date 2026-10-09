@@ -5359,6 +5359,39 @@ static void log_structured_self_report(const char *reply, int64_t parent_event_i
         }
     }
 
+
+    if (json_object_object_get_ex(root, "hypotheticals", &arr) &&
+        json_object_is_type(arr, json_type_array)) {
+        size_t count = json_object_array_length(arr);
+        if (count > 8) count = 8;
+        for (size_t i = 0; i < count; ++i) {
+            item = json_object_array_get_idx(arr, i);
+            const char *scenario = NULL, *assumptions = NULL;
+            const char *predicted = NULL, *conclusion = NULL;
+            if (json_object_object_get_ex(item, "scenario", &v) &&
+                json_object_is_type(v, json_type_string))
+                scenario = json_object_get_string(v);
+            if (json_object_object_get_ex(item, "assumptions", &v) &&
+                json_object_is_type(v, json_type_string))
+                assumptions = json_object_get_string(v);
+            if (json_object_object_get_ex(item, "predicted_outcome", &v) &&
+                json_object_is_type(v, json_type_string))
+                predicted = json_object_get_string(v);
+            if (json_object_object_get_ex(item, "conclusion", &v) &&
+                json_object_is_type(v, json_type_string))
+                conclusion = json_object_get_string(v);
+
+            if (scenario && *scenario) {
+                int64_t child = r2_log_hypothetical(
+                    scenario, assumptions, predicted, conclusion,
+                    "explicit R2 response; model-extracted");
+                if (parent_event_id > 0 && child > 0)
+                    r2_log_link(parent_event_id, child,
+                                "contains_hypothetical", scenario);
+            }
+        }
+    }
+
     json_object_put(root);
 }
 
