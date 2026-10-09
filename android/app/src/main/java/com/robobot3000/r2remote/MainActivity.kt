@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import org.json.JSONObject
@@ -373,55 +374,58 @@ private fun R2RemoteScreen(
     }
 
     if (showR2FaceWindow) {
-        AlertDialog(
-            onDismissRequest = { showR2FaceWindow = false },
-            modifier = Modifier.fillMaxWidth(),
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.RemoveRedEye, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Column {
-                        Text("R2-3PO / V-WEBCAM", fontWeight = FontWeight.Bold)
-                        Text("R2's face window", style = MaterialTheme.typography.labelSmall)
+        Dialog(onDismissRequest = { showR2FaceWindow = false }) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = androidx.compose.ui.graphics.Color(0xFF111820))
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("◉  R2-3PO  /  V-WEBCAM", color = androidx.compose.ui.graphics.Color(0xFFE8F0F7),
+                            fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        Text("● WAITING FOR EYES", color = androidx.compose.ui.graphics.Color(0xFFFFBD59),
+                            style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                     }
-                }
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = androidx.compose.ui.graphics.Color(0xFF05080B)),
-                        modifier = Modifier.fillMaxWidth().height(220.dp)
+                        Modifier.fillMaxWidth().padding(horizontal = 10.dp).height(220.dp),
+                        colors = CardDefaults.cardColors(containerColor = androidx.compose.ui.graphics.Color(0xFF05080B))
                     ) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Icon(
-                                    Icons.Default.RemoveRedEye,
-                                    contentDescription = "R2 visual window",
+                            Column(horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Icon(Icons.Default.RemoveRedEye, contentDescription = "R2's visual window",
                                     tint = androidx.compose.ui.graphics.Color(0xFF42F58D),
-                                    modifier = Modifier.size(54.dp)
-                                )
-                                Text(
-                                    "R2-3PO",
-                                    color = androidx.compose.ui.graphics.Color(0xFF42F58D),
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    "EYES VIEW",
-                                    color = androidx.compose.ui.graphics.Color(0xFF8FA3B7),
-                                    style = MaterialTheme.typography.labelSmall
-                                )
+                                    modifier = Modifier.size(54.dp))
+                                Text("R2-3PO", color = androidx.compose.ui.graphics.Color(0xFF42F58D),
+                                    fontWeight = FontWeight.Bold)
+                                Text("EYES VIEW", color = androidx.compose.ui.graphics.Color(0xFF8FA3B7),
+                                    style = MaterialTheme.typography.labelSmall)
                             }
                         }
                     }
-                    Text("●  R2 WINDOW READY", color = androidx.compose.ui.graphics.Color(0xFF42F58D), fontWeight = FontWeight.Bold)
-                    Text("This is the V-Webcam-style face panel for R2. A live remote frame feed will appear here once the call/stream transport is connected.", style = MaterialTheme.typography.bodySmall)
-                    Text("Display-only • R2's existing identity • no simulated human face", style = MaterialTheme.typography.labelSmall)
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Text("Source: waiting for R2's Eyes stream", color = androidx.compose.ui.graphics.Color(0xFFE8F0F7),
+                            fontWeight = FontWeight.SemiBold)
+                        Text("The existing V-Webcam popup's dark canvas, green identity accents, live status, and source panel are represented here. The live remote frame transport is not connected yet.",
+                            color = androidx.compose.ui.graphics.Color(0xFF8FA3B7),
+                            style = MaterialTheme.typography.bodySmall)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            OutlinedButton(enabled = false, onClick = {}, modifier = Modifier.weight(1f)) { Text("Pause display") }
+                            OutlinedButton(enabled = false, onClick = {}, modifier = Modifier.weight(1f)) { Text("Hide focus box") }
+                        }
+                        Text("Display only • no camera • no control of Eyes", color = androidx.compose.ui.graphics.Color(0xFF8FA3B7),
+                            style = MaterialTheme.typography.labelSmall)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            TextButton(onClick = { showR2FaceWindow = false }) { Text("Close window") }
+                        }
+                    }
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = { showR2FaceWindow = false }) { Text("Close window") }
             }
-        )
+        }
     }
 
     if (showSettings) {
