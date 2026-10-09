@@ -50,6 +50,10 @@ int r2_reality_record_dream(const char *description);
 int r2_reality_set_self(const char *key, const char *value,
                         const char *evidence);
 char *r2_reality_get_self(const char *key);
+char *r2_reality_money_context(void);
+int r2_reality_money_deposit(double amount);
+int r2_reality_money_withdraw(double amount);
+int r2_reality_buy_item(const char *name,const char *description,double price,const char *container);
 
 #ifdef __cplusplus
 }
