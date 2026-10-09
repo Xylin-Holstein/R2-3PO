@@ -1263,7 +1263,7 @@ static int shell_money(const char *arg)
     if(shell_starts_with(arg,"buy ")){char *copy=strdup(arg+4);if(!copy)return 1;char *p[4]={0};int n=0;char *save=NULL;
         for(char *t=strtok_r(copy,"|",&save);t&&n<4;t=strtok_r(NULL,"|",&save))p[n++]=shell_trim(t);
         if(n<2||!*p[0]||!*p[1])printf("Usage: money buy <item> | <price> | <description> | <container>\n");
-        else{double price=atof(p[1]);int rc=r2_reality_buy_item(p[0],n>=3&&*p[2]?p[2]:"Purchased item",price,n>=4&&*p[3]?p[3]:"room");printf(rc==0?"Purchased %s for $%.2f.\n":"Purchase failed; check funds and destination.\n",p[0],price);}free(copy);return 1;}
+        else{double price=atof(p[1]);int rc=r2_reality_buy_item(p[0],n>=3&&*p[2]?p[2]:"Purchased item",price,n>=4&&*p[3]?p[3]:"pockets");printf(rc==0?"Purchased %s for $%.2f.\n":"Purchase failed; check funds and destination.\n",p[0],price);}free(copy);return 1;}
     printf("Usage: money [status|deposit <amount>|withdraw <amount>|buy <item> | <price> | <description> | <container>]\n");return 1;
 }
 
