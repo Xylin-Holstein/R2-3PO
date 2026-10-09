@@ -1249,8 +1249,8 @@ char *r2_reality_context(void)
     char *facts = query_text("SELECT key,value,evidence FROM r2_reality_self_facts ORDER BY updated_at DESC", NULL);
     char *items_memory = query_text(
         "WITH detailed AS (SELECT item_name,CASE precision WHEN 'exact' THEN printf('remembers collecting exactly %d',exact_quantity) ELSE printf('remembers collecting about %d',approximate_quantity) END AS memory,CASE precision WHEN 'exact' THEN printf('%d days ago',MAX(0,(strftime('%s','now')-collected_at)/86400)) ELSE printf('about %d weeks ago',MAX(1,ROUND((strftime('%s','now')-collected_at)/604800.0))) END AS timing,collected_at FROM r2_reality_item_memory WHERE precision IN ('exact','approximate')), vague AS (SELECT item_name,'remembers collecting some; exact quantity and timing have faded' AS memory,'older vague memory' AS timing,MAX(collected_at) AS collected_at FROM r2_reality_item_memory WHERE precision='vague' GROUP BY item_name) SELECT item_name,memory,timing FROM (SELECT * FROM detailed UNION ALL SELECT * FROM vague) ORDER BY collected_at DESC LIMIT 80", NULL);
-    char *food_preferences = query_text("SELECT ingredient,printf('average satisfaction %.2f/2',satisfaction_sum/rating_count),printf('%d ratings',rating_count) FROM r2_food_ingredient_preferences WHERE rating_count>0 ORDER BY satisfaction_sum*1.0/rating_count DESC", NULL);
-    char *food_experiences = query_text("SELECT food_name,printf('satisfaction %+d/2',satisfaction),notes FROM r2_food_experiences WHERE satisfaction IS NOT NULL ORDER BY eaten_at DESC LIMIT 20", NULL);
+    char *food_preferences = query_text("SELECT ingredient,printf('average enjoyment rating %.2f/2',satisfaction_sum/rating_count),printf('%d ratings',rating_count) FROM r2_food_ingredient_preferences WHERE rating_count>0 ORDER BY satisfaction_sum*1.0/rating_count DESC", NULL);
+    char *food_experiences = query_text("SELECT food_name,printf('enjoyment rating %+d/2',satisfaction),notes FROM r2_food_experiences WHERE satisfaction IS NOT NULL ORDER BY eaten_at DESC LIMIT 20", NULL);
     char *foods = food_metrics_context();
     char *fridge=r2_fridge_context(); char *age=origin_age_context(); char *money=r2_reality_money_context();
     char *recent_log=r2_log_recent(5);
@@ -1640,11 +1640,11 @@ char *r2_reality_food_context(const char *food)
     if (fullness < 0) snprintf(fullness_text, sizeof(fullness_text), "not configured");
     else snprintf(fullness_text, sizeof(fullness_text), "%.1f/100", fullness);
     char *preferences = query_text(
-        "SELECT ingredient,printf('average satisfaction %.2f/2',satisfaction_sum/rating_count),printf('%d ratings',rating_count) FROM r2_food_ingredient_preferences WHERE rating_count>0 ORDER BY satisfaction_sum*1.0/rating_count DESC", NULL);
+        "SELECT ingredient,printf('average enjoyment rating %.2f/2',satisfaction_sum/rating_count),printf('%d ratings',rating_count) FROM r2_food_ingredient_preferences WHERE rating_count>0 ORDER BY satisfaction_sum*1.0/rating_count DESC", NULL);
     char *history = query_text(
-        "SELECT food_name,printf('satisfaction %+d/2',satisfaction),notes FROM r2_food_experiences WHERE food_name=? COLLATE NOCASE AND satisfaction IS NOT NULL ORDER BY eaten_at DESC LIMIT 10", food);
+        "SELECT food_name,printf('enjoyment rating %+d/2',satisfaction),notes FROM r2_food_experiences WHERE food_name=? COLLATE NOCASE AND satisfaction IS NOT NULL ORDER BY eaten_at DESC LIMIT 10", food);
     char *food_pref = query_text(
-        "SELECT food_name,printf('average satisfaction %.2f/2',satisfaction_sum/rating_count),printf('%d ratings',rating_count) FROM r2_food_preferences WHERE food_name=? COLLATE NOCASE AND rating_count>0", food);
+        "SELECT food_name,printf('average enjoyment rating %.2f/2',satisfaction_sum/rating_count),printf('%d ratings',rating_count) FROM r2_food_preferences WHERE food_name=? COLLATE NOCASE AND rating_count>0", food);
     if (!preferences || !history || !food_pref) {
         free(preferences); free(history); free(food_pref); return NULL;
     }
@@ -1654,7 +1654,7 @@ char *r2_reality_food_context(const char *food)
         "FOOD EXPERIENCE CONTEXT (learned subjective preferences; not hard-coded):\n"
         "Food: %s\nConfigured fullness: %s\nConfigured energy bonus: %.1f\nIngredients: %s\nSensory description: %s\n"
         "Past experiences with this food:\n%sFood preference summary:\n%sIngredient preference summaries:\n%s"
-        "Satisfaction is a subjective modeled rating from -2 (strong dislike) to +2 (strong enjoyment); 0 means neutral/uncertain. "
+        "Food enjoyment is a subjective modeled rating from -2 (strong dislike) to +2 (strong enjoyment); 0 means neutral/uncertain. "
         "Fullness and satisfaction are independent. Ingredient summaries are learned only from rated eating experiences.",
         food, fullness_text, energy,
         *ingredients ? ingredients : "not specified", *taste ? taste : "not specified",
@@ -1728,8 +1728,8 @@ int r2_reality_rate_food(const char *food, int satisfaction, const char *notes)
         free(copy);
     }
     char summary[512], details[2048];
-    snprintf(summary,sizeof(summary),"R2's modeled satisfaction with %s was rated %+d/2.",food,satisfaction);
-    snprintf(details,sizeof(details),"Food=%s; ingredients=%s; sensory description=%s; satisfaction=%d/2; reason=%s. This is a learned subjective simulation, not an externally verified reaction.",
+    snprintf(summary,sizeof(summary),"R2's modeled enjoyment rating for %s was %+d/2.",food,satisfaction);
+    snprintf(details,sizeof(details),"Food=%s; ingredients=%s; sensory description=%s; enjoyment_rating=%d/2; reason=%s. This is a learned subjective simulation, not an externally verified reaction.",
         food,*ingredients?ingredients:"not specified",*taste?taste:"not specified",satisfaction,notes?notes:"not supplied");
     bridge_event("food_preference_learned",summary,details,1,0);
     return 0;
