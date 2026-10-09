@@ -4931,6 +4931,12 @@ static void *autonomous_thinking(
 
         free(ctx);
 
+        /* A stop request during inference must not write a late diary entry. */
+        if (shutting_down || !atomic_load(&diary_running)) {
+            free(reflection);
+            break;
+        }
+
         if (!reflection) {
             r2_log_event(R2_LOG_ERROR, "reflection_generation_failed",
                          "Autonomous reflection generation failed.",
