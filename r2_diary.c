@@ -990,12 +990,10 @@ char *r2_diary_recent(
             created = "";
         }
 
-        required =
-            strlen(entry)
-            +
-            strlen(created)
-            +
-            64;
+        size_t entry_length = strlen(entry);
+        if (entry_length > 50000)
+            entry_length = 50000;
+        required = entry_length + strlen(created) + 64;
 
         if (
             length + required + 1
@@ -1038,9 +1036,10 @@ char *r2_diary_recent(
             result_text + length,
             capacity - length,
 
-            "[%s]\n%s\n\n",
+            "[%s]\n%.*s\n\n",
 
             created,
+            (int)entry_length,
             entry
         );
     }
@@ -1193,12 +1192,10 @@ char *r2_diary_search(
             created = "";
         }
 
-        required =
-            strlen(entry)
-            +
-            strlen(created)
-            +
-            64;
+        size_t entry_length = strlen(entry);
+        if (entry_length > 50000)
+            entry_length = 50000;
+        required = entry_length + strlen(created) + 64;
 
         if (
             length + required + 1
@@ -1241,9 +1238,10 @@ char *r2_diary_search(
             result_text + length,
             capacity - length,
 
-            "[%s]\n%s\n\n",
+            "[%s]\n%.*s\n\n",
 
             created,
+            (int)entry_length,
             entry
         );
     }
