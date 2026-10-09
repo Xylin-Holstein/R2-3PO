@@ -39,6 +39,10 @@
 #include <time.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <sys/stat.h>
+#include <pthread.h>
 
 #include "shell.h"
 #include "r2.h"
@@ -68,6 +72,106 @@ static volatile sig_atomic_t shell_shutdown = 0;
 
 static int shell_running = 0;
 static int watch_running = 0;
+
+/* The GUI talks to this local socket; all writes still pass through Reality APIs. */
+static pthread_t tv_control_thread;
+static pthread_mutex_t tv_control_lock = PTHREAD_MUTEX_INITIALIZER;
+static int tv_control_started = 0;
+static int tv_control_fd = -1;
+static volatile sig_atomic_t tv_control_stop = 0;
+static char tv_control_path[sizeof(((struct sockaddr_un *)0)->sun_path)];
+
+static void *tv_control_server(void *unused)
+{
+    (void)unused;
+    while (!tv_control_stop) {
+        int client = accept(tv_control_fd, NULL, NULL);
+        if (client < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+
+        char command[256] = {0};
+        ssize_t got = recv(client, command, sizeof(command) - 1, 0);
+        while (got > 0 && (command[got - 1] == '\\n' || command[got - 1] == '\\r'))
+            command[--got] = '\\0';
+
+        const char *reply = "ERROR invalid command";
+        char *status = NULL;
+        if (got > 0 && !strcmp(command, "status")) {
+            status = r2_reality_tv_status();
+            reply = status ? status : "ERROR unable to read TV state";
+        } else if (!strcmp(command, "power on")) {
+            reply = r2_reality_tv_power(1) == 0 ? "OK powered on" : "ERROR power-on failed";
+        } else if (!strcmp(command, "power off")) {
+            reply = r2_reality_tv_power(0) == 0 ? "OK powered off" : "ERROR power-off failed";
+        } else if (!strncmp(command, "input ", 6)) {
+            char *end = NULL;
+            long n = strtol(command + 6, &end, 10);
+            if (end != command + 6 && *end == '\\0' && n >= 1 && n <= 4)
+                reply = r2_reality_tv_select_input((int)n) == 0 ? "OK input selected" : "ERROR input selection failed";
+            else reply = "ERROR input must be 1..4";
+        } else if (!strncmp(command, "tune ", 5)) {
+            char *end = NULL;
+            long n = strtol(command + 5, &end, 10);
+            if (end != command + 5 && *end == '\\0' && n >= 2 && n <= 13)
+                reply = r2_reality_tv_tune_rf((int)n) == 0 ? "OK RF channel tuned" : "ERROR RF tuning failed";
+            else reply = "ERROR RF channel must be 2..13";
+        }
+
+        (void)send(client, reply, strlen(reply), MSG_NOSIGNAL);
+        free(status);
+        close(client);
+    }
+    return NULL;
+}
+
+static int tv_control_start(void)
+{
+    if (tv_control_started) return 0;
+    int n = snprintf(tv_control_path, sizeof(tv_control_path), "%s/tv-control.sock", R2_HOME);
+    if (n < 0 || (size_t)n >= sizeof(tv_control_path)) return -1;
+
+    struct stat st;
+    if (lstat(tv_control_path, &st) == 0) {
+        if (!S_ISSOCK(st.st_mode) || unlink(tv_control_path) != 0) return -1;
+    } else if (errno != ENOENT) return -1;
+
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+    struct sockaddr_un address;
+    memset(&address, 0, sizeof(address));
+    address.sun_family = AF_UNIX;
+    snprintf(address.sun_path, sizeof(address.sun_path), "%s", tv_control_path);
+    if (bind(fd, (struct sockaddr *)&address, sizeof(address)) != 0 ||
+        chmod(tv_control_path, S_IRUSR | S_IWUSR) != 0 || listen(fd, 4) != 0) {
+        close(fd);
+        unlink(tv_control_path);
+        return -1;
+    }
+    tv_control_fd = fd;
+    tv_control_stop = 0;
+    if (pthread_create(&tv_control_thread, NULL, tv_control_server, NULL) != 0) {
+        close(fd);
+        tv_control_fd = -1;
+        unlink(tv_control_path);
+        return -1;
+    }
+    tv_control_started = 1;
+    return 0;
+}
+
+static void tv_control_stop_server(void)
+{
+    if (!tv_control_started) return;
+    tv_control_stop = 1;
+    shutdown(tv_control_fd, SHUT_RDWR);
+    close(tv_control_fd);
+    tv_control_fd = -1;
+    pthread_join(tv_control_thread, NULL);
+    unlink(tv_control_path);
+    tv_control_started = 0;
+}
 
 
 /* ============================================================
@@ -2000,6 +2104,8 @@ int r2_shell_run(void)
 
     shell_shutdown = 0;
     shell_running = 1;
+    if (tv_control_start() != 0)
+        fprintf(stderr, "[TV] GUI control socket unavailable; shell TV commands remain available.\\n");
 
     signal(
         SIGINT,
@@ -2068,6 +2174,7 @@ int r2_shell_run(void)
     }
 
     free(line);
+    tv_control_stop_server();
 
     return 0;
 }
