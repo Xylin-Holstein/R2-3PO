@@ -28,6 +28,12 @@ REQUIRED_FILES=(
     "$R2_SOURCE/Log.c"
     "$R2_SOURCE/Log.h"
 
+    "$R2_SOURCE/SensoryJournal.c"
+    "$R2_SOURCE/SensoryJournal.h"
+
+    "$R2_SOURCE/AlternateSelf.c"
+    "$R2_SOURCE/AlternateSelf.h"
+
     "$R2_SOURCE/Visual.c"
     "$R2_SOURCE/Visual.h"
 
@@ -234,6 +240,8 @@ gcc -std=c11 -Wall -Wextra -O2 \
     "$R2_SOURCE/shell.c" \
     "$R2_SOURCE/r2_diary.c" \
     "$R2_SOURCE/Log.c" \
+    "$R2_SOURCE/SensoryJournal.c" \
+    "$R2_SOURCE/AlternateSelf.c" \
     "$R2_SOURCE/Visual.c" \
     "$R2_SOURCE/Ears.c" \
     "$R2_SOURCE/Eyes.c" \
