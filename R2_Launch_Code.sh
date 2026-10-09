@@ -333,9 +333,9 @@ echo "Compilation successful."
 echo "Executable updated:"
 echo "    $R2_EXEC"
 echo
-echo "Default vision model: qwen2.5vl:3b"
-echo "R2's conversation model is llama3.2:3b; vision perception remains a separate local model."
-echo "If it is not installed, run: ollama pull qwen2.5vl:3b"
+echo "Unified conversation + vision model: gemma3:4b"
+echo "R2 uses one shared Ollama model for text and image perception."
+echo "If needed, install it with: ollama pull gemma3:4b"
 echo
 echo "Modules compiled:"
 echo "    r2.c"
@@ -387,7 +387,7 @@ sudo -u r2 \
     LD_PRELOAD="$FAKETIME_LIB" \
     FAKETIME="${FAKETIME_OFFSET}" \
     FAKETIME_DONT_RESET=1 \
-    R2_VISION_MODEL="${R2_VISION_MODEL:-qwen2.5vl:3b}" \
+    R2_VISION_MODEL="gemma3:4b" \
     "$R2_EXEC"
 
 status=$?
