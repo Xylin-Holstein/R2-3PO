@@ -108,6 +108,7 @@ private fun R2RemoteScreen(
     var showR2FaceWindow by remember { mutableStateOf(false) }
     var chat by remember { mutableStateOf(listOf<Pair<String, String>>()) }
     var showSettings by remember { mutableStateOf(initialToken.isBlank()) }
+    var settingsError by remember { mutableStateOf("") }
 
     fun runRequest(action: (RemoteApi) -> String, onSuccess: (String) -> Unit = { output = it }) {
         if (serverUrl.isBlank() || savedSecret.isBlank()) {
@@ -435,29 +436,41 @@ private fun R2RemoteScreen(
             title = { Text("Connect to your R2") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Enter the PC's private gateway address. Paste the generated token printed by R2's launcher once. After it is saved, type PEACE as the alias; PEACE itself is not sent to R2 as the password.")
-                    OutlinedTextField(value = serverUrl, onValueChange = { serverUrl = it },
+                    Text("Enter the PC's private gateway address. Paste the generated token printed by R2's launcher once. After it is saved, PEACE or a blank token field reuses that saved credential.")
+                    OutlinedTextField(value = serverUrl, onValueChange = { serverUrl = it; settingsError = "" },
                         label = { Text("Gateway URL") }, singleLine = true)
-                    OutlinedTextField(value = token, onValueChange = { token = it },
+                    OutlinedTextField(value = token, onValueChange = { token = it; settingsError = "" },
                         label = { Text("Remote token or alias (PEACE)") }, singleLine = true)
+                    if (settingsError.isNotBlank()) {
+                        Text(settingsError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
+                    val url = serverUrl.trim()
                     val entered = token.trim()
-                    val effectiveSecret = if (entered.equals("PEACE", ignoreCase = true)) savedSecret else entered
-                    if (effectiveSecret.isBlank()) {
-                        status = "PEACE has no saved credential yet"
-                        output = "Paste the token printed by R2's launcher once, then save. After it is stored, PEACE will work as its alias."
-                    } else {
-                        savedSecret = effectiveSecret
-                        token = "PEACE"
-                        saveSettings(serverUrl.trim(), effectiveSecret)
-                        showSettings = false
-                        runRequest({ api ->
-                            val s = api.status()
-                            "Connected to ${s.optString("service")}\nModel: ${s.optString("model")}"
-                        })
+                    val effectiveSecret = if (entered.isBlank() || entered.equals("PEACE", ignoreCase = true)) savedSecret else entered
+                    when {
+                        url.isBlank() -> {
+                            settingsError = "Enter the gateway URL first (for example, http://100.x.y.z:8765)."
+                        }
+                        effectiveSecret.isBlank() -> {
+                            settingsError = "PEACE is an alias, not the password. Paste the real token printed by R2's launcher once, then tap Save & connect."
+                            status = "Token needed"
+                        }
+                        else -> {
+                            settingsError = ""
+                            serverUrl = url
+                            savedSecret = effectiveSecret
+                            token = "PEACE"
+                            saveSettings(url, effectiveSecret)
+                            showSettings = false
+                            runRequest({ api ->
+                                val s = api.status()
+                                "Connected to ${s.optString("service")}\nModel: ${s.optString("model")}"
+                            })
+                        }
                     }
                 }) { Text("Save & connect") }
             },
