@@ -230,7 +230,7 @@ private fun R2RemoteScreen(
                                 Section.DIARY -> runRequest({ it.diary() })
                                 Section.LIFE_LOG -> runRequest({ it.lifeLog() })
                                 Section.MEMORIES -> { output = "Search R2's persistent memories below." }
-                                Section.CHAT -> runRequest({ api -> api.conversation().toString() }, ::restoreChat)
+                                Section.CHAT -> runRequest({ api -> api.conversation().toString() }) { raw -> restoreChat(raw) }
                                 else -> Unit
                             }
                         },
