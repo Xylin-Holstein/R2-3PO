@@ -52,7 +52,7 @@ The Choice Lab is open-ended, not an enumerated menu: R2 can consider any propos
 
 R2's age is measured from the original conversation file's filesystem creation timestamp when available and saved in Reality metadata so later edits do not reset it. If the filesystem does not expose birth time, file modification time is used as a persisted fallback. If the file is absent, age is not guessed.
 
-Money is a crude persistent prototype, not a built-in shop. `money` shows carried cash and bank balance; `money deposit 30` moves $30 cash into `room/piggybank/`; `money withdraw 10` returns $10 to cash. `money buy Chair | 20 | A chair | room` deducts the price (cash first, then bank) and adds the item to the chosen container. No starting funds, store stock, products, or prices are hardcoded.
+Money is a crude persistent prototype, not a built-in shop. `money` shows carried cash and bank balance; `money receive 40` records an explicit gift/payment as cash (not an automatic starting balance); `money deposit 30` moves $30 cash into `room/piggybank/`; `money withdraw 10` returns $10 to cash. `money buy Chair | 20 | A chair | room` deducts the price (cash first, then bank) and adds the item to the chosen container. No starting funds, store stock, products, or prices are hardcoded.
 
 ## Persistent reality, room, and inventory
 
