@@ -32,6 +32,13 @@ class TVDisplaySmoke(unittest.TestCase):
                     name TEXT PRIMARY KEY, connected INTEGER NOT NULL,
                     connection_kind TEXT NOT NULL, port INTEGER NOT NULL
                 );
+                CREATE TABLE r2_tv_vcr_state (
+                    id INTEGER PRIMARY KEY, cassette_path TEXT, transport TEXT NOT NULL
+                );
+                CREATE TABLE r2_tv_vcr_tapes (
+                    media_path TEXT PRIMARY KEY, position_seconds REAL NOT NULL
+                );
+                INSERT INTO r2_tv_vcr_state VALUES(1,NULL,'stop');
             """)
         TV.DB_PATH = self.db_path
         TV.SOCKET_PATH = Path(self.tempdir.name) / "tv-control.sock"
@@ -98,6 +105,49 @@ class TVDisplaySmoke(unittest.TestCase):
         with self.assertRaises(ValueError):
             TV.send_control_command("sql update r2_tv_state")
 
+
+    def test_vcr_starts_ejected(self) -> None:
+        self.assertEqual(TV.CRTDisplay.read_vcr_state(object.__new__(TV.CRTDisplay)),
+                         (None, "stop", 0.0))
+
+    def test_vcr_reads_persistent_tape_position(self) -> None:
+        media = "/tmp/example-film.mp4"
+        with sqlite3.connect(self.db_path) as db:
+            db.execute("INSERT INTO r2_tv_vcr_tapes VALUES(?,?)", (media, 42.75))
+            db.execute("UPDATE r2_tv_vcr_state SET cassette_path=?,transport='pause' WHERE id=1",
+                       (media,))
+        self.assertEqual(TV.CRTDisplay.read_vcr_state(object.__new__(TV.CRTDisplay)),
+                         (media, "pause", 42.75))
+
+    def test_vcr_client_accepts_transport_and_media_commands(self) -> None:
+        for command in ("vcr play", "vcr pause", "vcr stop", "vcr eject",
+                        "vcr insert /tmp/example-film.mp4", "vcr position 42.750"):
+            received = []
+            server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            server.bind(str(TV.SOCKET_PATH))
+            server.listen(1)
+
+            def serve_once(sock=server, captured=received) -> None:
+                with sock:
+                    conn, _ = sock.accept()
+                    with conn:
+                        captured.append(conn.recv(1200).decode("utf-8"))
+                        conn.sendall(b"OK accepted")
+
+            worker = threading.Thread(target=serve_once)
+            worker.start()
+            self.assertEqual(TV.send_control_command(command), "OK accepted")
+            worker.join(timeout=2)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(received, [command + "\\n"])
+
+    def test_vcr_client_rejects_invalid_media_and_position(self) -> None:
+        with self.assertRaises(ValueError):
+            TV.send_control_command("vcr insert relative/movie.mp4")
+        with self.assertRaises(ValueError):
+            TV.send_control_command("vcr position -1")
+        with self.assertRaises(ValueError):
+            TV.send_control_command("vcr insert /tmp/movie.mp4\\n power off")
 
 if __name__ == "__main__":
     unittest.main()
