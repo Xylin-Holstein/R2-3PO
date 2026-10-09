@@ -17,9 +17,9 @@ install -m 0755 "$SOURCE_DIR/TV.py" "$TV_DIR/TV.py"
 cat > "$TV_DIR/run_tv.sh" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-export R2_REALITY_DB="${R2_REALITY_DB:-$R2_HOME/R2/r2_reality.db}"
-export R2_TV_SOCKET="${R2_TV_SOCKET:-$R2_HOME/R2/tv-control.sock}"
-export R2_VCR_MEDIA_DIR="${R2_VCR_MEDIA_DIR:-$MEDIA_DIR}"
+export R2_REALITY_DB="\${R2_REALITY_DB:-$R2_HOME/R2/r2_reality.db}"
+export R2_TV_SOCKET="\${R2_TV_SOCKET:-$R2_HOME/R2/tv-control.sock}"
+export R2_VCR_MEDIA_DIR="\${R2_VCR_MEDIA_DIR:-$MEDIA_DIR}"
 # The R2 shell owns the private Reality database and mode-0600 control socket.
 # Run the GUI as that same account; R2_Launch_Code.sh grants r2 access to the
 # current X display while R2 is running. Keep the terminal attached so sudo
