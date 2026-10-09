@@ -148,6 +148,11 @@ int main(void)
                       "WHERE memory_indexed=1;") == 2);
     assert(scalar_int("SELECT COUNT(*) FROM r2_log_events "
                       "WHERE event_type='diary_entry_linked';") == 2);
+    /* The event contains only a pointer; private diary prose is not copied
+       into the factual Life Log or Observer-facing summaries. */
+    assert(scalar_int("SELECT COUNT(*) FROM r2_log_events "
+                      "WHERE details LIKE '%Legacy diary entry about learning%' "
+                      "OR summary LIKE '%Legacy diary entry about learning%';") == 0);
 
     context = r2_diary_build_reflection_context(10);
     assert(context != NULL);
