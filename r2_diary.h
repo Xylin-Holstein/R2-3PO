@@ -28,14 +28,22 @@
  * ============================================================
  */
 
+#ifndef R2_ROOT
 #define R2_ROOT "/home/x/R2_Home"
+#endif
+#ifndef R2_HOME
 #define R2_HOME R2_ROOT "/R2"
+#endif
+#ifndef R2_WORKSPACE
 #define R2_WORKSPACE R2_ROOT
+#endif
 
 #ifndef R2_DIARY_DATABASE
 #define R2_DIARY_DATABASE R2_HOME "/r2_memory.db"
 #endif
+#ifndef R2_DIARY_DIR
 #define R2_DIARY_DIR R2_ROOT "/R2_Diary"
+#endif
 
 
 /* ============================================================
