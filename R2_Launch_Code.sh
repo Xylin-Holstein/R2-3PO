@@ -272,10 +272,10 @@ echo "Compilation successful."
 echo "Executable updated:"
 echo "    $R2_EXEC"
 echo
-echo "Conversation model: llama3.3"
+echo "Conversation model: llama3 (current hardware-safe default)"
 echo "Default vision model: qwen2.5vl:3b"
 echo "Conversation and vision use separate local Ollama models."
-echo "If the conversation model is not installed, run: ollama pull llama3.3"
+echo "If the conversation model is not installed, run: ollama pull llama3"
 echo "If the vision model is not installed, run: ollama pull qwen2.5vl:3b"
 echo
 echo "Modules compiled:"
