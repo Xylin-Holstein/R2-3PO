@@ -81,12 +81,19 @@ static int ensure_db_locked(void)
             reward_db = NULL;
             return -1;
         }
-        while (sqlite3_step(columns) == SQLITE_ROW) {
+        while ((column_rc = sqlite3_step(columns)) == SQLITE_ROW) {
             const unsigned char *name = sqlite3_column_text(columns, 1);
             if (name && strcmp((const char *)name, required_columns[i]) == 0)
                 found = 1;
         }
         sqlite3_finalize(columns);
+        if (column_rc != SQLITE_DONE) {
+            fprintf(stderr, "[R2 Reward] Could not read reward schema: %s\\n",
+                    sqlite3_errmsg(reward_db));
+            sqlite3_close(reward_db);
+            reward_db = NULL;
+            return -1;
+        }
         if (!found && sqlite3_exec(reward_db, alter_statements[i],
                                     NULL, NULL, NULL) != SQLITE_OK) {
             fprintf(stderr, "[R2 Reward] Could not migrate reward schema: %s\n",
