@@ -136,10 +136,10 @@ void r2_sj_index_event(int64_t event_id, const char *category,
         if (link_rc == SQLITE_OK) {
             sqlite3_bind_int64(link, 1, event_id);
             if (sqlite3_step(link) != SQLITE_DONE)
-                fprintf(stderr, "[R2 Sensory Journal] Diary link failed: %s\\n",
+                fprintf(stderr, "[R2 Sensory Journal] Diary link failed: %s\n",
                         sqlite3_errmsg(sj_db));
         } else {
-            fprintf(stderr, "[R2 Sensory Journal] Diary link query failed: %s\\n",
+            fprintf(stderr, "[R2 Sensory Journal] Diary link query failed: %s\n",
                     sqlite3_errmsg(sj_db));
         }
         sqlite3_finalize(link);
