@@ -158,7 +158,7 @@ int64_t r2_altself_import_hypothesis(const char *scenario,
     }
     sqlite3_stmt *st = NULL;
     int rc = sqlite3_prepare_v2(as_db,
-        "SELECT id FROM r2_alternate_self_branches "
+        "SELECT id,log_event_id FROM r2_alternate_self_branches "
         "WHERE scenario=? AND COALESCE(assumptions,'')=COALESCE(?,'') "
         "AND COALESCE(predicted_outcome,'')=COALESCE(?,'') "
         "AND COALESCE(conclusion,'')=COALESCE(?,'') AND status!='discarded' "
@@ -170,8 +170,13 @@ int64_t r2_altself_import_hypothesis(const char *scenario,
         if (conclusion) sqlite3_bind_text(st, 4, conclusion, -1, SQLITE_TRANSIENT); else sqlite3_bind_null(st, 4);
         if (sqlite3_step(st) == SQLITE_ROW) {
             int64_t existing = sqlite3_column_int64(st, 0);
+            int64_t original_event = sqlite3_column_int64(st, 1);
             sqlite3_finalize(st);
             pthread_mutex_unlock(&as_lock);
+            if (original_event > 0 && original_event != hypothetical_event_id)
+                r2_log_link(hypothetical_event_id, original_event,
+                            "same_hypothesis_as",
+                            "The same counterfactual was already retained as a branch; this occurrence remains in the Life Log.");
             return existing;
         }
     }
