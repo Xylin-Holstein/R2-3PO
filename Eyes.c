@@ -97,6 +97,67 @@ struct R2Eyes
     char source_name[512];
 };
 
+
+/* Display-only mirror used by V-Webcam. It never feeds pixels back to Eyes. */
+#define R2_VWEBCAM_DIR "/tmp/r2-vwebcam-r2"
+#define R2_VWEBCAM_MAX_W 960U
+#define R2_VWEBCAM_MAX_H 540U
+static int r2_vwebcam_prepare_dir(void) {
+    if (mkdir(R2_VWEBCAM_DIR, 0700) != 0 && errno != EEXIST) return -1;
+    (void)chmod(R2_VWEBCAM_DIR, 0700);
+    return 0;
+}
+static void r2_vwebcam_write_status(const R2Eyes *e, int active) {
+    if (r2_vwebcam_prepare_dir() != 0) return;
+    char tmp[256], path[256];
+    snprintf(tmp,sizeof(tmp),"%s/status.tmp",R2_VWEBCAM_DIR);
+    snprintf(path,sizeof(path),"%s/status.txt",R2_VWEBCAM_DIR);
+    FILE *f=fopen(tmp,"w"); if(!f)return;
+    fprintf(f,"%d\n%s\n%u\n%u\n%llu\n%llu\n",active,
+        e&&e->source_name[0]?e->source_name:"No visual source",
+        e?e->format.width:0,e?e->format.height:0,
+        (unsigned long long)(e?e->frame_count:0),
+        (unsigned long long)(e?e->timestamp:0));
+    if(fclose(f)==0)(void)rename(tmp,path);else(void)unlink(tmp);
+}
+static void r2_vwebcam_publish_frame(const R2Eyes *e) {
+    if(!e||!e->open||!e->frame_buffer||!e->format.width||!e->format.height||
+       r2_vwebcam_prepare_dir()!=0)return;
+    unsigned int sw=e->format.width,sh=e->format.height;
+    double scale=1.0;
+    if(sw>R2_VWEBCAM_MAX_W||sh>R2_VWEBCAM_MAX_H){
+        double sx=(double)R2_VWEBCAM_MAX_W/sw,sy=(double)R2_VWEBCAM_MAX_H/sh;
+        scale=sx<sy?sx:sy;
+    }
+    unsigned int dw=(unsigned int)(sw*scale),dh=(unsigned int)(sh*scale);
+    if(!dw)dw=1;if(!dh)dh=1;
+    char tmp[256],path[256];
+    snprintf(tmp,sizeof(tmp),"%s/frame.tmp.ppm",R2_VWEBCAM_DIR);
+    snprintf(path,sizeof(path),"%s/frame.ppm",R2_VWEBCAM_DIR);
+    FILE *f=fopen(tmp,"wb");if(!f)return;
+    if(fprintf(f,"P6\n%u %u\n255\n",dw,dh)<0){fclose(f);unlink(tmp);return;}
+    unsigned char row[R2_VWEBCAM_MAX_W*3U];
+    for(unsigned int y=0;y<dh;++y){
+        unsigned int sy=(unsigned int)(((uint64_t)y*sh)/dh);
+        const unsigned char *src=e->frame_buffer+(size_t)sy*sw*3U;
+        for(unsigned int x=0;x<dw;++x){
+            unsigned int sx=(unsigned int)(((uint64_t)x*sw)/dw);
+            row[x*3U]=src[sx*3U];row[x*3U+1U]=src[sx*3U+1U];row[x*3U+2U]=src[sx*3U+2U];
+        }
+        if(fwrite(row,3U,dw,f)!=dw){fclose(f);unlink(tmp);return;}
+    }
+    if(fclose(f)==0)(void)rename(tmp,path);else(void)unlink(tmp);
+}
+static void r2_vwebcam_start_viewer(void) {
+    if(r2_vwebcam_prepare_dir()!=0)return;
+    pid_t pid=fork();if(pid!=0)return;
+    (void)setsid();
+    int fd=open("/dev/null",O_RDWR);
+    if(fd>=0){(void)dup2(fd,0);(void)dup2(fd,1);(void)dup2(fd,2);if(fd>2)close(fd);}
+    execlp("python3","python3","/home/x/R2_Home/R2/V-Webcam.py",(char*)NULL);
+    _exit(127);
+}
+
 static uint64_t r2_eyes_timestamp(void)
 {
     struct timespec ts;
@@ -699,6 +760,7 @@ void r2_eyes_close(R2Eyes *eyes)
     }
 
     eyes->open = 0;
+    r2_vwebcam_write_status(eyes, 0);
     eyes->source_is_live = 0;
     eyes->origin = R2_VISION_NONE;
     eyes->frame_count = 0;
@@ -828,6 +890,8 @@ static int r2_eyes_open_internal(
 
     r2_eyes_reset_event(eyes);
     r2_eyes_reset_frame(eyes);
+    r2_vwebcam_write_status(eyes, 1);
+    r2_vwebcam_start_viewer();
 
     char details[768];
     snprintf(details, sizeof(details),
@@ -997,6 +1061,8 @@ int r2_eyes_open_vlc(
 
     r2_eyes_reset_event(eyes);
     r2_eyes_reset_frame(eyes);
+    r2_vwebcam_write_status(eyes, 1);
+    r2_vwebcam_start_viewer();
 
     r2_log_sensory("vision_source_opened",
                    "R2 Eyes began capturing the visible VLC window.",
@@ -1090,6 +1156,9 @@ int r2_eyes_capture(
 
     eyes->frame.frame_number =
         eyes->frame_count;
+
+    r2_vwebcam_publish_frame(eyes);
+    r2_vwebcam_write_status(eyes, 1);
 
     /*
      * Record a bounded-rate sensory journal heartbeat instead of
