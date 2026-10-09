@@ -453,17 +453,23 @@ static void handle_request(int fd)
     } else if (strcmp(method, "GET") == 0 &&
                (strncmp(path, "/api/memories", 13) == 0)) {
         char query[1024];
-        if (!query_value(path, "query", query, sizeof(query)) || !*query) {
-            respond_error(fd, 400, "Bad Request", "provide ?query=search+terms");
-        } else {
-            char *memories = r2_retrieve_memories(query);
-            struct json_object *o = json_object_new_object();
-            json_object_object_add(o, "content", json_object_new_string(
-                memories ? memories : "No matching memories returned."));
-            respond_json(fd, 200, "OK", o);
-            json_object_put(o);
-            free(memories);
+        char count_text[16];
+        int count = 50;
+        if (query_value(path, "limit", count_text, sizeof(count_text))) {
+            int v = atoi(count_text);
+            if (v > 0 && v <= 200) count = v;
         }
+        char *memories = NULL;
+        if (!query_value(path, "query", query, sizeof(query)) || !*query)
+            memories = r2_memories_recent(count);
+        else
+            memories = r2_retrieve_memories(query);
+        struct json_object *o = json_object_new_object();
+        json_object_object_add(o, "content", json_object_new_string(
+            memories ? memories : "No memory results returned."));
+        respond_json(fd, 200, "OK", o);
+        json_object_put(o);
+        free(memories);
     } else if (strcmp(method, "POST") == 0 &&
                strcmp(path, "/api/chat") == 0) {
         struct json_object *request = body
