@@ -496,8 +496,28 @@ int r2_reality_eat(const char *food, double fullness)
     if (fullness < 0.0) fullness = 0.0;
     if (fullness > 100.0) fullness = 100.0;
     if (r2_reality_tick() != 0) return -1;
+
+    char container[REALITY_MAX_TEXT + 1] = {0};
+    char description[REALITY_MAX_TEXT + 1] = {0};
+    int quantity = 0;
+    int consumed_tracked_item = 0;
     pthread_mutex_lock(&reality_lock);
     sqlite3_stmt *st = NULL;
+    if (sqlite3_prepare_v2(reality_db,
+        "SELECT container,description,quantity FROM r2_reality_objects WHERE name=? COLLATE NOCASE",
+        -1, &st, NULL) == SQLITE_OK) {
+        bind_text(st, 1, food);
+        if (sqlite3_step(st) == SQLITE_ROW) {
+            const unsigned char *co = sqlite3_column_text(st, 0);
+            const unsigned char *de = sqlite3_column_text(st, 1);
+            if (co) snprintf(container, sizeof(container), "%s", (const char *)co);
+            if (de) snprintf(description, sizeof(description), "%s", (const char *)de);
+            quantity = sqlite3_column_int(st, 2);
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    st = NULL;
+
     int rc = sqlite3_prepare_v2(reality_db,
         "UPDATE r2_reality_self SET hunger=MAX(0,hunger-?), seconds_since_meal=CASE WHEN ?>=10 THEN 0 ELSE seconds_since_meal END, energy=MIN(100,energy+?), updated_at=CURRENT_TIMESTAMP WHERE id=1",
         -1, &st, NULL);
@@ -508,11 +528,43 @@ int r2_reality_eat(const char *food, double fullness)
         rc = sqlite3_step(st);
     }
     if (st) sqlite3_finalize(st);
+    st = NULL;
+
+    /* If the food is a tracked world object, consuming it changes the world
+       too: one unit disappears, or the remaining quantity is decremented. */
+    if (rc == SQLITE_DONE && quantity > 0) {
+        if (quantity > 1) {
+            if (sqlite3_prepare_v2(reality_db,
+                "UPDATE r2_reality_objects SET quantity=quantity-1,updated_at=CURRENT_TIMESTAMP WHERE name=? COLLATE NOCASE",
+                -1, &st, NULL) == SQLITE_OK) {
+                bind_text(st, 1, food);
+                rc = sqlite3_step(st);
+                consumed_tracked_item = (rc == SQLITE_DONE);
+            }
+        } else {
+            if (sqlite3_prepare_v2(reality_db,
+                "DELETE FROM r2_reality_objects WHERE name=? COLLATE NOCASE",
+                -1, &st, NULL) == SQLITE_OK) {
+                bind_text(st, 1, food);
+                rc = sqlite3_step(st);
+                consumed_tracked_item = (rc == SQLITE_DONE);
+            }
+        }
+    }
+    if (st) sqlite3_finalize(st);
     pthread_mutex_unlock(&reality_lock);
     if (rc != SQLITE_DONE) return -1;
+
+    if (consumed_tracked_item) {
+        if (quantity == 1) mirror_remove(food, container);
+        else if (mirror_write(food, description, quantity - 1, container) != 0)
+            fprintf(stderr, "[R2 Reality] Food state saved, but mirror could not be updated for '%s'.\n", food);
+    }
+
     char summary[512], details[1024];
     snprintf(summary, sizeof(summary), "R2 ate %s; his hunger need was reduced by %.1f points.", food, fullness);
-    snprintf(details, sizeof(details), "Food=%s; estimated fullness contribution=%.1f/100; this is a modeled food value, not a measured biological quantity.", food, fullness);
+    snprintf(details, sizeof(details), "Food=%s; modeled fullness contribution=%.1f/100; tracked object consumed=%s; this is a modeled value, not a measured biological quantity.",
+             food, fullness, consumed_tracked_item ? "yes" : "no");
     bridge_event("food_consumed", summary, details, 1, 1);
     return 0;
 }
