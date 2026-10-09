@@ -21,6 +21,8 @@ int64_t r2_sj_note(const char *note, const char *details);
 /* Returned text is allocated; caller must free(). */
 char *r2_sj_recent(int limit);
 char *r2_sj_search(const char *query, int limit);
+/* Returns indexed entry count, or -1 if the journal is unavailable. */
+long r2_sj_count(void);
 
 #ifdef __cplusplus
 }
