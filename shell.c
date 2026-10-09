@@ -660,7 +660,7 @@ static void shell_eyes(const char *argument)
 
 static void shell_vision(const char *argument)
 {
-    if (!r2_visual_is_initialized()) {
+    if (!r2_vision_available()) {
         printf("[Visual Experience Library is unavailable. Check R2 startup logs.]\\n");
         return;
     }
