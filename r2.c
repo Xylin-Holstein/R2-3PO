@@ -18,7 +18,6 @@
 
 #define MAX_TASK_OUTPUT 20000
 #define MAX_COMMAND 2000
-#define MAX_MESSAGES 2000
 
 /*
    Persistent memory architecture:
@@ -337,7 +336,7 @@ typedef struct {
 
     /*
        Pinned messages are architectural context that must survive
-       MAX_MESSAGES eviction.
+       message-count eviction.
 
        This is used for:
        - the system prompt
@@ -542,60 +541,23 @@ static int message_add_ex(
     const char *content,
     int pinned)
 {
-    /*
-       When the conversation reaches MAX_MESSAGES, remove the
-       oldest NON-PINNED message.
-
-       The system prompt, archived historical context, and startup
-       memory context remain protected.
-    */
-
-    if (messages.count >= MAX_MESSAGES) {
-
-        size_t remove_index = SIZE_MAX;
-
-        for (size_t i = 0;
-             i < messages.count;
-             ++i) {
-
-            if (!messages.items[i].pinned) {
-                remove_index = i;
-                break;
-            }
-        }
+    if (messages.count == messages.capacity) {
 
         /*
-           If absolutely everything is pinned, there is no safe
-           message to evict. Do not destroy architectural context.
+           Grow the live conversation dynamically. There is no
+           message-count eviction ceiling: older conversation turns
+           must not be silently discarded to make room for new ones.
+           Guard the allocation arithmetic against size_t overflow.
         */
-        if (remove_index == SIZE_MAX)
+        if (messages.capacity > SIZE_MAX / 2 ||
+            (messages.capacity ? messages.capacity * 2 : 64) >
+                SIZE_MAX / sizeof(*messages.items))
             return -1;
-
-        free(messages.items[remove_index].role);
-        free(messages.items[remove_index].content);
-
-        if (remove_index + 1 < messages.count) {
-
-            memmove(
-                messages.items + remove_index,
-                messages.items + remove_index + 1,
-                (messages.count - remove_index - 1) *
-                sizeof(Message)
-            );
-        }
-
-        messages.count--;
-    }
-
-    if (messages.count == messages.capacity) {
 
         size_t nc =
             messages.capacity
                 ? messages.capacity * 2
                 : 64;
-
-        if (nc > MAX_MESSAGES)
-            nc = MAX_MESSAGES;
 
         Message *p =
             realloc(
