@@ -1353,6 +1353,9 @@ int r2_shell_run(void)
         shell_signal_handler
     );
 
+    if (r2_conversation_session_begin("interactive_shell") != 0)
+        fprintf(stderr, "[R2 Shell] Could not explicitly begin conversation session; automatic session detection remains available.\n");
+
     shell_banner();
 
     while (
