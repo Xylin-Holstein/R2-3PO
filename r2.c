@@ -4813,6 +4813,21 @@ static char *process_tools(
             APPEND("REAL WORLD %s: item '%s' %s.\\n",
                    rc == 0 ? "RESULT" : "ERROR", fields[1],
                    rc == 0 ? "was removed from the tracked world" : "could not be removed (item may not exist)");
+        } else if (nf >= 3 && !strcasecmp(fields[0], "eat")) {
+            int rc = r2_reality_eat(fields[1], atof(fields[2]));
+            APPEND("REAL NEEDS %s: eating '%s' %s.\\n",
+                   rc == 0 ? "RESULT" : "ERROR", fields[1],
+                   rc == 0 ? "updated persistent hunger and energy" : "could not update hunger");
+        } else if (nf >= 2 && !strcasecmp(fields[0], "sleep")) {
+            int rc = r2_reality_sleep(atof(fields[1]));
+            APPEND("REAL NEEDS %s: sleep transition %s.\\n",
+                   rc == 0 ? "RESULT" : "ERROR",
+                   rc == 0 ? "was persisted" : "could not be persisted (hours must be >0 and <=48)");
+        } else if (nf >= 2 && !strcasecmp(fields[0], "dream")) {
+            int rc = r2_reality_record_dream(fields[1]);
+            APPEND("REAL SELF-CONTINUITY %s: reported dream %s.\\n",
+                   rc == 0 ? "RESULT" : "ERROR",
+                   rc == 0 ? "was recorded as a report, not verified fact" : "could not be recorded");
         } else if (nf >= 3 && !strcasecmp(fields[0], "self")) {
             int rc = r2_reality_set_self(fields[1], fields[2], nf >= 4 ? fields[3] : "R2 self-report");
             APPEND("REAL SELF-CONTINUITY %s: '%s' %s.\\n",
