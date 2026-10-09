@@ -52,3 +52,21 @@ jobs:
           name: r2-remote-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+  compile-r2-core:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install R2 build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libcurl4-openssl-dev libsqlite3-dev libjson-c-dev libpulse-dev
+
+      - name: Compile R2 core and remote gateway
+        run: |
+          gcc -std=c11 -Wall -Wextra -O2 \
+            r2.c shell.c r2_diary.c Log.c Visual.c Remote.c Ears.c Eyes.c \
+            -o /tmp/r2-remote-check \
+            -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
