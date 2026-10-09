@@ -8,6 +8,7 @@
 #include "r2.h"
 
 #include <ctype.h>
+#include <dirent.h>
 #include <errno.h>
 #include <math.h>
 #include <pthread.h>
@@ -27,7 +28,7 @@ static sqlite3 *fridge_db = NULL;
 static pthread_mutex_t reality_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t fridge_lock = PTHREAD_MUTEX_INITIALIZER;
 static int reality_ready = 0;
-static int reality_eat_internal(const char *food, double fullness, int consume_tracked_item);
+static int reality_eat_internal(const char *food, double fullness, int consume_tracked_item, double energy_override);
 
 /* Safe defaults: elapsed world time advances continuously; hunger reaches
  * 100 after 24 hours without a meal, and the 72-hour mark is explicitly
@@ -437,6 +438,21 @@ static void fridge_sync_mirrors(void)
 {
     if (!fridge_db) return;
     pthread_mutex_lock(&fridge_lock);
+    char folder[1200];
+    snprintf(folder, sizeof(folder), "%s/room/fridge", R2_ROOT);
+    DIR *dir = opendir(folder);
+    if (dir) {
+        struct dirent *entry;
+        while ((entry = readdir(dir)) != NULL) {
+            size_t n = strlen(entry->d_name);
+            if (n >= 7 && !strcmp(entry->d_name + n - 7, ".r2item")) {
+                char path[1600];
+                snprintf(path, sizeof(path), "%s/%s", folder, entry->d_name);
+                (void)unlink(path);
+            }
+        }
+        closedir(dir);
+    }
     sqlite3_stmt *st = NULL;
     if (sqlite3_prepare_v2(fridge_db,
         "SELECT name,description,quantity,fullness,energy FROM r2_fridge_items ORDER BY name",
@@ -640,7 +656,7 @@ int r2_reality_fridge_eat(const char *food, double fullness)
     pthread_mutex_unlock(&fridge_lock);
     if (rc != 0) return -1;
     if (fullness < 0.0) fullness = stored_fullness;
-    rc = reality_eat_internal(food, fullness, 0);
+    rc = reality_eat_internal(food, fullness, 0, energy);
     if (rc != 0) {
         pthread_mutex_lock(&fridge_lock); fridge_restore_one(food, desc, stored_fullness, energy);
         fridge_mirror_write(food, desc, qty, stored_fullness, energy); pthread_mutex_unlock(&fridge_lock);
@@ -1133,9 +1149,8 @@ int r2_reality_move_item(const char *name,const char *container)
         if (r2_reality_remove_item(name) != 0) {
             pthread_mutex_lock(&fridge_lock);
             sqlite3_stmt *rollback = NULL;
-            if (sqlite3_prepare_v2(fridge_db, "UPDATE r2_fridge_items SET quantity=quantity-?,updated_at=CURRENT_TIMESTAMP WHERE name=? COLLATE NOCASE AND quantity>?", -1, &rollback, NULL) == SQLITE_OK) {
-                sqlite3_bind_int(rollback, 1, quantity); bind_text(rollback, 2, name); sqlite3_bind_int(rollback, 3, quantity);
-                (void)sqlite3_step(rollback);
+            if (sqlite3_prepare_v2(fridge_db, "DELETE FROM r2_fridge_items WHERE name=? COLLATE NOCASE", -1, &rollback, NULL) == SQLITE_OK) {
+                bind_text(rollback, 1, name); (void)sqlite3_step(rollback);
             }
             if (rollback) sqlite3_finalize(rollback);
             pthread_mutex_unlock(&fridge_lock);
@@ -1210,7 +1225,7 @@ int r2_reality_remove_item(const char *name)
 }
 
 
-static int reality_eat_internal(const char *food, double fullness, int consume_tracked_item)
+static int reality_eat_internal(const char *food, double fullness, int consume_tracked_item, double energy_override)
 {
     if (!food || !*food || !r2_reality_is_initialized()) return -1;
     double energy_bonus = 0.0;
@@ -1224,6 +1239,7 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
             return -1;
         }
     }
+    if (energy_override >= 0.0) energy_bonus = energy_override;
     if (fullness > 100.0) fullness = 100.0;
     if (energy_bonus < 0.0) energy_bonus = 0.0;
     if (energy_bonus > 100.0) energy_bonus = 100.0;
@@ -1327,7 +1343,7 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
 
 int r2_reality_eat(const char *food, double fullness)
 {
-    return reality_eat_internal(food, fullness, 1);
+    return reality_eat_internal(food, fullness, 1, -1.0);
 }
 
 char *r2_reality_food_context(const char *food)
