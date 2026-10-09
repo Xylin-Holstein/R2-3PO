@@ -190,9 +190,10 @@ static unsigned char *encode_jpeg(const R2VisionFrame *frame, size_t *jpeg_lengt
     return jpeg;
 }
 
-static char *call_vision_model(const char *image_base64, const char *question)
+static char *call_vision_model(const char *image_base64, const char *question,
+                               const char *model)
 {
-    if (!image_base64) return NULL;
+    if (!image_base64 || !model || !*model) return NULL;
     const char *asked = question && *question ? question :
         "Describe what is visibly present. Separate direct observations from uncertain interpretations. "
         "Read visible text when possible, identify objects and spatial relationships, and avoid guessing "
@@ -219,7 +220,7 @@ static char *call_vision_model(const char *image_base64, const char *question)
         free(system_prompt);
         return NULL;
     }
-    json_object_object_add(root, "model", json_object_new_string(visual_model));
+    json_object_object_add(root, "model", json_object_new_string(model));
     json_object_object_add(root, "stream", json_object_new_boolean(0));
     json_object_object_add(root, "keep_alive", json_object_new_string("10m"));
     json_object_object_add(sys, "role", json_object_new_string("system"));
@@ -268,7 +269,7 @@ static char *call_vision_model(const char *image_base64, const char *question)
             r2_log_sensory("vision_model_request_failed",
                            "R2's vision model request failed.",
                            response.data ? response.data : curl_easy_strerror(cc),
-                           visual_model);
+                           model);
         }
         curl_slist_free_all(headers);
         curl_easy_cleanup(curl);
@@ -280,12 +281,17 @@ static char *call_vision_model(const char *image_base64, const char *question)
 
 int r2_visual_init(const char *database_path, const char *library_directory)
 {
-    if (!database_path || !*database_path || !library_directory || !*library_directory)
+    if (!database_path || !*database_path || !library_directory ||
+        !*library_directory || strlen(library_directory) >= sizeof(visual_directory))
         return -1;
     pthread_mutex_lock(&visual_lock);
     if (visual_initialized) { pthread_mutex_unlock(&visual_lock); return 0; }
     snprintf(visual_directory, sizeof(visual_directory), "%s", library_directory);
     const char *configured = getenv("R2_VISION_MODEL");
+    if (configured && strlen(configured) >= sizeof(visual_model)) {
+        pthread_mutex_unlock(&visual_lock);
+        return -1;
+    }
     snprintf(visual_model, sizeof(visual_model), "%s",
              configured && *configured ? configured : R2_VISION_DEFAULT_MODEL);
     if (mkdir_one(visual_directory) != 0) {
@@ -370,14 +376,31 @@ int r2_visual_is_initialized(void)
 
 const char *r2_visual_model_name(void)
 {
-    return visual_model[0] ? visual_model : R2_VISION_DEFAULT_MODEL;
+    static _Thread_local char model_snapshot[sizeof(visual_model)];
+    pthread_mutex_lock(&visual_lock);
+    snprintf(model_snapshot, sizeof(model_snapshot), "%s",
+             visual_model[0] ? visual_model : R2_VISION_DEFAULT_MODEL);
+    pthread_mutex_unlock(&visual_lock);
+    return model_snapshot;
 }
 
 char *r2_visual_analyze_frame(const R2VisionFrame *frame,
                               const char *source,
                               const char *question)
 {
-    if (!frame || !frame->data || !r2_visual_is_initialized()) return NULL;
+    if (!frame || !frame->data) return NULL;
+
+    char model_snapshot[sizeof(visual_model)];
+    char directory_snapshot[sizeof(visual_directory)];
+    pthread_mutex_lock(&visual_lock);
+    if (!visual_initialized || !visual_db) {
+        pthread_mutex_unlock(&visual_lock);
+        return NULL;
+    }
+    snprintf(model_snapshot, sizeof(model_snapshot), "%s", visual_model);
+    snprintf(directory_snapshot, sizeof(directory_snapshot), "%s", visual_directory);
+    pthread_mutex_unlock(&visual_lock);
+
     size_t jpeg_length = 0;
     unsigned char *jpeg = encode_jpeg(frame, &jpeg_length);
     if (!jpeg) {
@@ -388,27 +411,56 @@ char *r2_visual_analyze_frame(const R2VisionFrame *frame,
     }
     char *base64 = base64_encode(jpeg, jpeg_length);
     if (!base64) { free(jpeg); return NULL; }
-    char *description = call_vision_model(base64, question);
+    char *description = call_vision_model(base64, question, model_snapshot);
     free(base64);
     if (!description) { free(jpeg); return NULL; }
 
     char image_path[PATH_MAX];
-    snprintf(image_path, sizeof(image_path), "%s/visual_%llu_%llu.jpg",
-             visual_directory,
+    int path_length = snprintf(image_path, sizeof(image_path),
+             "%s/visual_%llu_%llu.jpg", directory_snapshot,
              (unsigned long long)frame->timestamp,
              (unsigned long long)frame->frame_number);
-    int image_fd = open(image_path, O_WRONLY | O_CREAT | O_EXCL, 0640);
-    if (image_fd < 0 || write_all(image_fd, jpeg, jpeg_length) != 0) {
-        if (image_fd >= 0) close(image_fd);
-        unlink(image_path);
+    if (path_length < 0 || (size_t)path_length >= sizeof(image_path)) {
         r2_log_sensory("visual_image_archive_failed",
-                       "R2 analyzed an image but could not preserve its JPEG.",
-                       strerror(errno), image_path);
+                       "R2 analyzed a frame but its archive path was too long.",
+                       directory_snapshot, source ? source : "Eyes");
+        free(jpeg);
+        free(description);
+        errno = ENAMETOOLONG;
+        return NULL;
+    }
+
+    int image_fd = open(image_path, O_WRONLY | O_CREAT | O_EXCL, 0640);
+    if (image_fd < 0) {
+        int saved_errno = errno;
+        r2_log_sensory("visual_image_archive_failed",
+                       "R2 analyzed an image but could not create its JPEG archive.",
+                       strerror(saved_errno), image_path);
+        free(jpeg);
+        free(description);
+        return NULL; /* Never unlink a path that this call did not create. */
+    }
+    if (write_all(image_fd, jpeg, jpeg_length) != 0) {
+        int saved_errno = errno;
+        close(image_fd);
+        unlink(image_path); /* This call created the file. */
+        r2_log_sensory("visual_image_archive_failed",
+                       "R2 analyzed an image but could not write its JPEG archive.",
+                       strerror(saved_errno), image_path);
         free(jpeg);
         free(description);
         return NULL;
     }
-    close(image_fd);
+    if (close(image_fd) != 0) {
+        int saved_errno = errno;
+        unlink(image_path);
+        r2_log_sensory("visual_image_archive_failed",
+                       "R2 analyzed an image but could not close its JPEG archive cleanly.",
+                       strerror(saved_errno), image_path);
+        free(jpeg);
+        free(description);
+        return NULL;
+    }
     free(jpeg);
 
     time_t now = time(NULL);
@@ -422,6 +474,17 @@ char *r2_visual_analyze_frame(const R2VisionFrame *frame,
         "R2's vision model interpreted a real captured frame.",
         description, source ? source : "Eyes");
     pthread_mutex_lock(&visual_lock);
+    if (!visual_initialized || !visual_db) {
+        pthread_mutex_unlock(&visual_lock);
+        unlink(image_path);
+        r2_log_sensory("visual_experience_store_failed",
+                       "R2 analyzed a frame, but the visual library shut down before it could be indexed.",
+                       "The JPEG archive was removed because no matching database record could be written.",
+                       image_path);
+        free(description);
+        return NULL;
+    }
+
     sqlite3_stmt *st = NULL;
     const char *sql =
         "INSERT INTO r2_visual_experiences "
@@ -430,27 +493,35 @@ char *r2_visual_analyze_frame(const R2VisionFrame *frame,
         "VALUES(?,?,?,?,?,?,?,?,?,?,?)";
     int rc = sqlite3_prepare_v2(visual_db, sql, -1, &st, NULL);
     if (rc == SQLITE_OK) {
-        sqlite3_bind_text(st, 1, created, -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(st, 2, source ? source : "Eyes", -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(st, 3, image_path, -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(st, 4, visual_model, -1, SQLITE_TRANSIENT);
-        if (question && *question) sqlite3_bind_text(st, 5, question, -1, SQLITE_TRANSIENT);
-        else sqlite3_bind_null(st, 5);
-        sqlite3_bind_text(st, 6, description, -1, SQLITE_TRANSIENT);
-        sqlite3_bind_int(st, 7, (int)frame->format.width);
-        sqlite3_bind_int(st, 8, (int)frame->format.height);
-        sqlite3_bind_int64(st, 9, (sqlite3_int64)frame->frame_number);
-        sqlite3_bind_int64(st, 10, (sqlite3_int64)frame->timestamp);
-        if (event_id > 0) sqlite3_bind_int64(st, 11, (sqlite3_int64)event_id);
-        else sqlite3_bind_null(st, 11);
-        rc = sqlite3_step(st);
+        rc = sqlite3_bind_text(st, 1, created, -1, SQLITE_TRANSIENT);
+        if (rc == SQLITE_OK) rc = sqlite3_bind_text(st, 2, source ? source : "Eyes", -1, SQLITE_TRANSIENT);
+        if (rc == SQLITE_OK) rc = sqlite3_bind_text(st, 3, image_path, -1, SQLITE_TRANSIENT);
+        if (rc == SQLITE_OK) rc = sqlite3_bind_text(st, 4, model_snapshot, -1, SQLITE_TRANSIENT);
+        if (rc == SQLITE_OK) {
+            if (question && *question) rc = sqlite3_bind_text(st, 5, question, -1, SQLITE_TRANSIENT);
+            else rc = sqlite3_bind_null(st, 5);
+        }
+        if (rc == SQLITE_OK) rc = sqlite3_bind_text(st, 6, description, -1, SQLITE_TRANSIENT);
+        if (rc == SQLITE_OK) rc = sqlite3_bind_int(st, 7, (int)frame->format.width);
+        if (rc == SQLITE_OK) rc = sqlite3_bind_int(st, 8, (int)frame->format.height);
+        if (rc == SQLITE_OK) rc = sqlite3_bind_int64(st, 9, (sqlite3_int64)frame->frame_number);
+        if (rc == SQLITE_OK) rc = sqlite3_bind_int64(st, 10, (sqlite3_int64)frame->timestamp);
+        if (rc == SQLITE_OK) {
+            if (event_id > 0) rc = sqlite3_bind_int64(st, 11, (sqlite3_int64)event_id);
+            else rc = sqlite3_bind_null(st, 11);
+        }
+        if (rc == SQLITE_OK) rc = sqlite3_step(st);
     }
+    char db_error[512] = "unknown SQLite error";
+    if (rc != SQLITE_DONE)
+        snprintf(db_error, sizeof(db_error), "%s", sqlite3_errmsg(visual_db));
     sqlite3_finalize(st);
     pthread_mutex_unlock(&visual_lock);
     if (rc != SQLITE_DONE) {
+        unlink(image_path);
         r2_log_sensory("visual_experience_store_failed",
                        "R2 analyzed a frame but failed to save the library record.",
-                       sqlite3_errmsg(visual_db), image_path);
+                       db_error, image_path);
         free(description);
         return NULL;
     }
