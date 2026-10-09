@@ -943,6 +943,7 @@ int r2_diary_write(
     FILE *file;
 
     int result;
+    int64_t diary_entry_id = 0;
 
     if (!r2_diary_db)
     {
@@ -1027,6 +1028,9 @@ int r2_diary_write(
         statement
     );
 
+    if (result == SQLITE_DONE)
+        diary_entry_id = sqlite3_last_insert_rowid(r2_diary_db);
+
     sqlite3_finalize(
         statement
     );
@@ -1034,6 +1038,16 @@ int r2_diary_write(
     if (result != SQLITE_DONE)
     {
         return -1;
+    }
+
+    /* The diary row is authoritative. A failed secondary link remains
+       pending and is retried after Life Log initialization on a later run. */
+    if (diary_entry_id > 0 &&
+        r2_diary_link_entry(diary_entry_id, timestamp) != 0) {
+        fprintf(stderr,
+                "[R2 DIARY] Entry #%" PRId64
+                " saved; Life Log/memory link will be retried.\n",
+                diary_entry_id);
     }
 
     /*
