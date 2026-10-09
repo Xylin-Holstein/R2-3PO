@@ -1336,7 +1336,26 @@ static void shell_tv(const char *argument)
         printf(r2_reality_tv_disconnect(name) == 0 ? "[TV] Device disconnected.\n" : "[TV] No connected device with that name.\n");
         return;
     }
-    printf("TV commands: tv status, tv on, tv off, tv input 1..4, tv tune <RF channel 2..13>, tv connect <name> | input/RF | <port>, tv disconnect <name>.\n");
+    if (shell_starts_with(argument, "vcr insert ")) {
+        const char *path = shell_trim((char *)argument + 11);
+        printf(r2_reality_tv_vcr_insert(path) == 0
+            ? "[TV] Tape inserted; its saved position is retained.\n"
+            : "[TV] Could not insert tape. Use a readable VLC-supported video file.\n");
+        return;
+    }
+    if (shell_starts_with(argument, "vcr ")) {
+        const char *action = shell_trim((char *)argument + 4);
+        if (!strcasecmp(action, "play") || !strcasecmp(action, "pause") ||
+            !strcasecmp(action, "stop") || !strcasecmp(action, "eject")) {
+            printf(r2_reality_tv_vcr_transport(action) == 0
+                ? "[TV] VCR transport updated.\n"
+                : "[TV] No tape is inserted, or the transport command failed.\n");
+        } else {
+            printf("Usage: tv vcr insert <absolute media path> | tv vcr play | pause | stop | eject\n");
+        }
+        return;
+    }
+    printf("TV commands: tv status, tv on, tv off, tv input 1..4, tv tune <RF channel 2..13>, tv connect <name> | input/RF | <port>, tv disconnect <name>, tv vcr insert/play/pause/stop/eject.\n");
 }
 
 static int shell_reality(const char *argument)
