@@ -177,7 +177,7 @@ static int as_set_status(int64_t id, const char *status)
     sqlite3_stmt *st = NULL;
     int rc = sqlite3_prepare_v2(as_db,
         "UPDATE r2_alternate_self_branches SET status=?,updated_utc=CURRENT_TIMESTAMP "
-        "WHERE id=? AND status='active';", -1, &st, NULL);
+        "WHERE id=? AND status!='discarded';", -1, &st, NULL);
     if (rc == SQLITE_OK) {
         sqlite3_bind_text(st,1,status,-1,SQLITE_STATIC);
         sqlite3_bind_int64(st,2,id);
