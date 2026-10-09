@@ -2018,6 +2018,13 @@ static char *workspace_read(const char *rel)
 }
 
 
+static int compare_dirent_names(const void *left, const void *right)
+{
+    const struct dirent *a = *(const struct dirent *const *)left;
+    const struct dirent *b = *(const struct dirent *const *)right;
+    return strcasecmp(a->d_name, b->d_name);
+}
+
 static char *workspace_list(const char *rel)
 {
     char p[PATH_MAX];
@@ -2103,21 +2110,8 @@ static char *workspace_list(const char *rel)
 
     closedir(d);
 
-    for (size_t i = 0; i < n; ++i) {
-
-        for (size_t j = i + 1; j < n; ++j) {
-
-            if (strcasecmp(
-                    names[i]->d_name,
-                    names[j]->d_name) > 0) {
-
-                struct dirent *tmp = names[i];
-
-                names[i] = names[j];
-                names[j] = tmp;
-            }
-        }
-    }
+    if (n > 1)
+        qsort(names, n, sizeof(*names), compare_dirent_names);
 
     for (size_t i = 0; i < n; ++i) {
 
