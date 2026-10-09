@@ -977,7 +977,7 @@ int64_t r2_log_activity_start(const char *activity_key,
                               const char *details)
 {
     sqlite3_stmt *statement = NULL;
-    char utc[40], local[48], event_details[4096];
+    char utc[40], local[48], event_details[4096], summary[1024];
     int rc;
     if (!valid_text(activity_key) || !valid_text(activity_name) ||
         strlen(activity_key) > 256 || strlen(activity_name) > 512 ||
@@ -1003,8 +1003,9 @@ int64_t r2_log_activity_start(const char *activity_key,
     snprintf(event_details, sizeof(event_details), "activity_key=%s%s%s",
              activity_key, details && *details ? "; " : "",
              details && *details ? details : "");
+    snprintf(summary, sizeof(summary), "R2 started activity '%s'.", activity_name);
     int64_t event_id = r2_log_event(R2_LOG_MEDIA, "activity_started",
-        "R2 started activity: ", event_details, activity_key);
+        summary, event_details, activity_key);
     if (event_id < 0) return -1;
 
     timestamp_pair(utc, sizeof(utc), local, sizeof(local));
@@ -1030,9 +1031,6 @@ int64_t r2_log_activity_start(const char *activity_key,
     pthread_mutex_unlock(&log_lock);
     if (rc != SQLITE_OK) return -1;
 
-    /* Correct the event's generic text with a concise named activity event. */
-    (void)r2_log_event(R2_LOG_MEDIA, "activity_started",
-        "R2 started activity.", activity_key, activity_name);
     return event_id;
 }
 
@@ -1084,12 +1082,19 @@ int64_t r2_log_activity_end(const char *activity_key,
         duration_ms = (sqlite3_int64)(elapsed - (uint64_t)started_monotonic);
     double seconds = difftime((time_t)ended_epoch, (time_t)started_epoch);
     if (seconds < 0.0) seconds = -1.0;
-    snprintf(summary, sizeof(summary),
-             "R2 ended activity '%s'; duration %s; last verified state: %s; stop reason: %s.",
-             activity_name,
-             seconds >= 0.0 ? "recorded" : "unknown",
-             valid_text(last_verified_state) ? last_verified_state : "unknown",
-             valid_text(stop_reason) ? stop_reason : "unknown");
+    if (seconds >= 0.0) {
+        snprintf(summary, sizeof(summary),
+                 "R2 ended activity '%s' after %.0f seconds; last verified state: %s; stop reason: %s.",
+                 activity_name, seconds,
+                 valid_text(last_verified_state) ? last_verified_state : "unknown",
+                 valid_text(stop_reason) ? stop_reason : "unknown");
+    } else {
+        snprintf(summary, sizeof(summary),
+                 "R2 ended activity '%s'; duration unknown; last verified state: %s; stop reason: %s.",
+                 activity_name,
+                 valid_text(last_verified_state) ? last_verified_state : "unknown",
+                 valid_text(stop_reason) ? stop_reason : "unknown");
+    }
     snprintf(event_details, sizeof(event_details),
              "activity_key=%s; started=%s; duration_seconds=%.0f; duration_ms=%lld; "
              "last_verified_state=%s; stop_reason=%s%s%s",
