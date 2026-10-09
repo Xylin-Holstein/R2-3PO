@@ -912,12 +912,11 @@ int r2_reality_eat(const char *food, double fullness)
     st = NULL;
 
     int rc = sqlite3_prepare_v2(reality_db,
-        "UPDATE r2_reality_self SET hunger=MAX(0,hunger-?), seconds_since_meal=CASE WHEN ?>=10 THEN 0 ELSE seconds_since_meal END, energy=MIN(100,energy+?), updated_at=CURRENT_TIMESTAMP WHERE id=1",
+        "UPDATE r2_reality_self SET hunger=MAX(0,hunger-?), seconds_since_meal=0, energy=MIN(100,energy+?), updated_at=CURRENT_TIMESTAMP WHERE id=1",
         -1, &st, NULL);
     if (rc == SQLITE_OK) {
         sqlite3_bind_double(st, 1, fullness);
-        sqlite3_bind_double(st, 2, fullness);
-        sqlite3_bind_double(st, 3, energy_bonus);
+        sqlite3_bind_double(st, 2, energy_bonus);
         rc = sqlite3_step(st);
     }
     if (st) sqlite3_finalize(st);
@@ -945,7 +944,7 @@ int r2_reality_eat(const char *food, double fullness)
         }
     }
     if (st) sqlite3_finalize(st);
-    if (rc == SQLITE_DONE && fullness >= 10.0) {
+    if (rc == SQLITE_DONE) {
         st = NULL;
         if (sqlite3_prepare_v2(reality_db,
             "INSERT INTO r2_reality_self_facts(key,value,evidence) VALUES('starvation_72h_logged','no','Reset by qualifying food intake') ON CONFLICT(key) DO UPDATE SET value='no',evidence='Reset by qualifying food intake',updated_at=CURRENT_TIMESTAMP",
