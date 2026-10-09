@@ -11,6 +11,7 @@ import argparse
 import json
 import os
 import signal
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -19,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(os.environ.get("R2_GAMEBOY_ROOT", str(Path(__file__).resolve().parent))).resolve()
 CARTRIDGES = ROOT / "Cartridges"
 SAVES = ROOT / "Saves"
 STATE = ROOT / "State"
@@ -384,7 +385,7 @@ def press_button(db: sqlite3.Connection, button: str, duration_ms: int) -> dict[
     if duration_ms < 1 or duration_ms > MAX_PRESS_MS:
         return {"ok": False, "message": f"Button duration must be 1–{MAX_PRESS_MS} milliseconds.",
                 **status_data(db)}
-    if subprocess.run(["sh", "-c", "command -v xdotool >/dev/null 2>&1"]).returncode != 0:
+    if shutil.which("xdotool") is None:
         return {"ok": False, "message": "xdotool is not installed; controller input was not sent. Install xdotool to enable R2 button presses.",
                 **status_data(db)}
     pid = str(row["emulator_pid"])
