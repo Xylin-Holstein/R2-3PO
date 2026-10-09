@@ -3,6 +3,7 @@
 #define _XOPEN_SOURCE 700
 
 #include "Reality.h"
+#include "Addiction.h"
 #include "r2_diary.h"
 #include "Log.h"
 #include "Visual.h"
@@ -1072,6 +1073,8 @@ int r2_reality_init(void)
     if (loc_st) sqlite3_finalize(loc_st);
     reality_ready = 1;
     pthread_mutex_unlock(&reality_lock);
+    if (r2_addiction_init() != 0)
+        fprintf(stderr, "[R2 Reality] Addiction/preference history is unavailable; core world remains available.\n");
     sync_room_mirrors();
 
     sqlite3_int64 carried_cash = 0, bank_cash = 0;
@@ -1095,6 +1098,7 @@ void r2_reality_shutdown(void)
     r2_fridge_shutdown();
     reality_ready = 0;
     pthread_mutex_unlock(&reality_lock);
+    r2_addiction_shutdown();
 }
 
 int r2_reality_is_initialized(void)
@@ -1771,6 +1775,9 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
     snprintf(details, sizeof(details), "Food=%s; modeled satisfaction increase=%.1f/100; modeled hunger reduction=%.1f/100; tracked object consumed=%s; these are simulated need values, not measured biological quantities.",
              food, fullness, fullness, consumed_tracked_item ? "yes" : "no");
     bridge_event("food_consumed", summary, details, 1, 0);
+    /* A real eating choice feeds the shared habit evaluator. It reads the
+       target's learned enjoyment instead of resetting it to a fixed value. */
+    (void)r2_addiction_record_choice(food, "food", 50, "eating", details);
     return 0;
 }
 
@@ -1883,6 +1890,10 @@ int r2_reality_rate_food(const char *food, int satisfaction, const char *notes)
     snprintf(details,sizeof(details),"Food=%s; ingredients=%s; sensory description=%s; enjoyment_rating=%d/2; reason=%s. This is a learned subjective simulation, not an externally verified reaction.",
         food,*ingredients?ingredients:"not specified",*taste?taste:"not specified",satisfaction,notes?notes:"not supplied");
     bridge_event("food_preference_learned",summary,details,1,0);
+    /* The existing -2..+2 food feedback scale maps onto the shared 0..100
+       enjoyment scale without making fullness and enjoyment the same value. */
+    (void)r2_addiction_rate_enjoyment(food, "food", (satisfaction + 2) * 25,
+                                      "food_feedback", notes);
     return 0;
 }
 
