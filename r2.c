@@ -5915,6 +5915,102 @@ static char *r2_talk_serialized(const char *message)
     return reply;
 }
 
+char *r2_memories_recent(int limit)
+{
+    if (limit < 1) limit = 50;
+    if (limit > 200) limit = 200;
+
+    pthread_mutex_lock(&db_lock);
+    if (!db || shutting_down) {
+        pthread_mutex_unlock(&db_lock);
+        return NULL;
+    }
+
+    sqlite3_stmt *st = NULL;
+    const char *sql =
+        "SELECT id, category, created_at, updated_at, memory "
+        "FROM memories ORDER BY updated_at DESC, id DESC LIMIT ?;";
+    if (sqlite3_prepare_v2(db, sql, -1, &st, NULL) != SQLITE_OK) {
+        pthread_mutex_unlock(&db_lock);
+        return NULL;
+    }
+    sqlite3_bind_int(st, 1, limit);
+
+    size_t capacity = 4096;
+    size_t used = 0;
+    char *out = malloc(capacity);
+    if (!out) {
+        sqlite3_finalize(st);
+        pthread_mutex_unlock(&db_lock);
+        return NULL;
+    }
+    out[0] = '\0';
+
+    int rc;
+    while ((rc = sqlite3_step(st)) == SQLITE_ROW) {
+        sqlite3_int64 id = sqlite3_column_int64(st, 0);
+        const unsigned char *category = sqlite3_column_text(st, 1);
+        const unsigned char *created = sqlite3_column_text(st, 2);
+        const unsigned char *updated = sqlite3_column_text(st, 3);
+        const unsigned char *memory = sqlite3_column_text(st, 4);
+        int memory_len = sqlite3_column_bytes(st, 4);
+        if (memory_len < 0) memory_len = 0;
+
+        char header[512];
+        int hn = snprintf(header, sizeof(header),
+            "[Memory #%lld | %s | created %s | updated %s]\n",
+            (long long)id,
+            category ? (const char *)category : "uncategorized",
+            created ? (const char *)created : "unknown",
+            updated ? (const char *)updated : "unknown");
+        if (hn < 0) continue;
+        size_t header_len = (size_t)hn;
+        size_t needed = used + header_len + (size_t)memory_len + 3;
+        if (needed > capacity) {
+            size_t next_capacity = capacity;
+            while (next_capacity < needed) {
+                if (next_capacity > SIZE_MAX / 2) {
+                    free(out);
+                    sqlite3_finalize(st);
+                    pthread_mutex_unlock(&db_lock);
+                    return NULL;
+                }
+                next_capacity *= 2;
+            }
+            char *next = realloc(out, next_capacity);
+            if (!next) {
+                free(out);
+                sqlite3_finalize(st);
+                pthread_mutex_unlock(&db_lock);
+                return NULL;
+            }
+            out = next;
+            capacity = next_capacity;
+        }
+        memcpy(out + used, header, header_len);
+        used += header_len;
+        if (memory && memory_len > 0) {
+            memcpy(out + used, memory, (size_t)memory_len);
+            used += (size_t)memory_len;
+        }
+        out[used++] = '\n';
+        out[used++] = '\n';
+        out[used] = '\0';
+    }
+
+    sqlite3_finalize(st);
+    pthread_mutex_unlock(&db_lock);
+    if (rc != SQLITE_DONE) {
+        free(out);
+        return NULL;
+    }
+    if (used == 0) {
+        free(out);
+        return strdup("R2 has not saved any persistent memories yet.\n");
+    }
+    return out;
+}
+
 char *r2_talk(const char *message)
 {
     pthread_mutex_lock(&conversation_request_lock);
