@@ -60,6 +60,7 @@ int r2_reality_money_withdraw(double amount); /* Move physical money from piggyb
 int r2_reality_buy_item(const char *name,const char *description,double price,const char *container);
 
 /* Persistent CRT television state and explicitly connected signal sources. */
+int r2_reality_tv_display_event(int opened); /* GUI lifecycle; opening directs modeled visual attention to the display. */
 char *r2_reality_tv_status(void);
 int r2_reality_tv_power(int on);
 int r2_reality_tv_select_input(int input);
