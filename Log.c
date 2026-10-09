@@ -1656,8 +1656,8 @@ static char *query_events(const char *query, int limit)
 
     if (output && length == 0) {
         const char *empty = query
-            ? "No Life Log events matched that search.\\n"
-            : "The Life Log contains no events yet.\\n";
+            ? "No Life Log events matched that search.\n"
+            : "The Life Log contains no events yet.\n";
         snprintf(output, capacity, "%s", empty);
     }
     sqlite3_finalize(statement);
