@@ -1,0 +1,35 @@
+name: R2 build
+
+on:
+  push:
+    branches:
+      - main
+      - fix/text-model-network-and-sensory-continuity
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libcurl4-openssl-dev libsqlite3-dev libjson-c-dev libpulse-dev
+
+      - name: Compile R2 with the launcher flags
+        run: |
+          gcc -std=c11 -Wall -Wextra -O2 \
+            r2.c \
+            shell.c \
+            r2_diary.c \
+            Log.c \
+            Visual.c \
+            Ears.c \
+            Eyes.c \
+            -o /tmp/r2 \
+            -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
