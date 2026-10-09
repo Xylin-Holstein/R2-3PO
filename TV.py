@@ -155,7 +155,7 @@ class CRTDisplay:
 
     def load_tape(self) -> None:
         path = filedialog.askopenfilename(
-            parent=self.root, title="Insert a video/audio tape",
+            parent=self.root, title="Insert a VHS tape",
             initialdir=str(MEDIA_DIR if MEDIA_DIR.is_dir() else Path.home()),
             filetypes=[("VLC media", " ".join(f"*{ext}" for ext in MEDIA_EXTENSIONS)),
                        ("All files", "*.*")],
