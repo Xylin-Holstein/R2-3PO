@@ -214,7 +214,7 @@ static void shell_help(void)
         "  world status\n"
         "      Show persistent needs and self-continuity state.\n"
         "\n"        "  eat <food> [| <fullness 0-100>]\n"
-        "      Use room/food_metrics.xml automatically unless a fullness value is supplied.\n"
+        "      Use room/food_metrics.xml automatically unless a fullness value is supplied; R2 records a learned subjective food reaction.\n"
         "  sleep <hours>\n"
         "      Advance sleep recovery, then generate and save a private simulated dream.\n"
         "  dream <description>\n"
@@ -1215,7 +1215,7 @@ static int shell_needs(const char *command)
         if (!*food) {
             printf("Usage: eat <food> [| <fullness 0-100>]\n");
         } else {
-            int rc = r2_reality_eat(food, fullness);
+            int rc = r2_eat_and_learn(food, fullness);
             printf(rc == 0 ? "[R2 Reality] Food and hunger state updated.\n" :
                              "[R2 Reality] Eating update failed; check room/food_metrics.xml or supply fullness points.\n");
         }
