@@ -93,18 +93,57 @@ static int money_read_locked(sqlite3_int64 *cash, sqlite3_int64 *bank)
     return rc == SQLITE_OK ? 0 : -1;
 }
 
+/* Move only generated mirror files when upgrading the old room-local layout.
+ * User-created files are left untouched; SQLite remains the source of truth. */
+static int migrate_mirror_directory(const char *old_dir, const char *new_dir)
+{
+    DIR *dir = opendir(old_dir);
+    if (!dir) return errno == ENOENT ? 0 : -1;
+    struct dirent *entry;
+    int result = 0;
+    while ((entry = readdir(dir)) != NULL) {
+        size_t n = strlen(entry->d_name);
+        if (n < 7 || strcmp(entry->d_name + n - 7, ".r2item") != 0) continue;
+        char old_path[2048], new_path[2048];
+        int a = snprintf(old_path, sizeof(old_path), "%s/%s", old_dir, entry->d_name);
+        int b = snprintf(new_path, sizeof(new_path), "%s/%s", new_dir, entry->d_name);
+        if (a <= 0 || (size_t)a >= sizeof(old_path) || b <= 0 || (size_t)b >= sizeof(new_path)) {
+            result = -1; continue;
+        }
+        if (access(new_path, F_OK) == 0) {
+            if (unlink(old_path) != 0 && errno != ENOENT) result = -1;
+        } else if (rename(old_path, new_path) != 0) result = -1;
+    }
+    closedir(dir);
+    (void)rmdir(old_dir); /* Never recursively delete user-created content. */
+    return result;
+}
+
 static int make_room_dirs(void)
 {
-    char room[1024], shelf[1100], box[1100], pockets[1100], wallet[1100], toy_box[1100], fridge[1100], piggybank[1100], diary[1100];
+    char room[1024], shelf[1100], box[1100], pockets[1100], wallet[1100];
+    char fridge[1100], piggybank[1100], diary[1100];
+    char old_pockets[1200], old_wallet[1200], old_fridge[1200], old_toy_box[1200];
     snprintf(room,sizeof(room),"%s/room",R2_ROOT); snprintf(shelf,sizeof(shelf),"%s/shelf",room);
-    snprintf(box,sizeof(box),"%s/box",room); snprintf(pockets,sizeof(pockets),"%s/pockets",room);
-    snprintf(wallet,sizeof(wallet),"%s/wallet",room); snprintf(toy_box,sizeof(toy_box),"%s/toy_box",room);
-    snprintf(fridge,sizeof(fridge),"%s/fridge",room); snprintf(piggybank,sizeof(piggybank),"%s/piggybank",room);
+    snprintf(box,sizeof(box),"%s/box",room); snprintf(pockets,sizeof(pockets),"%s/pockets",R2_ROOT);
+    snprintf(wallet,sizeof(wallet),"%s/wallet",pockets);
+    snprintf(fridge,sizeof(fridge),"%s/fridge",R2_ROOT); snprintf(piggybank,sizeof(piggybank),"%s/piggybank",room);
+    snprintf(old_pockets,sizeof(old_pockets),"%s/room/pockets",R2_ROOT);
+    snprintf(old_wallet,sizeof(old_wallet),"%s/room/wallet",R2_ROOT);
+    snprintf(old_fridge,sizeof(old_fridge),"%s/room/fridge",R2_ROOT);
+    snprintf(old_toy_box,sizeof(old_toy_box),"%s/room/toy_box",R2_ROOT);
     snprintf(diary,sizeof(diary),"%s",R2_DIARY_DIR);
     if(ensure_dir_tree(R2_ROOT)||ensure_dir_tree(R2_HOME)||ensure_dir_tree(diary)||ensure_dir_tree(room)||
        ensure_dir_tree(shelf)||ensure_dir_tree(box)||ensure_dir_tree(pockets)||ensure_dir_tree(wallet)||
-       ensure_dir_tree(toy_box)||ensure_dir_tree(fridge)||ensure_dir_tree(piggybank)) {
+       ensure_dir_tree(fridge)||ensure_dir_tree(piggybank)) {
         fprintf(stderr, "[R2 Reality] Could not create room/shelf/box directories under %s\n", R2_ROOT);
+        return -1;
+    }
+    if (migrate_mirror_directory(old_pockets, pockets) != 0 ||
+        migrate_mirror_directory(old_wallet, wallet) != 0 ||
+        migrate_mirror_directory(old_fridge, fridge) != 0 ||
+        migrate_mirror_directory(old_toy_box, box) != 0) {
+        fprintf(stderr, "[R2 Reality] Could not migrate one or more old mirror directories.\n");
         return -1;
     }
     char food_xml[1200];
@@ -144,8 +183,9 @@ static int bind_text(sqlite3_stmt *st, int n, const char *s)
 }
 
 
-/* Human-inspectable mirror files make room/shelf/box/pockets/wallet state visible.
- * SQLite remains canonical; mirror files are projections of the inventory database. */
+/* Human-inspectable mirrors follow the real hierarchy: room storage stays
+ * under room/, pockets and fridge are siblings of room/, and wallet is inside
+ * pockets/. SQLite remains canonical; mirror files are projections. */
 static void item_slug(const char *name, char *out, size_t cap)
 {
     size_t j = 0;
@@ -163,17 +203,17 @@ static void item_slug(const char *name, char *out, size_t cap)
 static int mirror_path(const char *name, const char *container, char *path, size_t cap)
 {
     if (!name || !container || !path) return -1;
-    const char *folder = NULL;
-    if (!strcmp(container, "room")) folder = "";
-    else if (!strcmp(container, "shelf")) folder = "/shelf";
-    else if (!strcmp(container, "box")) folder = "/box";
-    else if (!strcmp(container, "pockets")) folder = "/pockets";
-    else if (!strcmp(container, "wallet")) folder = "/wallet";
-    else if (!strcmp(container, "toy box")) folder = "/toy_box";
+    char base[1400];
+    if (!strcasecmp(container, "room")) snprintf(base, sizeof(base), "%s/room", R2_ROOT);
+    else if (!strcasecmp(container, "shelf")) snprintf(base, sizeof(base), "%s/room/shelf", R2_ROOT);
+    else if (!strcasecmp(container, "box") || !strcasecmp(container, "toy box"))
+        snprintf(base, sizeof(base), "%s/room/box", R2_ROOT);
+    else if (!strcasecmp(container, "pockets")) snprintf(base, sizeof(base), "%s/pockets", R2_ROOT);
+    else if (!strcasecmp(container, "wallet")) snprintf(base, sizeof(base), "%s/pockets/wallet", R2_ROOT);
     else return 1; /* Other named containers remain database-only. */
     char slug[256];
     item_slug(name, slug, sizeof(slug));
-    int n = snprintf(path, cap, "%s/room%s/%s.r2item", R2_ROOT, folder, slug);
+    int n = snprintf(path, cap, "%s/%s.r2item", base, slug);
     return n > 0 && (size_t)n < cap ? 0 : -1;
 }
 
@@ -435,7 +475,7 @@ static int fridge_mirror_path(const char *name, char *path, size_t cap)
 {
     char slug[256];
     item_slug(name, slug, sizeof(slug));
-    int n = snprintf(path, cap, "%s/room/fridge/%s.r2item", R2_ROOT, slug);
+    int n = snprintf(path, cap, "%s/fridge/%s.r2item", R2_ROOT, slug);
     return n > 0 && (size_t)n < cap ? 0 : -1;
 }
 static void fridge_mirror_remove(const char *name)
@@ -475,7 +515,7 @@ static void fridge_sync_mirrors(void)
     if (!fridge_db) return;
     pthread_mutex_lock(&fridge_lock);
     char folder[1200];
-    snprintf(folder, sizeof(folder), "%s/room/fridge", R2_ROOT);
+    snprintf(folder, sizeof(folder), "%s/fridge", R2_ROOT);
     DIR *dir = opendir(folder);
     if (dir) {
         struct dirent *entry;
@@ -847,13 +887,38 @@ int r2_reality_init(void)
         "CREATE INDEX IF NOT EXISTS r2_reality_objects_container_idx ON r2_reality_objects(container);"
         "CREATE TABLE IF NOT EXISTS r2_reality_ticks (id INTEGER PRIMARY KEY AUTOINCREMENT, previous_tick INTEGER NOT NULL, current_tick INTEGER NOT NULL, elapsed_seconds INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "INSERT OR IGNORE INTO r2_reality_containers(name,kind,description,parent) VALUES"
-        "('room','room','R2''s room',''),('shelf','surface','The shelf in R2''s room','room'),('box','container','The general storage box in R2''s room','room'),('toy box','container','A toy storage box in R2''s room','room'),('pockets','inventory','R2''s pockets','self'),('wallet','inventory','R2''s wallet','self');";
+        "('outside','environment','The area outside R2''s room',''),"
+        "('room','room','R2''s room','outside'),"
+        "('shelf','surface','The shelf in R2''s room','room'),"
+        "('box','container','The general storage box in R2''s room','room'),"
+        "('pockets','inventory','R2''s pockets','outside'),"
+        "('wallet','inventory','R2''s wallet inside his pockets','pockets'),"
+        "('fridge','container','The fridge outside R2''s room','outside');";
     if (exec_sql(schema) != 0) {
         sqlite3_close(reality_db); reality_db = NULL;
         pthread_mutex_unlock(&reality_lock); return -1;
     }
     if (migrate_legacy_reality() != 0) {
         fprintf(stderr, "[R2 Reality] Legacy migration failed; refusing to discard old state.\n");
+        sqlite3_close(reality_db); reality_db = NULL;
+        pthread_mutex_unlock(&reality_lock); return -1;
+    }
+    /* Upgrade existing persistent containers without resetting any inventory. */
+    if (exec_sql(
+        "INSERT OR IGNORE INTO r2_reality_containers(name,kind,description,parent) VALUES"
+        "('outside','environment','The area outside R2''s room',''),"
+        "('room','room','R2''s room','outside'),"
+        "('shelf','surface','The shelf in R2''s room','room'),"
+        "('box','container','The general storage box in R2''s room','room'),"
+        "('pockets','inventory','R2''s pockets','outside'),"
+        "('wallet','inventory','R2''s wallet inside his pockets','pockets'),"
+        "('fridge','container','The fridge outside R2''s room','outside');"
+        "UPDATE r2_reality_objects SET container='box' WHERE lower(container)='toy box';"
+        "UPDATE r2_reality_containers SET parent='outside' WHERE name IN ('room','pockets','fridge');"
+        "UPDATE r2_reality_containers SET parent='room' WHERE name IN ('shelf','box');"
+        "UPDATE r2_reality_containers SET parent='pockets' WHERE name='wallet';"
+        "DELETE FROM r2_reality_containers WHERE lower(name)='toy box';") != 0) {
+        fprintf(stderr, "[R2 Reality] Could not normalize persistent container hierarchy.\n");
         sqlite3_close(reality_db); reality_db = NULL;
         pthread_mutex_unlock(&reality_lock); return -1;
     }
@@ -1046,10 +1111,11 @@ char *r2_reality_room_look(void)
     if (!room || !shelf || !box || !pockets || !wallet || !named) {
         free(room); free(shelf); free(box); free(pockets); free(wallet); free(named); return NULL;
     }
-    size_t n = strlen(room)+strlen(shelf)+strlen(box)+strlen(pockets)+strlen(wallet)+strlen(named)+640;
+    size_t n = strlen(room)+strlen(shelf)+strlen(box)+strlen(pockets)+strlen(wallet)+strlen(named)+720;
     char *out = malloc(n);
     if (out) snprintf(out,n,
-        "R2'S ROOM\nRoom: %sShelf: %sBox: %sNamed containers and their contents:\n%sPockets: %sWallet: %s",
+        "R2'S ROOM\nRoom: %sShelf: %sBox: %sNamed containers in the room and their contents:\n%s"
+        "SELF INVENTORY (outside the room)\nPockets: %sWallet (inside pockets): %s",
         room,shelf,box,named,pockets,wallet);
     free(room); free(shelf); free(box); free(pockets); free(wallet); free(named);
     return out;
@@ -1183,9 +1249,9 @@ char *r2_reality_context(void)
         "[WORLD] ratefood|food|-2..2|reason to rate the most recent unrated eating experience. "
         "[WORLD] self|key|value|evidence to record a self-state fact. "
         "[WORLD] fridge|look to inspect fridge stock; [WORLD] fridge_take|food to move one item into pockets; [WORLD] fridge_eat|food to eat directly from fridge stock without consuming a similarly named pocket item; [WORLD] fridge_store|food to move a tracked inventory item into fridge stock. "
-        "The fridge is accessible from anywhere in this prototype and automatically generates one burger with fullness 100/100 whenever all stock is gone. Its stock is stored in a separate r2_fridge.db. "
+        "The fridge is physically outside the room (a sibling of room/ and pockets/) and is accessible from anywhere in this prototype; it automatically generates one burger with fullness 100/100 whenever all stock is gone. Its stock is stored in a separate r2_fridge.db. "
         "Food metrics live in room/food_metrics.xml; each food can define fullness, energy, ingredients (comma-separated), and taste (sensory description). Use only listed metrics and auto rather than guessing. "
-        "Containers: room, shelf, box, toy box, pockets, wallet; named containers can be created by moving an item to a new container name. "
+        "Containers: room, shelf, and one storage box; pockets and fridge are outside the room, and the wallet is inside pockets. The old toy box is the same box and is normalized into it. Named containers can be created by moving an item to a new container name. "
         "Food fullness points are modeled values, not measured biological facts. Sleep advances hunger and world time. "
         "Dreams are stored as simulated reports, not waking facts. Ask before moving or deleting a user's important item. "
         "CHOICE LAB: Consider any possible option, action, object, or decision; there is no fixed menu. Compare alternatives using needs, memories, self-facts, preferences, and available evidence. "
@@ -1198,10 +1264,34 @@ char *r2_reality_context(void)
     return out;
 }
 
+static void canonical_container_name(const char *input, char *out, size_t cap)
+{
+    if (!input || !*input) input = "room";
+    if (!strcasecmp(input, "toy box")) input = "box";
+    else if (!strcasecmp(input, "pocket")) input = "pockets";
+    if (cap) snprintf(out, cap, "%s", input);
+}
+
+static const char *container_parent_name(const char *container)
+{
+    if (!strcasecmp(container, "pockets") || !strcasecmp(container, "fridge") ||
+        !strcasecmp(container, "room") || !strcasecmp(container, "outside"))
+        return "outside";
+    if (!strcasecmp(container, "wallet")) return "pockets";
+    return "room";
+}
+
+static int container_is_inventory(const char *container)
+{
+    return !strcasecmp(container, "pockets") || !strcasecmp(container, "wallet");
+}
+
 int r2_reality_add_item(const char *name,const char *description,const char *container,int quantity)
 {
     if(!name || !*name || strlen(name)>REALITY_MAX_TEXT || (description && strlen(description)>REALITY_MAX_TEXT)) return -1;
-    if(!container || !*container) container="room";
+    char canonical_container[REALITY_MAX_TEXT + 1];
+    canonical_container_name(container, canonical_container, sizeof(canonical_container));
+    container = canonical_container;
     if (!strcasecmp(container, "fridge")) {
         char ingredients[1024] = {0}, taste[1024] = {0};
         food_attributes(name, ingredients, sizeof(ingredients), taste, sizeof(taste));
@@ -1225,7 +1315,7 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
     if (prior) sqlite3_finalize(prior);
     sqlite3_stmt *st=NULL;
     int rc=sqlite3_prepare_v2(reality_db,"INSERT INTO r2_reality_containers(name,kind,description,parent) VALUES(?,?,?,?) ON CONFLICT(name) DO NOTHING",-1,&st,NULL);
-    if(rc==SQLITE_OK){bind_text(st,1,container);bind_text(st,2,(!strcmp(container,"pockets")||!strcmp(container,"wallet"))?"inventory":"container");bind_text(st,3,"Persistent object container");bind_text(st,4,(!strcmp(container,"pockets")||!strcmp(container,"wallet"))?"self":"room");rc=sqlite3_step(st);}
+    if(rc==SQLITE_OK){bind_text(st,1,container);bind_text(st,2,container_is_inventory(container)?"inventory":"container");bind_text(st,3,"Persistent object container");bind_text(st,4,container_parent_name(container));rc=sqlite3_step(st);}
     if(st)sqlite3_finalize(st);
     st=NULL;
     if(rc==SQLITE_DONE) rc=sqlite3_prepare_v2(reality_db,"INSERT INTO r2_reality_objects(name,description,quantity,container,owner) VALUES(?,?,?,?, 'R2') ON CONFLICT(name) DO UPDATE SET description=excluded.description,quantity=r2_reality_objects.quantity+excluded.quantity,container=excluded.container,updated_at=CURRENT_TIMESTAMP",-1,&st,NULL);
@@ -1269,6 +1359,9 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
 int r2_reality_move_item(const char *name,const char *container)
 {
     if(!name||!*name||!container||!*container||strlen(name)>REALITY_MAX_TEXT||strlen(container)>REALITY_MAX_TEXT||!r2_reality_is_initialized()) return -1;
+    char canonical_container[REALITY_MAX_TEXT + 1];
+    canonical_container_name(container, canonical_container, sizeof(canonical_container));
+    container = canonical_container;
     if (!strcasecmp(container, "fridge")) {
         char description[REALITY_MAX_TEXT + 1] = {0}, old_container[REALITY_MAX_TEXT + 1] = {0};
         int quantity = 0;
@@ -1345,7 +1438,7 @@ int r2_reality_move_item(const char *name,const char *container)
     if (prior) sqlite3_finalize(prior);
     sqlite3_stmt *st=NULL;
     int rc=sqlite3_prepare_v2(reality_db,"INSERT INTO r2_reality_containers(name,kind,description,parent) VALUES(?,?,?,?) ON CONFLICT(name) DO NOTHING",-1,&st,NULL);
-    if(rc==SQLITE_OK){bind_text(st,1,container);bind_text(st,2,(!strcmp(container,"pockets")||!strcmp(container,"wallet"))?"inventory":"container");bind_text(st,3,"Persistent object container");bind_text(st,4,(!strcmp(container,"pockets")||!strcmp(container,"wallet"))?"self":"room");rc=sqlite3_step(st);}
+    if(rc==SQLITE_OK){bind_text(st,1,container);bind_text(st,2,container_is_inventory(container)?"inventory":"container");bind_text(st,3,"Persistent object container");bind_text(st,4,container_parent_name(container));rc=sqlite3_step(st);}
     if(st)sqlite3_finalize(st);
     st=NULL;
     if(rc==SQLITE_DONE) rc=sqlite3_prepare_v2(reality_db,"UPDATE r2_reality_objects SET container=?,updated_at=CURRENT_TIMESTAMP WHERE name=? COLLATE NOCASE",-1,&st,NULL);
