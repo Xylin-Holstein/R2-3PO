@@ -347,6 +347,25 @@ void r2_visual_shutdown(void)
     pthread_mutex_unlock(&visual_lock);
 }
 
+int r2_visual_set_model(const char *model)
+{
+    if (!model || !*model || strlen(model) >= sizeof(visual_model))
+        return -1;
+    for (const unsigned char *p = (const unsigned char *)model; *p; ++p) {
+        if (!( (*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
+               (*p >= '0' && *p <= '9') || *p == ':' || *p == '_' ||
+               *p == '-' || *p == '.' || *p == '/'))
+            return -1;
+    }
+    pthread_mutex_lock(&visual_lock);
+    snprintf(visual_model, sizeof(visual_model), "%s", model);
+    pthread_mutex_unlock(&visual_lock);
+    r2_log_sensory("vision_model_selected",
+                   "R2's visual perception model was selected.",
+                   model, "Visual.c");
+    return 0;
+}
+
 int r2_visual_is_initialized(void)
 {
     pthread_mutex_lock(&visual_lock);
@@ -461,7 +480,12 @@ static char *visual_query(const char *sql, const char *query, int limit)
             char pattern[2048];
             snprintf(pattern, sizeof(pattern), "%%%s%%", query);
             sqlite3_bind_text(st, 1, pattern, -1, SQLITE_TRANSIENT);
-            sqlite3_bind_int(st, 2, limit);
+            if (strstr(sql, "source LIKE ?")) {
+                sqlite3_bind_text(st, 2, pattern, -1, SQLITE_TRANSIENT);
+                sqlite3_bind_int(st, 3, limit);
+            } else {
+                sqlite3_bind_int(st, 2, limit);
+            }
         } else {
             sqlite3_bind_int(st, 1, limit);
         }
