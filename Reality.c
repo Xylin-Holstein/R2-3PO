@@ -992,6 +992,9 @@ char *r2_reality_food_context(const char *food)
     double fullness = -1.0, energy = 0.0;
     (void)food_metric(food, &fullness, &energy);
     food_attributes(food, ingredients, sizeof(ingredients), taste, sizeof(taste));
+    char fullness_text[64] = {0};
+    if (fullness < 0) snprintf(fullness_text, sizeof(fullness_text), "not configured");
+    else snprintf(fullness_text, sizeof(fullness_text), "%.1f/100", fullness);
     char *preferences = query_text(
         "SELECT ingredient,printf('average satisfaction %.2f/2',satisfaction_sum/rating_count),printf('%d ratings',rating_count) FROM r2_food_ingredient_preferences WHERE rating_count>0 ORDER BY satisfaction_sum*1.0/rating_count DESC", NULL);
     char *history = query_text(
@@ -1005,11 +1008,11 @@ char *r2_reality_food_context(const char *food)
     char *out = malloc(n);
     if (out) snprintf(out,n,
         "FOOD EXPERIENCE CONTEXT (learned subjective preferences; not hard-coded):\n"
-        "Food: %s\nConfigured fullness: %s%.1f/100\nConfigured energy bonus: %.1f\nIngredients: %s\nSensory description: %s\n"
+        "Food: %s\nConfigured fullness: %s\nConfigured energy bonus: %.1f\nIngredients: %s\nSensory description: %s\n"
         "Past experiences with this food:\n%sFood preference summary:\n%sIngredient preference summaries:\n%s"
         "Satisfaction is a subjective modeled rating from -2 (strong dislike) to +2 (strong enjoyment); 0 means neutral/uncertain. "
         "Fullness and satisfaction are independent. Ingredient summaries are learned only from rated eating experiences.",
-        food, fullness < 0 ? "not configured; " : "", fullness < 0 ? 0.0 : fullness, energy,
+        food, fullness_text, energy,
         *ingredients ? ingredients : "not specified", *taste ? taste : "not specified",
         history, food_pref, preferences);
     free(preferences); free(history); free(food_pref);
