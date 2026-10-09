@@ -1,0 +1,478 @@
+#!/usr/bin/env python3
+"""R2's persistent virtual Game Boy console.
+
+This is the device layer, not an emulator. It delegates game execution to mGBA
+and stores only the inserted cartridge plus console/session state in gameboy.db.
+No emulator save-state or rewind commands are exposed by this interface.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import signal
+import sqlite3
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+ROOT = Path(__file__).resolve().parent
+CARTRIDGES = ROOT / "Cartridges"
+SAVES = ROOT / "Saves"
+STATE = ROOT / "State"
+DB_PATH = Path(os.environ.get("R2_GAMEBOY_DB", str(ROOT / "gameboy.db")))
+EMULATOR = os.environ.get("R2_MGBA_EXECUTABLE", "/usr/games/mgba-qt")
+ROM_EXTENSIONS = {".gba", ".gb", ".gbc"}
+BUTTON_KEYS = {
+    "A": "x", "B": "z", "L": "a", "R": "s",
+    "START": "Return", "SELECT": "BackSpace",
+    "UP": "Up", "DOWN": "Down", "LEFT": "Left", "RIGHT": "Right",
+}
+DEFAULT_PRESS_MS = 120
+MAX_PRESS_MS = 5000
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def ensure_dirs() -> None:
+    for path in (CARTRIDGES, SAVES, STATE, STATE / "mgba-config" / "mgba"):
+        path.mkdir(parents=True, exist_ok=True)
+
+
+def connect() -> sqlite3.Connection:
+    ensure_dirs()
+    db = sqlite3.connect(DB_PATH, timeout=5.0)
+    db.row_factory = sqlite3.Row
+    db.execute("PRAGMA busy_timeout=5000")
+    db.execute("PRAGMA journal_mode=WAL")
+    db.executescript("""
+        CREATE TABLE IF NOT EXISTS console_state (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            power_state TEXT NOT NULL DEFAULT 'off'
+                CHECK (power_state IN ('off','on')),
+            cartridge_path TEXT,
+            cartridge_title TEXT,
+            cartridge_inserted_at TEXT,
+            emulator_pid INTEGER,
+            emulator_start_ticks INTEGER,
+            game_started_at TEXT,
+            session_id TEXT
+        );
+        INSERT OR IGNORE INTO console_state(id, power_state) VALUES (1, 'off');
+        CREATE TABLE IF NOT EXISTS console_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            context TEXT NOT NULL CHECK (context IN ('physical','virtual','system')),
+            event_type TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            details TEXT,
+            game_title TEXT,
+            session_id TEXT
+        );
+        CREATE INDEX IF NOT EXISTS console_events_time_idx
+            ON console_events(id);
+    """)
+    db.commit()
+    return db
+
+
+def record_event(db: sqlite3.Connection, context: str, event_type: str,
+                 summary: str, details: str | None = None,
+                 game_title: str | None = None, session_id: str | None = None) -> None:
+    db.execute(
+        "INSERT INTO console_events(timestamp,context,event_type,summary,details,game_title,session_id) "
+        "VALUES(?,?,?,?,?,?,?)",
+        (utc_now(), context, event_type, summary, details, game_title, session_id),
+    )
+    db.commit()
+
+
+def process_start_ticks(pid: int) -> int | None:
+    """Linux /proc start time, used to avoid mistaking a recycled PID for mGBA."""
+    try:
+        raw = Path(f"/proc/{pid}/stat").read_text(encoding="ascii")
+        tail = raw[raw.rfind(")") + 2:].split()
+        # tail starts at proc stat field 3; starttime is field 22.
+        return int(tail[19])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def process_matches(pid: int | None, expected_ticks: int | None) -> bool:
+    if not pid or pid <= 1:
+        return False
+    try:
+        os.kill(pid, 0)
+    except (ProcessLookupError, PermissionError, OSError):
+        return False
+    actual = process_start_ticks(pid)
+    return actual is not None and expected_ticks is not None and actual == expected_ticks
+
+
+def state_row(db: sqlite3.Connection) -> sqlite3.Row:
+    row = db.execute("SELECT * FROM console_state WHERE id=1").fetchone()
+    assert row is not None
+    return row
+
+
+def reconcile(db: sqlite3.Connection) -> sqlite3.Row:
+    row = state_row(db)
+    pid = row["emulator_pid"]
+    if row["power_state"] == "on" and pid is not None and not process_matches(
+        int(pid), row["emulator_start_ticks"]
+    ):
+        title = row["cartridge_title"] or "unknown game"
+        session_id = row["session_id"]
+        db.execute(
+            "UPDATE console_state SET power_state='off', emulator_pid=NULL, "
+            "emulator_start_ticks=NULL, game_started_at=NULL, session_id=NULL WHERE id=1"
+        )
+        record_event(
+            db, "system", "emulator_exited",
+            f"The emulator for {title} is no longer running.",
+            "Detected by checking the stored process ID and Linux process start time.",
+            title, session_id,
+        )
+        db.commit()
+    return state_row(db)
+
+
+def read_rom_title(path: Path) -> str:
+    try:
+        data = path.read_bytes()[:0x200]
+        if path.suffix.lower() == ".gba" and len(data) >= 0xAC:
+            raw = data[0xA0:0xAC]
+        elif path.suffix.lower() in {".gb", ".gbc"} and len(data) >= 0x144:
+            raw = data[0x134:0x144]
+        else:
+            raw = b""
+        title = raw.split(b"\0", 1)[0].decode("ascii", "ignore").strip()
+        title = "".join(ch for ch in title if ch.isprintable()).strip()
+        return title or path.stem
+    except OSError:
+        return path.stem
+
+
+def safe_cartridge(name: str) -> Path:
+    # Cartridge insertion accepts a loose filename, never an arbitrary path.
+    if not name or Path(name).name != name or name in {".", ".."}:
+        raise ValueError("Specify a cartridge filename from the Cartridges folder, not a path.")
+    path = (CARTRIDGES / name).resolve()
+    if path.parent != CARTRIDGES.resolve():
+        raise ValueError("Cartridge must be inside the console's Cartridges folder.")
+    if path.suffix.lower() not in ROM_EXTENSIONS:
+        raise ValueError("Supported cartridge formats are .gba, .gb, and .gbc.")
+    if not path.is_file():
+        raise ValueError(f"No cartridge file named '{name}' exists in Cartridges.")
+    if path.stat().st_size < 0x150:
+        raise ValueError("The cartridge file is too small to be a valid GB/GBC/GBA ROM.")
+    return path
+
+
+def status_data(db: sqlite3.Connection) -> dict[str, Any]:
+    row = reconcile(db)
+    return {
+        "device": "Game Boy Advance",
+        "power_state": row["power_state"],
+        "cartridge_inserted": bool(row["cartridge_path"]),
+        "cartridge_path": row["cartridge_path"],
+        "cartridge_title": row["cartridge_title"],
+        "emulator_pid": row["emulator_pid"],
+        "game_running": bool(row["power_state"] == "on" and row["emulator_pid"]),
+        "database": str(DB_PATH),
+        "cartridges_directory": str(CARTRIDGES),
+        "saves_directory": str(SAVES),
+    }
+
+
+def mgba_environment() -> dict[str, str]:
+    env = os.environ.copy()
+    # Isolate mGBA settings from the desktop user's personal emulator config.
+    env["XDG_CONFIG_HOME"] = str(STATE / "mgba-config")
+    config_dir = STATE / "mgba-config" / "mgba"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    # Ordinary cartridge saves are retained; periodic save-state creation and
+    # rewind are disabled in this console's private mGBA configuration.
+    config = config_dir / "config.ini"
+    existing = config.read_text(encoding="utf-8") if config.exists() else ""
+    settings = {
+        "savegamePath": str(SAVES),
+        "savestatePath": str(STATE / "disabled-save-states"),
+        "autosave": "false",
+        "rewindEnable": "false",
+    }
+    lines = [line for line in existing.splitlines()
+             if not any(line.split("=", 1)[0].strip() == key for key in settings
+                        if "=" in line)]
+    lines.extend(f"{key}={value}" for key, value in settings.items())
+    config.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return env
+
+
+def power_on(db: sqlite3.Connection) -> dict[str, Any]:
+    row = reconcile(db)
+    if row["power_state"] == "on":
+        return {"ok": False, "message": "The console is already powered on.", **status_data(db)}
+    cartridge = row["cartridge_path"]
+    if not cartridge:
+        db.execute(
+            "UPDATE console_state SET power_state='on', emulator_pid=NULL, "
+            "emulator_start_ticks=NULL, game_started_at=NULL, session_id=NULL WHERE id=1"
+        )
+        db.commit()
+        record_event(db, "physical", "console_powered_on_empty",
+                     "R2 powered on the Game Boy Advance with no cartridge inserted.")
+        return {"ok": True, "message": "Console powered on. The cartridge slot is empty; no emulator was launched.",
+                **status_data(db)}
+    rom = Path(cartridge).resolve()
+    try:
+        if rom.parent != CARTRIDGES.resolve() or not rom.is_file():
+            raise ValueError("The inserted cartridge file is missing or outside Cartridges.")
+        if rom.suffix.lower() not in ROM_EXTENSIONS:
+            raise ValueError("The inserted cartridge format is unsupported.")
+        emulator = Path(EMULATOR)
+        if not emulator.is_file() or not os.access(emulator, os.X_OK):
+            raise ValueError(
+                f"mGBA executable not found or not executable at {EMULATOR}. "
+                "Set R2_MGBA_EXECUTABLE to its actual path."
+            )
+        title = row["cartridge_title"] or read_rom_title(rom)
+        session_id = f"gba-{int(time.time())}-{os.getpid()}"
+        # Do not pass --savestate/-t, and do not expose a save-state command.
+        # Use per-console config and only the one ROM recorded in the slot.
+        proc = subprocess.Popen(
+            [str(emulator), "-C", f"savegamePath={SAVES}",
+             "-C", f"savestatePath={STATE / 'disabled-save-states'}",
+             "-C", "autosave=false", "-C", "rewindEnable=false", str(rom)],
+            cwd=str(ROOT), env=mgba_environment(),
+            stdin=subprocess.DEVNULL, start_new_session=True,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        time.sleep(0.15)
+        if proc.poll() is not None:
+            return {"ok": False, "message": f"mGBA exited immediately with status {proc.returncode}.",
+                    **status_data(db)}
+        ticks = process_start_ticks(proc.pid)
+        db.execute(
+            "UPDATE console_state SET power_state='on', emulator_pid=?, emulator_start_ticks=?, "
+            "game_started_at=?, session_id=? WHERE id=1",
+            (proc.pid, ticks, utc_now(), session_id),
+        )
+        db.commit()
+        record_event(db, "physical", "console_powered_on",
+                     f"R2 powered on the Game Boy Advance with {title} inserted.",
+                     "The console launched mGBA with only the ROM recorded in the cartridge slot.",
+                     title, session_id)
+        record_event(db, "virtual", "game_session_started",
+                     f"An emulated game session began: {title}.",
+                     "This is an in-game context; it is not a claim that game events are physical-world events.",
+                     title, session_id)
+        return {"ok": True, "message": f"Console powered on; started {title}.",
+                **status_data(db)}
+    except (OSError, ValueError) as exc:
+        return {"ok": False, "message": str(exc), **status_data(db)}
+
+
+def power_off(db: sqlite3.Connection) -> dict[str, Any]:
+    row = reconcile(db)
+    if row["power_state"] == "off":
+        return {"ok": True, "message": "The console is already powered off.", **status_data(db)}
+    pid = row["emulator_pid"]
+    title = row["cartridge_title"] or "unknown game"
+    session_id = row["session_id"]
+    if pid and process_matches(int(pid), row["emulator_start_ticks"]):
+        try:
+            os.kill(int(pid), signal.SIGTERM)
+            deadline = time.monotonic() + 4.0
+            while time.monotonic() < deadline and process_matches(
+                int(pid), row["emulator_start_ticks"]
+            ):
+                time.sleep(0.1)
+            if process_matches(int(pid), row["emulator_start_ticks"]):
+                os.kill(int(pid), signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            return {"ok": False, "message": "Permission denied while powering off the emulator.",
+                    **status_data(db)}
+    db.execute(
+        "UPDATE console_state SET power_state='off', emulator_pid=NULL, "
+        "emulator_start_ticks=NULL, game_started_at=NULL, session_id=NULL WHERE id=1"
+    )
+    db.commit()
+    record_event(
+        db, "physical", "console_powered_off",
+        "R2 powered off the Game Boy Advance.",
+        "Power-off does not create a save state or invoke an in-game save. Unsaved progress may be lost.",
+        title, session_id,
+    )
+    if session_id:
+        record_event(db, "virtual", "game_session_interrupted",
+                     f"The emulated session for {title} ended when the console was powered off.",
+                     "The console did not issue an in-game save command.",
+                     title, session_id)
+    return {"ok": True, "message": "Console powered off. No in-game save command or save state was issued.",
+            **status_data(db)}
+
+
+def insert_cartridge(db: sqlite3.Connection, name: str) -> dict[str, Any]:
+    row = reconcile(db)
+    if row["power_state"] != "off":
+        return {"ok": False,
+                "message": "The Game Boy Advance is powered on. Turn it off before removing or replacing the cartridge.",
+                **status_data(db)}
+    try:
+        path = safe_cartridge(name)
+    except (ValueError, OSError) as exc:
+        return {"ok": False, "message": str(exc), **status_data(db)}
+    title = read_rom_title(path)
+    db.execute(
+        "UPDATE console_state SET cartridge_path=?, cartridge_title=?, cartridge_inserted_at=? WHERE id=1",
+        (str(path), title, utc_now()),
+    )
+    db.commit()
+    record_event(db, "physical", "cartridge_inserted",
+                 f"R2 inserted the {title} cartridge.",
+                 f"ROM filename: {path.name}", title)
+    return {"ok": True, "message": f"Inserted cartridge: {title}.",
+            **status_data(db)}
+
+
+def eject_cartridge(db: sqlite3.Connection) -> dict[str, Any]:
+    row = reconcile(db)
+    if row["power_state"] != "off":
+        return {"ok": False,
+                "message": "The Game Boy Advance is powered on. Turn it off before removing or replacing the cartridge.",
+                **status_data(db)}
+    title = row["cartridge_title"]
+    if not row["cartridge_path"]:
+        return {"ok": False, "message": "The cartridge slot is already empty.", **status_data(db)}
+    db.execute(
+        "UPDATE console_state SET cartridge_path=NULL, cartridge_title=NULL, cartridge_inserted_at=NULL WHERE id=1"
+    )
+    db.commit()
+    record_event(db, "physical", "cartridge_ejected",
+                 f"R2 removed the {title} cartridge.",
+                 "The ROM file remains in the Cartridges directory.", title)
+    return {"ok": True, "message": f"Ejected {title}. The cartridge slot is now empty.",
+            **status_data(db)}
+
+
+def list_cartridges() -> list[dict[str, str]]:
+    ensure_dirs()
+    items = []
+    for path in sorted(CARTRIDGES.iterdir(), key=lambda p: p.name.casefold()):
+        if path.is_file() and path.suffix.lower() in ROM_EXTENSIONS:
+            items.append({"filename": path.name, "title": read_rom_title(path)})
+    return items
+
+
+def press_button(db: sqlite3.Connection, button: str, duration_ms: int) -> dict[str, Any]:
+    row = reconcile(db)
+    name = button.upper()
+    if name not in BUTTON_KEYS:
+        return {"ok": False, "message": "Unknown GBA button. Use A, B, L, R, START, SELECT, UP, DOWN, LEFT, or RIGHT.",
+                **status_data(db)}
+    if row["power_state"] != "on" or not row["emulator_pid"]:
+        return {"ok": False, "message": "No game is running. Power on the console with a cartridge inserted first.",
+                **status_data(db)}
+    if duration_ms < 1 or duration_ms > MAX_PRESS_MS:
+        return {"ok": False, "message": f"Button duration must be 1–{MAX_PRESS_MS} milliseconds.",
+                **status_data(db)}
+    if subprocess.run(["sh", "-c", "command -v xdotool >/dev/null 2>&1"]).returncode != 0:
+        return {"ok": False, "message": "xdotool is not installed; controller input was not sent. Install xdotool to enable R2 button presses.",
+                **status_data(db)}
+    pid = str(row["emulator_pid"])
+    try:
+        found = subprocess.run(
+            ["xdotool", "search", "--onlyvisible", "--pid", pid],
+            capture_output=True, text=True, timeout=2, check=False,
+        )
+        windows = [line.strip() for line in found.stdout.splitlines() if line.strip()]
+        if found.returncode != 0 or not windows:
+            return {"ok": False, "message": "Could not find the running mGBA window; no button press was sent.",
+                    **status_data(db)}
+        window = windows[0]
+        key = BUTTON_KEYS[name]
+        subprocess.run(["xdotool", "windowactivate", "--sync", window],
+                       check=True, timeout=3, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        subprocess.run(["xdotool", "keydown", "--window", window, key],
+                       check=True, timeout=3, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        time.sleep(duration_ms / 1000.0)
+        subprocess.run(["xdotool", "keyup", "--window", window, key],
+                       check=True, timeout=3, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"ok": False, "message": f"Button input failed: {exc}", **status_data(db)}
+    title = row["cartridge_title"] or "unknown game"
+    record_event(db, "physical", "controller_input",
+                 f"R2 pressed {name} while playing {title}.",
+                 f"Emulator key={BUTTON_KEYS[name]}; duration_ms={duration_ms}.",
+                 title, row["session_id"])
+    return {"ok": True, "message": f"Sent {name} button press for {duration_ms} ms.",
+            **status_data(db)}
+
+
+def print_result(value: Any, as_json: bool) -> None:
+    if as_json:
+        print(json.dumps(value, ensure_ascii=False))
+        return
+    if isinstance(value, dict):
+        print(value.get("message", ""))
+        if "power_state" in value:
+            print(f"Power: {value['power_state']}")
+            print(f"Cartridge: {value.get('cartridge_title') or '(empty)'}")
+            print(f"Game running: {'yes' if value.get('game_running') else 'no'}")
+            print(f"Database: {value.get('database')}")
+    elif isinstance(value, list):
+        if not value:
+            print("No supported cartridges found.")
+        for item in value:
+            print(f"{item['filename']} — {item['title']}")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="R2's persistent virtual Game Boy Advance console")
+    parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
+    sub = parser.add_subparsers(dest="command")
+    sub.add_parser("status", help="inspect console and cartridge state")
+    sub.add_parser("list", help="list loose ROM files in Cartridges")
+    ins = sub.add_parser("insert", help="insert a cartridge while powered off")
+    ins.add_argument("filename")
+    sub.add_parser("eject", help="eject the cartridge while powered off")
+    power = sub.add_parser("power", help="power on or off")
+    power.add_argument("state", choices=("on", "off"))
+    press = sub.add_parser("press", help="send one GBA controller button press")
+    press.add_argument("button")
+    press.add_argument("duration_ms", nargs="?", type=int, default=DEFAULT_PRESS_MS)
+    args = parser.parse_args(argv)
+    command = args.command or "power"
+    state = args.state if args.command == "power" else "on"
+    db = connect()
+    try:
+        if command == "status":
+            result = status_data(db)
+        elif command == "list":
+            result = list_cartridges()
+        elif command == "insert":
+            result = insert_cartridge(db, args.filename)
+        elif command == "eject":
+            result = eject_cartridge(db)
+        elif command == "press":
+            result = press_button(db, args.button, args.duration_ms)
+        elif command == "power":
+            result = power_on(db) if state == "on" else power_off(db)
+        else:
+            result = {"ok": False, "message": f"Unsupported command: {command}"}
+        print_result(result, args.json)
+        return 0 if not isinstance(result, dict) or result.get("ok", True) else 1
+    finally:
+        db.close()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
