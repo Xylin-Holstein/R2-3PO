@@ -213,6 +213,57 @@ static int food_metric(const char *food, double *fullness, double *energy)
     return found;
 }
 
+
+static char *food_metrics_context(void)
+{
+    char path[1200];
+    snprintf(path, sizeof(path), "%s/room/food_metrics.xml", R2_ROOT);
+    FILE *fp = fopen(path, "r");
+    size_t cap = 4096, len = 0;
+    char *out = malloc(cap);
+    if (!out) { if (fp) fclose(fp); return NULL; }
+    out[0] = '\0';
+    if (!fp) {
+        snprintf(out, cap, "No food metric file is available.\n");
+        return out;
+    }
+    char line[4096];
+    int count = 0;
+    while (fgets(line, sizeof(line), fp) && count < 100) {
+        const char *tag = strcasestr(line, "<food");
+        const char *comment = strstr(line, "<!--");
+        if (!tag || (comment && comment < tag)) continue;
+        char name[512] = {0}, full[128] = {0}, en[128] = {0};
+        if (xml_attribute(line, "name", name, sizeof(name)) != 0 ||
+            xml_attribute(line, "fullness", full, sizeof(full)) != 0)
+            continue;
+        char *end = NULL;
+        double f = strtod(full, &end);
+        if (end == full || *end || f < 0.0 || f > 100.0) continue;
+        double e = f * 0.1;
+        if (xml_attribute(line, "energy", en, sizeof(en)) == 0) {
+            end = NULL;
+            double parsed = strtod(en, &end);
+            if (end != en && !*end && parsed >= 0.0 && parsed <= 100.0) e = parsed;
+        }
+        char entry[1024];
+        int n = snprintf(entry, sizeof(entry), "%s: fullness %.1f/100, energy bonus %.1f\n", name, f, e);
+        if (n <= 0) continue;
+        if (len + (size_t)n + 1 > cap) {
+            size_t next = cap * 2;
+            char *grown = realloc(out, next);
+            if (!grown) break;
+            out = grown; cap = next;
+        }
+        memcpy(out + len, entry, (size_t)n);
+        len += (size_t)n; out[len] = '\0';
+        count++;
+    }
+    fclose(fp);
+    if (!len) snprintf(out, cap, "No food metrics are configured in room/food_metrics.xml.\n");
+    return out;
+}
+
 static void update_hunger_locked(double elapsed)
 {
     sqlite3_stmt *st = NULL;
@@ -497,17 +548,33 @@ char *r2_reality_status(void)
 
 char *r2_reality_context(void)
 {
-    char *status=r2_reality_status();
-    char *room=r2_reality_room_look();
-    char *facts=query_text("SELECT key,value,evidence FROM r2_reality_self_facts ORDER BY updated_at DESC",NULL);
-    if(!status || !room || !facts) { free(status); free(room); free(facts); return NULL; }
-    size_t n=strlen(status)+strlen(room)+strlen(facts)+1400;
-    char *out=malloc(n);
-    if(out) snprintf(out,n,
-        "PERSISTENT REALITY CONTEXT (authoritative database state; do not invent changes):\n%s\n%s\nSELF-CONTINUITY FACTS:\n%s\n"
-        "WORLD ACTIONS: Use [WORLD] look to inspect the room; [WORLD] add|name|description|container|quantity to create an item; [WORLD] move|name|container to move it; [WORLD] remove|name to remove it; [WORLD] eat|food|fullness_points (or auto for XML) to update hunger; [WORLD] sleep|hours to advance sleep recovery and trigger a private dream simulation; [WORLD] dream|description to record a reported dream; [WORLD] self|key|value|evidence to record a self-state fact. Food metrics live in room/food_metrics.xml; use auto rather than guessing when a food entry exists. Containers: room, shelf, box, pockets, wallet; named containers can be created by moving an item to a new container name. Food fullness points are modeled values, not measured biological facts. Sleep still advances hunger and elapsed need state. Dreams are stored as reports, not independently verified facts. Ask before moving or deleting a user's important item. Do not claim an action succeeded unless the action result confirms it.",
-        status,room,facts);
-    free(status); free(room); free(facts);
+    char *status = r2_reality_status();
+    char *room = r2_reality_room_look();
+    char *facts = query_text("SELECT key,value,evidence FROM r2_reality_self_facts ORDER BY updated_at DESC", NULL);
+    char *foods = food_metrics_context();
+    if (!status || !room || !facts || !foods) {
+        free(status); free(room); free(facts); free(foods);
+        return NULL;
+    }
+    size_t n = strlen(status) + strlen(room) + strlen(facts) + strlen(foods) + 1800;
+    char *out = malloc(n);
+    if (out) snprintf(out, n,
+        "PERSISTENT REALITY CONTEXT (authoritative database state; do not invent changes):\n"
+        "%s\n%s\nSELF-CONTINUITY FACTS:\n%s\nAVAILABLE FOOD METRICS:\n%s\n"
+        "WORLD ACTIONS: Put one action on its own line. Use [WORLD] look to inspect the room; "
+        "[WORLD] add|name|description|container|quantity to create an item; "
+        "[WORLD] move|name|container to move it; [WORLD] remove|name to remove it; "
+        "[WORLD] eat|food|fullness_points (or auto for XML) to update hunger; "
+        "[WORLD] sleep|hours to advance sleep recovery and trigger a private dream simulation; "
+        "[WORLD] dream|description to record a reported dream; "
+        "[WORLD] self|key|value|evidence to record a self-state fact. "
+        "Food metrics live in room/food_metrics.xml; choose only foods listed above and use auto rather than guessing. "
+        "Containers: room, shelf, box, toy box, pockets, wallet; named containers can be created by moving an item to a new container name. "
+        "Food fullness points are modeled values, not measured biological facts. Sleep advances hunger and world time. "
+        "Dreams are stored as simulated reports, not waking facts. Ask before moving or deleting a user's important item. "
+        "Do not claim an action succeeded unless the action result confirms it.",
+        status, room, facts, foods);
+    free(status); free(room); free(facts); free(foods);
     return out;
 }
 
