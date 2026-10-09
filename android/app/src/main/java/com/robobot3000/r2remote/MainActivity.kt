@@ -1,6 +1,8 @@
 package com.robobot3000.r2remote
 
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.speech.tts.TextToSpeech
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -111,7 +113,7 @@ private fun R2RemoteScreen(
         io.execute {
             try {
                 val result = action(RemoteApi(url, secret))
-                runOnUiThread {
+                Handler(Looper.getMainLooper()).post {
                     busy = false
                     status = "Connected"
                     onSuccess(result)
