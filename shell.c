@@ -208,11 +208,13 @@ static void shell_help(void)
         "  log search <text>\n"
         "      Search the chronological Life Log.\n"
         "\n"
-        "  journal [recent|search <text>|note <text>]\n"
-        "      Browse sensory/thinking events or add a dated journal note.\n"
+        "  journal [recent|search <text>|note <text>|status]\n"
+        "      Browse timestamped sensory, thinking, and conversation events.\n"
+        "  journal status\n"
+        "      Show the indexed-entry count and journal availability.\n"
         "\n"
         "  alternate [list|show <id>|create <fields>|discard <id>|retain <id>|compare <id> <id>]\n"
-        "      Explore isolated hypotheses without changing factual memories.\n"
+        "      Explore isolated what-if branches without changing factual memories.\n"
         "      create fields: name|scenario|assumptions|predicted outcome|conclusion|evidence event ID\n"
         "\n"
         "  eyes\n"
@@ -636,7 +638,12 @@ static void shell_journal(const char *argument)
         else printf("[Could not record the journal note. Is the Life Log initialized?]\n");
         return;
     } else if (!strcasecmp(argument, "status")) {
-        result = r2_sj_recent(5);
+        long count = r2_sj_count();
+        if (count >= 0)
+            printf("[Sensory Journal: READY; %ld indexed entries.]\n", count);
+        else
+            printf("[Sensory Journal: UNAVAILABLE.]\n");
+        return;
     } else {
         result = r2_sj_search(argument, 50);
     }
