@@ -42,6 +42,8 @@
 #include "shell.h"
 #include "r2.h"
 #include "Log.h"
+#include "SensoryJournal.h"
+#include "AlternateSelf.h"
 
 
 /* ============================================================
