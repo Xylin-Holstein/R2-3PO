@@ -39,6 +39,10 @@
 #include <time.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <sys/stat.h>
+#include <pthread.h>
 
 #include "shell.h"
 #include "r2.h"
@@ -150,7 +154,10 @@ static void *tv_control_server(void *unused)
 static int tv_control_start(void)
 {
     if (tv_control_started) return 0;
-    int n = snprintf(tv_control_path, sizeof(tv_control_path), "%s/R2/tv-control.sock", R2_HOME);
+    const char *configured_path = getenv("R2_TV_SOCKET");
+    const char *default_path = "/home/x/R2_Home/R2/tv-control.sock";
+    int n = snprintf(tv_control_path, sizeof(tv_control_path), "%s",
+                     configured_path && *configured_path ? configured_path : default_path);
     if (n < 0 || (size_t)n >= sizeof(tv_control_path)) return -1;
 
     struct stat st;
