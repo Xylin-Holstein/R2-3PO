@@ -5327,6 +5327,7 @@ static char *process_tools(
             int home = !strcasecmp(fields[2], "home");
             int away = !strcasecmp(fields[2], "outside") || !strcasecmp(fields[2], "away");
             int rc = (home || away) ? r2_log_location_transition(fields[1], home) : -1;
+            if (rc == 0 && r2_reality_set_location(home) != 0) rc = -1;
             APPEND("LOCATION %s: %s.\n",
                    rc == 0 ? "RESULT" : "ERROR",
                    rc == 0 ? "verified world location transition persisted" :
