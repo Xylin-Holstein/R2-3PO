@@ -82,6 +82,7 @@
 #include "Ears.h"
 #include "Log.h"
 #include "Visual.h"
+#include "Remote.h"
 
 
 /* ============================================================
@@ -103,6 +104,10 @@ static pthread_mutex_t db_lock =
     PTHREAD_MUTEX_INITIALIZER;
 
 static pthread_mutex_t messages_lock =
+    PTHREAD_MUTEX_INITIALIZER;
+
+/* Serialize full conversation turns across shell and remote clients. */
+static pthread_mutex_t conversation_request_lock =
     PTHREAD_MUTEX_INITIALIZER;
 
 static pthread_mutex_t tasks_lock =
@@ -5778,7 +5783,7 @@ static void log_structured_self_report(const char *reply, int64_t parent_event_i
 }
 
 
-char *r2_talk(const char *message)
+static char *r2_talk_serialized(const char *message)
 {
     if (!core_initialized || shutting_down || !message)
         return NULL;
@@ -5907,6 +5912,14 @@ char *r2_talk(const char *message)
         free(md);
     }
 
+    return reply;
+}
+
+char *r2_talk(const char *message)
+{
+    pthread_mutex_lock(&conversation_request_lock);
+    char *reply = r2_talk_serialized(message);
+    pthread_mutex_unlock(&conversation_request_lock);
     return reply;
 }
 
@@ -6413,6 +6426,10 @@ int r2_init(void)
     core_initialized = 1;
     startup_memory_loaded = 1;
 
+    /* Start the optional remote interface only when its token is configured. */
+    if (r2_remote_start() != 0)
+        fprintf(stderr, "[R2 Remote] Remote access is disabled or failed to start.\n");
+
     if (r2_log_is_initialized()) {
         r2_log_milestone("r2_first_successful_start",
                          "R2 completed its first successful core startup.",
@@ -6439,6 +6456,7 @@ void r2_shutdown(void)
         return;
 
     shutting_down = 1;
+    r2_remote_stop();
     watch_running = 0;
     r2_vision_watch_stop();
 
