@@ -31,6 +31,9 @@ REQUIRED_FILES=(
     "$R2_SOURCE/Reality.c"
     "$R2_SOURCE/Reality.h"
 
+    "$R2_SOURCE/Addiction.c"
+    "$R2_SOURCE/Addiction.h"
+
     "$R2_SOURCE/Visual.c"
     "$R2_SOURCE/Visual.h"
 
@@ -243,6 +246,7 @@ gcc -std=c11 -Wall -Wextra -O2 \
     "$R2_SOURCE/r2_diary.c" \
     "$R2_SOURCE/Log.c" \
     "$R2_SOURCE/Reality.c" \
+    "$R2_SOURCE/Addiction.c" \
     "$R2_SOURCE/AlternateSelf.c" \
     "$R2_SOURCE/Visual.c" \
     "$R2_SOURCE/Ears.c" \
@@ -284,6 +288,7 @@ echo "    shell.c"
 echo "    r2_diary.c"
 echo "    Log.c"
 echo "    Reality.c"
+echo "    Addiction.c"
 echo "    AlternateSelf.c"
 echo "    Visual.c"
 echo "    Ears.c"
