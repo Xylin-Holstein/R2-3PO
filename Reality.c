@@ -36,7 +36,7 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
 /* Safe defaults: elapsed world time advances continuously; hunger reaches
  * 100 after 24 hours without a meal, and the 72-hour mark is explicitly
  * described as prolonged starvation rather than silently resetting needs. */
-static const double HUNGER_PER_SECOND = 100.0 / 86400.0;
+static const double HUNGER_PER_SECOND = 0.1 / 4.75; /* +0.1 hunger and -0.1 satiety per 4.75 seconds */
 
 static int exec_sql(const char *sql)
 {
@@ -485,7 +485,7 @@ static void update_hunger_locked(double elapsed)
     energy -= elapsed * HUNGER_PER_SECOND;
     if (hunger > 100.0) hunger = 100.0;
     if (satisfaction < 0.0) satisfaction = 0.0;
-    if (satisfaction > 100.0) satisfaction = 100.0;
+    if (satisfaction > 150.0) satisfaction = 150.0;
     if (sleepiness > 100.0) sleepiness = 100.0;
     if (energy < 0.0) energy = 0.0;
     since_meal += elapsed;
@@ -1311,7 +1311,7 @@ char *r2_reality_status(void)
     if(st) sqlite3_finalize(st);
     pthread_mutex_unlock(&reality_lock);
     const char *hstate = hunger < 25 ? "satisfied" : hunger < 50 ? "getting hungry" : hunger < 75 ? "hungry" : hunger < 100 ? "very hungry" : "starving";
-    snprintf(out,4096,"SELF CONTINUITY\nSatisfaction: %5.1f/100\nHunger: %04.1f/100 (%s)\nTime since meal: %.1f hours\nSleepiness: %.1f/100\nEnergy: %.1f/100\nModeled world time elapsed: %lld days, %lld hours\nObjects tracked in the world: %d\nAfter 72 hours without food, prolonged starvation is recorded; needs do not magically reset on restart.\n",
+    snprintf(out,4096,"SELF CONTINUITY\nSatisfaction: %5.1f/150\nHunger: %04.1f/100 (%s)\nTime since meal: %.1f hours\nSleepiness: %.1f/100\nEnergy: %.1f/100\nModeled world time elapsed: %lld days, %lld hours\nObjects tracked in the world: %d\nHunger rises 0.1 and satiety falls 0.1 every 4.75 seconds of modeled elapsed time; satiety caps at 150/150.\nAfter 72 hours without food, prolonged starvation is recorded; needs do not magically reset on restart.\n",
         satisfaction,hunger,hstate,since/3600.0,sleepiness,energy,
         (long long)(world_elapsed/86400),(long long)((world_elapsed%86400)/3600),count);
     return out;
@@ -1706,7 +1706,7 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
     }
 
     int rc = sqlite3_prepare_v2(reality_db,
-        "UPDATE r2_reality_self SET hunger=MAX(0,hunger-?), satisfaction=MIN(100,satisfaction+?), seconds_since_meal=0, energy=MIN(100,energy+?), updated_at=CURRENT_TIMESTAMP WHERE id=1",
+        "UPDATE r2_reality_self SET hunger=MAX(0,hunger-?), satisfaction=MIN(150,satisfaction+?), seconds_since_meal=0, energy=MIN(100,energy+?), updated_at=CURRENT_TIMESTAMP WHERE id=1",
         -1, &st, NULL);
     if (rc == SQLITE_OK) {
         sqlite3_bind_double(st, 1, fullness);
