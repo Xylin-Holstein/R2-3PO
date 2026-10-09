@@ -226,7 +226,7 @@ char *r2_altself_list(int limit)
 {
     if(limit<1) limit=25; if(limit>200) limit=200;
     return as_query("SELECT id,name,scenario,assumptions,predicted_outcome,conclusion,status,evidence_event_id,created_utc "
-                    "FROM r2_alternate_self_branches ORDER BY id DESC LIMIT ?;",0,0,limit);
+                    "FROM r2_alternate_self_branches ORDER BY id DESC LIMIT ?;",limit,0,0);
 }
 char *r2_altself_show(int64_t id)
 {
