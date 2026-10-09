@@ -102,7 +102,7 @@ if ! sudo -u r2 test -e "$WALLET_MARKER"; then
             fi
         fi
     done
-    if ! printf '%s\\n' "Initial five-dollar wallet grant; do not replenish on restart." | sudo -u r2 tee "$WALLET_MARKER" >/dev/null; then
+    if ! printf '%s\n' "Initial five-dollar wallet grant; do not replenish on restart." | sudo -u r2 tee "$WALLET_MARKER" >/dev/null; then
         echo "ERROR: Could not record initial wallet grant."
         echo "R2 was NOT launched."
         read -p "Press Enter to exit..."
