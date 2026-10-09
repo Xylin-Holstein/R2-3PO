@@ -26,6 +26,7 @@
 #define _XOPEN_SOURCE 700
 
 #include "Log.h"
+#include "Addiction.h"
 #include "r2.h"
 #include "r2_diary.h"
 
@@ -1031,6 +1032,10 @@ int64_t r2_log_activity_start(const char *activity_key,
     pthread_mutex_unlock(&log_lock);
     if (rc != SQLITE_OK) return -1;
 
+    /* Every explicitly started activity is a voluntary choice signal for the
+       shared preference evaluator. Start/end events are not double-counted. */
+    (void)r2_addiction_record_choice(activity_name, "activity", 50,
+                                     "activity_start", event_details);
     return event_id;
 }
 
