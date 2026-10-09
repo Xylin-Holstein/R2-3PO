@@ -1730,6 +1730,19 @@ static int shell_dispatch(char *input)
     }
 
     /* --------------------------------------------------------
+       CREATOR GIFTS AND VIRTUAL GAME BOY
+       -------------------------------------------------------- */
+
+    if (!strcasecmp(command, "give") || shell_starts_with(command, "give ")) {
+        shell_give(shell_starts_with(command, "give ") ? shell_trim(command + 5) : NULL);
+        return 1;
+    }
+    if (!strcasecmp(command, "gameboy") || shell_starts_with(command, "gameboy ")) {
+        shell_gameboy(shell_starts_with(command, "gameboy ") ? shell_trim(command + 8) : NULL);
+        return 1;
+    }
+
+    /* --------------------------------------------------------
        PERSISTENT REALITY / WORLD
        -------------------------------------------------------- */
     if (!strcasecmp(command, "room") || shell_starts_with(command, "room ")) {
