@@ -103,6 +103,7 @@ private fun R2RemoteScreen(
     var status by remember { mutableStateOf("Not connected") }
     var busy by remember { mutableStateOf(false) }
     var autoSpeak by remember { mutableStateOf(true) }
+    var showR2FaceWindow by remember { mutableStateOf(false) }
     var chat by remember { mutableStateOf(listOf<Pair<String, String>>()) }
     var showSettings by remember { mutableStateOf(initialToken.isBlank()) }
 
@@ -353,10 +354,14 @@ private fun R2RemoteScreen(
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.VideoCall, null); Spacer(Modifier.width(8.dp))
-                                Column {
+                                Column(Modifier.weight(1f)) {
                                     Text("Live video call with R2", fontWeight = FontWeight.SemiBold)
-                                    Text("Not implemented yet: WebRTC signaling, microphone streaming, speech recognition, and live TTS.", style = MaterialTheme.typography.bodySmall)
+                                    Text("Calling transport is not enabled yet. The face window below reuses the look of R2's existing V-Webcam popup.", style = MaterialTheme.typography.bodySmall)
                                 }
+                            }
+                            Button(onClick = { showR2FaceWindow = true }, modifier = Modifier.fillMaxWidth()) {
+                                Icon(Icons.Default.OpenInNew, null); Spacer(Modifier.width(8.dp))
+                                Text("Open R2's face window")
                             }
                         }
                     }
@@ -365,6 +370,58 @@ private fun R2RemoteScreen(
                 }
             }
         }
+    }
+
+    if (showR2FaceWindow) {
+        AlertDialog(
+            onDismissRequest = { showR2FaceWindow = false },
+            modifier = Modifier.fillMaxWidth(),
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.RemoveRedEye, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text("R2-3PO / V-WEBCAM", fontWeight = FontWeight.Bold)
+                        Text("R2's face window", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = androidx.compose.ui.graphics.Color(0xFF05080B)),
+                        modifier = Modifier.fillMaxWidth().height(220.dp)
+                    ) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Icon(
+                                    Icons.Default.RemoveRedEye,
+                                    contentDescription = "R2 visual window",
+                                    tint = androidx.compose.ui.graphics.Color(0xFF42F58D),
+                                    modifier = Modifier.size(54.dp)
+                                )
+                                Text(
+                                    "R2-3PO",
+                                    color = androidx.compose.ui.graphics.Color(0xFF42F58D),
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    "EYES VIEW",
+                                    color = androidx.compose.ui.graphics.Color(0xFF8FA3B7),
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        }
+                    }
+                    Text("●  R2 WINDOW READY", color = androidx.compose.ui.graphics.Color(0xFF42F58D), fontWeight = FontWeight.Bold)
+                    Text("This is the V-Webcam-style face panel for R2. A live remote frame feed will appear here once the call/stream transport is connected.", style = MaterialTheme.typography.bodySmall)
+                    Text("Display-only • R2's existing identity • no simulated human face", style = MaterialTheme.typography.labelSmall)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showR2FaceWindow = false }) { Text("Close window") }
+            }
+        )
     }
 
     if (showSettings) {
