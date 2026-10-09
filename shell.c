@@ -48,6 +48,7 @@
 #include "r2.h"
 #include "Log.h"
 #include "Reality.h"
+#include "r2_diary.h"
 #include "Addiction.h"
 #include "AlternateSelf.h"
 
@@ -134,7 +135,18 @@ static int tv_control_start(void)
 
     struct stat st;
     if (lstat(tv_control_path, &st) == 0) {
-        if (!S_ISSOCK(st.st_mode) || unlink(tv_control_path) != 0) return -1;
+        if (!S_ISSOCK(st.st_mode)) return -1;
+        int probe = socket(AF_UNIX, SOCK_STREAM, 0);
+        if (probe < 0) return -1;
+        struct sockaddr_un existing;
+        memset(&existing, 0, sizeof(existing));
+        existing.sun_family = AF_UNIX;
+        snprintf(existing.sun_path, sizeof(existing.sun_path), "%s", tv_control_path);
+        int connected = connect(probe, (struct sockaddr *)&existing, sizeof(existing));
+        int connect_error = errno;
+        close(probe);
+        if (connected == 0 || connect_error != ECONNREFUSED) return -1;
+        if (unlink(tv_control_path) != 0) return -1; /* stale socket only */
     } else if (errno != ENOENT) return -1;
 
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
