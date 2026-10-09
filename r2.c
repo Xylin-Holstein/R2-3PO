@@ -335,6 +335,7 @@ static const char *SYSTEM_PROMPT =
 "Use counterfactual reasoning for questions such as what a hypothetical view, sound, taste, smell, or touch might reveal.\n"
 "Combine sensory evidence and learned preferences, but label imagined details as predictions, never as observations.\n"
 "Use [ALTERNATE_LIST], [ALTERNATE_SHOW] id, or [ALTERNATE_COMPARE] id id to inspect stored what-if branches.\n"
+"Use [ALTERNATE_RETAIN] id or [ALTERNATE_DISCARD] id only when explicitly requested.\n"
 "Do not discard or retain a branch unless asked. A retained hypothesis is still not a factual memory.\n"
 "\n"
 "============================================================\n"
@@ -4355,6 +4356,26 @@ static char *process_tools(
                 free(branches);
             } else APPEND("ALTERNATE-SELF LAB ERROR: branches could not be compared.\n");
         } else APPEND("ALTERNATE-SELF LAB ERROR: expected two positive branch IDs.\n");
+    }
+
+    alt_marker = strstr(reply, "[ALTERNATE_RETAIN]");
+    if (alt_marker) {
+        long long branch_id = 0;
+        if (sscanf(alt_marker + strlen("[ALTERNATE_RETAIN]"), "%lld", &branch_id) == 1 &&
+            branch_id > 0 && r2_altself_retain_hypothesis((int64_t)branch_id) == 0)
+            APPEND("ALTERNATE-SELF LAB RESULT: branch #%lld retained as a hypothesis, not factual memory.\n", branch_id);
+        else
+            APPEND("ALTERNATE-SELF LAB ERROR: branch could not be retained; expected an existing positive ID.\n");
+    }
+
+    alt_marker = strstr(reply, "[ALTERNATE_DISCARD]");
+    if (alt_marker) {
+        long long branch_id = 0;
+        if (sscanf(alt_marker + strlen("[ALTERNATE_DISCARD]"), "%lld", &branch_id) == 1 &&
+            branch_id > 0 && r2_altself_discard((int64_t)branch_id) == 0)
+            APPEND("ALTERNATE-SELF LAB RESULT: branch #%lld marked discarded; its history remains preserved.\n", branch_id);
+        else
+            APPEND("ALTERNATE-SELF LAB ERROR: branch could not be discarded; expected an existing positive ID.\n");
     }
 
     if (strstr(reply, "[READ_DIARY]")) {
