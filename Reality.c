@@ -435,9 +435,9 @@ int r2_reality_init(void)
     if (reality_ready) { pthread_mutex_unlock(&reality_lock); return 0; }
     if (make_room_dirs() != 0) { pthread_mutex_unlock(&reality_lock); return -1; }
 
-    int rc = char reality_path[1200];
+    char reality_path[1200];
     snprintf(reality_path, sizeof(reality_path), "%s/r2_reality.db", R2_HOME);
-    rc = sqlite3_open_v2(reality_path, &reality_db,
+    int rc = sqlite3_open_v2(reality_path, &reality_db,
         SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, NULL);
     if (rc != SQLITE_OK) {
         fprintf(stderr, "[R2 Reality] Cannot open dedicated database %s: %s\n",
