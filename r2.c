@@ -5289,7 +5289,8 @@ static void log_structured_self_report(const char *reply, int64_t parent_event_i
             if (json_object_object_get_ex(item, "evidence", &v) &&
                 json_object_is_type(v, json_type_string)) evidence = json_object_get_string(v);
             if (json_object_object_get_ex(item, "confidence", &v) &&
-                json_object_is_type(v, json_type_double)) confidence = json_object_get_double(v);
+                (json_object_is_type(v, json_type_double) ||
+                 json_object_is_type(v, json_type_int))) confidence = json_object_get_double(v);
             if (description && *description && evidence && *evidence) {
                 int64_t child = r2_log_inner_state(kind, description, evidence, confidence,
                                    "explicit R2 response; model-extracted with quoted evidence");
