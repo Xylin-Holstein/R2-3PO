@@ -32,6 +32,9 @@ jobs:
           python3 -m py_compile Observer.py tests/observer_filter_smoke.py
           python3 tests/observer_filter_smoke.py
 
+      - name: Check unified Gemma 3 conversation and vision wiring
+        run: python3 tests/gemma3_model_smoke.py
+
       - name: Check Game Boy console syntax and lifecycle
         run: |
           python3 -m py_compile GameBoyAdvance.py tests/gameboy_console_smoke.py
