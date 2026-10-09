@@ -5126,6 +5126,8 @@ static int query_requests_visual_context(const char *query)
     if (!query) return 0;
     const char *terms[] = {
         "what do you see", "what can you see", "look at", "look on",
+        "what are we watching", "what am i showing you", "what am i looking at",
+        "what is this", "what's this",
         "what is on the screen", "what's on the screen", "what is playing",
         "what's playing", "describe this", "describe the image",
         "describe the video", "in this picture", "in this image",
@@ -5267,6 +5269,11 @@ int r2_vision_watch_stop(void)
 int r2_vision_watch_active(void)
 {
     return vision_watch_running ? 1 : 0;
+}
+
+const char *r2_vision_model_name(void)
+{
+    return r2_visual_model_name();
 }
 
 int r2_vision_available(void)
