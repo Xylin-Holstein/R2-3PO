@@ -545,10 +545,11 @@ char *r2_fridge_context(void)
     return out;
 }
 static int fridge_change_one(const char *food, char *description, size_t description_cap,
-                             int *old_quantity, double *fullness, double *energy)
+                             int *old_quantity, double *fullness, double *energy,
+                             char *ingredients, size_t ingredients_cap, char *taste, size_t taste_cap)
 {
     sqlite3_stmt *st = NULL;
-    if (sqlite3_prepare_v2(fridge_db, "SELECT description,quantity,fullness,energy FROM r2_fridge_items WHERE name=? COLLATE NOCASE", -1, &st, NULL) != SQLITE_OK) return -1;
+    if (sqlite3_prepare_v2(fridge_db, "SELECT description,quantity,fullness,energy,ingredients,taste FROM r2_fridge_items WHERE name=? COLLATE NOCASE", -1, &st, NULL) != SQLITE_OK) return -1;
     bind_text(st, 1, food);
     if (sqlite3_step(st) != SQLITE_ROW) { sqlite3_finalize(st); return -1; }
     const unsigned char *d = sqlite3_column_text(st, 0);
@@ -557,6 +558,9 @@ static int fridge_change_one(const char *food, char *description, size_t descrip
     if (old_quantity) *old_quantity = qty;
     if (fullness) *fullness = sqlite3_column_double(st, 2);
     if (energy) *energy = sqlite3_column_double(st, 3);
+    const unsigned char *ing = sqlite3_column_text(st, 4), *flavor = sqlite3_column_text(st, 5);
+    if (ingredients && ingredients_cap) snprintf(ingredients, ingredients_cap, "%s", ing ? (const char *)ing : "");
+    if (taste && taste_cap) snprintf(taste, taste_cap, "%s", flavor ? (const char *)flavor : "");
     sqlite3_finalize(st);
     const char *sql = qty > 1
         ? "UPDATE r2_fridge_items SET quantity=quantity-1,updated_at=CURRENT_TIMESTAMP WHERE name=? COLLATE NOCASE"
@@ -568,14 +572,16 @@ static int fridge_change_one(const char *food, char *description, size_t descrip
     sqlite3_finalize(st);
     return rc == SQLITE_DONE ? 0 : -1;
 }
-static void fridge_restore_one(const char *food, const char *description, double fullness, double energy)
+static void fridge_restore_one(const char *food, const char *description, double fullness, double energy,
+                              const char *ingredients, const char *taste)
 {
     sqlite3_stmt *st = NULL;
     if (sqlite3_prepare_v2(fridge_db,
-        "INSERT INTO r2_fridge_items(name,description,quantity,fullness,energy,ingredients,taste) VALUES(?,?,1,?,?,'bread,beef,cheese','savory,warm,salty') ON CONFLICT(name) DO UPDATE SET quantity=quantity+1,updated_at=CURRENT_TIMESTAMP",
+        "INSERT INTO r2_fridge_items(name,description,quantity,fullness,energy,ingredients,taste) VALUES(?,?,1,?,?,?,?) ON CONFLICT(name) DO UPDATE SET quantity=quantity+1,updated_at=CURRENT_TIMESTAMP",
         -1, &st, NULL) == SQLITE_OK) {
         bind_text(st, 1, food); bind_text(st, 2, description);
         sqlite3_bind_double(st, 3, fullness); sqlite3_bind_double(st, 4, energy);
+        bind_text(st, 5, ingredients ? ingredients : ""); bind_text(st, 6, taste ? taste : "");
         (void)sqlite3_step(st);
     }
     if (st) sqlite3_finalize(st);
@@ -618,11 +624,12 @@ int r2_fridge_add_item(const char *name, const char *description, int quantity,
 int r2_fridge_take(const char *food)
 {
     if (!food || !*food || !fridge_db || !r2_reality_is_initialized()) return -1;
-    char desc[REALITY_MAX_TEXT + 1] = {0};
+    char desc[REALITY_MAX_TEXT + 1] = {0}, ingredients[1024] = {0}, taste[1024] = {0};
     int qty = 0; double fullness = 100.0, energy = 10.0;
     pthread_mutex_lock(&fridge_lock);
     int rc = fridge_seed_if_empty_locked();
-    if (rc == 0) rc = fridge_change_one(food, desc, sizeof(desc), &qty, &fullness, &energy);
+    if (rc == 0) rc = fridge_change_one(food, desc, sizeof(desc), &qty, &fullness, &energy,
+                                         ingredients, sizeof(ingredients), taste, sizeof(taste));
     if (rc == 0) {
         if (qty == 1) fridge_mirror_remove(food);
         else fridge_mirror_write(food, desc, qty - 1, fullness, energy);
@@ -630,7 +637,7 @@ int r2_fridge_take(const char *food)
     pthread_mutex_unlock(&fridge_lock);
     if (rc != 0) return -1;
     if (r2_reality_add_item(food, desc, "pockets", 1) != 0) {
-        pthread_mutex_lock(&fridge_lock); fridge_restore_one(food, desc, fullness, energy);
+        pthread_mutex_lock(&fridge_lock); fridge_restore_one(food, desc, fullness, energy, ingredients, taste);
         fridge_mirror_write(food, desc, qty, fullness, energy); pthread_mutex_unlock(&fridge_lock);
         return -1;
     }
@@ -645,11 +652,12 @@ int r2_fridge_take(const char *food)
 int r2_reality_fridge_eat(const char *food, double fullness)
 {
     if (!food || !*food || !fridge_db || !r2_reality_is_initialized()) return -1;
-    char desc[REALITY_MAX_TEXT + 1] = {0};
+    char desc[REALITY_MAX_TEXT + 1] = {0}, ingredients[1024] = {0}, taste[1024] = {0};
     int qty = 0; double stored_fullness = 100.0, energy = 10.0;
     pthread_mutex_lock(&fridge_lock);
     int rc = fridge_seed_if_empty_locked();
-    if (rc == 0) rc = fridge_change_one(food, desc, sizeof(desc), &qty, &stored_fullness, &energy);
+    if (rc == 0) rc = fridge_change_one(food, desc, sizeof(desc), &qty, &stored_fullness, &energy,
+                                         ingredients, sizeof(ingredients), taste, sizeof(taste));
     if (rc == 0) {
         if (qty == 1) fridge_mirror_remove(food);
         else fridge_mirror_write(food, desc, qty - 1, stored_fullness, energy);
@@ -659,7 +667,7 @@ int r2_reality_fridge_eat(const char *food, double fullness)
     if (fullness < 0.0) fullness = stored_fullness;
     rc = reality_eat_internal(food, fullness, 0, energy);
     if (rc != 0) {
-        pthread_mutex_lock(&fridge_lock); fridge_restore_one(food, desc, stored_fullness, energy);
+        pthread_mutex_lock(&fridge_lock); fridge_restore_one(food, desc, stored_fullness, energy, ingredients, taste);
         fridge_mirror_write(food, desc, qty, stored_fullness, energy); pthread_mutex_unlock(&fridge_lock);
         return -1;
     }
