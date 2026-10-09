@@ -14,6 +14,13 @@ void r2_altself_shutdown(void);
 int64_t r2_altself_create(const char *name, const char *scenario,
                          const char *assumptions, const char *predicted_outcome,
                          const char *conclusion, int64_t evidence_event_id);
+/* Import a hypothetical already recorded by the Life Log without duplicating it. */
+int64_t r2_altself_import_hypothesis(const char *scenario,
+                                    const char *assumptions,
+                                    const char *predicted_outcome,
+                                    const char *conclusion,
+                                    int64_t hypothetical_event_id,
+                                    int64_t evidence_event_id);
 int r2_altself_discard(int64_t branch_id);
 int r2_altself_retain_hypothesis(int64_t branch_id);
 char *r2_altself_list(int limit);
