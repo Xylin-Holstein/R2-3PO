@@ -224,7 +224,7 @@ def mgba_environment() -> dict[str, str]:
     disabled_actions += [f"quickLoad.{slot}" for slot in range(1, 10)]
     disabled_actions += [f"quickSave.{slot}" for slot in range(1, 10)]
     qt_config.write_text(
-        "[shortcutKey]\n" + "".join(f"{action}=\\n" for action in disabled_actions),
+        "[shortcutKey]\n" + "".join(f"{action}=\n" for action in disabled_actions),
         encoding="utf-8",
     )
     return env
