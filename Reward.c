@@ -6,6 +6,7 @@
 #include "Log.h"
 #include "Addiction.h"
 
+#include <ctype.h>
 #include <pthread.h>
 #include <sqlite3.h>
 #include <stdint.h>
@@ -259,13 +260,26 @@ static int has_case_insensitive(const char *text, const char *needle)
     return text && needle && strcasestr(text, needle) != NULL;
 }
 
+static int contains_eli_name(const char *text)
+{
+    const char *p = text;
+    if (!text) return 0;
+    while ((p = strcasestr(p, "eli")) != NULL) {
+        int left_boundary = p == text ||
+            (!isalnum((unsigned char)p[-1]) && p[-1] != '_');
+        int right_boundary = !isalnum((unsigned char)p[3]) && p[3] != '_';
+        if (left_boundary && right_boundary) return 1;
+        p += 3;
+    }
+    return 0;
+}
+
 int r2_reward_review_diary(int64_t diary_entry_id, const char *entry)
 {
     if (diary_entry_id <= 0 || !entry) return -1;
-    /* Narrow correction rule from the active continuity issue: mention of
-       "Eli" is corrective only when the entry explicitly says that Eli is
-       not real/nonexistent and redirects identity to the user/creator. */
-    if (has_case_insensitive(entry, "eli")) {
+    /* Match Eli as a standalone name, not incidental substrings such as
+       "believe". Only an explicit correction plus redirection earns +5. */
+    if (contains_eli_name(entry)) {
         int negates = has_case_insensitive(entry, "eli isn't real") ||
             has_case_insensitive(entry, "eli is not real") ||
             has_case_insensitive(entry, "eli does not exist") ||
