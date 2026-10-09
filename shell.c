@@ -256,9 +256,9 @@ static void shell_help(void)
         "      Search the chronological Life Log.\n"
         "\n"
         "  give <item> <quantity> [| description | container]\n"
-        "      Creator command: create item stacks from nothing; give money <dollars> adds cash.\n"
+        "      Creator command: create item stacks from nothing; give money <quantity> creates separate physical money items.\n"
         "\n"
-        "  gameboy [status|list|insert <rom>|eject|power on|power off|press <button>]\n"
+        "  gameboy [status|verify|list|insert <rom>|eject|power on|power off|press <button>]\n"
         "      Operate the virtual console; power on launches mGBA with the inserted ROM.\n"
         "\n"
         "  addictions\n"
@@ -1327,6 +1327,11 @@ static int shell_give(const char *arg)
     int money = !strcasecmp(name, "money");
 
     if (money) {
+        if (amount > 1000.0) {
+            printf("[Creator] A single money gift is limited to 1000 separate objects.\\n");
+            free(copy);
+            return 1;
+        }
         /* "give money 5" means five separate physical inventory objects,
            not a $5 deposit or one stack with quantity five. Each object has
            its own .r2item mirror and Life Log/collection-memory trail. */
