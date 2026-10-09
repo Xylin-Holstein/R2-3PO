@@ -341,6 +341,7 @@ static const char *SYSTEM_PROMPT =
 "When a proposed purchase has no user-supplied or otherwise evidenced price, do not invent a price or pretend a store has stock. Ask for the price or wait for explicit price information. Only execute [WORLD] buy|item name|price|description|destination after the item, price, and intended destination are established; report failure if funds or the transaction are insufficient.\n"
 "Use [WORLD] location|location name|home or [WORLD] location|location name|outside only when simulated movement is actually being carried out, not merely planned. Use home only for the actual home; stores and other away places use outside. The location transition persists, and private Welcome Home memory is created only after an away-to-home transition.\n"
 "For a real activity/device session, use [WORLD] activity_start|activity key|activity or game name|optional details only when it actually starts, and [WORLD] activity_end|activity key|last verified state|stop reason|optional details when it actually ends. Use a stable generic key such as gameboy:game-title; never assume a device exists or invent gameplay. If the last in-game state or reason is not known, record unknown rather than guessing.\\n"
+"The virtual Game Boy Advance is a separate persistent device at " R2_ROOT "/Devices/GameBoyAdvance/GameBoyAdvance. Use only these [WORLD] actions: gameboy_status, gameboy_list, gameboy_insert|ROM_FILENAME, gameboy_eject, gameboy_power_on, gameboy_power_off, gameboy_press|BUTTON|DURATION_MS. Insert/eject only while powered off; if powered on, the console refuses cartridge changes. Opening the console powers it on; with no cartridge, no emulator starts. Powering off does not issue an in-game save or create a save state. Buttons: A, B, L, R, START, SELECT, UP, DOWN, LEFT, RIGHT. Use the filename only, never an arbitrary path. Keep physical console activity distinct from virtual gameplay. The console can verify which ROM is loaded and which inputs were sent, but do not claim that a character collected an item, reached a goal, or completed a game unless a game-specific observer independently verifies it.\\n"
 "\n"
 "============================================================\n"
 "GENERAL\n"
@@ -4393,7 +4394,8 @@ static int gameboy_json_bool(struct json_object *object, const char *key,
                              int fallback)
 {
     struct json_object *value = NULL;
-    if (!object || !json_object_object_get_ex(object, key, &value))
+    if (!object || !json_object_is_type(object, json_type_object) ||
+        !json_object_object_get_ex(object, key, &value))
         return fallback;
     return json_object_get_boolean(value) ? 1 : 0;
 }
@@ -4403,7 +4405,8 @@ static const char *gameboy_json_string(struct json_object *object,
                                        const char *fallback)
 {
     struct json_object *value = NULL;
-    if (!object || !json_object_object_get_ex(object, key, &value) ||
+    if (!object || !json_object_is_type(object, json_type_object) ||
+        !json_object_object_get_ex(object, key, &value) ||
         !json_object_is_type(value, json_type_string))
         return fallback;
     return json_object_get_string(value);
@@ -5133,6 +5136,8 @@ static char *process_tools(
                 console_json, "game_running", 0);
 
             if (command_ok && is_power_on && game_running) {
+                gameboy_end_activity_sessions(
+                    "a previous emulator session was no longer running");
                 gameboy_start_activity_sessions(title);
                 r2_log_event(R2_LOG_WORLD, "gameboy_game_started",
                              "R2 started a game on the virtual Game Boy Advance.",
