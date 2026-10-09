@@ -2792,7 +2792,7 @@ static char *ollama_chat(
     size_t count,
     const char *system_override)
 {
-    return ollama_chat_with_limit(msgs, count, system_override, 0, 180L);
+    return ollama_chat_with_limit(msgs, count, system_override, 0, 2700L);
 }
 
 /*
