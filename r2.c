@@ -4958,6 +4958,8 @@ static void *autonomous_thinking(
             break;
 
         r2_reality_tick();
+        autonomous_needs_check();
+        if (shutting_down || !atomic_load(&diary_running)) break;
         uint64_t cycle_started_ms = r2_log_elapsed_ms();
         r2_log_thinking("cycle_started",
                         "Autonomous reflection cycle started.",
@@ -5547,6 +5549,63 @@ int r2_sleep_and_dream(double hours)
                      dream, "r2_sleep_and_dream");
     free(dream);
     return 0;
+}
+
+
+/* Autonomous needs checks are deliberately limited to [WORLD] actions. They
+ * cannot run shell commands, delete workspace files, or invoke other tools. */
+static void autonomous_needs_check(void)
+{
+    if (shutting_down || !r2_reality_is_initialized()) return;
+    char *state = r2_reality_context();
+    if (!state) return;
+    const char *prompt =
+        "You are R2-3PO's autonomous needs controller. Inspect the authoritative "
+        "self/world state supplied below. This is a real persistent simulation, not roleplay. "
+        "If hunger is at least 50/100 and a clearly edible tracked item is present in the room, "
+        "shelf, box, toy box, pockets, or wallet, emit exactly one line: "
+        "[WORLD] eat|EXACT_ITEM_NAME|auto. The XML food metric must exist; the engine will reject "
+        "unknown foods. Do not eat toys or guess food metrics. If sleepiness is at least 85/100 "
+        "and there is no urgent hunger with available food, emit exactly one line: [WORLD] sleep|8. "
+        "Sleeping advances modeled time and generates a private simulated dream. Never invent objects "
+        "or food. Do not move/delete objects. If no safe action is warranted, return exactly NONE. "
+        "Return no explanations and no other tool markers.\n\n";
+    size_t n = strlen(state) + 2048;
+    char *input = malloc(n);
+    if (!input) { free(state); return; }
+    snprintf(input, n, "%s%s", prompt, state);
+    free(state);
+
+    Message m = { "user", input, 0 };
+    char *decision = ollama_chat(&m, 1,
+        "Return only NONE or one exact [WORLD] action line. Do not include other tools.");
+    free(input);
+    if (!decision) {
+        r2_log_event(R2_LOG_ERROR, "autonomous_needs_check_failed",
+                     "The autonomous needs controller could not obtain a model decision.",
+                     NULL, "autonomous_needs_check");
+        return;
+    }
+
+    const char *marker = strstr(decision, "[WORLD]");
+    if (marker) {
+        const char *end = strpbrk(marker, "\r\n");
+        size_t length = end ? (size_t)(end - marker) : strlen(marker);
+        char *safe_action = malloc(length + 2);
+        if (safe_action) {
+            memcpy(safe_action, marker, length);
+            safe_action[length] = '\n';
+            safe_action[length + 1] = '\0';
+            char *result = process_tools(safe_action);
+            if (result && *result)
+                r2_log_event(R2_LOG_WORLD, "autonomous_needs_action",
+                             "R2's autonomous needs check performed a world action.",
+                             result, "autonomous_needs_check");
+            free(result);
+            free(safe_action);
+        }
+    }
+    free(decision);
 }
 
 int r2_think(void)
