@@ -433,6 +433,25 @@ static int fridge_seed_if_empty_locked(void)
     fridge_mirror_write("burger", "Guaranteed filling burger generated because the fridge was empty", 1, 100.0, 10.0);
     return 0;
 }
+static void fridge_sync_mirrors(void)
+{
+    if (!fridge_db) return;
+    pthread_mutex_lock(&fridge_lock);
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_prepare_v2(fridge_db,
+        "SELECT name,description,quantity,fullness,energy FROM r2_fridge_items ORDER BY name",
+        -1, &st, NULL) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            const char *name = (const char *)sqlite3_column_text(st, 0);
+            const char *description = (const char *)sqlite3_column_text(st, 1);
+            if (name) fridge_mirror_write(name, description, sqlite3_column_int(st, 2),
+                sqlite3_column_double(st, 3), sqlite3_column_double(st, 4));
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&fridge_lock);
+}
+
 static int fridge_init(void)
 {
     char path[1200];
@@ -598,7 +617,7 @@ int r2_reality_fridge_eat(const char *food, double fullness)
     char summary[512], details[1024];
     snprintf(summary, sizeof(summary), "R2 ate %s directly from the fridge.", food);
     snprintf(details, sizeof(details), "Food=%s; source=fridge database; fullness=%.1f; fridge refills if emptied.", food, stored_fullness);
-    bridge_event("fridge_food_consumed", summary, details, 1, 1);
+    bridge_event("fridge_food_consumed", summary, details, 1, 0);
     return 0;
 }
 
@@ -715,6 +734,7 @@ int r2_reality_init(void)
         sqlite3_close(reality_db); reality_db = NULL;
         pthread_mutex_unlock(&reality_lock); return -1;
     }
+    fridge_sync_mirrors();
 
     /* Catch up persistent world time across process restarts. Avoid huge
        catch-up if the machine clock was changed or a test clock was used. */
