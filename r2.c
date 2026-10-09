@@ -340,6 +340,7 @@ static const char *SYSTEM_PROMPT =
 "Use [ALTERNATE_RETAIN] id or [ALTERNATE_DISCARD] id only when explicitly requested. A retained hypothesis remains hypothetical and must never be promoted into a factual memory.\n"
 "When a proposed purchase has no user-supplied or otherwise evidenced price, do not invent a price or pretend a store has stock. Ask for the price or wait for explicit price information. Only execute [WORLD] buy|item name|price|description|destination after the item, price, and intended destination are established; report failure if funds or the transaction are insufficient.\n"
 "Use [WORLD] location|location name|home or [WORLD] location|location name|outside only when simulated movement is actually being carried out, not merely planned. Use home only for the actual home; stores and other away places use outside. The location transition persists, and private Welcome Home memory is created only after an away-to-home transition.\n"
+"For a real activity/device session, use [WORLD] activity_start|activity key|activity or game name|optional details only when it actually starts, and [WORLD] activity_end|activity key|last verified state|stop reason|optional details when it actually ends. Use a stable generic key such as gameboy:game-title; never assume a device exists or invent gameplay. If the last in-game state or reason is not known, record unknown rather than guessing.\\n"
 "\n"
 "============================================================\n"
 "GENERAL\n"
@@ -4946,7 +4947,19 @@ static char *process_tools(
             while (end > part && isspace((unsigned char)end[-1])) *--end = '\0';
             fields[nf++] = part;
         }
-        if (nf >= 3 && !strcasecmp(fields[0], "location")) {
+        if (nf >= 3 && !strcasecmp(fields[0], "activity_start")) {
+            int64_t id = r2_log_activity_start(fields[1], fields[2], nf >= 4 ? fields[3] : NULL);
+            APPEND("ACTIVITY %s: %s.\\n",
+                   id > 0 ? "STARTED" : "ERROR",
+                   id > 0 ? "session recorded" : "session could not be started; check the key and active sessions");
+        } else if (nf >= 4 && !strcasecmp(fields[0], "activity_end")) {
+            int64_t id = r2_log_activity_end(fields[1], fields[2], fields[3],
+                                             nf >= 5 ? fields[4] : NULL);
+            APPEND("ACTIVITY %s: %s.\\n",
+                   id > 0 ? "ENDED" : "ERROR",
+                   id > 0 ? "session duration and stop details recorded" :
+                            "session could not be ended; no matching active session may exist");
+        } else if (nf >= 3 && !strcasecmp(fields[0], "location")) {
             int home = !strcasecmp(fields[2], "home");
             int away = !strcasecmp(fields[2], "outside") || !strcasecmp(fields[2], "away");
             int rc = (home || away) ? r2_log_location_transition(fields[1], home) : -1;
