@@ -179,7 +179,7 @@ static int money_dir_balance(const char *dir, sqlite3_int64 *balance)
 }
 static void money_mirror_write(sqlite3_int64 cash, sqlite3_int64 bank)
 {
-    char dir[1200], path[1400], tmp[1500];
+    char dir[1200], path[1400], tmp[1500], legacy_cash[1500];
     money_dir_path(1,dir,sizeof(dir));
     if (ensure_dir_tree(dir)!=0) return;
     snprintf(path,sizeof(path),"%s/account.txt",dir);
@@ -194,6 +194,8 @@ static void money_mirror_write(sqlite3_int64 cash, sqlite3_int64 bank)
     money_dir_path(0,wallet,sizeof(wallet));
     snprintf(old_cash,sizeof(old_cash),"%s/cash.txt",wallet);
     (void)unlink(old_cash);
+    snprintf(legacy_cash,sizeof(legacy_cash),"%s/pockets/wallet/cash.txt",R2_ROOT);
+    (void)unlink(legacy_cash);
 }
 static int money_read_locked(sqlite3_int64 *cash, sqlite3_int64 *bank)
 {
@@ -389,7 +391,7 @@ static int container_accessible(const char *container)
 
 /* Human-inspectable mirrors follow the real hierarchy: room storage stays
  * under room/, pockets and fridge are siblings of room/, and wallet is inside
- * pockets/. SQLite remains canonical; mirror files are projections. */
+ * Pockets/. SQLite remains canonical for tracked objects; mirror files are projections. */
 static void item_slug(const char *name, char *out, size_t cap)
 {
     size_t j = 0;
