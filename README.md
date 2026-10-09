@@ -225,7 +225,7 @@ Positive signals are capped at +1 through +5 points. Corrective signals are capp
 Diary review includes one narrow continuity correction rule for the currently tracked identity-attribution mistake: a diary that explicitly says Eli is not real and redirects identity to the user/creator earns +5; a diary that mentions Eli without that correction receives -7; other successfully persisted diary entries earn +1. This is a simple phrase-based rule, not a general semantic judge, and should be expanded only with testable correction patterns. Reward points are simulated feedback, not a measure of R2's worth or consciousness.
 
 
-### Installer and pocket launcher notes
+## Game Boy Advance installer and pocket launcher
 
 The console controller is installed at `/home/x/R2_Home/Devices/GameBoyAdvance/GameBoyAdvance`. The installer places a desktop-entry copy at `/home/x/R2_Home/Pockets/GameBoyAdvance.desktop` and registers a normal desktop launcher under `~/.local/share/applications/`. The pocket file is launcher metadata, not a shell script; launch it through a desktop-entry handler rather than executing it as a command. The configured emulator defaults to `/usr/games/mgba-qt`; override it with `R2_MGBA_EXECUTABLE` if the executable is elsewhere. The installer checks the controller and launcher paths and reports whether the emulator path is executable. After installing mGBA, run the controller's `verify` command to inspect emulator and cartridge-slot state. An empty cartridge slot is valid when R2 does not yet own a game; do not record game ownership or play activity until a cartridge and actual session are verified.
 
