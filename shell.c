@@ -34,6 +34,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <errno.h>
+#include <math.h>
 #include <ctype.h>
 #include <time.h>
 #include <sys/types.h>
@@ -1254,16 +1255,29 @@ static int shell_fridge(const char *argument)
     return 1;
 }
 
+static int shell_parse_amount(const char *text, double *value)
+{
+    if (!text || !value) return 0;
+    errno = 0;
+    char *end = NULL;
+    double parsed = strtod(text, &end);
+    if (end == text || errno == ERANGE || !isfinite(parsed)) return 0;
+    while (end && *end && isspace((unsigned char)*end)) ++end;
+    if (end && *end) return 0;
+    *value = parsed;
+    return 1;
+}
+
 static int shell_money(const char *arg)
 {
     if(!arg||!*arg||!strcasecmp(arg,"status")){char *s=r2_reality_money_context();printf("%s\n",s?s:"[R2 Money] Unavailable.");free(s);return 1;}
-    if(shell_starts_with(arg,"receive ")){double a=atof(arg+8);int rc=r2_reality_money_receive(a);printf(rc==0?"Recorded $%.2f received as cash.\n":"Could not record money received.\n",a);return 1;}
-    if(shell_starts_with(arg,"deposit ")){double a=atof(arg+8);int rc=r2_reality_money_deposit(a);printf(rc==0?"Deposited $%.2f into piggybank.\n":"Deposit failed; check cash.\n",a);return 1;}
-    if(shell_starts_with(arg,"withdraw ")){double a=atof(arg+9);int rc=r2_reality_money_withdraw(a);printf(rc==0?"Withdrew $%.2f into cash.\n":"Withdrawal failed; check bank balance.\n",a);return 1;}
+    if(shell_starts_with(arg,"receive ")){double a=0.0;int rc=shell_parse_amount(arg+8,&a)?r2_reality_money_receive(a):-1;printf(rc==0?"Recorded $%.2f received as cash.\n":"Could not record money received; enter a valid positive amount.\n",a);return 1;}
+    if(shell_starts_with(arg,"deposit ")){double a=0.0;int rc=shell_parse_amount(arg+8,&a)?r2_reality_money_deposit(a):-1;printf(rc==0?"Deposited $%.2f into piggybank.\n":"Deposit failed; enter a valid amount and check cash.\n",a);return 1;}
+    if(shell_starts_with(arg,"withdraw ")){double a=0.0;int rc=shell_parse_amount(arg+9,&a)?r2_reality_money_withdraw(a):-1;printf(rc==0?"Withdrew $%.2f into cash.\n":"Withdrawal failed; enter a valid amount and check bank balance.\n",a);return 1;}
     if(shell_starts_with(arg,"buy ")){char *copy=strdup(arg+4);if(!copy)return 1;char *p[4]={0};int n=0;char *save=NULL;
         for(char *t=strtok_r(copy,"|",&save);t&&n<4;t=strtok_r(NULL,"|",&save))p[n++]=shell_trim(t);
         if(n<2||!*p[0]||!*p[1])printf("Usage: money buy <item> | <price> | <description> | <container>\n");
-        else{double price=atof(p[1]);int rc=r2_reality_buy_item(p[0],n>=3&&*p[2]?p[2]:"Purchased item",price,n>=4&&*p[3]?p[3]:"pockets");printf(rc==0?"Purchased %s for $%.2f.\n":"Purchase failed; check funds and destination.\n",p[0],price);}free(copy);return 1;}
+        else{double price=0.0;int parsed=shell_parse_amount(p[1],&price);int rc=parsed?r2_reality_buy_item(p[0],n>=3&&*p[2]?p[2]:"Purchased item",price,n>=4&&*p[3]?p[3]:"pockets"):-1;printf(rc==0?"Purchased %s for $%.2f.\n":"Purchase failed; enter a valid price and check funds/destination.\n",p[0],price);}free(copy);return 1;}
     printf("Usage: money [status|deposit <amount>|withdraw <amount>|buy <item> | <price> | <description> | <container>]\n");return 1;
 }
 
