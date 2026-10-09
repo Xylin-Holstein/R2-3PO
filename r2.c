@@ -106,7 +106,8 @@ static pthread_mutex_t ollama_request_lock = PTHREAD_MUTEX_INITIALIZER;
 /* A conversation turn must be atomic so failed-turn rollback cannot erase another turn. */
 static pthread_mutex_t conversation_turn_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t vision_watch_thread;
-static volatile sig_atomic_t vision_watch_running = 0;
+static pthread_mutex_t vision_watch_lock = PTHREAD_MUTEX_INITIALIZER;
+static atomic_int vision_watch_running = ATOMIC_VAR_INIT(0);
 static int vision_watch_thread_started = 0;
 static int query_requests_visual_context(const char *query);
 static char *vision_analyze_current_frame(const char *question, int open_camera);
@@ -5498,7 +5499,7 @@ static void *vision_watch_worker(void *unused)
                  "R2 continuous visual observation started.",
                  start_details, source_name);
 
-    while (!shutting_down && vision_watch_running) {
+    while (!shutting_down && atomic_load(&vision_watch_running)) {
         char *description = vision_analyze_current_frame(
             "Provide a concise sensory description of this frame for R2. "
             "Report visible details and uncertainty without deciding what they mean, "
@@ -5521,7 +5522,7 @@ static void *vision_watch_worker(void *unused)
          */
         struct timespec sample_start, sample_now;
         clock_gettime(CLOCK_MONOTONIC, &sample_start);
-        while (!shutting_down && vision_watch_running) {
+        while (!shutting_down && atomic_load(&vision_watch_running)) {
             pthread_mutex_lock(&visual_capture_lock);
             int captured = (eyes && r2_eyes_is_open(eyes))
                 ? r2_eyes_capture(eyes) : -1;
@@ -5538,7 +5539,7 @@ static void *vision_watch_worker(void *unused)
                                    "R2's continuous visual observer could not capture another frame.",
                                    "The source stopped or Eyes returned a capture error.",
                                    source_name);
-                vision_watch_running = 0;
+                atomic_store(&vision_watch_running, 0);
                 break;
             }
 
@@ -5565,36 +5566,50 @@ int r2_vision_watch_start(void)
 {
     if (!core_initialized || shutting_down || !r2_visual_is_initialized())
         return -1;
+
+    pthread_mutex_lock(&vision_watch_lock);
+    if (!core_initialized || shutting_down || !r2_visual_is_initialized()) {
+        pthread_mutex_unlock(&vision_watch_lock);
+        return -1;
+    }
     if (vision_watch_thread_started) {
-        if (vision_watch_running) return 0;
-        /* A media stream may end naturally; reap that finished worker before restarting. */
+        if (atomic_load(&vision_watch_running)) {
+            pthread_mutex_unlock(&vision_watch_lock);
+            return 0;
+        }
+        /* Reap a naturally ended worker before creating its replacement. */
         pthread_join(vision_watch_thread, NULL);
         vision_watch_thread_started = 0;
     }
-    vision_watch_running = 1;
+
+    atomic_store(&vision_watch_running, 1);
     if (pthread_create(&vision_watch_thread, NULL, vision_watch_worker, NULL) != 0) {
-        vision_watch_running = 0;
+        atomic_store(&vision_watch_running, 0);
+        pthread_mutex_unlock(&vision_watch_lock);
         r2_log_event(R2_LOG_ERROR, "vision_watch_start_failed",
                      "Could not start the visual observation thread.", NULL, "r2_vision_watch_start");
         return -1;
     }
     vision_watch_thread_started = 1;
+    pthread_mutex_unlock(&vision_watch_lock);
     return 0;
 }
 
 int r2_vision_watch_stop(void)
 {
-    vision_watch_running = 0;
+    pthread_mutex_lock(&vision_watch_lock);
+    atomic_store(&vision_watch_running, 0);
     if (vision_watch_thread_started) {
         pthread_join(vision_watch_thread, NULL);
         vision_watch_thread_started = 0;
     }
+    pthread_mutex_unlock(&vision_watch_lock);
     return 0;
 }
 
 int r2_vision_watch_active(void)
 {
-    return vision_watch_running ? 1 : 0;
+    return atomic_load(&vision_watch_running) ? 1 : 0;
 }
 
 const char *r2_vision_model_name(void)
