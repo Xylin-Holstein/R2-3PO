@@ -329,6 +329,38 @@ int r2_reality_is_initialized(void)
     return ready;
 }
 
+
+static void maybe_record_starvation(void)
+{
+    if (!r2_reality_is_initialized()) return;
+    double since_meal = 0.0;
+    char logged[32] = {0};
+    pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_prepare_v2(reality_db, "SELECT seconds_since_meal FROM r2_reality_self WHERE id=1", -1, &st, NULL) == SQLITE_OK &&
+        sqlite3_step(st) == SQLITE_ROW)
+        since_meal = sqlite3_column_double(st, 0);
+    if (st) sqlite3_finalize(st);
+    st = NULL;
+    if (sqlite3_prepare_v2(reality_db, "SELECT value FROM r2_reality_self_facts WHERE key='starvation_72h_logged'", -1, &st, NULL) == SQLITE_OK &&
+        sqlite3_step(st) == SQLITE_ROW) {
+        const unsigned char *v = sqlite3_column_text(st, 0);
+        if (v) snprintf(logged, sizeof(logged), "%s", (const char *)v);
+    }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reality_lock);
+
+    if (since_meal >= 72.0 * 3600.0 && strcmp(logged, "yes") != 0) {
+        if (r2_reality_set_self("starvation_72h_logged", "yes",
+                "The modeled elapsed time since the last qualifying meal reached 72 hours." ) == 0) {
+            bridge_event("prolonged_starvation",
+                "R2 reached 72 modeled hours without a qualifying meal.",
+                "Hunger remains at its maximum modeled level. This is a simulation state, not a claim of biological metabolism.",
+                1, 1);
+        }
+    }
+}
+
 int r2_reality_tick(void)
 {
     if (!r2_reality_is_initialized()) return -1;
@@ -351,6 +383,7 @@ int r2_reality_tick(void)
     if (ok) { sqlite3_bind_int64(st, 1, now); ok = sqlite3_step(st) == SQLITE_DONE; }
     if (st) sqlite3_finalize(st);
     pthread_mutex_unlock(&reality_lock);
+    if (ok) maybe_record_starvation();
     return ok ? 0 : -1;
 }
 
@@ -636,6 +669,14 @@ int r2_reality_eat(const char *food, double fullness)
         }
     }
     if (st) sqlite3_finalize(st);
+    if (rc == SQLITE_DONE && fullness >= 10.0) {
+        st = NULL;
+        if (sqlite3_prepare_v2(reality_db,
+            "INSERT INTO r2_reality_self_facts(key,value,evidence) VALUES('starvation_72h_logged','no','Reset by qualifying food intake') ON CONFLICT(key) DO UPDATE SET value='no',evidence='Reset by qualifying food intake',updated_at=CURRENT_TIMESTAMP",
+            -1, &st, NULL) == SQLITE_OK)
+            sqlite3_step(st);
+        if (st) sqlite3_finalize(st);
+    }
     pthread_mutex_unlock(&reality_lock);
     if (rc != SQLITE_DONE) return -1;
 
