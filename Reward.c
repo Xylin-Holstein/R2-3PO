@@ -240,14 +240,19 @@ char *r2_reward_context(void)
             const char *reason = (const char *)sqlite3_column_text(st, 2);
             sqlite3_int64 occurred = sqlite3_column_int64(st, 3);
             sqlite3_int64 expires = sqlite3_column_int64(st, 4);
-            int modifier = expires > now ? (int)(points * 2.0 *
-                (double)(expires - now) / (double)REWARD_DECAY_SECONDS) : 0;
+            double remaining = 0.0;
+            if (expires > now && expires > occurred) {
+                remaining = occurred > now ? 1.0 :
+                    (double)(expires - now) / (double)(expires - occurred);
+                if (remaining < 0.0) remaining = 0.0;
+                if (remaining > 1.0) remaining = 1.0;
+            }
+            int modifier = (int)(points * 2.0 * remaining);
             n = snprintf(out + used, cap - used,
                 "Recent: target=%s; points=%+d; temporary_modifier=%+d; reason=%.160s\n",
                 target ? target : "unknown", points, modifier, reason ? reason : "");
             if (n > 0 && (size_t)n < cap - used) used += (size_t)n;
             else break;
-            if (occurred > now) { /* Defensive against a future clock skew. */ }
         }
     }
     if (st) sqlite3_finalize(st);
