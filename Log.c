@@ -77,6 +77,11 @@ static const char *category_name(R2LogCategory category)
         case R2_LOG_MEMORY:     return "memory";
         case R2_LOG_EXPERIMENT: return "experiment";
         case R2_LOG_ERROR:      return "error";
+        case R2_LOG_EMOTION:    return "emotion";
+        case R2_LOG_BELIEF:     return "belief";
+        case R2_LOG_CONTINUITY: return "continuity";
+        case R2_LOG_CONVERSATION:return "conversation";
+        case R2_LOG_HYPOTHETICAL:return "hypothetical";
         default:                return "other";
     }
 }
