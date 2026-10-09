@@ -43,6 +43,23 @@ static int reward_total(void)
     return value;
 }
 
+static int reward_link_count(void)
+{
+    sqlite3 *db = NULL;
+    sqlite3_stmt *st = NULL;
+    int value = -1;
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/r2_rewards.db", R2_HOME);
+    if (sqlite3_open(path, &db) != SQLITE_OK) return value;
+    if (sqlite3_prepare_v2(db,
+        "SELECT COUNT(*) FROM reward_events WHERE log_event_id IS NOT NULL",
+        -1, &st, NULL) == SQLITE_OK && sqlite3_step(st) == SQLITE_ROW)
+        value = sqlite3_column_int(st, 0);
+    if (st) sqlite3_finalize(st);
+    sqlite3_close(db);
+    return value;
+}
+
 static int open_test_db(sqlite3 **db)
 {
     if (sqlite3_open(R2_DIARY_DATABASE, db) != SQLITE_OK)
@@ -166,6 +183,7 @@ int main(void)
 
     log_ready = 1;
     assert(r2_diary_reconnect_history(10) >= 1);
+    assert(r2_reward_reconnect_history(10) >= 1);
 
     assert(r2_diary_write("New reflection connected to history.") == 0);
     assert(scalar_int("SELECT COUNT(*) FROM diary_entries;") == 2);
@@ -176,6 +194,10 @@ int main(void)
     assert(r2_reward_review_diary(101, "I keep calling the creator Eli.") == 0);
     assert(r2_reward_review_diary(102, "I believe learning takes time.") == 0);
     assert(reward_total() == 1);
+    assert(reward_link_count() == 5);
+    assert(r2_reward_reconnect_history(10) == 0);
+    assert(scalar_int("SELECT COUNT(*) FROM r2_log_events "
+                      "WHERE event_type='enjoyment_changed';") == 5);
     assert(r2_reward_current_modifier("diary_identity_correction") <= 0);
     assert(r2_reward_current_modifier("diary_identity_correction") >= -14);
     assert(scalar_int("SELECT COUNT(*) FROM r2_diary_entry_links "
