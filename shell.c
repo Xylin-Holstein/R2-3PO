@@ -108,6 +108,10 @@ static void *tv_control_server(void *unused)
         if (got > 0 && !strcmp(command, "status")) {
             status = r2_reality_tv_status();
             reply = status ? status : "ERROR unable to read TV state";
+        } else if (!strcmp(command, "display opened")) {
+            reply = r2_reality_tv_display_event(1) == 0 ? "OK TV display-open event recorded" : "ERROR could not record TV display-open event";
+        } else if (!strcmp(command, "display closed")) {
+            reply = r2_reality_tv_display_event(0) == 0 ? "OK TV display-close event recorded" : "ERROR could not record TV display-close event";
         } else if (!strcmp(command, "power on")) {
             reply = r2_reality_tv_power(1) == 0 ? "OK powered on" : "ERROR power-on failed";
         } else if (!strcmp(command, "power off")) {
