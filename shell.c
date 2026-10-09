@@ -44,6 +44,7 @@
 #include "r2.h"
 #include "Log.h"
 #include "Reality.h"
+#include "Addiction.h"
 #include "AlternateSelf.h"
 
 
@@ -253,6 +254,9 @@ static void shell_help(void)
         "\n"
         "  log search <text>\n"
         "      Search the chronological Life Log.\n"
+        "\n"
+        "  addictions\n"
+        "      Show R2's recorded enjoyment and repeated-interest status.\n"
         "\n"
         "  eyes\n"
         "      Show Eyes status.\n"
@@ -623,6 +627,17 @@ static void shell_diary(void)
 }
 
 
+
+static void shell_addictions(void)
+{
+    char *result = r2_addiction_report();
+    if (result) {
+        printf("\n================ R2 PREFERENCES / HABIT HISTORY ================\n%s", result);
+        free(result);
+    } else {
+        printf("[Could not read R2's preference/addiction history.]\n");
+    }
+}
 
 /* ============================================================
    LIFE LOG
@@ -1521,6 +1536,14 @@ static int shell_dispatch(char *input)
         return 1;
     }
 
+
+    /* --------------------------------------------------------
+       PREFERENCE / ADDICTION HISTORY
+       -------------------------------------------------------- */
+    if (!strcasecmp(command, "addictions") || !strcasecmp(command, "addiction")) {
+        shell_addictions();
+        return 1;
+    }
 
     /* --------------------------------------------------------
        DIARY
