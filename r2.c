@@ -5243,6 +5243,10 @@ int r2_write_diary(void)
     if (!reflection) return -1;
 
     int rc = r2_diary_write(reflection);
+    if (rc == 0)
+        r2_log_thinking("diary_entry_written",
+                        "R2 wrote a private diary reflection.",
+                        reflection);
     free(reflection);
     return rc;
 }
