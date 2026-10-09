@@ -18,7 +18,7 @@ grep -Fq "$TV_DIR/TV.py" "$TV_DIR/run_tv.sh"
 grep -Fq "Exec=/bin/bash" "$TV_DIR/TV.desktop"
 grep -Fq 'sudo -u r2 env -u XAUTHORITY' "$TV_DIR/run_tv.sh"
 grep -Fq 'DISPLAY="${DISPLAY:-}"' "$TV_DIR/run_tv.sh"
-grep -Fq "R2_TV_SOCKET=\"$TMP_ROOT/R2/tv-control.sock\"" "$TV_DIR/run_tv.sh"
+grep -Fq "export R2_TV_SOCKET=\"\${R2_TV_SOCKET:-$TMP_ROOT/R2/tv-control.sock}\"" "$TV_DIR/run_tv.sh"
 grep -Fq 'Terminal=true' "$TV_DIR/TV.desktop"
 
 echo "TV installer smoke test passed."
