@@ -953,6 +953,10 @@ int r2_reality_init(void)
         "CREATE TABLE IF NOT EXISTS r2_reality_self_facts (key TEXT PRIMARY KEY, value TEXT NOT NULL, evidence TEXT, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "CREATE TABLE IF NOT EXISTS r2_money_account (id INTEGER PRIMARY KEY CHECK(id=1),cash_cents INTEGER NOT NULL DEFAULT 0 CHECK(cash_cents>=0),bank_cents INTEGER NOT NULL DEFAULT 0 CHECK(bank_cents>=0),updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "INSERT OR IGNORE INTO r2_money_account(id,cash_cents,bank_cents) VALUES(1,0,0);"
+        "CREATE TABLE IF NOT EXISTS r2_tv_state (id INTEGER PRIMARY KEY CHECK(id=1), power INTEGER NOT NULL DEFAULT 0 CHECK(power IN (0,1)), source_kind TEXT NOT NULL DEFAULT 'input', source_value INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
+        "INSERT OR IGNORE INTO r2_tv_state(id,power,source_kind,source_value) VALUES(1,0,'input',1);"
+        "CREATE TABLE IF NOT EXISTS r2_tv_devices (name TEXT PRIMARY KEY COLLATE NOCASE, connection_kind TEXT NOT NULL CHECK(connection_kind IN ('input','rf')), port INTEGER NOT NULL, connected INTEGER NOT NULL DEFAULT 1 CHECK(connected IN (0,1)), updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, CHECK((connection_kind='input' AND port BETWEEN 2 AND 4) OR (connection_kind='rf' AND port BETWEEN 2 AND 13)));"
+        "CREATE UNIQUE INDEX IF NOT EXISTS r2_tv_one_device_per_port ON r2_tv_devices(connection_kind,port) WHERE connected=1;"
         "CREATE TABLE IF NOT EXISTS r2_reality_containers (name TEXT PRIMARY KEY, kind TEXT NOT NULL, description TEXT, parent TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "CREATE TABLE IF NOT EXISTS r2_reality_objects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL COLLATE NOCASE UNIQUE, description TEXT, quantity INTEGER NOT NULL DEFAULT 1 CHECK(quantity>0), container TEXT NOT NULL DEFAULT 'room', owner TEXT NOT NULL DEFAULT 'R2', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(container) REFERENCES r2_reality_containers(name));"
         "CREATE INDEX IF NOT EXISTS r2_reality_objects_container_idx ON r2_reality_objects(container);"
@@ -1406,7 +1410,7 @@ char *r2_reality_context(void)
     if(out)snprintf(out,n,
         "PERSISTENT REALITY CONTEXT (authoritative database state; do not invent changes):\n"
         "%s\n%s\n%s\n%s\n%s\nRECENT LIFE LOG EVIDENCE (events and observations; not automatically current):\n%s\nRECENT VISUAL EXPERIENCES (actual stored observations; not necessarily current):\n%s\nSELF-CONTINUITY FACTS:\n%s\nCOLLECTION MEMORIES (precision intentionally fades; not current inventory):\n%s\nLEARNED FOOD/INGREDIENT PREFERENCES (subjective scores):\n%s\nRECENT RATED FOOD EXPERIENCES:\n%s\nAVAILABLE FOOD METRICS:\n%s\n"
-        "WORLD ACTIONS: Put one action on its own line. Use [WORLD] look to inspect the room; "
+        "WORLD ACTIONS: Put one action on its own line. Use [WORLD] tv_status, tv_power|on/off, tv_input|1..4, tv_tune|2..13, tv_connect|device name|input/RF|port, or tv_disconnect|device name for the CRT television; power/source/attention are separate, and empty RF channels show no signal (no snow-show yet). Use [WORLD] look to inspect the room; "
         "[WORLD] add|name|description|container|quantity to collect/add a stack (adds to an existing stack and records a collection memory); "
         "[WORLD] move|name|container to relocate an existing item without counting a new collection; [WORLD] remove|name to remove it; "
         "[WORLD] eat|food|fullness_points (or auto for XML) to update hunger; "
@@ -2065,4 +2069,162 @@ char *r2_reality_get_self(const char *key)
     if(st)sqlite3_finalize(st);
     pthread_mutex_unlock(&reality_lock);
     return out;
+}
+
+
+/* TV is a persistent device model, not the video player itself. Input 1 is
+ * the built-in VCR; external AV inputs and RF signals exist only when a
+ * device has been explicitly connected. An empty tuned channel stays empty:
+ * no snow-show or synthetic signal is generated here. */
+char *r2_reality_tv_status(void)
+{
+    if (!reality_db || !reality_ready) return strdup("TV state is unavailable: Reality is not initialized.\n");
+    char *out = calloc(1, 8192);
+    if (!out) return NULL;
+    size_t len = 0;
+    pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *st = NULL;
+    int power = 0, value = 1;
+    char kind[16] = "input";
+    if (sqlite3_prepare_v2(reality_db, "SELECT power,source_kind,source_value FROM r2_tv_state WHERE id=1", -1, &st, NULL) == SQLITE_OK &&
+        sqlite3_step(st) == SQLITE_ROW) {
+        power = sqlite3_column_int(st, 0);
+        const unsigned char *k = sqlite3_column_text(st, 1);
+        if (k) snprintf(kind, sizeof(kind), "%s", (const char *)k);
+        value = sqlite3_column_int(st, 2);
+    }
+    if (st) sqlite3_finalize(st);
+    len += (size_t)snprintf(out + len, 8192 - len,
+        "CRT TV: %s\nSelected source: %s %d\n",
+        power ? "ON" : "OFF",
+        !strcmp(kind, "vcr") ? "built-in VCR/input" :
+        !strcmp(kind, "rf") ? "RF channel" : "AV input", value);
+    int signal = !strcmp(kind, "vcr") || (!strcmp(kind, "input") && value == 1);
+    if (sqlite3_prepare_v2(reality_db,
+        "SELECT name FROM r2_tv_devices WHERE connected=1 AND connection_kind=? AND port=? LIMIT 1",
+        -1, &st, NULL) == SQLITE_OK) {
+        bind_text(st, 1, !strcmp(kind, "rf") ? "rf" : "input");
+        sqlite3_bind_int(st, 2, value);
+        if (sqlite3_step(st) == SQLITE_ROW) signal = 1;
+    }
+    if (st) sqlite3_finalize(st);
+    len += (size_t)snprintf(out + len, 8192 - len, "Selected source signal: %s\n",
+                            signal ? "available" : "NO SIGNAL (nothing is connected/transmitting)");
+    if (sqlite3_prepare_v2(reality_db,
+        "SELECT name,connection_kind,port FROM r2_tv_devices WHERE connected=1 ORDER BY connection_kind,port,name",
+        -1, &st, NULL) == SQLITE_OK) {
+        int count = 0;
+        while (sqlite3_step(st) == SQLITE_ROW && len < 7600) {
+            const char *name = (const char *)sqlite3_column_text(st, 0);
+            const char *dkind = (const char *)sqlite3_column_text(st, 1);
+            int port = sqlite3_column_int(st, 2);
+            if (!count) len += (size_t)snprintf(out + len, 8192 - len, "Detected external devices:\n");
+            len += (size_t)snprintf(out + len, 8192 - len, "  %s — %s %d\n",
+                                    name ? name : "unnamed device",
+                                    dkind && !strcmp(dkind, "rf") ? "RF channel" : "AV input",
+                                    port);
+            count++;
+        }
+        if (!count) len += (size_t)snprintf(out + len, 8192 - len, "Detected external devices: none\n");
+    }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reality_lock);
+    return out;
+}
+
+int r2_reality_tv_power(int on)
+{
+    if (!reality_db || !reality_ready || (on != 0 && on != 1)) return -1;
+    pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "UPDATE r2_tv_state SET power=?,updated_at=CURRENT_TIMESTAMP WHERE id=1", -1, &st, NULL);
+    if (rc == SQLITE_OK) { sqlite3_bind_int(st, 1, on); rc = sqlite3_step(st); }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reality_lock);
+    if (rc != SQLITE_DONE) return -1;
+    bridge_event("tv_power", on ? "R2's CRT television was turned on." : "R2's CRT television was turned off.",
+                 "TV power is independent of whether R2 is paying visual attention; no Eyes state is changed by this operation.",
+                 1, 0);
+    return 0;
+}
+
+int r2_reality_tv_select_input(int input)
+{
+    if (!reality_db || !reality_ready || input < 1 || input > 4) return -1;
+    pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "UPDATE r2_tv_state SET source_kind='input',source_value=?,updated_at=CURRENT_TIMESTAMP WHERE id=1", -1, &st, NULL);
+    if (rc == SQLITE_OK) { sqlite3_bind_int(st, 1, input); rc = sqlite3_step(st); }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reality_lock);
+    if (rc != SQLITE_DONE) return -1;
+    char detail[160];
+    snprintf(detail, sizeof(detail), "Selected AV input %d. Input 1 is the built-in VCR; external inputs have signal only when a device is connected.", input);
+    bridge_event("tv_source_selected", "R2's CRT television selected an AV input.", detail, 1, 0);
+    return 0;
+}
+
+int r2_reality_tv_tune_rf(int channel)
+{
+    if (!reality_db || !reality_ready || channel < 2 || channel > 13) return -1;
+    pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "UPDATE r2_tv_state SET source_kind='rf',source_value=?,updated_at=CURRENT_TIMESTAMP WHERE id=1", -1, &st, NULL);
+    if (rc == SQLITE_OK) { sqlite3_bind_int(st, 1, channel); rc = sqlite3_step(st); }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reality_lock);
+    if (rc != SQLITE_DONE) return -1;
+    char detail[160];
+    snprintf(detail, sizeof(detail), "Tuned RF channel %d. A signal is available only if a connected device is transmitting on that channel; no static or snow-show signal is generated.", channel);
+    bridge_event("tv_rf_tuned", "R2's CRT television was tuned to an RF channel.", detail, 1, 0);
+    return 0;
+}
+
+int r2_reality_tv_connect(const char *name, const char *kind, int port)
+{
+    if (!reality_db || !reality_ready || !name || !*name || strlen(name) > 120 || !kind) return -1;
+    int rf = !strcasecmp(kind, "rf");
+    int input = !strcasecmp(kind, "input") || !strcasecmp(kind, "av");
+    if ((!rf && !input) || (rf && (port < 2 || port > 13)) ||
+        (input && (port < 2 || port > 4))) return -1;
+    pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "INSERT INTO r2_tv_devices(name,connection_kind,port,connected,updated_at) VALUES(?,?,?,1,CURRENT_TIMESTAMP) "
+        "ON CONFLICT(name) DO UPDATE SET connection_kind=excluded.connection_kind,port=excluded.port,connected=1,updated_at=CURRENT_TIMESTAMP",
+        -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        bind_text(st, 1, name); bind_text(st, 2, rf ? "rf" : "input"); sqlite3_bind_int(st, 3, port);
+        rc = sqlite3_step(st);
+    }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reality_lock);
+    if (rc != SQLITE_DONE) return -1;
+    char detail[256];
+    snprintf(detail, sizeof(detail), "%s is connected to %s %d; this is now a detected source. No gameplay is inferred from connection alone.",
+             name, rf ? "RF channel" : "AV input", port);
+    bridge_event("tv_device_connected", "An external device was connected to R2's CRT television.", detail, 1, 0);
+    return 0;
+}
+
+int r2_reality_tv_disconnect(const char *name)
+{
+    if (!reality_db || !reality_ready || !name || !*name) return -1;
+    pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "UPDATE r2_tv_devices SET connected=0,updated_at=CURRENT_TIMESTAMP WHERE name=? COLLATE NOCASE AND connected=1",
+        -1, &st, NULL);
+    if (rc == SQLITE_OK) { bind_text(st, 1, name); rc = sqlite3_step(st); }
+    int changed = rc == SQLITE_DONE ? sqlite3_changes(reality_db) : 0;
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reality_lock);
+    if (rc != SQLITE_DONE || changed == 0) return -1;
+    char detail[192];
+    snprintf(detail, sizeof(detail), "%s was disconnected; any tuned source now has no signal unless another device supplies it.", name);
+    bridge_event("tv_device_disconnected", "An external device was disconnected from R2's CRT television.", detail, 1, 0);
+    return 0;
 }
