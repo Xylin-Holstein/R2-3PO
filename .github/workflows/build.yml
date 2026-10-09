@@ -27,4 +27,4 @@ jobs:
         run: bash -n R2_Launch_Code.sh
 
       - name: Compile R2 with the same sources and flags as the launcher
-        run: make clean all
+        run: make clean all CFLAGS="-std=c11 -Wall -Wextra -Werror -O2"
