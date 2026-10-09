@@ -7343,8 +7343,16 @@ int r2_init(void)
 
     /* The reinforcement ledger is separate durable state, bridged to the
        Life Log and existing habit evaluator through the shared API. */
-    if (r2_reward_init() != 0)
+    if (r2_reward_init() != 0) {
         fprintf(stderr, "[R2 Reward] Initialization failed; reinforcement will retry lazily.\n");
+    } else {
+        int reward_links = r2_reward_reconnect_history(100);
+        if (reward_links < 0)
+            fprintf(stderr, "[R2 Reward] History reconciliation is pending.\\n");
+        else if (reward_links > 0)
+            fprintf(stderr, "[R2 Reward] Reconnected %d reward events to the Life Log.\\n",
+                    reward_links);
+    }
 
     /* Reconnect older diary history in bounded, restart-safe batches. The
        original diary rows and Markdown mirrors are preserved unchanged. */
