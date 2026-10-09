@@ -1123,8 +1123,14 @@ char *r2_diary_search(
     }
 
     {
-        size_t pattern_size =
-            strlen(search_term) + 3;
+        size_t term_length = strlen(search_term);
+        if (term_length > 4096) {
+            sqlite3_finalize(statement);
+            free(result_text);
+            errno = E2BIG;
+            return NULL;
+        }
+        size_t pattern_size = term_length + 3;
 
         char *pattern =
             malloc(pattern_size);
