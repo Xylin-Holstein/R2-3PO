@@ -7,7 +7,7 @@ trap 'rm -rf "$TMP_ROOT"' EXIT
 
 R2_HOME="$TMP_ROOT" bash "$SOURCE_DIR/install_tv.sh"
 
-TV_DIR="$TMP_ROOT/Room/TV"
+TV_DIR="$TMP_ROOT/room/TV"
 test -x "$TV_DIR/TV.py"
 test -x "$TV_DIR/run_tv.sh"
 test -x "$TV_DIR/TV.desktop"
