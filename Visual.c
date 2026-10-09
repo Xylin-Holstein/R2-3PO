@@ -445,7 +445,11 @@ char *r2_visual_analyze_frame(const R2VisionFrame *frame,
     if (!base64) { free(jpeg); return NULL; }
     char *model_text = call_vision_model(base64, question);
     free(base64);
-    if (!model_text) { free(jpeg); return NULL; }
+    if (!model_text) {
+        publish_focus_region(NULL);
+        free(jpeg);
+        return NULL;
+    }
     char *description = extract_visual_description(model_text);
     free(model_text);
     if (!description) { free(jpeg); return NULL; }
