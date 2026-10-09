@@ -588,8 +588,9 @@ int r2_fridge_add_item(const char *name, const char *description, int quantity,
     if (fullness < 0.0 || fullness > 100.0) fullness = 100.0;
     if (energy < 0.0 || energy > 100.0) energy = 10.0;
     pthread_mutex_lock(&fridge_lock);
+    int seed_rc = fridge_seed_if_empty_locked();
     sqlite3_stmt *st = NULL;
-    int rc = sqlite3_prepare_v2(fridge_db,
+    int rc = seed_rc == 0 ? sqlite3_prepare_v2(fridge_db,
         "INSERT INTO r2_fridge_items(name,description,quantity,fullness,energy,ingredients,taste) VALUES(?,?,?,?,?,?,?) "
         "ON CONFLICT(name) DO UPDATE SET description=excluded.description,quantity=r2_fridge_items.quantity+excluded.quantity,"
         "fullness=excluded.fullness,energy=excluded.energy,ingredients=excluded.ingredients,taste=excluded.taste,updated_at=CURRENT_TIMESTAMP",
