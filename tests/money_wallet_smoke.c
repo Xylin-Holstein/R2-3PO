@@ -59,6 +59,9 @@ int main(void) {
     /* Pockets travel with R2; room storage and the fixed fridge do not. */
     assert(r2_reality_set_location(0)==0);
     assert(r2_reality_add_item("travel toy","Portable toy","pockets",1)==0);
+    char pocket_item[1200];
+    snprintf(pocket_item,sizeof(pocket_item),"%s/Pockets/travel_toy.r2item",R2_ROOT);
+    assert(access(pocket_item,F_OK)==0); /* Item mirrors share the authoritative Pockets tree. */
     assert(r2_reality_add_item("room-only toy","Toy left at home","room",1)!=0);
     assert(r2_fridge_take("soda")!=0);
     assert(r2_reality_set_location(1)==0);
