@@ -6,7 +6,6 @@
 #include "Log.h"
 #include "Addiction.h"
 
-#include <ctype.h>
 #include <pthread.h>
 #include <sqlite3.h>
 #include <stdint.h>
@@ -103,32 +102,43 @@ int r2_reward_apply(const char *target, const char *source, int points,
         pthread_mutex_unlock(&reward_lock);
         return -1;
     }
-    rc = sqlite3_prepare_v2(reward_db,
-        "INSERT INTO reward_events(target,source,points,reason,occurred_at,modifier,expires_at)"
-        " VALUES(?,?,?,?,?,?,?)", -1, &st, NULL);
+    rc = sqlite3_exec(reward_db, "BEGIN IMMEDIATE;", NULL, NULL, NULL);
     if (rc == SQLITE_OK) {
-        sqlite3_bind_text(st, 1, target, -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(st, 2, source, -1, SQLITE_TRANSIENT);
-        sqlite3_bind_int(st, 3, points);
-        sqlite3_bind_text(st, 4, reason, -1, SQLITE_TRANSIENT);
-        sqlite3_bind_int64(st, 5, now);
-        sqlite3_bind_int(st, 6, modifier);
-        sqlite3_bind_int64(st, 7, expires);
-        rc = sqlite3_step(st);
-    }
-    if (st) sqlite3_finalize(st);
-    st = NULL;
-    if (rc == SQLITE_DONE) {
         rc = sqlite3_prepare_v2(reward_db,
-            "UPDATE reward_totals SET points=points+?,updated_at=? WHERE id=1",
-            -1, &st, NULL);
+            "INSERT INTO reward_events(target,source,points,reason,occurred_at,modifier,expires_at)"
+            " VALUES(?,?,?,?,?,?,?)", -1, &st, NULL);
         if (rc == SQLITE_OK) {
-            sqlite3_bind_int(st, 1, points);
-            sqlite3_bind_int64(st, 2, now);
+            sqlite3_bind_text(st, 1, target, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(st, 2, source, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int(st, 3, points);
+            sqlite3_bind_text(st, 4, reason, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int64(st, 5, now);
+            sqlite3_bind_int(st, 6, modifier);
+            sqlite3_bind_int64(st, 7, expires);
             rc = sqlite3_step(st);
         }
+        if (st) sqlite3_finalize(st);
+        st = NULL;
+        if (rc == SQLITE_DONE) {
+            rc = sqlite3_prepare_v2(reward_db,
+                "UPDATE reward_totals SET points=points+?,updated_at=? WHERE id=1",
+                -1, &st, NULL);
+            if (rc == SQLITE_OK) {
+                sqlite3_bind_int(st, 1, points);
+                sqlite3_bind_int64(st, 2, now);
+                rc = sqlite3_step(st);
+            }
+        }
+        if (st) sqlite3_finalize(st);
+        st = NULL;
+        if (rc == SQLITE_DONE) {
+            rc = sqlite3_exec(reward_db, "COMMIT;", NULL, NULL, NULL);
+            if (rc != SQLITE_OK)
+                (void)sqlite3_exec(reward_db, "ROLLBACK;", NULL, NULL, NULL);
+        } else {
+            (void)sqlite3_exec(reward_db, "ROLLBACK;", NULL, NULL, NULL);
+        }
     }
-    if (st) sqlite3_finalize(st);
     pthread_mutex_unlock(&reward_lock);
     if (rc != SQLITE_DONE) return -1;
 
