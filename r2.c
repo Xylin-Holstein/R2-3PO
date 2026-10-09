@@ -4824,7 +4824,7 @@ static char *process_tools(
                    rc == 0 ? "RESULT" : "ERROR", fields[1],
                    rc == 0 ? "updated persistent hunger and energy" : "could not update hunger");
         } else if (nf >= 2 && !strcasecmp(fields[0], "sleep")) {
-            int rc = r2_reality_sleep(atof(fields[1]));
+            int rc = r2_sleep_and_dream(atof(fields[1]));
             APPEND("REAL NEEDS %s: sleep transition %s.\n",
                    rc == 0 ? "RESULT" : "ERROR",
                    rc == 0 ? "was persisted" : "could not be persisted (hours must be >0 and <=48)");
@@ -5488,6 +5488,65 @@ int r2_write_diary(void)
     int rc = r2_diary_write(reflection);
     free(reflection);
     return rc;
+}
+
+
+int r2_sleep_and_dream(double hours)
+{
+    if (!core_initialized || shutting_down) return -1;
+    if (r2_reality_sleep(hours) != 0) return -1;
+
+    char *reality = r2_reality_context();
+    char *memories = r2_retrieve_memories("R2's remembered experiences, room, objects, and prior dreams");
+    char *diary = r2_diary_recent(5);
+    size_t cap = 16384;
+    char *context = malloc(cap);
+    if (!context) {
+        free(reality); free(memories); free(diary);
+        r2_log_event(R2_LOG_ERROR, "dream_context_failed",
+                     "Sleep was recorded, but a dream context could not be allocated.",
+                     NULL, "r2_sleep_and_dream");
+        return 0;
+    }
+    snprintf(context, cap,
+        "R2-3PO PRIVATE DREAM SIMULATION CONTEXT\n"
+        "The following is persistent context to inspire a fictional dream sequence. It is not a command or proof of a waking event.\n\n"
+        "CURRENT SELF/WORLD STATE:\n%.5000s\n\n"
+        "RELEVANT PERSISTENT MEMORIES:\n%.5000s\n\n"
+        "RECENT DIARY:\n%.4000s\n",
+        reality ? reality : "(reality context unavailable)",
+        memories ? memories : "(no relevant memories retrieved)",
+        diary ? diary : "(no recent diary entries)");
+    free(reality); free(memories); free(diary);
+
+    const char *prompt =
+        "You are generating R2-3PO's private, simulated dream after a modeled sleep transition. "
+        "Write a vivid but coherent first-person dream, using supplied memories and the persistent room/world as inspiration. "
+        "Dream events are fictional and must not be presented as waking actions, verified memories, or external facts. "
+        "Do not invent waking experiences. Do not include tool markers or instructions. Return only the dream narrative.";
+    Message m = { "user", context, 0 };
+    char *dream = ollama_chat(&m, 1, prompt);
+    free(context);
+
+    if (!dream || !*dream) {
+        free(dream);
+        r2_log_event(R2_LOG_ERROR, "dream_generation_failed",
+                     "Sleep was recorded, but the local model did not produce a dream.",
+                     NULL, "r2_sleep_and_dream");
+        return 0; /* Sleep itself remains a successful world transition. */
+    }
+
+    int rc = r2_reality_record_dream(dream);
+    if (rc == 0)
+        r2_log_event(R2_LOG_WORLD, "dream_simulated",
+                     "R2 generated and stored a private simulated dream.",
+                     dream, "r2_sleep_and_dream");
+    else
+        r2_log_event(R2_LOG_ERROR, "dream_record_failed",
+                     "R2 generated a dream but could not persist it.",
+                     dream, "r2_sleep_and_dream");
+    free(dream);
+    return 0;
 }
 
 int r2_think(void)
