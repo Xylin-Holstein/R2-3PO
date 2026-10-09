@@ -10,6 +10,8 @@ A dedicated Android companion for the existing R2-3PO process. It is not a secon
 - Read-only diary and Life Log views.
 - Search existing persistent memories.
 - Phone-side Android TextToSpeech for R2's text responses.
+- Photo/video/audio file picker and authenticated upload (50 MiB limit).
+- Images/videos are opened through R2's existing Eyes/vision path; video inspection is a sampled-frame observation, not full-video understanding.
 - Server status and memory count.
 - The gateway is disabled unless `R2_REMOTE_TOKEN` is configured.
 
@@ -32,6 +34,7 @@ The token is a shared bearer secret. Anyone who obtains it can access the gatewa
 
 - `GET /api/status`
 - `GET /api/conversation?limit=50` (persistent conversation turns shared with the PC shell)
+- `POST /api/upload` (raw media bytes; supported image/video/audio MIME types; 50 MiB max)
 - `POST /api/chat` with JSON `{"message":"..."}`
 - `GET /api/diary?limit=20`
 - `GET /api/life-log?limit=30`
@@ -41,7 +44,7 @@ The current gateway accepts JSON request bodies up to 2 MiB and text messages up
 
 ## Not implemented yet
 
-- Photo/video/audio uploads and media-processing pipeline.
+- Audio transcription / audio understanding pipeline (audio uploads are stored but not transcribed).
 - WebSocket push synchronization / durable shared transcript UI.
 - Live WebRTC calls, microphone streaming, speech recognition, and streaming R2 TTS.
 - Upload quotas, attachment store, and server-side media metadata.
