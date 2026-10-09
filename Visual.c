@@ -227,7 +227,7 @@ static char *call_vision_model(const char *image_base64, const char *question,
         "Analyze only the supplied image. Be concrete and evidence-based. "
         "Distinguish what is directly visible from inference and uncertainty. "
         "Do not claim motion or events from a single frame. Do not identify private people. "
-        "Return a useful description for another conversational model to reason about."
+        "Return a concise visual observation for R2's conversation to use as sensory evidence, not as a user-facing answer."
     );
     json_object *root = json_object_new_object();
     json_object *messages = json_object_new_array();
