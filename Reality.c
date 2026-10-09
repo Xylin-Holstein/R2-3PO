@@ -2166,7 +2166,7 @@ int r2_reality_money_receive(double amount)
     char wallet[1200]; money_dir_path(0,wallet,sizeof(wallet));
     pthread_mutex_lock(&reality_lock);
     int rc=money_read_locked(&cash,&bank);
-    if(rc==0&&cash<=100000000000LL-cents){
+    if(rc==0&&cash<=100000000LL-cents){
         if(money_set_dir_balance(wallet,cash+cents)!=0){
             (void)money_set_dir_balance(wallet,cash);
             rc=-1;
