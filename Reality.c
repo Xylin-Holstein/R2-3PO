@@ -169,7 +169,7 @@ static void append_factual_log_file(const char *type, const char *summary,
     int n = snprintf(directory, sizeof(directory), "%s/log", R2_ROOT);
     if (n <= 0 || (size_t)n >= sizeof(directory)) return;
     if (ensure_dir_tree(directory) != 0) {
-        fprintf(stderr, "[R2 Reality] Could not create factual log directory %s\\n", directory);
+        fprintf(stderr, "[R2 Reality] Could not create factual log directory %s\n", directory);
         return;
     }
     n = snprintf(path, sizeof(path), "%s/log.txt", directory);
@@ -177,7 +177,7 @@ static void append_factual_log_file(const char *type, const char *summary,
 
     FILE *fp = fopen(path, "a");
     if (!fp) {
-        fprintf(stderr, "[R2 Reality] Could not append factual event to %s\\n", path);
+        fprintf(stderr, "[R2 Reality] Could not append factual event to %s\n", path);
         return;
     }
     time_t now = time(NULL);
@@ -187,14 +187,14 @@ static void append_factual_log_file(const char *type, const char *summary,
         strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S %z", &local_now);
 
     /* One complete, timestamped factual event per block. */
-    fprintf(fp, "[%s] [%s] %s\\n", timestamp,
+    fprintf(fp, "[%s] [%s] %s\n", timestamp,
             type && *type ? type : "world_event",
             summary && *summary ? summary : "(no summary)");
     if (details && *details)
-        fprintf(fp, "  Details: %s\\n", details);
-    fputc('\\n', fp);
+        fprintf(fp, "  Details: %s\n", details);
+    fputc('\n', fp);
     if (fclose(fp) != 0)
-        fprintf(stderr, "[R2 Reality] Error closing factual log %s\\n", path);
+        fprintf(stderr, "[R2 Reality] Error closing factual log %s\n", path);
 }
 
 static void bridge_event(const char *type, const char *summary, const char *details,
