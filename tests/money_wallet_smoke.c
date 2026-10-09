@@ -38,6 +38,8 @@ int main(void) {
     snprintf(bank,sizeof(bank),"%s/room/piggybank",R2_ROOT);
     assert(r2_reality_init()==0);
     assert(bill_count(wallet)==5);
+    assert(r2_reality_money_receive(1000000.01)!=0); /* Every money operation has the same hard cap. */
+    assert(bill_count(wallet)==5);
     char *ctx=money_context(); assert(strstr(ctx,"carried cash=$5.00")); free(ctx);
 
     snprintf(bill,sizeof(bill),"%s/money",wallet);
