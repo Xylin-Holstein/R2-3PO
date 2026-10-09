@@ -49,7 +49,9 @@ static void publish_focus_region(json_object *focus) {
         (void)unlink(path);return;
     }
     (void)json_object_object_get_ex(focus,"label",&lv);
-    if(mkdir(dir,0700)!=0&&errno!=EEXIST)return;(void)chmod(dir,0700);
+    if (mkdir(dir, 0700) != 0 && errno != EEXIST)
+        return;
+    (void)chmod(dir, 0700);
     FILE *f=fopen(tmp,"w");if(!f)return;
     fprintf(f,"{\"x\":%.6f,\"y\":%.6f,\"width\":%.6f,\"height\":%.6f,\"label\":",x,y,w,h);
     json_object *label=json_object_new_string(lv&&json_object_is_type(lv,json_type_string)?
@@ -65,7 +67,10 @@ static char *extract_visual_description(char *text) {
     if(!strncmp(text,"```",3)){char *nl=strchr(text,'\n');if(nl){text=nl+1;char *end=strstr(text,"```");if(end)*end='\0';}}
     json_object *root=json_tokener_parse(text);
     if(!root||!json_object_is_type(root,json_type_object)){
-        if(root)json_object_put(root);publish_focus_region(NULL);return strdup(text);
+        if (root)
+            json_object_put(root);
+        publish_focus_region(NULL);
+        return strdup(text);
     }
     json_object *desc=NULL,*focus=NULL;char *out=NULL;
     if(json_object_object_get_ex(root,"description",&desc)&&json_object_is_type(desc,json_type_string)){
@@ -87,7 +92,7 @@ struct response_buffer {
 static size_t response_write(char *ptr, size_t size, size_t nmemb, void *userdata)
 {
     struct response_buffer *b = userdata;
-    if (!b || size && nmemb > SIZE_MAX / size) return 0;
+    if (!b || (size != 0 && nmemb > SIZE_MAX / size)) return 0;
     size_t amount = size * nmemb;
     if (amount > R2_VISION_MAX_RESPONSE - b->length) return 0;
     size_t needed = b->length + amount + 1;
