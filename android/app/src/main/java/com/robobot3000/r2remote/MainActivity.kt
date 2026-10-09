@@ -1,11 +1,14 @@
 package com.robobot3000.r2remote
 
 import android.os.Bundle
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.speech.tts.TextToSpeech
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -17,6 +20,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.security.crypto.EncryptedSharedPreferences
@@ -89,6 +93,7 @@ private fun R2RemoteScreen(
     saveSettings: (String, String) -> Unit,
     speak: (String) -> Unit
 ) {
+    val context = LocalContext.current
     var section by remember { mutableStateOf(Section.CHAT) }
     var serverUrl by remember { mutableStateOf(initialUrl) }
     var token by remember { mutableStateOf(initialToken) }
@@ -120,13 +125,52 @@ private fun R2RemoteScreen(
                     onSuccess(result)
                 }
             } catch (e: Exception) {
-                runOnUiThread {
+                Handler(Looper.getMainLooper()).post {
                     busy = false
                     status = "Connection failed"
                     output = e.message ?: "Could not reach R2."
                 }
             }
         }
+    }
+
+
+    fun uploadUri(uri: Uri, fallbackMime: String) {
+        val mime = context.contentResolver.getType(uri) ?: fallbackMime
+        val size = try {
+            context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
+        } catch (_: Exception) { -1L }
+        if (size <= 0L || size > 50L * 1024L * 1024L) {
+            output = "Cannot upload this file: size must be known and between 1 byte and 50 MiB."
+            return
+        }
+        runRequest({ api ->
+            val input = context.contentResolver.openInputStream(uri)
+                ?: throw IllegalStateException("Could not open selected media.")
+            input.use { api.upload(mime, it, size).toString() }
+        }) { raw ->
+            val result = JSONObject(raw)
+            val mediaType = result.optString("media_type", "media")
+            val path = result.optString("path", "")
+            val vision = result.optString("vision", "")
+            val reply = result.optString("reply", "")
+            chat = chat + ("You" to "Uploaded $mediaType: $path")
+            if (reply.isNotBlank()) {
+                chat = chat + ("R2-3PO" to reply)
+                if (autoSpeak) speak(reply)
+            }
+            output = if (reply.isNotBlank()) reply else vision
+        }
+    }
+
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) uploadUri(uri, "image/jpeg")
+    }
+    val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) uploadUri(uri, "video/mp4")
+    }
+    val audioPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) uploadUri(uri, "audio/mpeg")
     }
 
     LaunchedEffect(serverUrl, token) {
@@ -290,21 +334,31 @@ private fun R2RemoteScreen(
                 }
                 Section.MEDIA -> {
                     Text("Media & live calls", style = MaterialTheme.typography.titleLarge)
-                    Text("The remote gateway currently supports text chat and R2's existing records. Media upload processing and WebRTC calling are not wired up yet.")
+                    Text("Upload a file to R2's PC. Images and videos are passed through his existing Eyes/vision path when available; audio files are stored for future transcription support.")
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(enabled = !busy, onClick = { imagePicker.launch("image/*") }, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.Image, null); Spacer(Modifier.width(4.dp)); Text("Photo")
+                        }
+                        Button(enabled = !busy, onClick = { videoPicker.launch("video/*") }, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.VideoLibrary, null); Spacer(Modifier.width(4.dp)); Text("Video")
+                        }
+                        Button(enabled = !busy, onClick = { audioPicker.launch("audio/*") }, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.AudioFile, null); Spacer(Modifier.width(4.dp)); Text("Audio")
+                        }
+                    }
                     Card(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Image, null); Spacer(Modifier.width(8.dp))
-                                Column { Text("Photo / video / audio uploads", fontWeight = FontWeight.SemiBold); Text("Next integration step", style = MaterialTheme.typography.bodySmall) }
-                            }
-                            Divider()
-                            Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.VideoCall, null); Spacer(Modifier.width(8.dp))
-                                Column { Text("Live video call with R2", fontWeight = FontWeight.SemiBold); Text("WebRTC + speech recognition + TTS required", style = MaterialTheme.typography.bodySmall) }
+                                Column {
+                                    Text("Live video call with R2", fontWeight = FontWeight.SemiBold)
+                                    Text("Not implemented yet: WebRTC signaling, microphone streaming, speech recognition, and live TTS.", style = MaterialTheme.typography.bodySmall)
+                                }
                             }
                         }
                     }
-                    Text("TTS works now for R2's text replies using your phone's installed speech engine. This is phone-side speech playback, not a live call.")
+                    Text(output, Modifier.weight(1f).verticalScroll(rememberScrollState()))
+                    Text("TTS currently speaks R2's completed text replies on this phone; it is not a live call.")
                 }
             }
         }
