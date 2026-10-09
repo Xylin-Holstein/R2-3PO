@@ -564,6 +564,40 @@ static void fridge_restore_one(const char *food, const char *description, double
     }
     if (st) sqlite3_finalize(st);
 }
+int r2_fridge_add_item(const char *name, const char *description, int quantity,
+                       double fullness, double energy, const char *ingredients, const char *taste)
+{
+    if (!name || !*name || strlen(name) > REALITY_MAX_TEXT || !fridge_db) return -1;
+    if (quantity < 1) quantity = 1;
+    if (fullness < 0.0 || fullness > 100.0) fullness = 100.0;
+    if (energy < 0.0 || energy > 100.0) energy = 10.0;
+    pthread_mutex_lock(&fridge_lock);
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(fridge_db,
+        "INSERT INTO r2_fridge_items(name,description,quantity,fullness,energy,ingredients,taste) VALUES(?,?,?,?,?,?,?) "
+        "ON CONFLICT(name) DO UPDATE SET description=excluded.description,quantity=r2_fridge_items.quantity+excluded.quantity,"
+        "fullness=excluded.fullness,energy=excluded.energy,ingredients=excluded.ingredients,taste=excluded.taste,updated_at=CURRENT_TIMESTAMP",
+        -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        bind_text(st, 1, name); bind_text(st, 2, description ? description : "");
+        sqlite3_bind_int(st, 3, quantity); sqlite3_bind_double(st, 4, fullness); sqlite3_bind_double(st, 5, energy);
+        bind_text(st, 6, ingredients ? ingredients : ""); bind_text(st, 7, taste ? taste : "");
+        rc = sqlite3_step(st);
+    }
+    if (st) sqlite3_finalize(st);
+    if (rc == SQLITE_DONE) {
+        sqlite3_stmt *q = NULL;
+        if (sqlite3_prepare_v2(fridge_db, "SELECT quantity FROM r2_fridge_items WHERE name=? COLLATE NOCASE", -1, &q, NULL) == SQLITE_OK) {
+            bind_text(q, 1, name);
+            if (sqlite3_step(q) == SQLITE_ROW)
+                fridge_mirror_write(name, description, sqlite3_column_int(q, 0), fullness, energy);
+        }
+        if (q) sqlite3_finalize(q);
+    }
+    pthread_mutex_unlock(&fridge_lock);
+    return rc == SQLITE_DONE ? 0 : -1;
+}
+
 int r2_fridge_take(const char *food)
 {
     if (!food || !*food || !fridge_db || !r2_reality_is_initialized()) return -1;
@@ -1007,6 +1041,13 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
 {
     if(!name || !*name || strlen(name)>REALITY_MAX_TEXT || (description && strlen(description)>REALITY_MAX_TEXT)) return -1;
     if(!container || !*container) container="room";
+    if (!strcasecmp(container, "fridge")) {
+        char ingredients[1024] = {0}, taste[1024] = {0};
+        food_attributes(name, ingredients, sizeof(ingredients), taste, sizeof(taste));
+        double fullness = 100.0, energy = 10.0;
+        (void)food_metric(name, &fullness, &energy);
+        return r2_fridge_add_item(name, description, quantity, fullness, energy, ingredients, taste);
+    }
     if(quantity<1) quantity=1;
     if(!r2_reality_is_initialized()) return -1;
     char old_container[REALITY_MAX_TEXT + 1] = {0};
@@ -1067,6 +1108,45 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
 int r2_reality_move_item(const char *name,const char *container)
 {
     if(!name||!*name||!container||!*container||strlen(name)>REALITY_MAX_TEXT||strlen(container)>REALITY_MAX_TEXT||!r2_reality_is_initialized()) return -1;
+    if (!strcasecmp(container, "fridge")) {
+        char description[REALITY_MAX_TEXT + 1] = {0}, old_container[REALITY_MAX_TEXT + 1] = {0};
+        int quantity = 0;
+        pthread_mutex_lock(&reality_lock);
+        sqlite3_stmt *item = NULL;
+        if (sqlite3_prepare_v2(reality_db, "SELECT description,container,quantity FROM r2_reality_objects WHERE name=? COLLATE NOCASE", -1, &item, NULL) == SQLITE_OK) {
+            bind_text(item, 1, name);
+            if (sqlite3_step(item) == SQLITE_ROW) {
+                const unsigned char *d = sqlite3_column_text(item, 0), *c = sqlite3_column_text(item, 1);
+                if (d) snprintf(description, sizeof(description), "%s", (const char *)d);
+                if (c) snprintf(old_container, sizeof(old_container), "%s", (const char *)c);
+                quantity = sqlite3_column_int(item, 2);
+            }
+        }
+        if (item) sqlite3_finalize(item);
+        pthread_mutex_unlock(&reality_lock);
+        if (quantity < 1) return -1;
+        char ingredients[1024] = {0}, taste[1024] = {0};
+        food_attributes(name, ingredients, sizeof(ingredients), taste, sizeof(taste));
+        double fullness = 100.0, energy = 10.0;
+        (void)food_metric(name, &fullness, &energy);
+        if (r2_fridge_add_item(name, description, quantity, fullness, energy, ingredients, taste) != 0) return -1;
+        if (r2_reality_remove_item(name) != 0) {
+            pthread_mutex_lock(&fridge_lock);
+            sqlite3_stmt *rollback = NULL;
+            if (sqlite3_prepare_v2(fridge_db, "UPDATE r2_fridge_items SET quantity=quantity-?,updated_at=CURRENT_TIMESTAMP WHERE name=? COLLATE NOCASE AND quantity>?", -1, &rollback, NULL) == SQLITE_OK) {
+                sqlite3_bind_int(rollback, 1, quantity); bind_text(rollback, 2, name); sqlite3_bind_int(rollback, 3, quantity);
+                (void)sqlite3_step(rollback);
+            }
+            if (rollback) sqlite3_finalize(rollback);
+            pthread_mutex_unlock(&fridge_lock);
+            return -1;
+        }
+        char summary[512], details[1024];
+        snprintf(summary, sizeof(summary), "R2 stored %s in the fridge.", name);
+        snprintf(details, sizeof(details), "Object=%s; source container=%s; quantity=%d; destination=separate fridge database.", name, old_container, quantity);
+        bridge_event("fridge_item_stored", summary, details, 1, 0);
+        return 0;
+    }
     char old_container[REALITY_MAX_TEXT + 1] = {0};
     char old_description[REALITY_MAX_TEXT + 1] = {0};
     int old_quantity = 1;
