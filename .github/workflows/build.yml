@@ -5,9 +5,11 @@ on:
     branches:
       - main
       - fix/text-model-network-and-sensory-continuity
+      - r2-audit-fixes-2026-10-09
   pull_request:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
   compile:
@@ -21,15 +23,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential libcurl4-openssl-dev libsqlite3-dev libjson-c-dev libpulse-dev
 
-      - name: Compile R2 with the launcher flags
-        run: |
-          gcc -std=c11 -Wall -Wextra -O2 \
-            r2.c \
-            shell.c \
-            r2_diary.c \
-            Log.c \
-            Visual.c \
-            Ears.c \
-            Eyes.c \
-            -o /tmp/r2 \
-            -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
+      - name: Check launcher syntax
+        run: bash -n R2_Launch_Code.sh
+
+      - name: Compile R2 with the same sources and flags as the launcher
+        run: make clean all
