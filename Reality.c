@@ -956,13 +956,16 @@ int r2_reality_init(void)
         "CREATE INDEX IF NOT EXISTS r2_reality_objects_container_idx ON r2_reality_objects(container);"
         "CREATE TABLE IF NOT EXISTS r2_reality_ticks (id INTEGER PRIMARY KEY AUTOINCREMENT, previous_tick INTEGER NOT NULL, current_tick INTEGER NOT NULL, elapsed_seconds INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "INSERT OR IGNORE INTO r2_reality_containers(name,kind,description,parent) VALUES"
-        "('outside','environment','The area outside R2''s room',''),"
-        "('room','room','R2''s room','outside'),"
+        "('world','world','The simulated world root',''),"
+        "('outside','environment','The area outside R2''s home','world'),"
+        "('home','location','R2''s home; room and fridge are located here','world'),"
+        "('R2','person','R2 and his portable belongings','world'),"
+        "('room','room','R2''s room','home'),"
         "('shelf','surface','The shelf in R2''s room','room'),"
         "('box','container','The general storage box in R2''s room','room'),"
-        "('pockets','inventory','R2''s pockets','outside'),"
+        "('pockets','inventory','R2''s portable pockets','R2'),"
         "('wallet','inventory','R2''s wallet inside his pockets','pockets'),"
-        "('fridge','container','The fridge outside R2''s room','outside');";
+        "('fridge','container','The fridge in R2''s home','home');";
     if (exec_sql(schema) != 0) {
         sqlite3_close(reality_db); reality_db = NULL;
         pthread_mutex_unlock(&reality_lock); return -1;
@@ -994,16 +997,21 @@ int r2_reality_init(void)
     /* Upgrade existing persistent containers without resetting any inventory. */
     if (exec_sql(
         "INSERT OR IGNORE INTO r2_reality_containers(name,kind,description,parent) VALUES"
-        "('outside','environment','The area outside R2''s room',''),"
-        "('room','room','R2''s room','outside'),"
+        "('world','world','The simulated world root',''),"
+        "('outside','environment','The area outside R2''s home','world'),"
+        "('home','location','R2''s home; room and fridge are located here','world'),"
+        "('R2','person','R2 and his portable belongings','world'),"
+        "('room','room','R2''s room','home'),"
         "('shelf','surface','The shelf in R2''s room','room'),"
         "('box','container','The general storage box in R2''s room','room'),"
-        "('pockets','inventory','R2''s pockets','outside'),"
+        "('pockets','inventory','R2''s portable pockets','R2'),"
         "('wallet','inventory','R2''s wallet inside his pockets','pockets'),"
-        "('fridge','container','The fridge outside R2''s room','outside');"
+        "('fridge','container','The fridge in R2''s home','home');"
         "UPDATE r2_reality_objects SET container='box' WHERE lower(container)='toy box';"
-        "UPDATE r2_reality_containers SET parent='outside' WHERE name IN ('room','pockets','fridge');"
+        "UPDATE r2_reality_containers SET parent='world' WHERE name IN ('outside','home','R2');"
+        "UPDATE r2_reality_containers SET parent='home' WHERE name IN ('room','fridge');"
         "UPDATE r2_reality_containers SET parent='room' WHERE name IN ('shelf','box');"
+        "UPDATE r2_reality_containers SET parent='R2' WHERE name='pockets';"
         "UPDATE r2_reality_containers SET parent='pockets' WHERE name='wallet';"
         "DELETE FROM r2_reality_containers WHERE lower(name)='toy box';") != 0) {
         fprintf(stderr, "[R2 Reality] Could not normalize persistent container hierarchy.\n");
@@ -1423,10 +1431,11 @@ static void canonical_container_name(const char *input, char *out, size_t cap)
 
 static const char *container_parent_name(const char *container)
 {
-    if (!strcasecmp(container, "pockets") || !strcasecmp(container, "fridge") ||
-        !strcasecmp(container, "room") || !strcasecmp(container, "outside"))
-        return "outside";
+    if (!strcasecmp(container, "room") || !strcasecmp(container, "fridge")) return "home";
+    if (!strcasecmp(container, "pockets")) return "R2";
     if (!strcasecmp(container, "wallet")) return "pockets";
+    if (!strcasecmp(container, "home") || !strcasecmp(container, "R2")) return "world";
+    if (!strcasecmp(container, "outside") || !strcasecmp(container, "world")) return "";
     return "room";
 }
 
