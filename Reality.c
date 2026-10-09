@@ -313,6 +313,63 @@ static void update_hunger_locked(double elapsed)
     if (st) sqlite3_finalize(st);
 }
 
+
+static int legacy_table_exists(const char *name)
+{
+    sqlite3_stmt *st = NULL;
+    int found = 0;
+    if (sqlite3_prepare_v2(reality_db,
+        "SELECT 1 FROM legacy.sqlite_master WHERE type='table' AND name=?",
+        -1, &st, NULL) == SQLITE_OK) {
+        bind_text(st, 1, name);
+        found = sqlite3_step(st) == SQLITE_ROW;
+    }
+    if (st) sqlite3_finalize(st);
+    return found;
+}
+
+/* One-time, non-destructive migration from older releases where Reality
+ * tables lived inside r2_memory.db. Life Log and memory stay in that file. */
+static int migrate_legacy_reality(void)
+{
+    if (access(R2_DIARY_DATABASE, F_OK) != 0) return 0;
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_prepare_v2(reality_db, "SELECT value FROM r2_reality_meta WHERE key='legacy_reality_migrated'", -1, &st, NULL) == SQLITE_OK &&
+        sqlite3_step(st) == SQLITE_ROW) {
+        if (st) sqlite3_finalize(st);
+        return 0;
+    }
+    if (st) sqlite3_finalize(st);
+    st = NULL;
+    if (sqlite3_prepare_v2(reality_db, "ATTACH DATABASE ? AS legacy", -1, &st, NULL) != SQLITE_OK) {
+        if (st) sqlite3_finalize(st);
+        return -1;
+    }
+    bind_text(st, 1, R2_DIARY_DATABASE);
+    int rc = sqlite3_step(st);
+    if (st) sqlite3_finalize(st);
+    if (rc != SQLITE_DONE) return -1;
+
+    const char *tables[] = {
+        "r2_reality_containers", "r2_reality_meta", "r2_reality_self",
+        "r2_reality_self_facts", "r2_reality_ticks", "r2_reality_objects"
+    };
+    int result = 0;
+    for (size_t i = 0; i < sizeof(tables)/sizeof(tables[0]); ++i) {
+        if (!legacy_table_exists(tables[i])) continue;
+        char sql[512];
+        snprintf(sql, sizeof(sql), "INSERT OR IGNORE INTO main.%s SELECT * FROM legacy.%s",
+                 tables[i], tables[i]);
+        if (exec_sql(sql) != 0) { result = -1; break; }
+    }
+    if (result == 0)
+        result = exec_sql("INSERT INTO r2_reality_meta(key,value) VALUES('legacy_reality_migrated','yes') ON CONFLICT(key) DO UPDATE SET value='yes'");
+    (void)sqlite3_exec(reality_db, "DETACH DATABASE legacy", NULL, NULL, NULL);
+    if (result == 0)
+        fprintf(stderr, "[R2 Reality] Legacy world/needs state migrated into r2_reality.db; r2_memory.db remains intact.\\n");
+    return result;
+}
+
 int r2_reality_init(void)
 {
     pthread_mutex_lock(&reality_lock);
@@ -354,6 +411,11 @@ int r2_reality_init(void)
         "INSERT OR IGNORE INTO r2_reality_containers(name,kind,description,parent) VALUES"
         "('room','room','R2\'s room',''),('shelf','surface','The shelf in R2\'s room','room'),('box','container','The general storage box in R2\'s room','room'),('toy box','container','A toy storage box in R2\'s room','room'),('pockets','inventory','R2\'s pockets','self'),('wallet','inventory','R2\'s wallet','self');";
     if (exec_sql(schema) != 0) {
+        sqlite3_close(reality_db); reality_db = NULL;
+        pthread_mutex_unlock(&reality_lock); return -1;
+    }
+    if (migrate_legacy_reality() != 0) {
+        fprintf(stderr, "[R2 Reality] Legacy migration failed; refusing to discard old state.\n");
         sqlite3_close(reality_db); reality_db = NULL;
         pthread_mutex_unlock(&reality_lock); return -1;
     }
