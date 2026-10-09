@@ -1128,13 +1128,15 @@ char *r2_reality_context(void)
     char *food_experiences = query_text("SELECT food_name,printf('satisfaction %+d/2',satisfaction),notes FROM r2_food_experiences WHERE satisfaction IS NOT NULL ORDER BY eaten_at DESC LIMIT 20", NULL);
     char *foods = food_metrics_context();
     char *fridge=r2_fridge_context(); char *age=origin_age_context(); char *money=r2_reality_money_context();
-    if(!status||!room||!facts||!items_memory||!food_preferences||!food_experiences||!foods||!fridge||!age||!money){
-        free(status);free(room);free(fridge);free(facts);free(items_memory);free(food_preferences);free(food_experiences);free(foods);free(age);free(money);return NULL;}
-    size_t n=strlen(status)+strlen(room)+strlen(fridge)+strlen(facts)+strlen(items_memory)+strlen(food_preferences)+strlen(food_experiences)+strlen(foods)+strlen(age)+strlen(money)+6000;
+    char *recent_log=r2_log_recent(8);
+    if(!recent_log) recent_log=strdup("Recent Life Log evidence is unavailable.");
+    if(!status||!room||!facts||!items_memory||!food_preferences||!food_experiences||!foods||!fridge||!age||!money||!recent_log){
+        free(status);free(room);free(fridge);free(facts);free(items_memory);free(food_preferences);free(food_experiences);free(foods);free(age);free(money);free(recent_log);return NULL;}
+    size_t n=strlen(status)+strlen(room)+strlen(fridge)+strlen(facts)+strlen(items_memory)+strlen(food_preferences)+strlen(food_experiences)+strlen(foods)+strlen(age)+strlen(money)+strlen(recent_log)+6000;
     char *out=malloc(n);
     if(out)snprintf(out,n,
         "PERSISTENT REALITY CONTEXT (authoritative database state; do not invent changes):\n"
-        "%s\n%s\n%s\n%s\n%s\nSELF-CONTINUITY FACTS:\n%s\nCOLLECTION MEMORIES (precision intentionally fades; not current inventory):\n%s\nLEARNED FOOD/INGREDIENT PREFERENCES (subjective scores):\n%s\nRECENT RATED FOOD EXPERIENCES:\n%s\nAVAILABLE FOOD METRICS:\n%s\n"
+        "%s\n%s\n%s\n%s\n%s\nRECENT LIFE LOG EVIDENCE (events and observations; not automatically current):\n%s\nSELF-CONTINUITY FACTS:\n%s\nCOLLECTION MEMORIES (precision intentionally fades; not current inventory):\n%s\nLEARNED FOOD/INGREDIENT PREFERENCES (subjective scores):\n%s\nRECENT RATED FOOD EXPERIENCES:\n%s\nAVAILABLE FOOD METRICS:\n%s\n"
         "WORLD ACTIONS: Put one action on its own line. Use [WORLD] look to inspect the room; "
         "[WORLD] add|name|description|container|quantity to collect/add a stack (adds to an existing stack and records a collection memory); "
         "[WORLD] move|name|container to relocate an existing item without counting a new collection; [WORLD] remove|name to remove it; "
@@ -1149,12 +1151,13 @@ char *r2_reality_context(void)
         "Containers: room, shelf, box, toy box, pockets, wallet; named containers can be created by moving an item to a new container name. "
         "Food fullness points are modeled values, not measured biological facts. Sleep advances hunger and world time. "
         "Dreams are stored as simulated reports, not waking facts. Ask before moving or deleting a user's important item. "
-        "CHOICE LAB: Consider any option, action, object, or decision; there is no fixed choice list. Compare alternatives using current needs, memories, self-facts, and learned preferences. "
-        "SENSORY COUNTERFACTUALS: Imagine what a hypothetical view, sound, taste, smell, or touch might reveal without activating Eyes/Ears, changing the world, or claiming an actual sensation. Label imagined details as predictions. Ask 'what if I looked over there?' or 'would I still like X if I knew Y?' Use prior sensory observations and food/ingredient/taste metrics; distinguish evidence from guesses and update preferences only after real experience or explicit feedback. "
-        "MONEY: cash is carried money; bank is stored in room/piggybank/. When the user explicitly says R2 receives money, use [WORLD] money_receive|amount; use [WORLD] money_deposit|amount, [WORLD] money_withdraw|amount, or [WORLD] buy|item|price|description|container. No stock, starting funds, or prices are hardcoded. "
+        "CHOICE LAB: Consider any possible option, action, object, or decision; there is no fixed menu. Compare alternatives using needs, memories, self-facts, preferences, and available evidence. "
+        "ALTERNATE-SELF LAB: [ALTERNATE_LIST] lists stored what-if branches; [ALTERNATE_SHOW] id inspects one; [ALTERNATE_COMPARE] id id compares two. Explicitly labeled what-if thoughts, including sensory counterfactuals, may be saved as hypotheses. Never promote predicted outcomes into real memories; retained hypotheses are still hypotheses. "
+        "SENSORY COUNTERFACTUALS: Imagine what a hypothetical view, sound, taste, smell, or touch might reveal without activating Eyes/Ears, changing the world, or claiming an actual sensation. Label imagined details as predictions. Ask 'what if I looked over here?' or 'would I still like X if I knew Y?' Use recent Life Log observations, learned preferences, and food/ingredient/taste metrics; distinguish evidence from guesses and update preferences only after real experience or explicit feedback. "
+        "MONEY: cash is carried money; bank is stored in room/piggybank/. When the user explicitly says R2 receives money, use [WORLD] money_receive|amount; use [WORLD] money_deposit|amount, [WORLD] money_withdraw|amount, or [WORLD] buy|item|price|description|container. A purchase goes to the named destination; use pockets for goods to carry to the fridge, and room for furniture placed in the room. No stock, starting funds, or prices are hardcoded. "
         "Do not claim an action succeeded unless the action result confirms it.",
-        status, room, fridge, age, money, facts, items_memory, food_preferences, food_experiences, foods);
-    free(status); free(room); free(fridge); free(facts); free(items_memory); free(food_preferences); free(food_experiences); free(foods); free(age); free(money);
+        status, room, fridge, age, money, recent_log, facts, items_memory, food_preferences, food_experiences, foods);
+    free(status); free(room); free(fridge); free(facts); free(items_memory); free(food_preferences); free(food_experiences); free(foods); free(age); free(money); free(recent_log);
     return out;
 }
 
@@ -1669,7 +1672,7 @@ int r2_reality_buy_item(const char *name,const char *description,double price,co
         if(sqlite3_prepare_v2(reality_db,"UPDATE r2_money_account SET cash_cents=cash_cents-?,bank_cents=bank_cents-?,updated_at=CURRENT_TIMESTAMP WHERE id=1",-1,&st,NULL)!=SQLITE_OK)rc=-1;
         else{sqlite3_bind_int64(st,1,pc);sqlite3_bind_int64(st,2,pb);rc=sqlite3_step(st)==SQLITE_DONE?0:-1;}if(st)sqlite3_finalize(st);if(rc==0){cash-=pc;bank-=pb;}}
     pthread_mutex_unlock(&reality_lock);if(rc!=0)return -1;
-    if(r2_reality_add_item(name,description?description:"Purchased item",container&&*container?container:"room",1)!=0){
+    if(r2_reality_add_item(name,description?description:"Purchased item",container&&*container?container:"pockets",1)!=0){
         pthread_mutex_lock(&reality_lock);sqlite3_stmt *st=NULL;
         if(sqlite3_prepare_v2(reality_db,"UPDATE r2_money_account SET cash_cents=cash_cents+?,bank_cents=bank_cents+?,updated_at=CURRENT_TIMESTAMP WHERE id=1",-1,&st,NULL)==SQLITE_OK){sqlite3_bind_int64(st,1,pc);sqlite3_bind_int64(st,2,pb);(void)sqlite3_step(st);}if(st)sqlite3_finalize(st);
         (void)money_read_locked(&cash,&bank);pthread_mutex_unlock(&reality_lock);money_mirror_write(cash,bank);return -1;}
