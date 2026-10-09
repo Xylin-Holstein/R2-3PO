@@ -792,10 +792,10 @@ static int r2_diary_link_entry(int64_t entry_id, const char *created_at)
     /* Recover an event created just before a prior shutdown, avoiding a
        duplicate Life Log event when the durable link update was interrupted. */
     if (event_id <= 0) {
-        snprintf(pattern, sizeof(pattern), "diary_entry_id=%" PRId64 ";%%", entry_id);
+        snprintf(pattern, sizeof(pattern), "diary_entry_id=%" PRId64 ";*", entry_id);
         rc = sqlite3_prepare_v2(r2_diary_db,
             "SELECT id FROM r2_log_events WHERE event_type='diary_entry_linked' "
-            "AND details LIKE ? ORDER BY id DESC LIMIT 1;", -1, &st, NULL);
+            "AND details GLOB ? ORDER BY id DESC LIMIT 1;", -1, &st, NULL);
         if (rc == SQLITE_OK) {
             sqlite3_bind_text(st, 1, pattern, -1, SQLITE_TRANSIENT);
             if (sqlite3_step(st) == SQLITE_ROW)
