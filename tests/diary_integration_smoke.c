@@ -188,10 +188,35 @@ static int scalar_int(const char *sql)
     return value;
 }
 
+static int create_legacy_reward_db(void)
+{
+    sqlite3 *db = NULL;
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/r2_rewards.db", R2_HOME);
+    if (sqlite3_open(path, &db) != SQLITE_OK) {
+        if (db) sqlite3_close(db);
+        return -1;
+    }
+    const char *legacy_schema =
+        "CREATE TABLE reward_totals (id INTEGER PRIMARY KEY CHECK(id=1),"
+        " points INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL);"
+        "CREATE TABLE reward_events ("
+        " id INTEGER PRIMARY KEY AUTOINCREMENT, target TEXT NOT NULL,"
+        " source TEXT NOT NULL, points INTEGER NOT NULL CHECK(points BETWEEN -7 AND 5 AND points<>0),"
+        " reason TEXT NOT NULL, occurred_at INTEGER NOT NULL, modifier INTEGER NOT NULL,"
+        " expires_at INTEGER NOT NULL);"
+        "CREATE INDEX reward_events_target_time ON reward_events(target,occurred_at);";
+    int rc = sqlite3_exec(db, legacy_schema, NULL, NULL, NULL);
+    sqlite3_close(db);
+    return rc == SQLITE_OK ? 0 : -1;
+}
+
 int main(void)
 {
     char *context;
     assert(r2_diary_init() == 0);
+    /* Simulate a ledger created before reward-to-Life-Log columns existed. */
+    assert(create_legacy_reward_db() == 0);
 
     /* This entry is written before the Life Log starts; it must remain
        intact and be linked later rather than being dropped or rewritten. */
