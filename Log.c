@@ -256,6 +256,77 @@ static int ensure_tables(void)
         " recorded_utc TEXT NOT NULL,"
         " FOREIGN KEY(first_event_id) REFERENCES r2_log_events(id)"
         ");"
+
+        "CREATE TABLE IF NOT EXISTS r2_log_conversations ("
+        " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        " event_id INTEGER NOT NULL UNIQUE,"
+        " user_text TEXT NOT NULL,"
+        " assistant_text TEXT NOT NULL,"
+        " FOREIGN KEY(event_id) REFERENCES r2_log_events(id)"
+        ");"
+        "CREATE TABLE IF NOT EXISTS r2_log_inner_states ("
+        " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        " event_id INTEGER NOT NULL,"
+        " state_kind TEXT NOT NULL,"
+        " description TEXT NOT NULL,"
+        " evidence TEXT,"
+        " confidence REAL,"
+        " origin TEXT,"
+        " FOREIGN KEY(event_id) REFERENCES r2_log_events(id)"
+        ");"
+        "CREATE INDEX IF NOT EXISTS r2_log_inner_states_kind_idx "
+        "ON r2_log_inner_states(state_kind, id);"
+        "CREATE TABLE IF NOT EXISTS r2_log_beliefs ("
+        " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        " belief_key TEXT NOT NULL UNIQUE,"
+        " belief TEXT NOT NULL,"
+        " evidence TEXT,"
+        " confidence REAL,"
+        " status TEXT NOT NULL,"
+        " origin TEXT,"
+        " first_seen_utc TEXT NOT NULL,"
+        " last_updated_utc TEXT NOT NULL,"
+        " last_event_id INTEGER NOT NULL,"
+        " FOREIGN KEY(last_event_id) REFERENCES r2_log_events(id)"
+        ");"
+        "CREATE TABLE IF NOT EXISTS r2_log_continuity ("
+        " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        " item_key TEXT NOT NULL UNIQUE,"
+        " item_type TEXT NOT NULL,"
+        " title TEXT NOT NULL,"
+        " description TEXT,"
+        " status TEXT NOT NULL,"
+        " next_action TEXT,"
+        " origin TEXT,"
+        " first_seen_utc TEXT NOT NULL,"
+        " last_updated_utc TEXT NOT NULL,"
+        " completed_utc TEXT,"
+        " last_event_id INTEGER NOT NULL,"
+        " FOREIGN KEY(last_event_id) REFERENCES r2_log_events(id)"
+        ");"
+        "CREATE INDEX IF NOT EXISTS r2_log_continuity_status_idx "
+        "ON r2_log_continuity(status, item_type);"
+        "CREATE TABLE IF NOT EXISTS r2_log_links ("
+        " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        " from_event_id INTEGER NOT NULL,"
+        " to_event_id INTEGER NOT NULL,"
+        " relationship TEXT NOT NULL,"
+        " notes TEXT,"
+        " created_utc TEXT NOT NULL,"
+        " UNIQUE(from_event_id, to_event_id, relationship),"
+        " FOREIGN KEY(from_event_id) REFERENCES r2_log_events(id),"
+        " FOREIGN KEY(to_event_id) REFERENCES r2_log_events(id)"
+        ");"
+        "CREATE TABLE IF NOT EXISTS r2_log_hypotheticals ("
+        " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        " event_id INTEGER NOT NULL UNIQUE,"
+        " scenario TEXT NOT NULL,"
+        " assumptions TEXT,"
+        " predicted_outcome TEXT,"
+        " conclusion TEXT,"
+        " origin TEXT,"
+        " FOREIGN KEY(event_id) REFERENCES r2_log_events(id)"
+        ");"
         "CREATE TABLE IF NOT EXISTS r2_log_system_snapshots ("
         " id INTEGER PRIMARY KEY AUTOINCREMENT,"
         " event_id INTEGER NOT NULL,"
@@ -648,14 +719,30 @@ int64_t r2_log_milestone(
         return -1;
 
     /*
-     * A milestone event is inserted only for the first successful
-     * occurrence of its key. Reboots cannot overwrite the first.
+     * Check before creating the event: repeat boots must not create
+     * duplicate "first" milestones.
      */
+    pthread_mutex_lock(&log_lock);
+    if (!log_initialized || !log_db) {
+        pthread_mutex_unlock(&log_lock);
+        return -1;
+    }
+    int exists = 0;
+    if (sqlite3_prepare_v2(log_db,
+            "SELECT 1 FROM r2_log_milestones WHERE milestone_key=?;",
+            -1, &statement, NULL) == SQLITE_OK) {
+        sqlite3_bind_text(statement, 1, milestone_key, -1, SQLITE_TRANSIENT);
+        exists = sqlite3_step(statement) == SQLITE_ROW;
+    }
+    sqlite3_finalize(statement);
+    pthread_mutex_unlock(&log_lock);
+    if (exists)
+        return 0;
+
     event_id = r2_log_event(
         R2_LOG_MILESTONE, "milestone",
         description, details, milestone_key
     );
-
     if (event_id < 0)
         return -1;
 
