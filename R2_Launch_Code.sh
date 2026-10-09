@@ -264,6 +264,9 @@ echo "Compilation successful."
 echo "Executable updated:"
 echo "    $R2_EXEC"
 echo
+echo "Default vision model: qwen2.5vl:3b"
+echo "If it is not installed, run: ollama pull qwen2.5vl:3b"
+echo
 echo "Modules compiled:"
 echo "    r2.c"
 echo "    shell.c"
@@ -289,6 +292,7 @@ sudo -u r2 \
     LD_PRELOAD="$FAKETIME_LIB" \
     FAKETIME="${FAKETIME_OFFSET}" \
     FAKETIME_DONT_RESET=1 \
+    R2_VISION_MODEL="${R2_VISION_MODEL:-qwen2.5vl:3b}" \
     "$R2_EXEC"
 
 status=$?
