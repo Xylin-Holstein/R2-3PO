@@ -60,6 +60,24 @@ int main(void) {
     snprintf(migrated,sizeof(migrated),"%s/cash.txt",legacy_wallet);
     lf=fopen(migrated,"w"); assert(lf); fputs("cash=999.00\n",lf); fclose(lf);
     assert(r2_reality_init()==0);
+    /* The CRT is persistent room furnishing; Reality, not the GUI, owns its state. */
+    char *room_items=r2_reality_list("room");
+    assert(room_items && strstr(room_items,"TV"));
+    free(room_items);
+    char *tv_state=r2_reality_tv_status();
+    assert(tv_state && strstr(tv_state,"CRT TV: OFF") && strstr(tv_state,"NO SIGNAL"));
+    free(tv_state);
+    assert(r2_reality_tv_power(1)==0);
+    assert(r2_reality_tv_connect("Atari 2600","rf",3)==0);
+    assert(r2_reality_tv_tune_rf(3)==0);
+    tv_state=r2_reality_tv_status();
+    assert(tv_state && strstr(tv_state,"Atari 2600") && strstr(tv_state,"signal: available"));
+    free(tv_state);
+    assert(r2_reality_tv_disconnect("Atari 2600")==0);
+    tv_state=r2_reality_tv_status();
+    assert(tv_state && strstr(tv_state,"NO SIGNAL"));
+    free(tv_state);
+    assert(r2_reality_tv_power(0)==0);
     assert(access(migrated,F_OK)!=0); /* The old cash.txt was only a stale derived summary. */
     assert(access(legacy,F_OK)!=0); /* Empty duplicate lowercase pocket folders are removed. */
     snprintf(migrated,sizeof(migrated),"%s/Pockets/legacy_item.r2item",R2_ROOT);
@@ -111,6 +129,6 @@ int main(void) {
     assert(unlink(bill)==0);
     ctx=money_context(); assert(strstr(ctx,"total=$0.00")); free(ctx);
     r2_reality_shutdown();
-    puts("Physical money wallet smoke test passed.");
+    puts("Physical money wallet and CRT TV Reality smoke tests passed.");
     return 0;
 }
