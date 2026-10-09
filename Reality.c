@@ -449,7 +449,7 @@ char *r2_reality_context(void)
     char *out=malloc(n);
     if(out) snprintf(out,n,
         "PERSISTENT REALITY CONTEXT (authoritative database state; do not invent changes):\n%s\n%s\n"
-        "WORLD ACTIONS: Use [WORLD] look to inspect the room; [WORLD] add|name|description|container|quantity to create an item; [WORLD] move|name|container to move it; [WORLD] remove|name to remove it; [WORLD] eat|food|fullness_points to update hunger; [WORLD] sleep|hours to advance sleep recovery; [WORLD] dream|description to record a reported dream; [WORLD] self|key|value|evidence to record a self-state fact. Containers: room, shelf, box, pockets, wallet; named containers can be created by moving an item to a new container name. Food fullness points are modeled values, not measured biological facts. Sleep still advances hunger and elapsed need state. Dreams are stored as reports, not independently verified facts. Ask before moving or deleting a user's important item. Do not claim an action succeeded unless the action result confirms it.",
+        "WORLD ACTIONS: Use [WORLD] look to inspect the room; [WORLD] add|name|description|container|quantity to create an item; [WORLD] move|name|container to move it; [WORLD] remove|name to remove it; [WORLD] eat|food|fullness_points (or auto for XML) to update hunger; [WORLD] sleep|hours to advance sleep recovery; [WORLD] dream|description to record a reported dream; [WORLD] self|key|value|evidence to record a self-state fact. Containers: room, shelf, box, pockets, wallet; named containers can be created by moving an item to a new container name. Food fullness points are modeled values, not measured biological facts. Sleep still advances hunger and elapsed need state. Dreams are stored as reports, not independently verified facts. Ask before moving or deleting a user's important item. Do not claim an action succeeded unless the action result confirms it.",
         status,room);
     free(status); free(room);
     return out;
@@ -561,7 +561,11 @@ int r2_reality_remove_item(const char *name)
 int r2_reality_eat(const char *food, double fullness)
 {
     if (!food || !*food || !r2_reality_is_initialized()) return -1;
-    double energy_bonus = fullness >= 0.0 ? fullness * 0.1 : 0.0;
+    double energy_bonus = 0.0;
+    if (fullness >= 0.0) {
+        if (fullness > 100.0) fullness = 100.0;
+        energy_bonus = fullness * 0.1;
+    }
     if (fullness < 0.0) {
         if (food_metric(food, &fullness, &energy_bonus) != 0) {
             fprintf(stderr, "[R2 Reality] No food metric found for '%s' in room/food_metrics.xml.\n", food);
@@ -616,7 +620,7 @@ int r2_reality_eat(const char *food, double fullness)
                 bind_text(st, 1, food);
                 rc = sqlite3_step(st);
                 consumed_tracked_item = (rc == SQLITE_DONE);
-            }
+            } else rc = SQLITE_ERROR;
         } else {
             if (sqlite3_prepare_v2(reality_db,
                 "DELETE FROM r2_reality_objects WHERE name=? COLLATE NOCASE",
@@ -624,7 +628,7 @@ int r2_reality_eat(const char *food, double fullness)
                 bind_text(st, 1, food);
                 rc = sqlite3_step(st);
                 consumed_tracked_item = (rc == SQLITE_DONE);
-            }
+            } else rc = SQLITE_ERROR;
         }
     }
     if (st) sqlite3_finalize(st);
