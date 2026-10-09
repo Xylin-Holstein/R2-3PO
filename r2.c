@@ -14,7 +14,10 @@
 
 #define DEFAULT_MODEL "llama3"
 #define DEFAULT_NUM_CTX 8192L
-#define MAX_CHAT_HISTORY_MESSAGES 48
+#define MAX_CHAT_HISTORY_MESSAGES 24
+#define MAX_ARCHIVED_CONTEXT_CHARS 8000
+#define MAX_STARTUP_MEMORY_CHARS 10000
+#define MAX_RETRIEVED_MEMORY_CHARS 8000
 
 static const char *r2_chat_model(void)
 {
@@ -2509,7 +2512,7 @@ static size_t curl_write(void *ptr, size_t size, size_t nmemb, void *userdata)
     Buffer *b = userdata;
     if (!b || (size && nmemb > SIZE_MAX / size)) return 0;
     size_t add = size * nmemb;
-    if (b->size > SIZE_MAX - add - 1) return 0;
+    if (add >= SIZE_MAX || b->size > SIZE_MAX - add - 1) return 0;
     char *p = realloc(b->data, b->size + add + 1);
     if (!p) return 0;
     b->data = p;
@@ -2872,6 +2875,14 @@ static char *chat_with_relevant_memories(
 
     if (!memory_context)
         memory_context = xstrdup("");
+
+    if (memory_context && strlen(memory_context) > MAX_RETRIEVED_MEMORY_CHARS) {
+        memory_context[MAX_RETRIEVED_MEMORY_CHARS] = '\\0';
+        fprintf(stderr,
+                "[R2 memory] Retrieved memory context capped at %d characters "
+                "to protect the Ollama context window.\\n",
+                MAX_RETRIEVED_MEMORY_CHARS);
+    }
 
     /*
        Conversation continuity: the Life Log retains complete historical
@@ -6148,6 +6159,14 @@ int r2_init(void)
         original &&
         *original
     ) {
+        size_t original_length = strlen(original);
+        if (original_length > MAX_ARCHIVED_CONTEXT_CHARS) {
+            original[MAX_ARCHIVED_CONTEXT_CHARS] = '\\0';
+            fprintf(stderr,
+                    "[R2 memory] Archived conversation context capped at %d characters; "
+                    "dynamic retrieval remains available.\\n",
+                    MAX_ARCHIVED_CONTEXT_CHARS);
+        }
 
         size_t n =
             strlen(original) +
@@ -6248,6 +6267,15 @@ int r2_init(void)
                 "(Persistent memory database could not be "
                 "loaded into startup context.)\n"
             );
+    }
+
+    size_t startup_memory_length = strlen(startup_memories);
+    if (startup_memory_length > MAX_STARTUP_MEMORY_CHARS) {
+        startup_memories[MAX_STARTUP_MEMORY_CHARS] = '\\0';
+        fprintf(stderr,
+                "[R2 memory] Startup memory context capped at %d characters; "
+                "dynamic retrieval remains available.\\n",
+                MAX_STARTUP_MEMORY_CHARS);
     }
 
     size_t startup_context_size =
