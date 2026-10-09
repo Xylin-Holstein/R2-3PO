@@ -90,6 +90,7 @@
 #include "Eyes.h"
 #include "Ears.h"
 #include "Log.h"
+#include "Reality.h"
 #include "Visual.h"
 
 
@@ -4775,6 +4776,54 @@ static char *process_tools(
         }
     }
 
+    /* Persistent room, object, inventory and self-continuity actions.
+       Format: [WORLD] action|field1|field2|field3|field4 */
+    pos = 0;
+    while (1) {
+        char *request = extract_marker(reply, "[WORLD]", "\n", &pos);
+        if (!request) break;
+        char *fields[5] = {0};
+        char *saveptr = NULL;
+        int nf = 0;
+        for (char *part = strtok_r(request, "|", &saveptr);
+             part && nf < 5;
+             part = strtok_r(NULL, "|", &saveptr)) {
+            while (*part && isspace((unsigned char)*part)) part++;
+            char *end = part + strlen(part);
+            while (end > part && isspace((unsigned char)end[-1])) *--end = '\0';
+            fields[nf++] = part;
+        }
+        if (nf > 0 && !strcasecmp(fields[0], "look")) {
+            char *view = r2_reality_room_look();
+            APPEND("REAL WORLD RESULT:\\n%s\\n", view ? view : "Could not read room state.");
+            free(view);
+        } else if (nf >= 4 && !strcasecmp(fields[0], "add")) {
+            int qty = nf >= 5 ? atoi(fields[4]) : 1;
+            int rc = r2_reality_add_item(fields[1], fields[2], fields[3], qty);
+            APPEND("REAL WORLD %s: item '%s' %s.\\n",
+                   rc == 0 ? "RESULT" : "ERROR", fields[1],
+                   rc == 0 ? "was persisted in the requested container" : "could not be saved");
+        } else if (nf >= 3 && !strcasecmp(fields[0], "move")) {
+            int rc = r2_reality_move_item(fields[1], fields[2]);
+            APPEND("REAL WORLD %s: item '%s' %s.\\n",
+                   rc == 0 ? "RESULT" : "ERROR", fields[1],
+                   rc == 0 ? "was moved to the requested container" : "could not be moved (item may not exist)");
+        } else if (nf >= 2 && !strcasecmp(fields[0], "remove")) {
+            int rc = r2_reality_remove_item(fields[1]);
+            APPEND("REAL WORLD %s: item '%s' %s.\\n",
+                   rc == 0 ? "RESULT" : "ERROR", fields[1],
+                   rc == 0 ? "was removed from the tracked world" : "could not be removed (item may not exist)");
+        } else if (nf >= 3 && !strcasecmp(fields[0], "self")) {
+            int rc = r2_reality_set_self(fields[1], fields[2], nf >= 4 ? fields[3] : "R2 self-report");
+            APPEND("REAL SELF-CONTINUITY %s: '%s' %s.\\n",
+                   rc == 0 ? "RESULT" : "ERROR", fields[1],
+                   rc == 0 ? "was saved" : "could not be saved");
+        } else {
+            APPEND("REAL WORLD ERROR: malformed or unsupported [WORLD] action.\\n");
+        }
+        free(request);
+    }
+
     m =
         strstr(
             reply,
@@ -6095,6 +6144,21 @@ static char *r2_talk_impl(const char *message)
 
     handle_completed_messages();
 
+    /* Give every turn the latest canonical self/world state. This is a view
+       over Reality.c, not a second copy of the world database. */
+    if (r2_reality_is_initialized()) {
+        r2_reality_tick();
+        char *reality_context = r2_reality_context();
+        if (reality_context) {
+            pthread_mutex_lock(&messages_lock);
+            int context_rc = message_add("system", reality_context);
+            pthread_mutex_unlock(&messages_lock);
+            free(reality_context);
+            if (context_rc != 0)
+                fprintf(stderr, "[R2 Reality] Could not add current reality context.\n");
+        }
+    }
+
     pthread_mutex_lock(&messages_lock);
 
     if (message_add("user", message) != 0) {
@@ -6363,6 +6427,19 @@ int r2_init(void)
         sqlite3_close(db);
         db = NULL;
         die("could not initialize R2 Life Log");
+    }
+
+    if (r2_reality_init() != 0) {
+        r2_log_event(R2_LOG_ERROR, "reality_init_failed",
+                     "R2 persistent reality engine could not initialize.",
+                     "Core startup stopped because self/world continuity could not be made available.",
+                     "r2_init");
+        r2_log_shutdown();
+        r2_diary_shutdown();
+        diary_initialized = 0;
+        sqlite3_close(db);
+        db = NULL;
+        die("could not initialize R2 reality engine");
     }
 
     if (r2_eyes_init(&eyes) != 0) {
@@ -6812,6 +6889,9 @@ void r2_shutdown(void)
     }
 
     r2_visual_shutdown();
+
+    /* Close the reality engine before the shared Life Log/diary/core DB. */
+    r2_reality_shutdown();
 
     if (r2_log_is_initialized()) {
         r2_log_session_end("normal shutdown");
