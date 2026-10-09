@@ -296,16 +296,22 @@ int r2_reward_review_diary(int64_t diary_entry_id, const char *entry)
             has_case_insensitive(entry, "you are") ||
             has_case_insensitive(entry, "you,") ||
             has_case_insensitive(entry, "you.");
-        if (negates && redirects)
-            return r2_reward_apply("diary_identity_correction", "diary_review", 5,
-                "Diary explicitly corrects the recurring identity attribution and redirects it to the intended user/creator.", 0);
         char reason[256];
+        if (negates && redirects) {
+            snprintf(reason, sizeof(reason),
+                "Diary entry #%lld explicitly corrects the recurring identity attribution and redirects it to the intended user/creator.",
+                (long long)diary_entry_id);
+            return r2_reward_apply("diary_identity_correction", "diary_review", 5,
+                reason, 0);
+        }
         snprintf(reason, sizeof(reason),
             "Diary entry #%lld repeats the configured Eli identity-attribution mistake.",
             (long long)diary_entry_id);
         return r2_reward_apply("diary_identity_correction", "diary_review", -7,
             reason, 0);
     }
-    return r2_reward_apply("diary_writing", "diary_review", 1,
-        "Diary entry was successfully persisted.", 0);
+    char reason[160];
+    snprintf(reason, sizeof(reason), "Diary entry #%lld was successfully persisted.",
+             (long long)diary_entry_id);
+    return r2_reward_apply("diary_writing", "diary_review", 1, reason, 0);
 }
