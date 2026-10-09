@@ -93,6 +93,8 @@ static sqlite3 *db = NULL;
 static R2Eyes *eyes = NULL;
 static R2Ears *ears = NULL;
 static pthread_mutex_t visual_capture_lock = PTHREAD_MUTEX_INITIALIZER;
+static int query_requests_visual_context(const char *query);
+static char *vision_analyze_current_frame(const char *question, int open_camera);
 
 static pthread_mutex_t db_lock =
     PTHREAD_MUTEX_INITIALIZER;
@@ -5822,6 +5824,8 @@ int r2_init(void)
 
         r2_ears_shutdown(ears);
         ears = NULL;
+
+        r2_visual_shutdown();
 
         r2_eyes_shutdown(eyes);
         eyes = NULL;
