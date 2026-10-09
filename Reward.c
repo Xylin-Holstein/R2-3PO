@@ -444,7 +444,7 @@ int r2_reward_reconnect_history(int limit)
     free(pending);
     if (failed > 0) {
         fprintf(stderr,
-                "[R2 Reward] Reconciliation left %d event%s pending for retry.\\n",
+                "[R2 Reward] Reconciliation left %d event%s pending for retry.\n",
                 failed, failed == 1 ? "" : "s");
         return -1;
     }
