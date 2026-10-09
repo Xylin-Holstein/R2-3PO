@@ -219,6 +219,14 @@ static void shell_help(void)
         "      Eat directly from fridge stock without carrying the food.\n"
         "  fridge store <food>\n"
         "      Move a tracked item from R2's inventory into the separate fridge database.\n"
+        "  money\n"
+        "      Show carried cash, bank balance, and total funds.\n"
+        "  money deposit <amount>\n"
+        "      Move carried cash into room/piggybank/.\n"
+        "  money withdraw <amount>\n"
+        "      Move bank funds into carried cash.\n"
+        "  money buy <item> | <price> | <description> | <container>\n"
+        "      Purchase a user-specified item; no shop inventory or prices are hardcoded.\n"
         "  world status\n"
         "      Show persistent needs and self-continuity state.\n"
         "\n"        "  eat <food> [| <fullness 0-100>]\n"
@@ -1240,6 +1248,18 @@ static int shell_fridge(const char *argument)
     return 1;
 }
 
+static int shell_money(const char *arg)
+{
+    if(!arg||!*arg||!strcasecmp(arg,"status")){char *s=r2_reality_money_context();printf("%s\n",s?s:"[R2 Money] Unavailable.");free(s);return 1;}
+    if(shell_starts_with(arg,"deposit ")){double a=atof(arg+8);int rc=r2_reality_money_deposit(a);printf(rc==0?"Deposited $%.2f into piggybank.\n":"Deposit failed; check cash.\n",a);return 1;}
+    if(shell_starts_with(arg,"withdraw ")){double a=atof(arg+9);int rc=r2_reality_money_withdraw(a);printf(rc==0?"Withdrew $%.2f into cash.\n":"Withdrawal failed; check bank balance.\n",a);return 1;}
+    if(shell_starts_with(arg,"buy ")){char *copy=strdup(arg+4);if(!copy)return 1;char *p[4]={0};int n=0;char *save=NULL;
+        for(char *t=strtok_r(copy,"|",&save);t&&n<4;t=strtok_r(NULL,"|",&save))p[n++]=shell_trim(t);
+        if(n<2||!*p[0]||!*p[1])printf("Usage: money buy <item> | <price> | <description> | <container>\n");
+        else{double price=atof(p[1]);int rc=r2_reality_buy_item(p[0],n>=3&&*p[2]?p[2]:"Purchased item",price,n>=4&&*p[3]?p[3]:"room");printf(rc==0?"Purchased %s for $%.2f.\n":"Purchase failed; check funds and destination.\n",p[0],price);}free(copy);return 1;}
+    printf("Usage: money [status|deposit <amount>|withdraw <amount>|buy <item> | <price> | <description> | <container>]\n");return 1;
+}
+
 static int shell_needs(const char *command)
 {
     if (shell_starts_with(command, "eat ")) {
@@ -1424,6 +1444,7 @@ static int shell_dispatch(char *input)
         shell_fridge(shell_starts_with(command, "fridge ") ? shell_trim(command + 7) : NULL);
         return 1;
     }
+    if(!strcasecmp(command,"money")||shell_starts_with(command,"money ")){shell_money(shell_starts_with(command,"money ")?shell_trim(command+6):NULL);return 1;}
     if (!strcasecmp(command, "world status")) {
         shell_reality("status");
         return 1;
