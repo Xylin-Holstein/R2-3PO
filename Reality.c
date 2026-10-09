@@ -308,6 +308,8 @@ static int make_room_dirs(void)
         fprintf(stderr, "[R2 Reality] Could not migrate one or more old mirror directories.\n");
         return -1;
     }
+    /* Remove the obsolete lowercase parent only if it is now empty. */
+    (void)rmdir(old_pockets);
     char food_xml[1200];
     snprintf(food_xml, sizeof(food_xml), "%s/food_metrics.xml", room);
     if (access(food_xml, F_OK) != 0) {
