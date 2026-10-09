@@ -416,11 +416,17 @@ char *r2_visual_analyze_frame(const R2VisionFrame *frame,
     if (!description) { free(jpeg); return NULL; }
 
     char image_path[PATH_MAX];
-    int path_length = snprintf(image_path, sizeof(image_path),
-             "%s/visual_%llu_%llu.jpg", directory_snapshot,
+    char filename[128];
+    int filename_length = snprintf(filename, sizeof(filename),
+             "visual_%llu_%llu.jpg",
              (unsigned long long)frame->timestamp,
              (unsigned long long)frame->frame_number);
-    if (path_length < 0 || (size_t)path_length >= sizeof(image_path)) {
+    size_t directory_length = strlen(directory_snapshot);
+    size_t separator_length =
+        directory_length > 0 && directory_snapshot[directory_length - 1] == '/' ? 0 : 1;
+    if (filename_length < 0 || (size_t)filename_length >= sizeof(filename) ||
+        directory_length + separator_length + (size_t)filename_length + 1 >
+            sizeof(image_path)) {
         r2_log_sensory("visual_image_archive_failed",
                        "R2 analyzed a frame but its archive path was too long.",
                        directory_snapshot, source ? source : "Eyes");
@@ -429,6 +435,11 @@ char *r2_visual_analyze_frame(const R2VisionFrame *frame,
         errno = ENAMETOOLONG;
         return NULL;
     }
+    memcpy(image_path, directory_snapshot, directory_length);
+    size_t path_offset = directory_length;
+    if (separator_length)
+        image_path[path_offset++] = '/';
+    memcpy(image_path + path_offset, filename, (size_t)filename_length + 1);
 
     int image_fd = open(image_path, O_WRONLY | O_CREAT | O_EXCL, 0640);
     if (image_fd < 0) {
