@@ -221,6 +221,9 @@ static void shell_help(void)
         "  vision see [question]\n"
         "      Analyze a captured frame using R2's local vision model.\n"
         "\n"
+        "  vision watch start|stop|status\n"
+        "      Enable or disable periodic visual observation.\n"
+        "\n"
         "  vision vlc\n"
         "      Connect Eyes to a visible VLC window.\n"
         "\n"
@@ -712,20 +715,20 @@ static void shell_vision(const char *argument)
 
     if (!strcasecmp(argument, "watch start")) {
         if (r2_vision_watch_start() == 0)
-            printf("[Visual observation is running; R2 will analyze a frame about every 15 seconds.]\\n");
+            printf("[Visual observation is running; R2 will analyze a frame about every 15 seconds.]\n");
         else
-            printf("[Could not start visual observation. Check the vision model and R2 status.]\\n");
+            printf("[Could not start visual observation. Check the vision model and R2 status.]\n");
         return;
     }
 
     if (!strcasecmp(argument, "watch stop")) {
         r2_vision_watch_stop();
-        printf("[Visual observation stopped.]\\n");
+        printf("[Visual observation stopped.]\n");
         return;
     }
 
     if (!strcasecmp(argument, "watch status")) {
-        printf("Visual observation: %s\\n",
+        printf("Visual observation: %s\n",
                r2_vision_watch_active() ? "ACTIVE" : "STOPPED");
         return;
     }
