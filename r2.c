@@ -4156,6 +4156,10 @@ static char *process_tools(
 
         if (rc == 0) {
 
+            r2_log_thinking("diary_entry_written",
+                            "R2 wrote a private diary entry.",
+                            entry);
+
             APPEND(
                 "REAL DIARY RESULT:\n"
                 "Diary entry successfully written "
@@ -6096,6 +6100,21 @@ int r2_init(void)
                      "Alternate-Self Lab could not initialize.",
                      "Factual memory and the Life Log remain available.",
                      "r2_init");
+
+    if (r2_sj_init() == 0)
+        r2_log_continuity("r2_sensory_journal", "subsystem",
+                          "Sensory Journal",
+                          "Timestamped sensory, thinking, conversation, and diary-write events index the original Life Log records.",
+                          "in_progress",
+                          "Connect any remaining raw audio/device observations as their interfaces expose them.",
+                          "r2_init");
+    if (r2_altself_init() == 0)
+        r2_log_continuity("r2_alternate_self_lab", "subsystem",
+                          "Alternate-Self Lab",
+                          "Explicitly hypothetical branches are stored separately from factual events and can be retained as hypotheses or discarded.",
+                          "in_progress",
+                          "Expand branch comparison and evaluation without promoting hypothetical outcomes to factual memory.",
+                          "r2_init");
 
     /* --------------------------------------------------------
        INITIAL SYSTEM MESSAGE
