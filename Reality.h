@@ -64,6 +64,10 @@ int r2_reality_tv_select_input(int input);
 int r2_reality_tv_tune_rf(int channel);
 int r2_reality_tv_connect(const char *name, const char *kind, int port);
 int r2_reality_tv_disconnect(const char *name);
+/* Built-in VCR: tape paths are stable identities; ejecting never discards position. */
+int r2_reality_tv_vcr_insert(const char *media_path);
+int r2_reality_tv_vcr_transport(const char *action); /* play, pause, stop, eject */
+int r2_reality_tv_vcr_set_position(double seconds);
 
 #ifdef __cplusplus
 }
