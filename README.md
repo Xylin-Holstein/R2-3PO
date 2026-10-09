@@ -64,6 +64,10 @@ The private diary remains in `diary_entries` in `R2/r2_memory.db`, with dated Ma
 
 At startup, R2 reconciles existing diary rows with the Life Log in bounded batches of 100. The per-entry link is idempotent, so restarting does not intentionally duplicate already-linked events. Autonomous reflection receives three distinct inputs: recent diary entries, relevant recent Life Log events, and memories retrieved through the existing memory interface. These sources remain separate evidence types; diary interpretations are not automatically treated as verified facts. The Observer's explicit public-event allowlist continues to exclude private diary entries and thinking events.
 
+## CRT television
+
+R2's room contains a persistent CRT television with a built-in VCR. The existing Reality engine stores power, selected AV/RF source, and explicitly connected devices. Shell controls: `tv status`, `tv on`, `tv off`, `tv input 1..4`, `tv tune <channel 2..13>`, `tv connect <name> | input/RF | <port>`, and `tv disconnect <name>`. AV input 1 is the built-in VCR; external AV inputs are 2–4. RF has a signal only when a device is explicitly connected and transmitting on that channel; an unused channel stays at NO SIGNAL. The snow-show fallback is intentionally deferred. Power and source selection do not imply R2 is watching, and do not activate Eyes by themselves. The current implementation is persistent state/control only; graphical display and VCR playback are later steps.
+
 ## Persistent reality, room, and inventory
 
 The Reality engine stores self-continuity, world-continuity, current objects,
