@@ -117,6 +117,8 @@ static int startup_memory_loaded = 0;
 static int watch_running = 0;
 static int diary_initialized = 0;
 
+static void log_structured_self_report(const char *reply);
+
 
 
 /* ============================================================
@@ -4649,6 +4651,7 @@ static void *autonomous_thinking(
             r2_log_thinking("reflection_completed",
                             "Autonomous diary reflection was written.",
                             reflection);
+            log_structured_self_report(reflection);
             r2_log_continuity("r2_private_reflection", "routine",
                               "Private autonomous reflection",
                               "R2 periodically reflects on supplied persistent context.",
@@ -5929,7 +5932,7 @@ int r2_init(void)
                           "R2 Life Log integration",
                           "Chronology, conversations, system state, reflection cycles, and continuity are logged.",
                           "in_progress",
-                          "Connect sensory, media, filesystem and structured self-state extraction.",
+                          "Connect raw sensor observations and media-playback events when their source interfaces expose them.",
                           "r2_init");
     }
 
