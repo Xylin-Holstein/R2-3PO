@@ -349,8 +349,8 @@ static const char *SYSTEM_PROMPT =
 "Use [ALTERNATE_RETAIN] id or [ALTERNATE_DISCARD] id only when explicitly requested. A retained hypothesis remains hypothetical and must never be promoted into a factual memory.\n"
 "When a proposed purchase has no user-supplied or otherwise evidenced price, do not invent a price or pretend a store has stock. Ask for the price or wait for explicit price information. Only execute [WORLD] buy|item name|price|description|destination after the item, price, and intended destination are established; report failure if funds or the transaction are insufficient.\n"
 "Use [WORLD] location|location name|home or [WORLD] location|location name|outside only when simulated movement is actually being carried out, not merely planned. Use home only for the actual home; stores and other away places use outside. The location transition persists, and private Welcome Home memory is created only after an away-to-home transition.\n"
-"For a real activity/device session, use [WORLD] activity_start|activity key|activity or game name|optional details only when it actually starts, and [WORLD] activity_end|activity key|last verified state|stop reason|optional details when it actually ends. Use a stable generic key such as gameboy:game-title; never assume a device exists or invent gameplay. If the last in-game state or reason is not known, record unknown rather than guessing.\\n"
-"The virtual Game Boy Advance is a separate persistent device at " R2_ROOT "/Devices/GameBoyAdvance/GameBoyAdvance. Use only these [WORLD] actions: gameboy_status, gameboy_list, gameboy_insert|ROM_FILENAME, gameboy_eject, gameboy_power_on, gameboy_power_off, gameboy_press|BUTTON|DURATION_MS. Insert/eject only while powered off; if powered on, the console refuses cartridge changes. Opening the console powers it on; with no cartridge, no emulator starts. Powering off does not issue an in-game save or create a save state. Buttons: A, B, L, R, START, SELECT, UP, DOWN, LEFT, RIGHT. Use the filename only, never an arbitrary path. Keep physical console activity distinct from virtual gameplay. The console can verify which ROM is loaded and which inputs were sent, but do not claim that a character collected an item, reached a goal, or completed a game unless a game-specific observer independently verifies it.\\n"
+"For a real activity/device session, use [WORLD] activity_start|activity key|activity or game name|optional details only when it actually starts, and [WORLD] activity_end|activity key|last verified state|stop reason|optional details when it actually ends. Use a stable generic key such as gameboy:game-title; never assume a device exists or invent gameplay. If the last in-game state or reason is not known, record unknown rather than guessing.\n"
+"The virtual Game Boy Advance is a separate persistent device at " R2_ROOT "/Devices/GameBoyAdvance/GameBoyAdvance. Use only these [WORLD] actions: gameboy_status, gameboy_list, gameboy_insert|ROM_FILENAME, gameboy_eject, gameboy_power_on, gameboy_power_off, gameboy_press|BUTTON|DURATION_MS. Insert/eject only while powered off; if powered on, the console refuses cartridge changes. Opening the console powers it on; with no cartridge, no emulator starts. Powering off does not issue an in-game save or create a save state. Buttons: A, B, L, R, START, SELECT, UP, DOWN, LEFT, RIGHT. Use the filename only, never an arbitrary path. Keep physical console activity distinct from virtual gameplay. The console can verify which ROM is loaded and which inputs were sent, but do not claim that a character collected an item, reached a goal, or completed a game unless a game-specific observer independently verifies it.\n"
 "\n"
 "============================================================\n"
 "GENERAL\n"
@@ -5220,13 +5220,13 @@ static char *process_tools(
         }
         if (nf >= 3 && !strcasecmp(fields[0], "activity_start")) {
             int64_t id = r2_log_activity_start(fields[1], fields[2], nf >= 4 ? fields[3] : NULL);
-            APPEND("ACTIVITY %s: %s.\\n",
+            APPEND("ACTIVITY %s: %s.\n",
                    id > 0 ? "STARTED" : "ERROR",
                    id > 0 ? "session recorded" : "session could not be started; check the key and active sessions");
         } else if (nf >= 4 && !strcasecmp(fields[0], "activity_end")) {
             int64_t id = r2_log_activity_end(fields[1], fields[2], fields[3],
                                              nf >= 5 ? fields[4] : NULL);
-            APPEND("ACTIVITY %s: %s.\\n",
+            APPEND("ACTIVITY %s: %s.\n",
                    id > 0 ? "ENDED" : "ERROR",
                    id > 0 ? "session duration and stop details recorded" :
                             "session could not be ended; no matching active session may exist");
@@ -5333,7 +5333,7 @@ static char *process_tools(
             if (command_ok) {
                 int synced_events = sync_gameboy_verified_events();
                 if (synced_events > 0)
-                    APPEND("GAME BOY: synchronized %d verified in-game event(s) with the Life Log.\\n",
+                    APPEND("GAME BOY: synchronized %d verified in-game event(s) with the Life Log.\n",
                            synced_events);
             }
 
@@ -7324,7 +7324,7 @@ int r2_init(void)
     /* The reinforcement ledger is separate durable state, bridged to the
        Life Log and existing habit evaluator through the shared API. */
     if (r2_reward_init() != 0)
-        fprintf(stderr, "[R2 Reward] Initialization failed; reinforcement will retry lazily.\\n");
+        fprintf(stderr, "[R2 Reward] Initialization failed; reinforcement will retry lazily.\n");
 
     /* Reconnect older diary history in bounded, restart-safe batches. The
        original diary rows and Markdown mirrors are preserved unchanged. */
