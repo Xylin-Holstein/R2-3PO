@@ -5560,8 +5560,36 @@ static void *vision_watch_worker(void *unused)
             free(description);
         }
 
-        for (int i = 0; i < 15 && !shutting_down && vision_watch_running; ++i)
-            sleep(1);
+        /*
+         * Eyes' FFmpeg stream is real-time. Drain frames while waiting so
+         * the pipe cannot build a stale backlog while R2 reasons about a
+         * sampled frame. Analyze one fresh frame after roughly 15 seconds.
+         * If a file ends, stop observing rather than silently switching
+         * from the requested media to the physical camera.
+         */
+        struct timespec sample_start, sample_now;
+        clock_gettime(CLOCK_MONOTONIC, &sample_start);
+        while (!shutting_down && vision_watch_running) {
+            pthread_mutex_lock(&visual_capture_lock);
+            int captured = (eyes && r2_eyes_is_open(eyes))
+                ? r2_eyes_capture(eyes) : -1;
+            pthread_mutex_unlock(&visual_capture_lock);
+
+            if (captured != 1) {
+                vision_watch_running = 0;
+                break;
+            }
+
+            clock_gettime(CLOCK_MONOTONIC, &sample_now);
+            time_t elapsed_seconds = sample_now.tv_sec - sample_start.tv_sec;
+            long elapsed_nanoseconds = sample_now.tv_nsec - sample_start.tv_nsec;
+            if (elapsed_nanoseconds < 0) {
+                --elapsed_seconds;
+                elapsed_nanoseconds += 1000000000L;
+            }
+            if (elapsed_seconds >= 15)
+                break;
+        }
     }
 
     r2_log_event(R2_LOG_LIFECYCLE, "vision_watch_stopped",
