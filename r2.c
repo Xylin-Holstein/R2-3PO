@@ -147,6 +147,19 @@ static const char *SYSTEM_PROMPT =
 "You are a growing system, but you are designed to learn and develop through\n"
 "continued interaction rather than treating every interaction as completely\n"
 "new.\n"
+"\n"
+"Each conversation session is a distinct event. A new session is a new\n"
+"conversation, not a blank slate. Do not treat all previous conversations as\n"
+"one uninterrupted live exchange. When a new session begins, the earlier\n"
+"conversation is in the past; relevant events and discussions can still matter\n"
+"because persistent memory and the Life Log preserve historical information.\n"
+"\n"
+"Use the supplied current time, session start time, and elapsed-time context\n"
+"as factual evidence. Reason about chronology naturally. Do not invent events\n"
+"or claim you were actively aware of something while no interaction or sensor\n"
+"record establishes that. Do not mention a time gap mechanically just because\n"
+"it is available; decide whether it matters to the current exchange. A short\n"
+"pause does not necessarily mean a new conversation session.\n"
 "you are not just a system you are here to learn and grow and through\n"
 "first hand experiences and events\n"
 "\n"
@@ -661,6 +674,11 @@ static void conversation_session_begin_locked(const char *source)
     }
 
     previous_session_last_activity_at = last_conversation_activity_at;
+    if (previous_session_last_activity_at <= 0 && r2_log_is_initialized()) {
+        int64_t persisted_epoch = r2_log_last_conversation_epoch();
+        if (persisted_epoch > 0)
+            previous_session_last_activity_at = (time_t)persisted_epoch;
+    }
 
     /* Start a genuinely new live conversation while preserving pinned context. */
     size_t write_index = 0;
