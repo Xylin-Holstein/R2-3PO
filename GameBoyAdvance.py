@@ -28,6 +28,11 @@ DB_PATH = Path(os.environ.get("R2_GAMEBOY_DB", str(ROOT / "gameboy.db")))
 STATE_DB_PATH = STATE / "console_state.db"
 EMULATOR = os.environ.get("R2_MGBA_EXECUTABLE", "/usr/games/mgba-qt")
 ROM_EXTENSIONS = {".gba", ".gb", ".gbc"}
+VERIFIED_GAME_EVENT_TYPES = {
+    "character_jumped", "coin_collected", "item_collected", "life_gained",
+    "life_lost", "damage_taken", "level_started", "level_completed",
+    "game_completed", "screen_transition",
+}
 BUTTON_KEYS = {
     "A": "x", "B": "z", "L": "a", "R": "s",
     "START": "Return", "SELECT": "BackSpace",
@@ -85,24 +90,86 @@ def connect() -> sqlite3.Connection:
             summary TEXT NOT NULL,
             details TEXT,
             game_title TEXT,
-            session_id TEXT
+            session_id TEXT,
+            evidence_source TEXT,
+            verified INTEGER NOT NULL DEFAULT 0,
+            life_log_synced INTEGER NOT NULL DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS console_events_time_idx
             ON console_events(id);
     """)
+    # Migrate a device database created by an earlier console build.
+    columns = {row[1] for row in db.execute("PRAGMA table_info(console_events)")}
+    for name, declaration in (
+        ("evidence_source", "TEXT"),
+        ("verified", "INTEGER NOT NULL DEFAULT 0"),
+        ("life_log_synced", "INTEGER NOT NULL DEFAULT 0"),
+    ):
+        if name not in columns:
+            db.execute(f"ALTER TABLE console_events ADD COLUMN {name} {declaration}")
     db.commit()
     return db
 
 
 def record_event(db: sqlite3.Connection, context: str, event_type: str,
                  summary: str, details: str | None = None,
-                 game_title: str | None = None, session_id: str | None = None) -> None:
+                 game_title: str | None = None, session_id: str | None = None,
+                 evidence_source: str | None = None, verified: bool = False) -> None:
     db.execute(
-        "INSERT INTO console_events(timestamp,context,event_type,summary,details,game_title,session_id) "
-        "VALUES(?,?,?,?,?,?,?)",
-        (utc_now(), context, event_type, summary, details, game_title, session_id),
+        "INSERT INTO console_events(timestamp,context,event_type,summary,details,game_title,session_id,"
+        "evidence_source,verified,life_log_synced) VALUES(?,?,?,?,?,?,?,?,?,0)",
+        (utc_now(), context, event_type, summary, details, game_title, session_id,
+         evidence_source, 1 if verified else 0),
     )
     db.commit()
+
+
+def record_verified_game_event(db: sqlite3.Connection, event_type: str,
+                               summary: str, details: str,
+                               evidence_source: str) -> int:
+    """Record an event detected by a trusted game-specific adapter.
+
+    This API is intentionally not exposed as an R2 [WORLD] action. A model
+    statement alone is not evidence that a character performed an action.
+    """
+    row = reconcile(db)
+    if row["power_state"] != "on" or not row["emulator_pid"]:
+        raise ValueError("No active game session; virtual events cannot be recorded.")
+    if event_type not in VERIFIED_GAME_EVENT_TYPES:
+        raise ValueError("Unsupported verified game event type.")
+    if not summary or len(summary) > 1000 or len(details or "") > 3000:
+        raise ValueError("Event summary/details are empty or too long.")
+    if not evidence_source or not evidence_source.startswith("adapter:"):
+        raise ValueError("A game adapter evidence source is required.")
+    record_event(db, "virtual", event_type, summary, details,
+                 row["cartridge_title"], row["session_id"],
+                 evidence_source=evidence_source, verified=True)
+    return int(db.execute("SELECT last_insert_rowid()").fetchone()[0])
+
+
+def pending_verified_events(db: sqlite3.Connection) -> list[dict[str, Any]]:
+    rows = db.execute(
+        "SELECT id,timestamp,event_type,summary,details,game_title,session_id,evidence_source "
+        "FROM console_events WHERE context='virtual' AND verified=1 AND life_log_synced=0 "
+        "ORDER BY id"
+    ).fetchall()
+    return [{
+        "event_id": row["id"], "timestamp": row["timestamp"],
+        "event_type": row["event_type"], "summary": row["summary"],
+        "details": row["details"], "game_title": row["game_title"],
+        "session_id": row["session_id"], "evidence_source": row["evidence_source"],
+        "context": "virtual", "verified": True,
+    } for row in rows]
+
+
+def acknowledge_verified_event(db: sqlite3.Connection, event_id: int) -> bool:
+    cursor = db.execute(
+        "UPDATE console_events SET life_log_synced=1 "
+        "WHERE id=? AND context='virtual' AND verified=1 AND life_log_synced=0",
+        (event_id,),
+    )
+    db.commit()
+    return cursor.rowcount == 1
 
 
 def process_start_ticks(pid: int) -> int | None:
