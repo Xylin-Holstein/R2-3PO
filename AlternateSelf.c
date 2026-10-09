@@ -188,14 +188,14 @@ static char *as_query(const char *sql, int64_t first, int64_t second, int limit)
         int needed=snprintf(NULL,0,
             "Branch #%lld [%s] %s\n  Scenario: %s\n  Assumptions: %s\n"
             "  Predicted outcome: %s\n  Tentative conclusion: %s\n"
-            "  Evidence event: %s\n  Created UTC: %s\n",
+            "  Evidence event ID: %lld\n  Created UTC: %s\n",
             (long long)id,status?(const char*)status:"unknown",
             name?(const char*)name:"unnamed",
             scenario?(const char*)scenario:"",
             assumptions?(const char*)assumptions:"(none)",
             outcome?(const char*)outcome:"(not specified)",
             conclusion?(const char*)conclusion:"(not specified)",
-            evidence>0?"linked (see event ID)":"none linked",
+            (long long)evidence,
             created?(const char*)created:"unknown");
         if (needed<0 || len+(size_t)needed+2>1024*1024) break;
         if (len+(size_t)needed+2>cap) {
@@ -206,16 +206,16 @@ static char *as_query(const char *sql, int64_t first, int64_t second, int limit)
         snprintf(out+len,cap-len,
             "Branch #%lld [%s] %s\n  Scenario: %s\n  Assumptions: %s\n"
             "  Predicted outcome: %s\n  Tentative conclusion: %s\n"
-            "  Evidence event: %s\n  Created UTC: %s\n\n",
+            "  Evidence event ID: %lld\n  Created UTC: %s\n\n",
             (long long)id,status?(const char*)status:"unknown",
             name?(const char*)name:"unnamed",
             scenario?(const char*)scenario:"",
             assumptions?(const char*)assumptions:"(none)",
             outcome?(const char*)outcome:"(not specified)",
             conclusion?(const char*)conclusion:"(not specified)",
-            evidence>0?"linked (see event ID)":"none linked",
+            (long long)evidence,
             created?(const char*)created:"unknown");
-        len+=(size_t)needed+1;
+        len+=(size_t)needed;
     }
     sqlite3_finalize(st);
     pthread_mutex_unlock(&as_lock);
@@ -224,7 +224,8 @@ static char *as_query(const char *sql, int64_t first, int64_t second, int limit)
 }
 char *r2_altself_list(int limit)
 {
-    if(limit<1) limit=25; if(limit>200) limit=200;
+    if (limit < 1) limit = 25;
+    if (limit > 200) limit = 200;
     return as_query("SELECT id,name,scenario,assumptions,predicted_outcome,conclusion,status,evidence_event_id,created_utc "
                     "FROM r2_alternate_self_branches ORDER BY id DESC LIMIT ?;",limit,0,0);
 }
