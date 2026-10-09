@@ -64,13 +64,19 @@ The private diary remains in `diary_entries` in `R2/r2_memory.db`, with dated Ma
 
 At startup, R2 reconciles existing diary rows with the Life Log in bounded batches of 100. The per-entry link is idempotent, so restarting does not intentionally duplicate already-linked events. Autonomous reflection receives three distinct inputs: recent diary entries, relevant recent Life Log events, and memories retrieved through the existing memory interface. These sources remain separate evidence types; diary interpretations are not automatically treated as verified facts. The Observer's explicit public-event allowlist continues to exclude private diary entries and thinking events.
 
-## CRT television display (first UI step)
+## CRT television display and built-in VCR
 
-Run `python3 TV.py` to open the CRT-style display. It reads the authoritative Reality database read-only and mirrors power/source state and connected signal sources. The GUI's power, AV input, and RF tuning controls send commands through a local Unix socket owned by the running R2 shell; those commands call the existing Reality APIs, so normal event bridging is preserved. The GUI never writes TV state directly. If the database or socket is elsewhere, set `R2_REALITY_DB` or `R2_TV_SOCKET`. Tkinter must be installed (Ubuntu/Debian: `sudo apt install python3-tk`).
+Run `python3 TV.py` to open the CRT-style display. Install the desktop dependencies on Ubuntu/Debian with `sudo apt install python3-tk vlc python3-vlc`. Keep the R2 shell running: power, AV input, RF tuning, and VCR transport requests travel through its private-per-user Unix socket and call Reality APIs; the GUI never writes Reality state directly. Set `R2_REALITY_DB`, `R2_TV_SOCKET`, or `R2_VCR_MEDIA_DIR` to override the defaults.
 
-## CRT television
+R2's room contains a persistent CRT television with a built-in VCR. The TV state records power, selected AV/RF source, and explicitly connected devices. Shell controls include `tv status`, `tv on/off`, `tv input 1..4`, `tv tune <channel 2..13>`, `tv connect <name> | input/RF | <port>`, and `tv disconnect <name>`. The GUI also has power, AV input, RF tuning, and VCR controls.
 
-R2's room contains a persistent CRT television with a built-in VCR. The existing Reality engine stores power, selected AV/RF source, and explicitly connected devices. Shell controls: `tv status`, `tv on`, `tv off`, `tv input 1..4`, `tv tune <channel 2..13>`, `tv connect <name> | input/RF | <port>`, and `tv disconnect <name>`. The GUI currently exposes power, AV input, and RF tuning through a private-per-user local Unix socket created while the shell is running; the socket routes commands through the same Reality APIs and event bridge as shell commands. AV input 1 is the built-in VCR; external AV inputs are 2–4. RF has a signal only when a device is explicitly connected and transmitting on that channel; an unused channel stays at NO SIGNAL. The snow-show fallback is intentionally deferred. Power and source selection do not imply R2 is watching, and do not activate Eyes by themselves. Actual video/VCR playback remains the next major step.
+### VCR tapes
+
+The initial tape shelf is `/home/x/R2_Home/VCR_Tapes` (override with `R2_VCR_MEDIA_DIR`). Choose a readable VLC-supported video file with **LOAD TAPE**, then use **PLAY**, **PAUSE**, **STOP**, and **EJECT**. Shell equivalents are `tv vcr insert <absolute media path>`, `tv vcr play`, `tv vcr pause`, `tv vcr stop`, and `tv vcr eject`. VLC renders into the CRT display only while the TV is powered on and AV input 1 is selected; VCR transport remains independent of TV power/source. Switching inputs or turning the TV off mutes the VCR audio and hides its picture, but does not stop the tape.
+
+Reality stores each tape by its absolute media path and persists its playback position across pause, stop, eject/reinsert, and application restarts. The GUI checkpoints position about every five seconds and before transport changes/closing. Inserting the same path restores that tape's saved position; selecting a different file creates a separate tape identity. Insert/eject and transport changes pass through the existing Reality event bridge. A video renderer requires both VLC and the Python VLC bindings; the TV state controls remain usable if VLC is unavailable.
+
+External AV inputs are 2–4. RF has a signal only when a device is explicitly connected and transmitting on that channel; an unused channel stays at NO SIGNAL. The snow-show fallback is intentionally deferred. Power and source selection do not imply R2 is watching, and do not activate Eyes by themselves.
 
 ## Persistent reality, room, and inventory
 
