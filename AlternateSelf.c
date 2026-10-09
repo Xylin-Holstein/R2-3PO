@@ -42,6 +42,8 @@ int r2_altself_init(void)
         return -1;
     }
     sqlite3_busy_timeout(as_db, 5000);
+    sqlite3_exec(as_db, "PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;",
+                 NULL, NULL, NULL);
     const char *schema =
         "CREATE TABLE IF NOT EXISTS r2_alternate_self_branches ("
         " id INTEGER PRIMARY KEY AUTOINCREMENT,"
