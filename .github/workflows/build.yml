@@ -7,6 +7,7 @@ on:
       - fix/text-model-network-and-sensory-continuity
       - r2-audit-fixes-2026-10-09
       - r2-complete-audit-2026-10-09
+      - combined-audit-tv-vcr-2026-10-09
   pull_request:
     branches:
       - main
