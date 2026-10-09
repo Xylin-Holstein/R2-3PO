@@ -23,6 +23,7 @@ core = read("r2.c")
 visual = read("Visual.c")
 header = read("r2.h")
 launcher = read("R2_Launch_Code.sh")
+shell = read("shell.c")
 
 require(
     re.search(r'^#define R2_OLLAMA_MODEL "gemma3:4b"require(
@@ -69,6 +70,11 @@ require(
     "Return a concise visual observation for R2's conversation to use as sensory evidence, not as a user-facing answer."
     in visual,
     "vision output is framed as sensory evidence for conversation",
+)
+require(
+    "separate models are disabled." in shell
+    and "Confirm the single model shared by conversation and vision." in shell,
+    "the shell explains that conversation and vision cannot select different models",
 )
 
 print("Gemma 3 unified-model contract checks passed.")
