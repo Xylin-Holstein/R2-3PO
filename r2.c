@@ -7379,24 +7379,49 @@ int r2_init(void)
     if (r2_reward_init() != 0) {
         fprintf(stderr, "[R2 Reward] Initialization failed; reinforcement will retry lazily.\n");
     } else {
-        int reward_links = r2_reward_reconnect_history(100);
-        if (reward_links < 0)
-            fprintf(stderr, "[R2 Reward] History reconciliation is pending.\n");
-        else if (reward_links > 0)
-            fprintf(stderr, "[R2 Reward] Reconnected %d reward events to the Life Log.\n",
-                    reward_links);
+        int reward_total_links = 0;
+        int reward_batch = 0;
+        int reward_batches = 0;
+        do {
+            reward_batch = r2_reward_reconnect_history(100);
+            if (reward_batch < 0) {
+                fprintf(stderr, "[R2 Reward] History reconciliation is pending.\n");
+                break;
+            }
+            reward_total_links += reward_batch;
+            reward_batches++;
+        } while (reward_batch == 100 && reward_batches < 50);
+        if (reward_total_links > 0)
+            fprintf(stderr, "[R2 Reward] Reconnected %d reward events to the Life Log/memory.\n",
+                    reward_total_links);
+        if (reward_batch == 100 && reward_batches >= 50)
+            fprintf(stderr, "[R2 Reward] More history remains; remaining records will retry next startup.\n");
     }
 
-    /* Reconnect older diary history in bounded, restart-safe batches. The
-       original diary rows and Markdown mirrors are preserved unchanged. */
-    int diary_links = r2_diary_reconnect_history(100);
-    if (diary_links < 0) {
-        fprintf(stderr,
-                "[R2 DIARY] History reconciliation is pending; existing diary data is preserved.\n");
-    } else if (diary_links > 0) {
+    /* Reconnect all older diary history in restart-safe batches. Each call
+       stays bounded; the startup loop drains up to 5,000 entries without
+       rewriting the authoritative diary rows or Markdown mirrors. */
+    int diary_total_links = 0;
+    int diary_batch = 0;
+    int diary_batches = 0;
+    do {
+        diary_batch = r2_diary_reconnect_history(100);
+        if (diary_batch < 0) {
+            fprintf(stderr,
+                    "[R2 DIARY] History reconciliation is pending; existing diary data is preserved.\n");
+            break;
+        }
+        diary_total_links += diary_batch;
+        diary_batches++;
+    } while (diary_batch == 100 && diary_batches < 50);
+    if (diary_total_links > 0) {
         fprintf(stderr,
                 "[R2 DIARY] Reconnected %d diary entries to Life Log/memory.\n",
-                diary_links);
+                diary_total_links);
+    }
+    if (diary_batch == 100 && diary_batches >= 50) {
+        fprintf(stderr,
+                "[R2 DIARY] More history remains; remaining entries will retry next startup.\n");
     }
 
     if (r2_reality_init() != 0) {
