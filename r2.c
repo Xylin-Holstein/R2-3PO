@@ -5826,7 +5826,7 @@ static void log_structured_self_report(const char *reply, int64_t parent_event_i
                 if (child > 0)
                     r2_altself_import_hypothesis(
                         scenario, assumptions, predicted, conclusion,
-                        child, parent_event_id);
+                        child, 0);
                 if (parent_event_id > 0 && child > 0)
                     r2_log_link(parent_event_id, child,
                                 "contains_hypothetical", scenario);
