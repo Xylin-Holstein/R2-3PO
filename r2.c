@@ -4928,19 +4928,26 @@ static char *process_tools(
 
             char path[PATH_MAX];
 
-            if (pn >= sizeof(path))
-                pn = sizeof(path) - 1;
+            if (pn >= sizeof(path)) {
+                (void)r2_reward_apply("filesystem_write", "file_generation", -2,
+                    "A requested file write failed because its filename exceeded the path limit.", 0);
+                r2_log_file_event("write_failed", "invalid_path",
+                                  "failure", "Filename exceeded PATH_MAX.");
+                APPEND(
+                    "REAL WRITE ERROR:\\n"
+                    "Filename exceeds PATH_MAX.\\n"
+                );
+            } else {
+                memcpy(
+                    path,
+                    p,
+                    pn
+                );
 
-            memcpy(
-                path,
-                p,
-                pn
-            );
+                path[pn] = '\0';
 
-            path[pn] = '\0';
-
-            const char *content =
-                nl;
+                const char *content =
+                    nl;
 
             while (
                 *content == '\r' ||
@@ -4964,6 +4971,10 @@ static char *process_tools(
 
                 if (!data) {
 
+                    (void)r2_reward_apply("filesystem_write", "file_generation", -2,
+                        "A requested file write failed because memory allocation failed.", 0);
+                    r2_log_file_event("write_failed", "invalid_request",
+                                      "failure", "Workspace write buffer allocation failed.");
                     APPEND(
                         "REAL WRITE ERROR:\n"
                         "Out of memory.\n"
@@ -5019,14 +5030,23 @@ static char *process_tools(
 
             } else {
 
+                (void)r2_reward_apply("filesystem_write", "file_generation", -2,
+                    "A requested file write failed because the generated tool block was incomplete.", 0);
+                r2_log_file_event("write_failed", "invalid_request",
+                                  "failure", "Missing [END WRITE] marker.");
                 APPEND(
                     "REAL WRITE ERROR:\n"
                     "Missing [END WRITE].\n"
                 );
             }
+            }
 
         } else {
 
+            (void)r2_reward_apply("filesystem_write", "file_generation", -2,
+                "A requested file write failed because no filename was supplied.", 0);
+            r2_log_file_event("write_failed", "invalid_request",
+                              "failure", "No filename supplied.");
             APPEND(
                 "REAL WRITE ERROR:\n"
                 "No filename supplied.\n"
