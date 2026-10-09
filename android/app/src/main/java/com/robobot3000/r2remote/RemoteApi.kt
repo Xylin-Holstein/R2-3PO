@@ -2,10 +2,10 @@ package com.robobot3000.r2remote
 
 import org.json.JSONObject
 import org.json.JSONArray
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
-import java.io.InputStreamEncoder
-import java.net.URL
+import java.net.URLEncoder
 
 class RemoteApi(private val baseUrl: String, private val token: String) {
     private fun request(method: String, path: String, body: String? = null): JSONObject {
