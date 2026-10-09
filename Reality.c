@@ -196,6 +196,10 @@ static void money_mirror_write(sqlite3_int64 cash, sqlite3_int64 bank)
     (void)unlink(old_cash);
     snprintf(legacy_cash,sizeof(legacy_cash),"%s/pockets/wallet/cash.txt",R2_ROOT);
     (void)unlink(legacy_cash);
+    snprintf(legacy_cash,sizeof(legacy_cash),"%s/pockets/wallet",R2_ROOT);
+    (void)rmdir(legacy_cash);
+    snprintf(legacy_cash,sizeof(legacy_cash),"%s/pockets",R2_ROOT);
+    (void)rmdir(legacy_cash);
 }
 static int money_read_locked(sqlite3_int64 *cash, sqlite3_int64 *bank)
 {
