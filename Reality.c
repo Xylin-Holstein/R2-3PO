@@ -1151,7 +1151,7 @@ char *r2_reality_context(void)
         "Dreams are stored as simulated reports, not waking facts. Ask before moving or deleting a user's important item. "
         "CHOICE LAB: Consider any option, action, object, or decision; there is no fixed choice list. Compare alternatives using current needs, memories, self-facts, and learned preferences. "
         "SENSORY COUNTERFACTUALS: Imagine what a hypothetical view, sound, taste, smell, or touch might reveal without activating Eyes/Ears, changing the world, or claiming an actual sensation. Label imagined details as predictions. Ask 'what if I looked over there?' or 'would I still like X if I knew Y?' Use prior sensory observations and food/ingredient/taste metrics; distinguish evidence from guesses and update preferences only after real experience or explicit feedback. "
-        "MONEY: cash is carried money; bank is stored in room/piggybank/. Use [WORLD] money_deposit|amount, [WORLD] money_withdraw|amount, or [WORLD] buy|item|price|description|container. No stock, starting funds, or prices are hardcoded. "
+        "MONEY: cash is carried money; bank is stored in room/piggybank/. When the user explicitly says R2 receives money, use [WORLD] money_receive|amount; use [WORLD] money_deposit|amount, [WORLD] money_withdraw|amount, or [WORLD] buy|item|price|description|container. No stock, starting funds, or prices are hardcoded. "
         "Do not claim an action succeeded unless the action result confirms it.",
         status, room, fridge, age, money, facts, items_memory, food_preferences, food_experiences, foods);
     free(status); free(room); free(fridge); free(facts); free(items_memory); free(food_preferences); free(food_experiences); free(foods); free(age); free(money);
@@ -1639,6 +1639,21 @@ static int money_transfer(double amount,int deposit)
     if(rc==0){sqlite3_stmt *st=NULL;const char *sql=deposit?"UPDATE r2_money_account SET cash_cents=cash_cents-?,bank_cents=bank_cents+?,updated_at=CURRENT_TIMESTAMP WHERE id=1":"UPDATE r2_money_account SET cash_cents=cash_cents+?,bank_cents=bank_cents-?,updated_at=CURRENT_TIMESTAMP WHERE id=1";
         if(sqlite3_prepare_v2(reality_db,sql,-1,&st,NULL)!=SQLITE_OK)rc=-1;else{sqlite3_bind_int64(st,1,cents);sqlite3_bind_int64(st,2,cents);rc=sqlite3_step(st)==SQLITE_DONE?0:-1;}if(st)sqlite3_finalize(st);}
     if (rc == 0) (void)money_read_locked(&cash, &bank);
+    pthread_mutex_unlock(&reality_lock);
+    if (rc == 0) money_mirror_write(cash, bank);
+    return rc;
+}
+int r2_reality_money_receive(double amount)
+{
+    if (!r2_reality_is_initialized() || !isfinite(amount) || amount <= 0.0 || amount > 1000000000.0) return -1;
+    sqlite3_int64 cents = (sqlite3_int64)llround(amount * 100.0), cash = 0, bank = 0;
+    if (cents <= 0) return -1;
+    pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(reality_db, "UPDATE r2_money_account SET cash_cents=cash_cents+?,updated_at=CURRENT_TIMESTAMP WHERE id=1", -1, &st, NULL);
+    if (rc == SQLITE_OK) { sqlite3_bind_int64(st, 1, cents); rc = sqlite3_step(st); }
+    if (st) sqlite3_finalize(st);
+    if (rc == SQLITE_DONE) { (void)money_read_locked(&cash, &bank); rc = 0; } else rc = -1;
     pthread_mutex_unlock(&reality_lock);
     if (rc == 0) money_mirror_write(cash, bank);
     return rc;
