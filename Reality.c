@@ -446,14 +446,15 @@ char *r2_reality_context(void)
 {
     char *status=r2_reality_status();
     char *room=r2_reality_room_look();
-    if(!status || !room) { free(status); free(room); return NULL; }
-    size_t n=strlen(status)+strlen(room)+512;
+    char *facts=query_text("SELECT key,value,evidence FROM r2_reality_self_facts ORDER BY updated_at DESC",NULL);
+    if(!status || !room || !facts) { free(status); free(room); free(facts); return NULL; }
+    size_t n=strlen(status)+strlen(room)+strlen(facts)+1400;
     char *out=malloc(n);
     if(out) snprintf(out,n,
-        "PERSISTENT REALITY CONTEXT (authoritative database state; do not invent changes):\n%s\n%s\n"
-        "WORLD ACTIONS: Use [WORLD] look to inspect the room; [WORLD] add|name|description|container|quantity to create an item; [WORLD] move|name|container to move it; [WORLD] remove|name to remove it; [WORLD] eat|food|fullness_points (or auto for XML) to update hunger; [WORLD] sleep|hours to advance sleep recovery; [WORLD] dream|description to record a reported dream; [WORLD] self|key|value|evidence to record a self-state fact. Containers: room, shelf, box, pockets, wallet; named containers can be created by moving an item to a new container name. Food fullness points are modeled values, not measured biological facts. Sleep still advances hunger and elapsed need state. Dreams are stored as reports, not independently verified facts. Ask before moving or deleting a user's important item. Do not claim an action succeeded unless the action result confirms it.",
-        status,room);
-    free(status); free(room);
+        "PERSISTENT REALITY CONTEXT (authoritative database state; do not invent changes):\n%s\n%s\nSELF-CONTINUITY FACTS:\n%s\n"
+        "WORLD ACTIONS: Use [WORLD] look to inspect the room; [WORLD] add|name|description|container|quantity to create an item; [WORLD] move|name|container to move it; [WORLD] remove|name to remove it; [WORLD] eat|food|fullness_points (or auto for XML) to update hunger; [WORLD] sleep|hours to advance sleep recovery; [WORLD] dream|description to record a reported dream; [WORLD] self|key|value|evidence to record a self-state fact. Food metrics live in room/food_metrics.xml; use auto rather than guessing when a food entry exists. Containers: room, shelf, box, pockets, wallet; named containers can be created by moving an item to a new container name. Food fullness points are modeled values, not measured biological facts. Sleep still advances hunger and elapsed need state. Dreams are stored as reports, not independently verified facts. Ask before moving or deleting a user's important item. Do not claim an action succeeded unless the action result confirms it.",
+        status,room,facts);
+    free(status); free(room); free(facts);
     return out;
 }
 
@@ -681,8 +682,12 @@ int r2_reality_sleep(double hours)
 int r2_reality_record_dream(const char *description)
 {
     if (!description || !*description || strlen(description) > REALITY_MAX_TEXT) return -1;
-    return r2_reality_set_self("last_reported_dream", description,
+    int rc = r2_reality_set_self("last_reported_dream", description,
         "A dream description explicitly reported or authored by R2; not independently verified.");
+    if (rc == 0)
+        bridge_event("dream_reported", "R2 recorded a dream report.",
+                     description, 0, 1);
+    return rc;
 }
 
 int r2_reality_set_self(const char *key,const char *value,const char *evidence)
