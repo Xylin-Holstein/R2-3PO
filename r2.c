@@ -5541,8 +5541,16 @@ int r2_diary_active(void)
 
 int r2_write_diary(void)
 {
+    r2_log_thinking("diary_reflection_started",
+                    "R2 began a private diary reflection.",
+                    "The reflection uses supplied persistent memory, Life Log, diary, and belief history; it is not a verbatim record of hidden model reasoning.");
     char *ctx = build_learning_reflection_context(10);
-    if (!ctx) return -1;
+    if (!ctx) {
+        r2_log_event(R2_LOG_ERROR, "diary_reflection_context_failed",
+                     "R2 could not assemble context for a private diary reflection.",
+                     NULL, "r2_write_diary");
+        return -1;
+    }
 
     const char *prompt =
         "You are R2-3PO's private autonomous reflection process.\n"
@@ -5562,9 +5570,23 @@ int r2_write_diary(void)
     char *reflection = ollama_chat(&m, 1, prompt);
     free(ctx);
 
-    if (!reflection) return -1;
+    if (!reflection) {
+        r2_log_event(R2_LOG_ERROR, "diary_reflection_generation_failed",
+                     "R2's private diary reflection could not be generated.",
+                     NULL, "r2_write_diary");
+        return -1;
+    }
 
     int rc = r2_diary_write(reflection);
+    if (rc == 0) {
+        r2_log_thinking("diary_reflection_written",
+                        "R2 wrote a private diary reflection.",
+                        reflection);
+    } else {
+        r2_log_event(R2_LOG_ERROR, "diary_reflection_write_failed",
+                     "R2 generated a diary reflection but could not save it.",
+                     reflection, "r2_write_diary");
+    }
     free(reflection);
     return rc;
 }
