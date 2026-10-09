@@ -135,7 +135,7 @@ static int migrate_mirror_directory(const char *old_dir, const char *new_dir)
 static int make_room_dirs(void)
 {
     char room[1024], shelf[1100], box[1100], pockets[1100], wallet[1200];
-    char fridge[1100], piggybank[1100], diary[1100];
+    char fridge[1100], piggybank[1100], diary[1100], tapes[1200];
     char old_pockets[1200], old_wallet[1200], old_fridge[1200], old_toy_box[1200];
     snprintf(room,sizeof(room),"%s/room",R2_ROOT); snprintf(shelf,sizeof(shelf),"%s/shelf",room);
     snprintf(box,sizeof(box),"%s/box",room); snprintf(pockets,sizeof(pockets),"%s/pockets",R2_ROOT);
@@ -146,9 +146,10 @@ static int make_room_dirs(void)
     snprintf(old_fridge,sizeof(old_fridge),"%s/room/fridge",R2_ROOT);
     snprintf(old_toy_box,sizeof(old_toy_box),"%s/room/toy_box",R2_ROOT);
     snprintf(diary,sizeof(diary),"%s",R2_DIARY_DIR);
+    snprintf(tapes,sizeof(tapes),"%s/VCR_Tapes",R2_ROOT);
     if(ensure_dir_tree(R2_ROOT)||ensure_dir_tree(R2_HOME)||ensure_dir_tree(diary)||ensure_dir_tree(room)||
        ensure_dir_tree(shelf)||ensure_dir_tree(box)||ensure_dir_tree(pockets)||ensure_dir_tree(wallet)||
-       ensure_dir_tree(fridge)||ensure_dir_tree(piggybank)) {
+       ensure_dir_tree(fridge)||ensure_dir_tree(piggybank)||ensure_dir_tree(tapes)) {
         fprintf(stderr, "[R2 Reality] Could not create room/shelf/box directories under %s\n", R2_ROOT);
         return -1;
     }
