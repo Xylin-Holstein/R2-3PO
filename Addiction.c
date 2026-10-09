@@ -212,12 +212,28 @@ int r2_addiction_record_choice(const char *target, const char *target_type,
     char old_status[32] = "inactive", new_status[32] = "inactive";
     int changed = 0, count = 0, days = 0, enjoyment = enjoyment_0_100;
     pthread_mutex_lock(&addiction_lock);
-    if (ensure_db_locked() != 0 ||
-        upsert_target_locked(target, target_type, enjoyment_0_100, now) != 0) {
+    if (ensure_db_locked() != 0) {
         pthread_mutex_unlock(&addiction_lock);
         return -1;
     }
+    /* Preserve learned enjoyment across repeated choices. A new target starts
+       with the neutral default supplied by the caller; existing targets keep
+       their latest learned score until feedback changes it. */
     sqlite3_stmt *st = NULL;
+    int lookup = sqlite3_prepare_v2(addiction_db,
+        "SELECT enjoyment FROM addiction_targets WHERE target=? COLLATE NOCASE",
+        -1, &st, NULL);
+    if (lookup == SQLITE_OK) {
+        sqlite3_bind_text(st, 1, target, -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(st) == SQLITE_ROW)
+            enjoyment = sqlite3_column_int(st, 0);
+    }
+    if (st) sqlite3_finalize(st);
+    st = NULL;
+    if (upsert_target_locked(target, target_type, enjoyment, now) != 0) {
+        pthread_mutex_unlock(&addiction_lock);
+        return -1;
+    }
     int rc = sqlite3_prepare_v2(addiction_db,
         "INSERT INTO addiction_events(target,event_kind,enjoyment,source,details,occurred_at) VALUES(?,'choice',?,?,?,?)",
         -1, &st, NULL);
