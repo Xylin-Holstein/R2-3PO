@@ -5172,6 +5172,146 @@ void r2_diagnostics(void)
     );
 }
 
+
+/* ------------------------------------------------------------
+   STRUCTURED SELF-STATE EXTRACTION
+   ------------------------------------------------------------ */
+
+/*
+ * The Life Log keeps verbatim conversation separately. This optional
+ * second pass extracts only explicitly evidenced self-reports from R2's
+ * visible response: expressed emotion, motivation, uncertainty, beliefs,
+ * and continuity items. It does not claim access to hidden model reasoning.
+ */
+static void log_structured_self_report(const char *reply)
+{
+    if (!reply || !*reply || !r2_log_is_initialized())
+        return;
+
+    char *input = NULL;
+    const char *prefix =
+        "Extract structured records from R2's visible response below. "
+        "Only record claims explicitly present in the response; do not infer "
+        "unstated feelings or beliefs. Evidence must be a short exact quote "
+        "from the response. Do not treat hypothetical examples as real events. "
+        "Return ONLY valid JSON with this schema: "
+        "{\"states\":[{\"kind\":\"emotion|motivation|uncertainty|question|intention|preference|self_assessment\","
+        "\"description\":\"...\",\"evidence\":\"exact quote\",\"confidence\":0.0}],"
+        "\"beliefs\":[{\"key\":\"short-stable-key\",\"belief\":\"...\","
+        "\"evidence\":\"exact quote\",\"confidence\":0.0,\"status\":\"tentative|supported|disputed|revised|rejected\"}],"
+        "\"continuity\":[{\"key\":\"short-stable-key\",\"type\":\"project|task|question|goal|relationship|routine\","
+        "\"title\":\"...\",\"description\":\"...\",\"status\":\"open|in_progress|paused|blocked|completed|closed\","
+        "\"next_action\":\"...\"}]}. "
+        "Use empty arrays when there is no evidence. Confidence is evidence "
+        "strength, not a measure of consciousness. Never invent exact quotes.\n\n"
+        "R2 visible response:\n";
+    size_t n = strlen(prefix) + strlen(reply) + 1;
+    input = malloc(n);
+    if (!input) return;
+    snprintf(input, n, "%s%s", prefix, reply);
+
+    Message m = { "user", input, 0 };
+    char *json_text = ollama_chat(&m, 1,
+        "You are a strict structured data extractor. Output only valid JSON.");
+    free(input);
+    if (!json_text) {
+        r2_log_event(R2_LOG_ERROR, "self_state_extraction_failed",
+                     "Structured self-state extraction did not return a response.",
+                     NULL, "log_structured_self_report");
+        return;
+    }
+
+    struct json_object *root = json_tokener_parse(json_text);
+    free(json_text);
+    if (!root || !json_object_is_type(root, json_type_object)) {
+        if (root) json_object_put(root);
+        r2_log_event(R2_LOG_ERROR, "self_state_json_invalid",
+                     "Structured self-state extraction returned invalid JSON.",
+                     NULL, "log_structured_self_report");
+        return;
+    }
+
+    struct json_object *arr = NULL, *item = NULL, *v = NULL;
+    if (json_object_object_get_ex(root, "states", &arr) &&
+        json_object_is_type(arr, json_type_array)) {
+        size_t count = json_object_array_length(arr);
+        if (count > 12) count = 12;
+        for (size_t i = 0; i < count; ++i) {
+            item = json_object_array_get_idx(arr, i);
+            const char *kind = "self_assessment";
+            const char *description = NULL, *evidence = NULL;
+            double confidence = -1.0;
+            if (json_object_object_get_ex(item, "kind", &v) &&
+                json_object_is_type(v, json_type_string)) kind = json_object_get_string(v);
+            if (json_object_object_get_ex(item, "description", &v) &&
+                json_object_is_type(v, json_type_string)) description = json_object_get_string(v);
+            if (json_object_object_get_ex(item, "evidence", &v) &&
+                json_object_is_type(v, json_type_string)) evidence = json_object_get_string(v);
+            if (json_object_object_get_ex(item, "confidence", &v) &&
+                json_object_is_type(v, json_type_double)) confidence = json_object_get_double(v);
+            if (description && *description && evidence && *evidence)
+                r2_log_inner_state(kind, description, evidence, confidence,
+                                   "explicit R2 response; model-extracted with quoted evidence");
+        }
+    }
+
+    if (json_object_object_get_ex(root, "beliefs", &arr) &&
+        json_object_is_type(arr, json_type_array)) {
+        size_t count = json_object_array_length(arr);
+        if (count > 12) count = 12;
+        for (size_t i = 0; i < count; ++i) {
+            item = json_object_array_get_idx(arr, i);
+            const char *key = NULL, *belief = NULL, *evidence = NULL;
+            const char *status = "tentative";
+            double confidence = -1.0;
+            if (json_object_object_get_ex(item, "key", &v) &&
+                json_object_is_type(v, json_type_string)) key = json_object_get_string(v);
+            if (json_object_object_get_ex(item, "belief", &v) &&
+                json_object_is_type(v, json_type_string)) belief = json_object_get_string(v);
+            if (json_object_object_get_ex(item, "evidence", &v) &&
+                json_object_is_type(v, json_type_string)) evidence = json_object_get_string(v);
+            if (json_object_object_get_ex(item, "status", &v) &&
+                json_object_is_type(v, json_type_string)) status = json_object_get_string(v);
+            if (json_object_object_get_ex(item, "confidence", &v) &&
+                (json_object_is_type(v, json_type_double) ||
+                 json_object_is_type(v, json_type_int))) confidence = json_object_get_double(v);
+            if (key && *key && belief && *belief && evidence && *evidence)
+                r2_log_belief(key, belief, evidence, confidence, status,
+                              "explicit R2 response; model-extracted with quoted evidence");
+        }
+    }
+
+    if (json_object_object_get_ex(root, "continuity", &arr) &&
+        json_object_is_type(arr, json_type_array)) {
+        size_t count = json_object_array_length(arr);
+        if (count > 8) count = 8;
+        for (size_t i = 0; i < count; ++i) {
+            item = json_object_array_get_idx(arr, i);
+            const char *key = NULL, *type = "task", *title = NULL;
+            const char *description = NULL, *status = "open", *next_action = NULL;
+            if (json_object_object_get_ex(item, "key", &v) &&
+                json_object_is_type(v, json_type_string)) key = json_object_get_string(v);
+            if (json_object_object_get_ex(item, "type", &v) &&
+                json_object_is_type(v, json_type_string)) type = json_object_get_string(v);
+            if (json_object_object_get_ex(item, "title", &v) &&
+                json_object_is_type(v, json_type_string)) title = json_object_get_string(v);
+            if (json_object_object_get_ex(item, "description", &v) &&
+                json_object_is_type(v, json_type_string)) description = json_object_get_string(v);
+            if (json_object_object_get_ex(item, "status", &v) &&
+                json_object_is_type(v, json_type_string)) status = json_object_get_string(v);
+            if (json_object_object_get_ex(item, "next_action", &v) &&
+                json_object_is_type(v, json_type_string)) next_action = json_object_get_string(v);
+            if (key && *key && title && *title)
+                r2_log_continuity(key, type, title, description, status,
+                                  next_action,
+                                  "explicit R2 response; model-extracted");
+        }
+    }
+
+    json_object_put(root);
+}
+
+
 char *r2_talk(const char *message)
 {
     if (!core_initialized || shutting_down || !message)
@@ -5226,6 +5366,8 @@ char *r2_talk(const char *message)
         r2_log_event(R2_LOG_ERROR, "conversation_log_failed",
                      "Could not persist a conversation turn in the Life Log.",
                      NULL, "r2_talk");
+
+    log_structured_self_report(reply);
 
     char *md = memory_decision(message, reply);
 
