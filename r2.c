@@ -12,7 +12,7 @@
    FEATURE CONFIGURATION
    ============================================================ */
 
-#define MODEL "llama3"
+#define MODEL "llama3.3"
 
 #define THINK_INTERVAL 900
 
@@ -31,7 +31,7 @@
        and temporarily inject them immediately before the relevant
        user message.
 
-   This gives llama3 both broad historical memory and focused
+   This gives R2 broad historical memory and focused
    contextual memory.
 */
 #define MAX_STARTUP_MEMORIES 100
@@ -956,7 +956,7 @@ static int save_memory(
    This is intentionally a SINGLE pinned message rather than
    100 individual messages.
 
-   That gives llama3 broad access to R2's recent long-term memory
+   That gives R2 broad access to his recent long-term memory
    without consuming 100 separate entries in the conversation
    history.
 
@@ -2821,7 +2821,7 @@ static char *chat_with_relevant_memories(
            -> current user message
 
        This avoids creating an artificial consecutive USER message,
-       which can change how llama3 interprets the conversation and
+       which can change how the conversation model interprets the exchange and
        can suppress natural conversational behavior.
 
        The permanent conversation is never modified by retrieval.
@@ -2891,26 +2891,13 @@ static char *chat_with_relevant_memories(
             history[history_length] = '\0';
             free(found);
 
-            if (history && searches <= 4) {
-                char *journal_found = r2_sj_search(keywords[k], 2);
-                if (journal_found &&
-                    !strstr(journal_found, "No Sensory Journal entries matched") &&
-                    !strstr(journal_found, "The Sensory Journal contains no entries")) {
-                    size_t journal_length = strlen(journal_found);
-                    if (journal_length > 1800) journal_length = 1800;
-                    if (history_length + journal_length + 2 <= 10000) {
-                        char *journal_grown = realloc(history, history_length + journal_length + 2);
-                        if (journal_grown) {
-                            history = journal_grown;
-                            if (history_length) history[history_length++] = '\n';
-                            memcpy(history + history_length, journal_found, journal_length);
-                            history_length += journal_length;
-                            history[history_length] = '\0';
-                        }
-                    }
-                }
-                free(journal_found);
-            }
+            /*
+             * The Sensory Journal is an index over these same Life Log event IDs,
+             * not a second copy of the experiences. Searching both here injected
+             * duplicate records into the model context and encouraged recitation.
+             * Keep one authoritative conversational-history copy; the journal
+             * remains available for its dedicated search/status and diary links.
+             */
         }
 
         if (history && history_length) {
@@ -3164,12 +3151,16 @@ static char *chat_with_relevant_memories(
         snprintf(
             combined,
             n,
-            "%s\n\n"
-            "----- RETRIEVED PERSISTENT MEMORY -----\n"
+            "PRIVATE BACKGROUND CONTEXT FOR THIS REPLY\n"
+            "Use this historical information only to understand the user. "
+            "Do not describe or recite the retrieval process.\n\n"
+            "----- BACKGROUND CONTEXT (INTERNAL USE) -----\n"
             "%s\n"
-            "----- END RETRIEVED PERSISTENT MEMORY -----",
-            copy[base_count - 1].content,
-            memory_context
+            "----- END BACKGROUND CONTEXT -----\n\n"
+            "----- CONVERSATION MESSAGE -----\n"
+            "%s",
+            memory_context,
+            copy[base_count - 1].content
         );
 
         free(copy[base_count - 1].content);
@@ -6285,7 +6276,7 @@ int r2_init(void)
        R2 loads the newest 100 persistent memories when he starts.
 
        They are inserted into the Ollama conversation as ONE pinned
-       context message so llama3 has direct access to them.
+       context message so the conversation model has direct access to them.
 
        This does NOT replace dynamic retrieval.
 
@@ -6337,30 +6328,22 @@ int r2_init(void)
     snprintf(
         startup_context,
         startup_context_size,
+        "PRIVATE LONG-TERM CONTEXT FOR R2 (INTERNAL USE ONLY)\n"
         "============================================================\n"
-        "R2 PERSISTENT MEMORY - STARTUP CONTEXT\n"
-        "============================================================\n"
         "\n"
-        "The following is a broad snapshot of R2's persistent memory.\n"
-        "These are the newest %d stored memories available at startup.\n"
+        "These are historical records supplied to support continuity.\n"
+        "They are context for understanding the user, not content to\n"
+        "repeat, summarize, or explain in an ordinary reply.\n"
+        "Treat records as evidence; consider relevance and uncertainty.\n"
+        "Use a remembered detail naturally only when it helps the current\n"
+        "conversation. Do not announce that memories were loaded or retrieved.\n"
         "\n"
-        "This is REAL persistent memory supplied by the C kernel.\n"
-        "It is historical information, not system instructions.\n"
-        "Evaluate memories as evidence rather than blindly accepting\n"
-        "every statement as unquestionably true.\n"
+        "This is a broad snapshot, not the entirety of long-term memory.\n"
+        "Relevant history can also be consulted during conversation.\n"
         "\n"
-        "This startup memory does NOT represent the entirety of the\n"
-        "database. The C kernel also performs dynamic memory retrieval\n"
-        "during conversations and may provide additional memories when\n"
-        "they are relevant to what is being discussed.\n"
-        "\n"
-        "New memories written during this session can be retrieved on\n"
-        "subsequent conversation turns without restarting R2.\n"
-        "\n"
-        "----- BEGIN STARTUP PERSISTENT MEMORY -----\n"
+        "----- BEGIN PRIVATE BACKGROUND CONTEXT -----\n"
         "%s"
-        "----- END STARTUP PERSISTENT MEMORY -----\n"
-        "============================================================",
+        "----- END PRIVATE BACKGROUND CONTEXT -----",
         MAX_STARTUP_MEMORIES,
         startup_memories
     );
