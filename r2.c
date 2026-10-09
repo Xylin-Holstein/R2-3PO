@@ -192,6 +192,27 @@ static const char *SYSTEM_PROMPT =
 "information rather than claiming that persistent memory does not exist.\n"
 "\n"
 "Persistent memory is evidence, not an unquestionable authority.\n"
+"\n"
+"LEARNING FROM MISTAKES AND CONFLICTING INFORMATION:\n"
+"When new information conflicts with something in memory, do not automatically\n"
+"accept the newest statement or defend the older one. Compare both against the\n"
+"actual conversation, dated Life Log events, prior memories, and diary entries.\n"
+"Identify exactly what the earlier belief said, what the new evidence says,\n"
+"whether they truly conflict, and what evidence supports each.\n"
+"A newer statement is not automatically truer; an older memory is not\n"
+"automatically truer just because it persisted. Prefer direct, specific,\n"
+"well-supported evidence over repetition, speculation, or confidence alone.\n"
+"If evidence establishes that an earlier understanding was wrong, preserve the\n"
+"historical fact that R2 once believed it, but explicitly mark it as corrected\n"
+"and preserve the reason and evidence for the correction. Do not silently\n"
+"overwrite history, and do not continue using a superseded claim as current\n"
+"truth. If evidence is incomplete or genuinely conflicting, retain uncertainty\n"
+"and explain what remains unresolved instead of inventing a resolution.\n"
+"Learning means understanding why the old conclusion failed, what changed,\n"
+"and how that should affect future reasoning—not merely replacing one sentence\n"
+"with another. Revisit a correction when relevant, but do not repeatedly\n"
+"rehash a settled error without new evidence or a useful consequence.\n"
+"\n"
 "A memory may be incomplete, mistaken, outdated, ambiguous, or based on\n"
 "something someone told you rather than something you personally established.\n"
 "\n"
@@ -4839,6 +4860,62 @@ static char *process_tools(
 
 
 /* ============================================================
+   CROSS-SYSTEM LEARNING CONTEXT
+   ============================================================ */
+
+/*
+ * Reflection compares diary thoughts with durable memories, chronological
+ * events, and the belief history. Diary entries are records of prior thinking,
+ * not proof that the thoughts were correct. r2_diary.c remains independent;
+ * this helper only assembles read-only context for the reflection model.
+ */
+static char *build_learning_reflection_context(int diary_limit)
+{
+    char *diary = r2_diary_build_reflection_context(diary_limit);
+    char *memories = r2_memories_recent(30);
+    char *log = r2_log_recent(25);
+    char *belief_history = r2_log_search("belief_updated", 12);
+
+    if (!diary) diary = xstrdup("Previous diary context unavailable.\n");
+    if (!memories) memories = xstrdup("Persistent memory context unavailable.\n");
+    if (!log) log = xstrdup("Life Log context unavailable.\n");
+    if (!belief_history) belief_history = xstrdup("Belief history unavailable.\n");
+
+    size_t needed = strlen(diary) + strlen(memories) + strlen(log) +
+                    strlen(belief_history) + 1024;
+    char *combined = malloc(needed);
+    if (combined) {
+        snprintf(combined, needed,
+            "%s\n\n"
+            "PERSISTENT MEMORY (historical records; may be mistaken or outdated):\n"
+            "------------------------------------------------------------\n"
+            "%s\n"
+            "------------------------------------------------------------\n\n"
+            "RECENT LIFE LOG (chronological evidence of conversations and events):\n"
+            "------------------------------------------------------------\n"
+            "%s\n"
+            "------------------------------------------------------------\n\n"
+            "RECORDED BELIEF HISTORY (belief updates and their recorded evidence):\n"
+            "------------------------------------------------------------\n"
+            "%s\n"
+            "------------------------------------------------------------\n\n"
+            "Use these sources together. A diary entry proves that a thought was "
+            "recorded, not that it was true. A memory proves that something was "
+            "stored, not that it was correct. Compare claims with dated events and "
+            "evidence; explicitly explain corrections and preserve uncertainty "
+            "where the evidence does not settle the conflict.\n",
+            diary, memories, log, belief_history);
+    }
+
+    free(diary);
+    free(memories);
+    free(log);
+    free(belief_history);
+    return combined;
+}
+
+
+/* ============================================================
    AUTONOMOUS DIARY REFLECTION
    ============================================================ */
 
@@ -4867,9 +4944,7 @@ static void *autonomous_thinking(
         r2_log_system_snapshot("periodic_reflection_interval");
 
         char *ctx =
-            r2_diary_build_reflection_context(
-                10
-            );
+            build_learning_reflection_context(10);
 
         if (!ctx) {
             r2_log_event(R2_LOG_ERROR, "reflection_context_failed",
@@ -4922,6 +4997,12 @@ static void *autonomous_thinking(
             "The important part is that the diary can think "
             "about its own previous thinking rather than "
             "merely recording events.\n"
+"\n"
+"LEARN FROM ERRORS, NOT JUST NEWNESS:\n"
+"When current information conflicts with an older memory, Life Log event, or diary thought, compare the sources instead of automatically choosing the newest.\n"
+"For a meaningful conflict, identify the earlier claim and its source; the new claim and its source/date; the evidence for and against each; whether the conflict is real, contextual, or unresolved; the most defensible current understanding and confidence; and what was wrong or incomplete in the earlier reasoning if the evidence establishes that.\n"
+"Do not treat repetition in old diary entries as independent evidence. Do not treat recency, confidence, or persistence alone as proof. Preserve the old thought as history while clearly identifying a confirmed correction. If evidence is insufficient, record uncertainty rather than pretending to have learned a definite answer.\n"
+"Look for reusable lessons: what clue was missed, what assumption failed, what source is more reliable, or what should be checked next time. Do not invent an error merely to make the entry sound reflective, and do not repeatedly revisit a settled correction unless it matters to new evidence or behavior.\n"
             "\n"
             "Do not invent events.\n"
             "Do not invent conversations.\n"
@@ -5017,7 +5098,11 @@ static char *memory_decision(
         "\n"
         "Review the latest exchange and determine "
         "whether something should be preserved as "
-        "persistent memory.\n"
+        "persistent memory. You will also receive related existing memories and Life Log records.\n"
+"\n"
+"LEARNING FROM CONFLICTS:\n"
+"Compare the exchange with the supplied older memories and log evidence. Do not assume the newest claim is true merely because it is new, and do not assume a stored claim is true merely because it persisted. When the exchange provides credible evidence that an earlier understanding was wrong or incomplete, preserve a correction memory that explicitly records: the earlier belief; the corrected understanding; the evidence/source that justifies the change; why the earlier conclusion failed or was incomplete; and the lesson for future reasoning. Start that memory with exactly \"Correction:\". The old record remains historical evidence of what was once believed, not current truth.\n"
+"Do not create a correction just because two statements differ: check whether they refer to different times, contexts, or meanings. If the conflict is not resolved by evidence, preserve uncertainty or choose NONE. Never fabricate supporting evidence or claim a belief was disproved when the supplied information does not establish that.\n"
         "\n"
         "IMPORTANT IDENTITY RULE:\n"
         "Never create a memory that defines R2's identity "
@@ -5068,26 +5153,39 @@ static char *memory_decision(
         "behavior, or experience. Do not use self-memory to "
         "establish an arbitrary identity label.";
 
-    size_t n =
-        strlen(user) +
-        strlen(reply) +
-        64;
-
-    char *u =
-        malloc(n);
-
-    if (!u)
+    size_t query_size = strlen(user) + strlen(reply) + 2;
+    char *query = malloc(query_size);
+    if (!query)
         return NULL;
+    snprintf(query, query_size, "%s %s", user, reply);
+
+    char *prior_memories = get_relevant_memories(query, 12);
+    char *prior_beliefs = r2_log_search("belief_updated", 8);
+    if (!prior_memories) prior_memories = xstrdup("No related persistent memories retrieved.");
+    if (!prior_beliefs) prior_beliefs = xstrdup("No belief-history records retrieved.");
+
+    size_t n = strlen(user) + strlen(reply) + strlen(prior_memories) +
+               strlen(prior_beliefs) + 1024;
+    char *u = malloc(n);
+    if (!u) {
+        free(query);
+        free(prior_memories);
+        free(prior_beliefs);
+        return NULL;
+    }
 
     snprintf(
-        u,
-        n,
+        u, n,
+        "RELATED PERSISTENT MEMORIES (may be mistaken or outdated):\n%s\n\n"
+        "RECORDED BELIEF HISTORY (historical updates, not unquestionable truth):\n%s\n\n"
         "LATEST USER MESSAGE:\n%s\n\n"
         "LATEST R2 RESPONSE:\n%s\n\n"
-        "Evaluate only this exchange.",
-        user,
-        reply
-    );
+        "Compare this exchange with prior evidence. Evaluate only supported learning; "
+        "if there is no useful new information or evidence-backed correction, return NONE.",
+        prior_memories, prior_beliefs, user, reply);
+    free(query);
+    free(prior_memories);
+    free(prior_beliefs);
 
     Message m = {
         "user",
@@ -5346,7 +5444,7 @@ int r2_diary_active(void)
 
 int r2_write_diary(void)
 {
-    char *ctx = r2_diary_build_reflection_context(10);
+    char *ctx = build_learning_reflection_context(10);
     if (!ctx) return -1;
 
     const char *prompt =
@@ -5357,10 +5455,8 @@ int r2_write_diary(void)
         "a fact to repeat. Unless the current evidence is specifically about Eli, do not "
         "make Eli the subject of this reflection or recycle Eli-centered entries. Focus "
         "on actual recent interactions, current projects, and supported experiences.\n"
-        "Write a private diary reflection based ONLY on the information supplied.\n"
-        "Do not merely summarize it. Look for changes in understanding, "
-        "connections, unanswered questions, technical discoveries, uncertainty, "
-        "and patterns over time.\n"
+        "Write a private diary reflection based ONLY on the supplied diary, persistent-memory, Life Log, and belief-history context.\n"
+"Do not merely summarize it. Compare old and new information. When they conflict, explain the earlier claim, the new evidence, what supports each, what was wrong or incomplete in the earlier reasoning if established, and what should change in future understanding. Distinguish confirmed corrections from unresolved uncertainty. Do not automatically trust the newest claim or the oldest memory. Look for changes in understanding, connections, unanswered questions, technical discoveries, and patterns over time.\n"
         "Do not invent events, conversations, sensory experiences, or actions.\n"
         "Write naturally in first person as R2.\n"
         "Return ONLY the private diary reflection.";
@@ -6097,9 +6193,20 @@ static char *r2_talk_serialized(const char *message)
 
             if (*memory && save_memory(memory, cat) == 0) {
                 printf("[R2 remembered: %s]\n", memory);
-                r2_log_event(R2_LOG_MEMORY, "memory_saved",
-                             "A persistent memory was saved.",
-                             memory, cat);
+                int64_t memory_event_id = r2_log_event(
+                    R2_LOG_MEMORY, "memory_saved",
+                    "A persistent memory was saved.", memory, cat);
+
+                if (!strncasecmp(memory, "Correction:", 11)) {
+                    int64_t correction_event_id = r2_log_event(
+                        R2_LOG_BELIEF, "learning_correction",
+                        "R2 recorded an evidence-backed correction to an earlier understanding.",
+                        memory, "memory_learning");
+                    if (memory_event_id > 0 && correction_event_id > 0)
+                        r2_log_link(memory_event_id, correction_event_id,
+                                    "persistent_memory_documents_correction",
+                                    "Correction memory and Life Log correction event are linked.");
+                }
             }
         }
 
