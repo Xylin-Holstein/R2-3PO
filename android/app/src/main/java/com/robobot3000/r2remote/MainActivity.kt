@@ -97,7 +97,8 @@ private fun R2RemoteScreen(
     val context = LocalContext.current
     var section by remember { mutableStateOf(Section.CHAT) }
     var serverUrl by remember { mutableStateOf(initialUrl) }
-    var token by remember { mutableStateOf(initialToken) }
+    var savedSecret by remember { mutableStateOf(initialToken) }
+    var token by remember { mutableStateOf(if (initialToken.isNotBlank()) "PEACE" else "") }
     var draft by remember { mutableStateOf("") }
     var memoryQuery by remember { mutableStateOf("") }
     var output by remember { mutableStateOf("Connect to R2 using your private network address and remote token.") }
@@ -109,15 +110,15 @@ private fun R2RemoteScreen(
     var showSettings by remember { mutableStateOf(initialToken.isBlank()) }
 
     fun runRequest(action: (RemoteApi) -> String, onSuccess: (String) -> Unit = { output = it }) {
-        if (serverUrl.isBlank() || token.isBlank()) {
-            status = "Set server address and token first"
+        if (serverUrl.isBlank() || savedSecret.isBlank()) {
+            status = "Set the server address and save the real token once; PEACE is only its alias"
             showSettings = true
             return
         }
         busy = true
         status = "Connecting…"
         val url = serverUrl
-        val secret = token
+        val secret = savedSecret
         io.execute {
             try {
                 val result = action(RemoteApi(url, secret))
@@ -189,8 +190,8 @@ private fun R2RemoteScreen(
         output = if (restored.isEmpty()) "No saved conversation turns found yet." else ""
     }
 
-    LaunchedEffect(serverUrl, token) {
-        if (serverUrl.isNotBlank() && token.isNotBlank()) {
+    LaunchedEffect(serverUrl, savedSecret) {
+        if (serverUrl.isNotBlank() && savedSecret.isNotBlank()) {
             runRequest({ api -> api.conversation().toString() }) { raw -> restoreChat(raw) }
         }
     }
@@ -434,21 +435,30 @@ private fun R2RemoteScreen(
             title = { Text("Connect to your R2") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Enter the private address of the Linux PC (for example, its Tailscale IP with :8765) and the R2_REMOTE_TOKEN you configured on that PC.")
+                    Text("Enter the PC's private gateway address. Paste the generated token printed by R2's launcher once. After it is saved, type PEACE as the alias; PEACE itself is not sent to R2 as the password.")
                     OutlinedTextField(value = serverUrl, onValueChange = { serverUrl = it },
                         label = { Text("Gateway URL") }, singleLine = true)
                     OutlinedTextField(value = token, onValueChange = { token = it },
-                        label = { Text("Remote token") }, singleLine = true)
+                        label = { Text("Remote token or alias (PEACE)") }, singleLine = true)
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
-                    saveSettings(serverUrl.trim(), token)
-                    showSettings = false
-                    runRequest({ api ->
-                        val s = api.status()
-                        "Connected to ${s.optString("service")}\nModel: ${s.optString("model")}"
-                    })
+                    val entered = token.trim()
+                    val effectiveSecret = if (entered.equals("PEACE", ignoreCase = true)) savedSecret else entered
+                    if (effectiveSecret.isBlank()) {
+                        status = "PEACE has no saved credential yet"
+                        output = "Paste the token printed by R2's launcher once, then save. After it is stored, PEACE will work as its alias."
+                    } else {
+                        savedSecret = effectiveSecret
+                        token = "PEACE"
+                        saveSettings(serverUrl.trim(), effectiveSecret)
+                        showSettings = false
+                        runRequest({ api ->
+                            val s = api.status()
+                            "Connected to ${s.optString("service")}\nModel: ${s.optString("model")}"
+                        })
+                    }
                 }) { Text("Save & connect") }
             },
             dismissButton = { TextButton(onClick = { showSettings = false }) { Text("Cancel") } }
