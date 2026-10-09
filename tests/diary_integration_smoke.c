@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sqlite3.h>
+#include <pthread.h>
 
 static int log_ready = 0;
 
@@ -24,6 +25,28 @@ int r2_addiction_record_choice(const char *target, const char *target_type,
     (void)target; (void)target_type; (void)enjoyment_0_100;
     (void)source; (void)details;
     return 0;
+}
+
+#define CONCURRENT_DIARY_THREADS 4
+#define CONCURRENT_DIARY_ENTRIES 3
+
+typedef struct {
+    int worker_id;
+    int failed;
+} DiaryWriter;
+
+static void *write_diary_entries_concurrently(void *opaque)
+{
+    DiaryWriter *writer = (DiaryWriter *)opaque;
+    for (int i = 0; i < CONCURRENT_DIARY_ENTRIES; ++i) {
+        char entry[160];
+        snprintf(entry, sizeof(entry),
+                 "Concurrent diary writer %d entry %d.",
+                 writer->worker_id, i);
+        if (r2_diary_write(entry) != 0)
+            writer->failed = 1;
+    }
+    return NULL;
 }
 
 static int reward_total(void)
@@ -273,6 +296,28 @@ int main(void)
     assert(r2_diary_reconnect_history(10) == 0);
     assert(scalar_int("SELECT COUNT(*) FROM r2_log_events "
                       "WHERE event_type='diary_entry_linked';") == 2);
+
+    /* Concurrent writers must not cross-assign SQLite row IDs or lose links. */
+    pthread_t threads[CONCURRENT_DIARY_THREADS];
+    DiaryWriter writers[CONCURRENT_DIARY_THREADS];
+    for (int i = 0; i < CONCURRENT_DIARY_THREADS; ++i) {
+        writers[i].worker_id = i;
+        writers[i].failed = 0;
+        assert(pthread_create(&threads[i], NULL,
+                              write_diary_entries_concurrently, &writers[i]) == 0);
+    }
+    for (int i = 0; i < CONCURRENT_DIARY_THREADS; ++i) {
+        assert(pthread_join(threads[i], NULL) == 0);
+        assert(writers[i].failed == 0);
+    }
+    assert(scalar_int("SELECT COUNT(*) FROM diary_entries;") ==
+           2 + CONCURRENT_DIARY_THREADS * CONCURRENT_DIARY_ENTRIES);
+    assert(scalar_int("SELECT COUNT(*) FROM r2_diary_entry_links "
+                      "WHERE log_event_id IS NOT NULL AND memory_indexed=1;") ==
+           2 + CONCURRENT_DIARY_THREADS * CONCURRENT_DIARY_ENTRIES);
+    assert(scalar_int("SELECT COUNT(*) FROM r2_log_events "
+                      "WHERE event_type='diary_entry_linked';") ==
+           2 + CONCURRENT_DIARY_THREADS * CONCURRENT_DIARY_ENTRIES);
 
     r2_diary_shutdown();
     puts("Diary/Life Log/memory integration smoke test passed.");
