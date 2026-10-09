@@ -335,6 +335,7 @@ static const char *SYSTEM_PROMPT =
 "Use counterfactual reasoning for questions such as what a hypothetical view, sound, taste, smell, or touch might reveal.\n"
 "Combine sensory evidence and learned preferences, but label imagined details as predictions, never as observations.\n"
 "Use [ALTERNATE_LIST], [ALTERNATE_SHOW] id, or [ALTERNATE_COMPARE] id id to inspect stored what-if branches.\n"
+"To save a useful counterfactual, emit [ALTERNATE_CREATE] name|scenario|assumptions|predicted outcome|conclusion|optional evidence event ID [END ALTERNATE_CREATE]. Create a branch when the user asks to save a what-if or when comparing distinct plausible futures would help; use one branch per alternative, with no fixed list of allowed choices.\n"
 "Use [ALTERNATE_RETAIN] id or [ALTERNATE_DISCARD] id only when explicitly requested.\n"
 "Do not discard or retain a branch unless asked. A retained hypothesis is still not a factual memory.\n"
 "\n"
@@ -4321,7 +4322,62 @@ static char *process_tools(
         }                                                             \
     } while (0)
 
-    /* Alternate-Self Lab queries only read or compare hypothetical branches. */
+    /*
+     * The Choice Lab is open-ended: the model may persist any counterfactual
+     * it considered useful, not merely choose from a fixed set of options.
+     * The branch is stored separately from factual memories and world state.
+     */
+    size_t alt_create_pos = 0;
+    while (1) {
+        char *entry = extract_marker(reply, "[ALTERNATE_CREATE]",
+                                     "[END ALTERNATE_CREATE]", &alt_create_pos);
+        if (!entry) break;
+
+        char *fields[6] = {0};
+        size_t field_count = 1;
+        fields[0] = entry;
+        for (char *p = entry; *p; ++p) {
+            if (*p == '|') {
+                *p = '\0';
+                if (field_count >= 6) {
+                    field_count = 7;
+                    break;
+                }
+                fields[field_count++] = p + 1;
+            }
+        }
+
+        if (field_count >= 5 && field_count <= 6) {
+            for (size_t i = 0; i < field_count; ++i) fields[i] = trim(fields[i]);
+            int64_t evidence_id = 0;
+            int valid_evidence = 1;
+            if (field_count == 6 && *fields[5]) {
+                char *end = NULL;
+                errno = 0;
+                long long parsed = strtoll(fields[5], &end, 10);
+                while (end && *end && isspace((unsigned char)*end)) ++end;
+                if (errno || end == fields[5] || (end && *end) || parsed <= 0)
+                    valid_evidence = 0;
+                else evidence_id = (int64_t)parsed;
+            }
+            if (valid_evidence && *fields[0] && *fields[1]) {
+                int64_t branch_id = r2_altself_create(
+                    fields[0], fields[1], fields[2], fields[3], fields[4], evidence_id);
+                if (branch_id > 0)
+                    APPEND("ALTERNATE-SELF LAB RESULT: saved hypothetical branch #%lld (%s). It is not a factual memory or real-world event.\\n",
+                           (long long)branch_id, fields[0]);
+                else
+                    APPEND("ALTERNATE-SELF LAB ERROR: the hypothetical branch could not be saved.\\n");
+            } else {
+                APPEND("ALTERNATE-SELF LAB ERROR: expected name and scenario, with optional positive evidence event ID.\\n");
+            }
+        } else {
+            APPEND("ALTERNATE-SELF LAB ERROR: expected name|scenario|assumptions|predicted outcome|conclusion|optional evidence event ID.\\n");
+        }
+        free(entry);
+    }
+
+    /* Alternate-Self Lab queries read, create, or compare hypothetical branches only. */
     if (strstr(reply, "[ALTERNATE_LIST]")) {
         char *branches = r2_altself_list(20);
         if (branches) {
