@@ -921,8 +921,6 @@ char *r2_diary_recent(
         limit = R2_DEFAULT_DIARY_LIMIT;
     if (limit > 20)
         limit = 20;
-    if (limit > 20)
-        limit = 20;
 
     result_text = malloc(
         capacity
