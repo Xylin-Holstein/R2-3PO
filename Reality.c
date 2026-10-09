@@ -84,6 +84,64 @@ static int bind_text(sqlite3_stmt *st, int n, const char *s)
     return sqlite3_bind_text(st, n, s ? s : "", -1, SQLITE_TRANSIENT) == SQLITE_OK ? 0 : -1;
 }
 
+
+/* Human-inspectable mirror files make room/shelf/box state visible in the
+ * workspace. SQLite remains canonical; pockets/wallet are virtual containers. */
+static void item_slug(const char *name, char *out, size_t cap)
+{
+    size_t j = 0;
+    for (size_t i = 0; name && name[i] && j + 1 < cap; ++i) {
+        unsigned char ch = (unsigned char)name[i];
+        if (isalnum(ch)) out[j++] = (char)tolower(ch);
+        else if ((ch == ' ' || ch == '-' || ch == '_') && j && out[j-1] != '_')
+            out[j++] = '_';
+    }
+    while (j && out[j-1] == '_') --j;
+    if (!j && cap > 1) out[j++] = 'item';
+    out[j] = '\0';
+}
+
+static int mirror_path(const char *name, const char *container, char *path, size_t cap)
+{
+    if (!name || !container || !path) return -1;
+    const char *folder = NULL;
+    if (!strcmp(container, "room")) folder = "";
+    else if (!strcmp(container, "shelf")) folder = "/shelf";
+    else if (!strcmp(container, "box")) folder = "/box";
+    else return 1; /* Inventory and named containers are database-only. */
+    char slug[256];
+    item_slug(name, slug, sizeof(slug));
+    int n = snprintf(path, cap, "%s/room%s/%s.r2item", R2_ROOT, folder, slug);
+    return n > 0 && (size_t)n < cap ? 0 : -1;
+}
+
+static void mirror_remove(const char *name, const char *container)
+{
+    char path[2048];
+    if (mirror_path(name, container, path, sizeof(path)) == 0)
+        (void)unlink(path);
+}
+
+static int mirror_write(const char *name, const char *description,
+                        int quantity, const char *container)
+{
+    char path[2048], temp[2100];
+    int p = mirror_path(name, container, path, sizeof(path));
+    if (p == 1) return 0;
+    if (p != 0) return -1;
+    int n = snprintf(temp, sizeof(temp), "%s.tmp.%ld", path, (long)getpid());
+    if (n <= 0 || (size_t)n >= sizeof(temp)) return -1;
+    FILE *fp = fopen(temp, "w");
+    if (!fp) return -1;
+    int failed = fprintf(fp, "name=%s\ndescription=%s\nquantity=%d\ncontainer=%s\n",
+                         name, description ? description : "", quantity, container) < 0;
+    if (fclose(fp) != 0) failed = 1;
+    if (!failed && rename(temp, path) != 0) failed = 1;
+    if (failed) { unlink(temp); return -1; }
+    return 0;
+}
+
+
 static void update_hunger_locked(double elapsed)
 {
     sqlite3_stmt *st = NULL;
@@ -335,7 +393,22 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
     if(!container || !*container) container="room";
     if(quantity<1) quantity=1;
     if(!r2_reality_is_initialized()) return -1;
+    char old_container[REALITY_MAX_TEXT + 1] = {0};
+    char old_description[REALITY_MAX_TEXT + 1] = {0};
+    int old_quantity = 1;
     pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *prior = NULL;
+    if (sqlite3_prepare_v2(reality_db, "SELECT container,description,quantity FROM r2_reality_objects WHERE name=? COLLATE NOCASE", -1, &prior, NULL) == SQLITE_OK) {
+        bind_text(prior, 1, name);
+        if (sqlite3_step(prior) == SQLITE_ROW) {
+            const unsigned char *oc = sqlite3_column_text(prior, 0);
+            const unsigned char *od = sqlite3_column_text(prior, 1);
+            if (oc) snprintf(old_container, sizeof(old_container), "%s", (const char *)oc);
+            if (od) snprintf(old_description, sizeof(old_description), "%s", (const char *)od);
+            old_quantity = sqlite3_column_int(prior, 2);
+        }
+    }
+    if (prior) sqlite3_finalize(prior);
     sqlite3_stmt *st=NULL;
     int rc=sqlite3_prepare_v2(reality_db,"INSERT INTO r2_reality_containers(name,kind,description,parent) VALUES(?,?,?,?) ON CONFLICT(name) DO NOTHING",-1,&st,NULL);
     if(rc==SQLITE_OK){bind_text(st,1,container);bind_text(st,2,(!strcmp(container,"pockets")||!strcmp(container,"wallet"))?"inventory":"container");bind_text(st,3,"Persistent object container");bind_text(st,4,(!strcmp(container,"shelf")||!strcmp(container,"box"))?"room":"");rc=sqlite3_step(st);}
@@ -346,6 +419,9 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
     if(st)sqlite3_finalize(st);
     pthread_mutex_unlock(&reality_lock);
     if(rc!=SQLITE_DONE) return -1;
+    if (*old_container) mirror_remove(name, old_container);
+    if (mirror_write(name, description, quantity, container) != 0)
+        fprintf(stderr, "[R2 Reality] Database saved, but room mirror file could not be updated for '%s'.\n", name);
     char summary[512],details[2048];
     snprintf(summary,sizeof(summary),"R2 recorded item '%s' in %s.",name,container);
     snprintf(details,sizeof(details),"Item=%s; description=%s; container=%s; quantity=%d",name,description?description:"",container,quantity);
@@ -356,7 +432,22 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
 int r2_reality_move_item(const char *name,const char *container)
 {
     if(!name||!*name||!container||!*container||strlen(name)>REALITY_MAX_TEXT||strlen(container)>REALITY_MAX_TEXT||!r2_reality_is_initialized()) return -1;
+    char old_container[REALITY_MAX_TEXT + 1] = {0};
+    char old_description[REALITY_MAX_TEXT + 1] = {0};
+    int old_quantity = 1;
     pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *prior = NULL;
+    if (sqlite3_prepare_v2(reality_db, "SELECT container,description,quantity FROM r2_reality_objects WHERE name=? COLLATE NOCASE", -1, &prior, NULL) == SQLITE_OK) {
+        bind_text(prior, 1, name);
+        if (sqlite3_step(prior) == SQLITE_ROW) {
+            const unsigned char *oc = sqlite3_column_text(prior, 0);
+            const unsigned char *od = sqlite3_column_text(prior, 1);
+            if (oc) snprintf(old_container, sizeof(old_container), "%s", (const char *)oc);
+            if (od) snprintf(old_description, sizeof(old_description), "%s", (const char *)od);
+            old_quantity = sqlite3_column_int(prior, 2);
+        }
+    }
+    if (prior) sqlite3_finalize(prior);
     sqlite3_stmt *st=NULL;
     int rc=sqlite3_prepare_v2(reality_db,"INSERT INTO r2_reality_containers(name,kind,description,parent) VALUES(?,?,?,?) ON CONFLICT(name) DO NOTHING",-1,&st,NULL);
     if(rc==SQLITE_OK){bind_text(st,1,container);bind_text(st,2,(!strcmp(container,"pockets")||!strcmp(container,"wallet"))?"inventory":"container");bind_text(st,3,"Persistent object container");bind_text(st,4,(!strcmp(container,"shelf")||!strcmp(container,"box"))?"room":"");rc=sqlite3_step(st);}
@@ -367,6 +458,9 @@ int r2_reality_move_item(const char *name,const char *container)
     if(st)sqlite3_finalize(st);
     pthread_mutex_unlock(&reality_lock);
     if(rc!=SQLITE_DONE) return -1;
+    if (*old_container) mirror_remove(name, old_container);
+    if (mirror_write(name, old_description, old_quantity, container) != 0)
+        fprintf(stderr, "[R2 Reality] Database saved, but room mirror file could not be updated for '%s'.\n", name);
     char summary[512],details[2048];
     snprintf(summary,sizeof(summary),"R2 moved '%s' to %s.",name,container);
     snprintf(details,sizeof(details),"Object=%s; destination=%s",name,container);
