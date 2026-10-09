@@ -33,6 +33,9 @@ int r2_reality_add_item(const char *name, const char *description,
                         const char *container, int quantity);
 int r2_reality_move_item(const char *name, const char *container);
 int r2_reality_remove_item(const char *name);
+int r2_reality_eat(const char *food, double fullness);
+int r2_reality_sleep(double hours);
+int r2_reality_record_dream(const char *description);
 int r2_reality_set_self(const char *key, const char *value,
                         const char *evidence);
 char *r2_reality_get_self(const char *key);
