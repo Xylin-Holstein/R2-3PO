@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SOURCE_DIR="$(cd -- "$(dirname -- "\${BASH_SOURCE[0]}")" && pwd)"
-TARGET_DIR="\${R2_GAMEBOY_DIR:-/home/x/R2_Home/Devices/GameBoyAdvance}"
+SOURCE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+TARGET_DIR="${R2_GAMEBOY_DIR:-/home/x/R2_Home/Devices/GameBoyAdvance}"
 
 mkdir -p "$TARGET_DIR/Cartridges" "$TARGET_DIR/Saves" "$TARGET_DIR/State"
 # Catch syntax problems before replacing the installed console executable.
