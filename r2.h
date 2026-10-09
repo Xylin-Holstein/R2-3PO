@@ -261,6 +261,19 @@ int r2_eyes_start(void);
 int r2_eyes_stop(void);
 int r2_eyes_status(void);
 
+/* ============================================================
+   VISUAL EXPERIENCE LIBRARY / VISION MODEL
+   ============================================================ */
+
+/* Analyze the current frame; opens the camera only for explicit vision requests. */
+char *r2_vision_see(const char *question);
+char *r2_vision_recent(int limit);
+char *r2_vision_search(const char *query, int limit);
+int r2_vision_set_model(const char *model);
+int r2_vision_open_vlc(void);
+int r2_vision_open_file(const char *path);
+int r2_vision_close(void);
+
 
 /* ============================================================
    EARS
