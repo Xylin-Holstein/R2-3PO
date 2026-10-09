@@ -72,6 +72,8 @@ static int text_log_warning_emitted = 0;
  *
  * File format: /home/x/R2_Home/R2_Log/Log[YYYY-MM-DD].txt
  */
+static const char *category_name(R2LogCategory category);
+
 static void append_daily_text_log(const char *local_time,
                                   int64_t event_id,
                                   R2LogCategory category,
@@ -89,7 +91,7 @@ static void append_daily_text_log(const char *local_time,
         return;
 
     memcpy(date, local_time, 10);
-    date[10] = '\\0';
+    date[10] = '\0';
 
     written = snprintf(directory, sizeof(directory), "%s/R2_Log", R2_ROOT);
     if (written < 0 || (size_t)written >= sizeof(directory))
@@ -111,16 +113,16 @@ static void append_daily_text_log(const char *local_time,
     }
 
     fprintf(file,
-            "[%s] [#%lld] [%s/%s] %s\\n",
+            "[%s] [#%lld] [%s/%s] %s\n",
             local_time, (long long)event_id, category_name(category),
             event_type ? event_type : "event",
             summary ? summary : "");
     if (source && *source)
-        fprintf(file, "Source: %s\\n", source);
+        fprintf(file, "Source: %s\n", source);
     if (details && *details)
         fprintf(file, "%s%s", details,
-                details[strlen(details) - 1] == '\\n' ? "" : "\\n");
-    fputc('\\n', file);
+                details[strlen(details) - 1] == '\n' ? "" : "\n");
+    fputc('\n', file);
 
     if (fflush(file) != 0 || ferror(file)) {
         fclose(file);
@@ -137,7 +139,7 @@ warning:
         text_log_warning_emitted = 1;
         fprintf(stderr,
                 "[R2 Life Log] Warning: daily text mirror could not be "
-                "written under %s (check directory permissions).\\n",
+                "written under %s (check directory permissions).\n",
                 R2_ROOT);
     }
     pthread_mutex_unlock(&text_log_lock);
