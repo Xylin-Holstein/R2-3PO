@@ -749,6 +749,7 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
     if(quantity<1) quantity=1;
     if(!r2_reality_is_initialized()) return -1;
     char old_container[REALITY_MAX_TEXT + 1] = {0};
+    int total_quantity = quantity;
     pthread_mutex_lock(&reality_lock);
     sqlite3_stmt *prior = NULL;
     if (sqlite3_prepare_v2(reality_db, "SELECT container FROM r2_reality_objects WHERE name=? COLLATE NOCASE", -1, &prior, NULL) == SQLITE_OK) {
@@ -782,10 +783,18 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
         } else rc = SQLITE_ERROR;
         if (st) sqlite3_finalize(st);
     }
+    if (rc == SQLITE_DONE) {
+        st = NULL;
+        if (sqlite3_prepare_v2(reality_db, "SELECT quantity FROM r2_reality_objects WHERE name=? COLLATE NOCASE", -1, &st, NULL) == SQLITE_OK) {
+            bind_text(st, 1, name);
+            if (sqlite3_step(st) == SQLITE_ROW) total_quantity = sqlite3_column_int(st, 0);
+        }
+        if (st) sqlite3_finalize(st);
+    }
     pthread_mutex_unlock(&reality_lock);
     if(rc!=SQLITE_DONE) return -1;
     if (*old_container) mirror_remove(name, old_container);
-    if (mirror_write(name, description, quantity, container) != 0)
+    if (mirror_write(name, description, total_quantity, container) != 0)
         fprintf(stderr, "[R2 Reality] Database saved, but room mirror file could not be updated for '%s'.\n", name);
     char summary[512],details[2048];
     snprintf(summary,sizeof(summary),"R2 recorded item '%s' in %s.",name,container);
