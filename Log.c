@@ -1041,8 +1041,8 @@ int64_t r2_log_belief(const char *belief_key,
     free(details);
     if (event_id < 0) return -1;
 
-    char utc[40], local[48];
-    timestamp_pair(utc, sizeof(utc), local, sizeof(local));
+    char utc[40];
+    timestamp_pair(utc, sizeof(utc), NULL, 0);
     sqlite3_stmt *st = NULL;
     int rc;
     pthread_mutex_lock(&log_lock);
@@ -1105,8 +1105,8 @@ int64_t r2_log_continuity(const char *item_key,
     free(details);
     if (event_id < 0) return -1;
 
-    char utc[40], local[48];
-    timestamp_pair(utc, sizeof(utc), local, sizeof(local));
+    char utc[40];
+    timestamp_pair(utc, sizeof(utc), NULL, 0);
     sqlite3_stmt *st = NULL;
     int rc;
     pthread_mutex_lock(&log_lock);
@@ -1162,8 +1162,8 @@ int r2_log_link(int64_t from_event_id, int64_t to_event_id,
         (notes && strlen(notes) > R2_LOG_MAX_TEXT))
         return -1;
 
-    char utc[40], local[48];
-    timestamp_pair(utc, sizeof(utc), local, sizeof(local));
+    char utc[40];
+    timestamp_pair(utc, sizeof(utc), NULL, 0);
     sqlite3_stmt *st = NULL;
     int rc;
     pthread_mutex_lock(&log_lock);
