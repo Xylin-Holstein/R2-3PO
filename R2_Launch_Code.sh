@@ -265,7 +265,7 @@ echo "Executable updated:"
 echo "    $R2_EXEC"
 echo
 echo "Default vision model: qwen2.5vl:3b"
-echo "R2's conversation model remains llama3; vision perception is handled by the separate local model."
+echo "R2's conversation model is llama3.2:3b; vision perception remains a separate local model."
 echo "If it is not installed, run: ollama pull qwen2.5vl:3b"
 echo
 echo "Modules compiled:"
