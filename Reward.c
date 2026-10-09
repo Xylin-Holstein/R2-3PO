@@ -66,7 +66,13 @@ static int ensure_db_locked(void)
     int has_log_event_id = 0;
     int column_rc = sqlite3_prepare_v2(reward_db,
         "PRAGMA table_info(reward_events)", -1, &columns, NULL);
-    if (column_rc != SQLITE_OK) return -1;
+    if (column_rc != SQLITE_OK) {
+        fprintf(stderr, "[R2 Reward] Could not inspect reward schema: %s\n",
+                sqlite3_errmsg(reward_db));
+        sqlite3_close(reward_db);
+        reward_db = NULL;
+        return -1;
+    }
     while (sqlite3_step(columns) == SQLITE_ROW) {
         const unsigned char *name = sqlite3_column_text(columns, 1);
         if (name && strcmp((const char *)name, "log_event_id") == 0)
@@ -79,6 +85,8 @@ static int ensure_db_locked(void)
             NULL, NULL, NULL) != SQLITE_OK) {
         fprintf(stderr, "[R2 Reward] Could not add Life Log cross-reference: %s\n",
                 sqlite3_errmsg(reward_db));
+        sqlite3_close(reward_db);
+        reward_db = NULL;
         return -1;
     }
     return 0;
@@ -167,7 +175,7 @@ static int store_log_link(sqlite3_int64 reward_id, int64_t log_event_id)
         return -1;
     }
     rc = sqlite3_prepare_v2(reward_db,
-        "UPDATE reward_events SET log_event_id=? WHERE id=? AND log_event_id IS NULL",
+        "UPDATE reward_events SET log_event_id=? WHERE id=? AND (log_event_id IS NULL OR log_event_id=0)",
         -1, &st, NULL);
     if (rc == SQLITE_OK) {
         sqlite3_bind_int64(st, 1, log_event_id);
