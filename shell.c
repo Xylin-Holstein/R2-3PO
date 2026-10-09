@@ -1250,7 +1250,7 @@ static int shell_dispatch(char *input)
 
     if (!strcasecmp(command, "new-session")) {
         if (r2_conversation_session_begin("interactive_shell_command") == 0)
-            printf("[R2 Shell] New conversation session started. Earlier history remains saved.\\n");
+            printf("[R2 Shell] New conversation session started. Earlier history remains saved.\n");
         else
             fprintf(stderr, "[R2 Shell] Could not start a new conversation session.\\n");
         return 1;
