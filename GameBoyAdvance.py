@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(os.environ.get("R2_GAMEBOY_ROOT", str(Path(__file__).resolve().parent))).resolve()
+ROOT = Path(os.environ.get("R2_GAMEBOY_ROOT", os.environ.get("R2_GAMEBOY_DIR", str(Path(__file__).resolve().parent)))).resolve()
 CARTRIDGES = ROOT / "Cartridges"
 SAVES = ROOT / "Saves"
 STATE = ROOT / "State"
@@ -97,6 +97,14 @@ def connect() -> sqlite3.Connection:
         );
         CREATE INDEX IF NOT EXISTS console_events_time_idx
             ON console_events(id);
+        CREATE TABLE IF NOT EXISTS cartridge_inventory (
+            filename TEXT PRIMARY KEY COLLATE NOCASE,
+            title TEXT NOT NULL,
+            location TEXT NOT NULL DEFAULT 'pockets'
+                CHECK (location IN ('pockets','shelf','box','room','slot')),
+            discovered_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
     """)
     # Migrate a device database created by an earlier console build.
     columns = {row[1] for row in db.execute("PRAGMA table_info(console_events)")}
@@ -259,8 +267,59 @@ def safe_cartridge(name: str) -> Path:
     return path
 
 
+def sync_cartridge_inventory(db: sqlite3.Connection) -> None:
+    """Discover loose cartridge files without moving previously stored games."""
+    ensure_dirs()
+    now = utc_now()
+    for path in sorted(CARTRIDGES.iterdir(), key=lambda p: p.name.casefold()):
+        if not path.is_file() or path.suffix.lower() not in ROM_EXTENSIONS:
+            continue
+        title = read_rom_title(path)
+        db.execute(
+            "INSERT INTO cartridge_inventory(filename,title,location,discovered_at,updated_at) "
+            "VALUES(?,?,'pockets',?,?) ON CONFLICT(filename) DO UPDATE SET "
+            "title=excluded.title,updated_at=excluded.updated_at",
+            (path.name, title, now, now),
+        )
+    slot = db.execute("SELECT rom_path,rom_title FROM cartridge.cartridge_slot WHERE id=1").fetchone()
+    if slot and slot["rom_path"]:
+        filename = Path(slot["rom_path"]).name
+        title = slot["rom_title"] or Path(filename).stem
+        db.execute(
+            "INSERT INTO cartridge_inventory(filename,title,location,discovered_at,updated_at) "
+            "VALUES(?,?,'slot',?,?) ON CONFLICT(filename) DO UPDATE SET "
+            "title=excluded.title,location='slot',updated_at=excluded.updated_at",
+            (filename, title, now, now),
+        )
+    db.commit()
+
+
+def move_cartridge(db: sqlite3.Connection, filename: str, location: str) -> dict[str, Any]:
+    """Move one loose cartridge between R2's physical inventory locations."""
+    row = reconcile(db)
+    if row["power_state"] != "off":
+        return {"ok": False, "message": "Power off the console before moving cartridges.", **status_data(db)}
+    destination = location.strip().lower()
+    if destination not in {"pockets", "shelf", "box", "room"}:
+        return {"ok": False, "message": "Destination must be pockets, shelf, box, or room.", **status_data(db)}
+    if not filename or Path(filename).name != filename or filename in {".", ".."}:
+        return {"ok": False, "message": "Use a cartridge filename, not a path.", **status_data(db)}
+    sync_cartridge_inventory(db)
+    current = db.execute("SELECT location,title FROM cartridge_inventory WHERE filename=? COLLATE NOCASE", (filename,)).fetchone()
+    if current is None:
+        return {"ok": False, "message": f"No known cartridge named '{filename}'.", **status_data(db)}
+    slot = db.execute("SELECT rom_path FROM cartridge.cartridge_slot WHERE id=1").fetchone()
+    if slot and slot["rom_path"] and Path(slot["rom_path"]).name.casefold() == filename.casefold():
+        return {"ok": False, "message": "That cartridge is inserted. Eject it before moving it.", **status_data(db)}
+    db.execute("UPDATE cartridge_inventory SET location=?,updated_at=? WHERE filename=? COLLATE NOCASE", (destination, utc_now(), filename))
+    db.commit()
+    record_event(db, "physical", "cartridge_moved", f"R2 put the {current['title']} cartridge in {destination}.", f"Filename={filename}; destination={destination}.", current["title"])
+    return {"ok": True, "message": f"Moved {current['title']} cartridge to {destination}.", **status_data(db)}
+
+
 def status_data(db: sqlite3.Connection) -> dict[str, Any]:
     row = reconcile(db)
+    sync_cartridge_inventory(db)
     return {
         "device": "Game Boy Advance",
         "power_state": row["power_state"],
@@ -435,15 +494,24 @@ def insert_cartridge(db: sqlite3.Connection, name: str) -> dict[str, Any]:
         return {"ok": False,
                 "message": "The Game Boy Advance is powered on. Turn it off before removing or replacing the cartridge.",
                 **status_data(db)}
+    if row["cartridge_path"]:
+        return {"ok": False, "message": "A cartridge is already inserted. Eject it before inserting another game.", **status_data(db)}
     try:
         path = safe_cartridge(name)
     except (ValueError, OSError) as exc:
         return {"ok": False, "message": str(exc), **status_data(db)}
+    sync_cartridge_inventory(db)
+    inventory = db.execute("SELECT location FROM cartridge_inventory WHERE filename=? COLLATE NOCASE", (path.name,)).fetchone()
+    if inventory is None:
+        return {"ok": False, "message": "Cartridge is not registered in R2's inventory.", **status_data(db)}
+    if inventory["location"] != "pockets":
+        return {"ok": False, "message": f"The {read_rom_title(path)} cartridge is in {inventory['location']}, not R2's pockets. Retrieve it first.", **status_data(db)}
     title = read_rom_title(path)
     db.execute(
         "UPDATE cartridge.cartridge_slot SET rom_path=?, rom_title=?, inserted_at=? WHERE id=1",
         (str(path), title, utc_now()),
     )
+    db.execute("UPDATE cartridge_inventory SET location='slot',updated_at=? WHERE filename=? COLLATE NOCASE", (utc_now(), path.name))
     db.commit()
     record_event(db, "physical", "cartridge_inserted",
                  f"R2 inserted the {title} cartridge.",
@@ -461,24 +529,19 @@ def eject_cartridge(db: sqlite3.Connection) -> dict[str, Any]:
     title = row["cartridge_title"]
     if not row["cartridge_path"]:
         return {"ok": False, "message": "The cartridge slot is already empty.", **status_data(db)}
-    db.execute(
-        "UPDATE cartridge.cartridge_slot SET rom_path=NULL, rom_title=NULL, inserted_at=NULL WHERE id=1"
-    )
+    filename = Path(row["cartridge_path"]).name
+    db.execute("UPDATE cartridge.cartridge_slot SET rom_path=NULL, rom_title=NULL, inserted_at=NULL WHERE id=1")
+    db.execute("UPDATE cartridge_inventory SET location='pockets',updated_at=? WHERE filename=? COLLATE NOCASE", (utc_now(), filename))
     db.commit()
-    record_event(db, "physical", "cartridge_ejected",
-                 f"R2 removed the {title} cartridge.",
-                 "The ROM file remains in the Cartridges directory.", title)
+    record_event(db, "physical", "cartridge_ejected", f"R2 removed the {title} cartridge and is carrying it in his pockets.", f"Filename={filename}; destination=pockets.", title)
     return {"ok": True, "message": f"Ejected {title}. The cartridge slot is now empty.",
             **status_data(db)}
 
 
-def list_cartridges() -> list[dict[str, str]]:
-    ensure_dirs()
-    items = []
-    for path in sorted(CARTRIDGES.iterdir(), key=lambda p: p.name.casefold()):
-        if path.is_file() and path.suffix.lower() in ROM_EXTENSIONS:
-            items.append({"filename": path.name, "title": read_rom_title(path)})
-    return items
+def list_cartridges(db: sqlite3.Connection) -> list[dict[str, Any]]:
+    sync_cartridge_inventory(db)
+    rows = db.execute("SELECT filename,title,location FROM cartridge_inventory ORDER BY filename COLLATE NOCASE").fetchall()
+    return [{"filename": row["filename"], "title": row["title"], "location": row["location"], "file_available": (CARTRIDGES / row["filename"]).is_file()} for row in rows]
 
 
 def press_button(db: sqlite3.Connection, button: str, duration_ms: int) -> dict[str, Any]:
@@ -542,7 +605,7 @@ def print_result(value: Any, as_json: bool) -> None:
             print("No cartridges or pending verified game events.")
         for item in value:
             if "filename" in item:
-                print(f"{item['filename']} — {item['title']}")
+                print(f"{item['filename']} — {item['title']} [{item.get('location', 'unknown location')}]")
             else:
                 print(f"#{item['event_id']} [{item['context']}] {item['summary']} "
                       f"({item['evidence_source']})")
@@ -553,7 +616,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("status", help="inspect console and cartridge state")
-    sub.add_parser("list", help="list loose ROM files in Cartridges")
+    sub.add_parser("list", help="list known cartridges and their physical locations")
+    move = sub.add_parser("move", help="move a loose cartridge to pockets, shelf, box, or room")
+    move.add_argument("filename")
+    move.add_argument("location", choices=("pockets", "shelf", "box", "room"))
     ins = sub.add_parser("insert", help="insert a cartridge while powered off")
     ins.add_argument("filename")
     sub.add_parser("eject", help="eject the cartridge while powered off")
@@ -573,7 +639,9 @@ def main(argv: list[str] | None = None) -> int:
         if command == "status":
             result = status_data(db)
         elif command == "list":
-            result = list_cartridges()
+            result = list_cartridges(db)
+        elif command == "move":
+            result = move_cartridge(db, args.filename, args.location)
         elif command == "insert":
             result = insert_cartridge(db, args.filename)
         elif command == "eject":

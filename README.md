@@ -150,3 +150,10 @@ Controller injection uses xdotool; install it (sudo apt install xdotool) to enab
 
  
 Verified-game-event adapter contract: future game-specific adapters may call the private Python API record_verified_game_event() only after independently detecting a state change. The API requires an active emulator session, an allowlisted event type, and an evidence source prefixed with adapter:. These events are stored as virtual-context events in State/console_state.db, then the R2 bridge copies them into the authoritative Life Log and acknowledges them only after the Life Log insert succeeds. Observer/Activity.txt displays the resulting public game-event summaries. The current build provides this event pipeline but does not yet ship a Mario, Zelda, Metroid, or other game-specific detector; it never infers a pickup or victory from controller input alone.
+
+
+## Virtual Game Boy Advance and physical cartridge handling
+
+The virtual console is installed under `/home/x/R2_Home/Devices/GameBoyAdvance/`; R2's device root is `/home/x/R2_Home/Devices/`. Its `gameboy.db` stores only the single cartridge slot (one inserted game or empty). Runtime state, events, and the separate cartridge-location inventory are stored under `State/`.
+
+Each supported ROM file in `Cartridges/` represents one loose physical cartridge. When first discovered, it is registered as an item carried in R2's pockets. `gameboy_list` reports each cartridge's current location. Use `gameboy_move_cartridge|FILENAME|shelf`, `...|box`, `...|room`, or `...|pockets` to move a loose cartridge; only a cartridge in pockets can be inserted. R2 must retrieve a cartridge from the shelf or box before inserting it. Insertion transfers it to the one cartridge slot; ejecting transfers it back to pockets. Cartridge locations persist separately from the one-slot database. ROM files remain in the device's `Cartridges/` directory as the software payload; their tracked location determines whether R2 can physically access them.

@@ -59,6 +59,14 @@ def main() -> int:
         (cartridges / "Mario.gba").write_bytes(rom)
         (cartridges / "Second.gba").write_bytes(rom)
 
+        listed = run(root, emulator, "list")
+        assert {item["filename"] for item in listed} == {"Mario.gba", "Second.gba"}
+        assert all(item["location"] == "pockets" for item in listed)
+        moved = run(root, emulator, "move", "Mario.gba", "shelf")
+        assert moved["ok"] is True
+        result = run(root, emulator, "insert", "Mario.gba", expect_ok=False)
+        assert "retrieve it first" in result["message"]
+        run(root, emulator, "move", "Mario.gba", "pockets")
         result = run(root, emulator, "insert", "Mario.gba")
         assert result["cartridge_inserted"] is True
         assert result["cartridge_title"].strip() == "TEST MARIO"
@@ -99,18 +107,22 @@ def main() -> int:
         assert module.pending_verified_events(device_db) == []
         device_db.close()
 
-        # Power off ends the emulator session without ejecting the cartridge.
+        # Power off ends the emulator session but does not eject the cartridge.
         result = run(root, emulator, "power", "off")
         assert result["power_state"] == "off"
         assert result["cartridge_inserted"] is True
         assert result["emulator_pid"] is None
         assert "No in-game save command or save state" in result["message"]
-
+        result = run(root, emulator, "insert", "Second.gba", expect_ok=False)
+        assert "Eject it before inserting another game" in result["message"]
         run(root, emulator, "eject")
         result = run(root, emulator, "status")
         assert result["power_state"] == "off"
         assert result["cartridge_inserted"] is False
         assert result["game_running"] is False
+        listed = run(root, emulator, "list")
+        mario = next(item for item in listed if item["filename"] == "Mario.gba")
+        assert mario["location"] == "pockets"
 
         # gameboy.db is only the single cartridge slot; no history or power
         # state is stored in it. Runtime/event data belongs in State/.
@@ -124,6 +136,10 @@ def main() -> int:
         ).fetchone()
         assert slot == (None, None)
         slot_db.close()
+        state_db = sqlite3.connect(root / "State" / "console_state.db")
+        inventory_tables = {row[0] for row in state_db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        assert "cartridge_inventory" in inventory_tables
+        state_db.close()
         assert (root / "State" / "console_state.db").is_file()
 
     print("Game Boy console state-machine smoke test passed.")

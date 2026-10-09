@@ -4322,7 +4322,7 @@ static int run_gameboy_console(const char *subcommand,
     const char *configured = getenv("R2_GAMEBOY_CONSOLE");
     const char *path = configured && *configured
         ? configured
-        : R2_ROOT "/Devices/GameBoyAdvance/GameBoyAdvance";
+        : R2_HOME "/Devices/GameBoyAdvance/GameBoyAdvance";
     int pipes[2];
     pid_t pid;
     int status = 0;
@@ -5168,6 +5168,10 @@ static char *process_tools(
                 arg1 = fields[1];
             } else if (!strcasecmp(fields[0], "gameboy_eject")) {
                 command = "eject";
+            } else if (!strcasecmp(fields[0], "gameboy_move_cartridge") && nf >= 3) {
+                command = "move";
+                arg1 = fields[1];
+                arg2 = fields[2];
             } else if (!strcasecmp(fields[0], "gameboy_power_on")) {
                 command = "power";
                 arg1 = "on";
