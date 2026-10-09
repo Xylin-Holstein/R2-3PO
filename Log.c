@@ -601,6 +601,73 @@ int64_t r2_log_event_with_memory(
     return event_id;
 }
 
+/*
+ * Store the exact visible conversation turn in both the searchable
+ * chronological event stream and the dedicated conversation table.
+ * The dedicated table is for durable full-text continuity; the event
+ * details make the same turn discoverable through r2_log_search().
+ */
+int64_t r2_log_conversation_turn(const char *user_text,
+                                const char *assistant_text)
+{
+    if (!valid_text(user_text) || !valid_text(assistant_text))
+        return -1;
+
+    size_t user_len = strlen(user_text);
+    size_t assistant_len = strlen(assistant_text);
+    const size_t max_each = R2_LOG_MAX_TEXT / 2 - 128;
+    if (user_len > max_each) user_len = max_each;
+    if (assistant_len > max_each) assistant_len = max_each;
+
+    size_t details_size = user_len + assistant_len + 128;
+    char *details = malloc(details_size);
+    if (!details) return -1;
+
+    snprintf(details, details_size,
+             "USER SAID:\n%.*s\n\nR2 REPLIED:\n%.*s",
+             (int)user_len, user_text,
+             (int)assistant_len, assistant_text);
+
+    char summary[1024];
+    size_t preview = user_len;
+    if (preview > 800) preview = 800;
+    snprintf(summary, sizeof(summary),
+             "Conversation turn: %.*s",
+             (int)preview, user_text);
+    int64_t event_id = r2_log_event(
+        R2_LOG_CONVERSATION, "conversation_turn",
+        summary, details, "r2_talk");
+    free(details);
+    if (event_id < 0) return -1;
+
+    sqlite3_stmt *statement = NULL;
+    int rc;
+    pthread_mutex_lock(&log_lock);
+    if (!log_initialized || !log_db) {
+        pthread_mutex_unlock(&log_lock);
+        return event_id; /* Event details still preserve the turn. */
+    }
+    rc = sqlite3_prepare_v2(
+        log_db,
+        "INSERT OR REPLACE INTO r2_log_conversations "
+        "(event_id,user_text,assistant_text) VALUES(?,?,?);",
+        -1, &statement, NULL);
+    if (rc == SQLITE_OK) {
+        sqlite3_bind_int64(statement, 1, event_id);
+        sqlite3_bind_text(statement, 2, user_text, (int)user_len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(statement, 3, assistant_text, (int)assistant_len, SQLITE_TRANSIENT);
+        rc = sqlite3_step(statement);
+    }
+    if (rc != SQLITE_DONE)
+        fprintf(stderr, "[R2 Life Log] Conversation archive insert failed: %s\n",
+                sqlite3_errmsg(log_db));
+    sqlite3_finalize(statement);
+    pthread_mutex_unlock(&log_lock);
+
+    /* The searchable event remains authoritative if the archive insert fails. */
+    return event_id;
+}
+
 /* ------------------------------------------------------------
  * SESSION / FIRSTS
  * ------------------------------------------------------------ */
