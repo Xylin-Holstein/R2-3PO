@@ -345,6 +345,30 @@ static void update_hunger_locked(double elapsed)
 }
 
 
+
+static void sync_room_mirrors(void)
+{
+    if (!reality_db) return;
+    pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_prepare_v2(reality_db,
+        "SELECT name,description,quantity,container FROM r2_reality_objects ORDER BY id",
+        -1, &st, NULL) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            const unsigned char *name = sqlite3_column_text(st, 0);
+            const unsigned char *description = sqlite3_column_text(st, 1);
+            int quantity = sqlite3_column_int(st, 2);
+            const unsigned char *container = sqlite3_column_text(st, 3);
+            if (name && container)
+                (void)mirror_write((const char *)name,
+                    description ? (const char *)description : "",
+                    quantity, (const char *)container);
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reality_lock);
+}
+
 static int legacy_table_exists(const char *name)
 {
     sqlite3_stmt *st = NULL;
@@ -478,6 +502,7 @@ int r2_reality_init(void)
     if (st) sqlite3_finalize(st);
     reality_ready = 1;
     pthread_mutex_unlock(&reality_lock);
+    sync_room_mirrors();
 
     bridge_event("reality_engine_started", "R2's persistent reality engine started.",
         "Self-continuity and world-continuity are stored in dedicated r2_reality.db; Life Log and searchable memory remain in r2_memory.db. Room folders include room/, shelf/, box/, pockets/, wallet/, and toy_box/.", 1, 0);
