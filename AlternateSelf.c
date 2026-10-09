@@ -192,6 +192,21 @@ int64_t r2_altself_import_hypothesis(const char *scenario,
         rc = sqlite3_step(st);
     }
     int64_t id = rc == SQLITE_DONE ? sqlite3_last_insert_rowid(as_db) : -1;
+    if (rc == SQLITE_DONE && sqlite3_changes(as_db) == 0) {
+        sqlite3_stmt *existing = NULL;
+        if (sqlite3_prepare_v2(as_db,
+                "SELECT id FROM r2_alternate_self_branches WHERE log_event_id=?;",
+                -1, &existing, NULL) == SQLITE_OK) {
+            sqlite3_bind_int64(existing, 1, hypothetical_event_id);
+            if (sqlite3_step(existing) == SQLITE_ROW)
+                id = sqlite3_column_int64(existing, 0);
+            else
+                id = -1;
+        } else {
+            id = -1;
+        }
+        sqlite3_finalize(existing);
+    }
     sqlite3_finalize(st);
     pthread_mutex_unlock(&as_lock);
     return id;
