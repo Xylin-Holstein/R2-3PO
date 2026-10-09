@@ -5296,10 +5296,7 @@ char *r2_vision_search(const char *query, int limit)
 }
 
 
-/*
- * Compare a real media observation with prior conversation records.
- * The filename is only a search clue; it can never prove recognition.
- */
+/* Periodic sensory observation: record what Eyes receives, not decisions. */
 static void *vision_watch_worker(void *unused)
 {
     (void)unused;
@@ -5428,11 +5425,6 @@ int r2_vision_open_file(const char *path)
     if (rc == 0) {
         r2_log_media_event("opened_for_observation", "video_or_image", path,
                            "R2 opened this source through Eyes; filename is a clue, not proof of content.");
-        pthread_mutex_lock(&continuity_lock);
-        continuity_announced_source[0] = '\0';
-        continuity_attempt_source[0] = '\0';
-        continuity_last_attempt = 0;
-        pthread_mutex_unlock(&continuity_lock);
         r2_vision_watch_start();
     }
     return rc;
