@@ -291,6 +291,12 @@ echo
 echo "Launching R2..."
 echo
 
+# Create a writable directory for the human-readable daily Life Log.
+# R2 runs as the dedicated r2 account, so create it before dropping privileges.
+if ! sudo install -d -o r2 -m 0750 "$R2_ROOT/R2_Log"; then
+    echo "WARNING: Could not prepare $R2_ROOT/R2_Log; daily text logging may fail."
+fi
+
 # ------------------------------------------------------------
 # START R2 WITH ITS PRIVATE CLOCK
 # ------------------------------------------------------------
