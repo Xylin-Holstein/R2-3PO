@@ -1138,7 +1138,21 @@ static int save_memory(
 
     pthread_mutex_unlock(&db_lock);
 
-    return rc == SQLITE_DONE ? 0 : -1;
+    if (rc == SQLITE_DONE) {
+        r2_log_event(R2_LOG_MEMORY,
+                     changed == 0 ? "memory_created" : "memory_reaffirmed",
+                     changed == 0
+                         ? "A new persistent memory was created."
+                         : "An existing persistent memory was encountered again and its timestamp refreshed.",
+                     memory,
+                     category ? category : "other");
+        return 0;
+    }
+
+    r2_log_event(R2_LOG_ERROR, "memory_save_failed",
+                 "A persistent memory could not be saved.",
+                 memory, category ? category : "other");
+    return -1;
 }
 
 
@@ -2861,9 +2875,10 @@ static char *ollama_chat(
         curl_easy_init();
 
     if (!curl) {
-
+        r2_log_event(R2_LOG_ERROR, "model_request_setup_failed",
+                     "Could not initialize an Ollama HTTP request.",
+                     MODEL, "ollama_chat");
         json_object_put(root);
-
         return NULL;
     }
 
@@ -2919,6 +2934,15 @@ static char *ollama_chat(
      * extraction all share the local Ollama service. Queue model generations
      * instead of letting all workers issue simultaneous generations.
      */
+    char request_details[256];
+    snprintf(request_details, sizeof(request_details),
+             "model=%s; message_count=%zu; system_override=%s; payload_bytes=%zu",
+             MODEL, count, system_override ? "yes" : "no",
+             payload ? strlen(payload) : 0);
+    r2_log_event(R2_LOG_THINKING, "model_request_started",
+                 "R2 submitted a model-generation request.",
+                 request_details, "ollama_chat");
+
     pthread_mutex_lock(&ollama_request_lock);
     CURLcode cc = curl_easy_perform(curl);
     pthread_mutex_unlock(&ollama_request_lock);
@@ -2934,6 +2958,9 @@ static char *ollama_chat(
         fprintf(stderr,
                 "[R2 Ollama] transport failure: %s (HTTP %ld, %zu response bytes)\n",
                 curl_easy_strerror(cc), http_status, b.size);
+        r2_log_event(R2_LOG_ERROR, "model_request_transport_failed",
+                     "Ollama model request failed at the transport layer.",
+                     request_details, curl_easy_strerror(cc));
         free(b.data);
         return NULL;
     }
@@ -2941,6 +2968,14 @@ static char *ollama_chat(
     if (http_status < 200 || http_status >= 300) {
         fprintf(stderr, "[R2 Ollama] HTTP %ld response: %.400s\n",
                 http_status, b.data ? b.data : "(empty response)");
+        char http_details[768];
+        snprintf(http_details, sizeof(http_details),
+                 "HTTP %ld; request=%s; response=%.400s",
+                 http_status, request_details,
+                 b.data ? b.data : "(empty response)");
+        r2_log_event(R2_LOG_ERROR, "model_request_http_failed",
+                     "Ollama rejected or failed the model request.",
+                     http_details, "ollama_chat");
         free(b.data);
         return NULL;
     }
@@ -2949,11 +2984,18 @@ static char *ollama_chat(
     if (!resp) {
         fprintf(stderr, "[R2 Ollama] response was not valid JSON (%zu bytes).\n",
                 b.size);
+        r2_log_event(R2_LOG_ERROR, "model_response_invalid_json",
+                     "Ollama returned a response that was not valid JSON.",
+                     request_details, "ollama_chat");
         free(b.data);
         return NULL;
     }
 
     free(b.data);
+
+    r2_log_event(R2_LOG_THINKING, "model_request_completed",
+                 "Ollama returned a successful response for model generation.",
+                 request_details, "ollama_chat");
 
     struct json_object *msg = NULL;
     struct json_object *content = NULL;
