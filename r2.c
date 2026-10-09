@@ -40,11 +40,11 @@
 #define MIN_MEMORY_KEYWORD_LENGTH 3
 
 /* Bound prompts for the local 3B model: keep system instructions and recent turns. */
-#define OLLAMA_MAX_RECENT_MESSAGES 80
-#define OLLAMA_MAX_MESSAGE_CHARS 16000
-#define OLLAMA_MAX_SYSTEM_MESSAGE_CHARS 12000
-#define OLLAMA_MAX_SYSTEM_TOTAL_CHARS 24000
-#define OLLAMA_MAX_TOTAL_CHARS 100000
+#define OLLAMA_MAX_RECENT_MESSAGES 48
+#define OLLAMA_MAX_MESSAGE_CHARS 12000
+#define OLLAMA_MAX_SYSTEM_MESSAGE_CHARS 10000
+#define OLLAMA_MAX_SYSTEM_TOTAL_CHARS 18000
+#define OLLAMA_MAX_TOTAL_CHARS 60000
 
 #define OLLAMA_URL "http://127.0.0.1:11434/api/chat"
 
@@ -2563,7 +2563,8 @@ static char *ollama_chat_with_limit(
     Message *msgs,
     size_t count,
     const char *system_override,
-    int num_predict)
+    int num_predict,
+    long timeout_seconds)
 {
     struct json_object *root = json_object_new_object();
     if (!root) return NULL;
@@ -2694,8 +2695,8 @@ static char *ollama_chat_with_limit(
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &b);
     curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curl_error);
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 15L);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 600L);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout_seconds > 0 ? timeout_seconds : 180L);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
     curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
 
@@ -2789,7 +2790,7 @@ static char *ollama_chat(
     size_t count,
     const char *system_override)
 {
-    return ollama_chat_with_limit(msgs, count, system_override, 0);
+    return ollama_chat_with_limit(msgs, count, system_override, 0, 180L);
 }
 
 /*
@@ -2807,7 +2808,7 @@ static char *ollama_intent_summary(const char *query)
         "ambiguity. Be tentative, do not invent context or hidden motivations, "
         "and return only that concise summary.";
     Message input = { "user", (char *)query, 0 };
-    char *summary = ollama_chat_with_limit(&input, 1, prompt, 96);
+    char *summary = ollama_chat_with_limit(&input, 1, prompt, 96, 45L);
     if (summary && strlen(summary) > 1200)
         summary[1200] = '\0';
     return summary;
@@ -5434,6 +5435,16 @@ static void *vision_watch_worker(void *unused)
             pthread_mutex_unlock(&visual_capture_lock);
 
             if (captured != 1) {
+                if (captured == 0)
+                    r2_log_sensory("vision_source_ended",
+                                   "R2's visual source reached its end.",
+                                   "Continuous observation stopped because the source supplied no more frames.",
+                                   "Eyes");
+                else
+                    r2_log_sensory("vision_watch_capture_failed",
+                                   "R2's continuous visual observer could not capture another frame.",
+                                   "The source stopped or Eyes returned a capture error.",
+                                   "vision_watch");
                 vision_watch_running = 0;
                 break;
             }
