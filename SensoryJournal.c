@@ -67,6 +67,11 @@ int r2_sj_init(void)
         ");"
         "CREATE INDEX IF NOT EXISTS r2_sensory_journal_diary_entry_idx "
         "ON r2_sensory_journal_diary_links(diary_entry_id);"
+        "INSERT OR IGNORE INTO r2_sensory_journal_diary_links(event_id,diary_entry_id) "
+        "SELECT e.id,d.id FROM r2_log_events e "
+        "JOIN diary_entries d ON d.entry=e.details "
+        "WHERE e.category='thinking' "
+        "AND e.event_type IN ('diary_entry_written','reflection_completed');"
         "INSERT OR IGNORE INTO r2_sensory_journal(event_id,journal_kind) "
         "SELECT id,category FROM r2_log_events "
         "WHERE category IN ('sensory','thinking','conversation');";
