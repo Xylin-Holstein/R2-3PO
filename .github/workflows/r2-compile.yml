@@ -17,6 +17,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc libcurl4-openssl-dev libsqlite3-dev libjson-c-dev libpulse-dev
+      - name: Validate launcher shell syntax
+        run: bash -n R2_Launch_Code.sh
       - name: Compile the same C sources used by the launcher
         run: |
           gcc -std=c11 -Wall -Wextra -Werror -O2 \
