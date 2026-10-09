@@ -77,7 +77,7 @@ static int ensure_db_locked(void)
         sqlite3_exec(reward_db,
             "ALTER TABLE reward_events ADD COLUMN log_event_id INTEGER",
             NULL, NULL, NULL) != SQLITE_OK) {
-        fprintf(stderr, "[R2 Reward] Could not add Life Log cross-reference: %s\\n",
+        fprintf(stderr, "[R2 Reward] Could not add Life Log cross-reference: %s\n",
                 sqlite3_errmsg(reward_db));
         return -1;
     }
