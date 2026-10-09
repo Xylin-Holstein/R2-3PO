@@ -40,8 +40,13 @@ def main() -> int:
         cartridges = root / "Cartridges"
         cartridges.mkdir(parents=True)
         emulator = Path(temp) / "fake-mgba"
+        launch_args = Path(temp) / "mgba-arguments.json"
         emulator.write_text(
-            "#!/usr/bin/env python3\nimport time\ntime.sleep(60)\n",
+            "#!/usr/bin/env python3\\n"
+            "import json, os, sys, time\\n"
+            "from pathlib import Path\\n"
+            "Path(" + repr(str(launch_args)) + ").write_text(json.dumps(sys.argv[1:]))\\n"
+            "time.sleep(60)\\n",
             encoding="utf-8",
         )
         emulator.chmod(0o755)
@@ -71,10 +76,23 @@ def main() -> int:
         assert result["cartridge_inserted"] is True
         assert result["cartridge_title"].strip() == "TEST MARIO"
 
+        verified = run(root, emulator, "verify")
+        assert verified["ok"] is True
+        assert verified["checks"]["slot_rom_exists"] is True
+        assert "TEST MARIO" in verified["message"]
+
         result = run(root, emulator, "power", "on")
         assert result["power_state"] == "on"
         assert result["game_running"] is True
         assert result["emulator_pid"] is not None
+        for _ in range(20):
+            if launch_args.is_file():
+                break
+            time.sleep(0.025)
+        assert launch_args.is_file(), "mGBA launcher did not record its argv"
+        launched_args = json.loads(launch_args.read_text(encoding="utf-8"))
+        assert launched_args[-1] == str(cartridges / "Mario.gba"), launched_args
+        assert str(cartridges / "Second.gba") not in launched_args
 
         # Cartridge replacement while powered on is rejected and changes nothing.
         result = run(root, emulator, "insert", "Second.gba", expect_ok=False)
