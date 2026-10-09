@@ -558,7 +558,7 @@ static void shell_log(const char *argument)
     char *result = NULL;
 
     if (!r2_log_is_initialized()) {
-        printf("[R2 Life Log is not initialized.]\\n");
+        printf("[R2 Life Log is not initialized.]\n");
         return;
     }
 
@@ -577,7 +577,7 @@ static void shell_log(const char *argument)
         printf("%s", result);
         free(result);
     } else {
-        printf("[Could not read the Life Log.]\\n");
+        printf("[Could not read the Life Log.]\n");
     }
 }
 
