@@ -29,6 +29,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "Ears.h"
+#include "Log.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -128,6 +129,10 @@ struct R2Ears
      * PCM format used internally.
      */
     R2AudioFormat format;
+
+    /* Aggregated sensory journal counters; never log every 10 ms read. */
+    uint64_t bytes_since_log;
+    uint64_t last_log_timestamp_us;
 };
 
 
@@ -566,9 +571,23 @@ void r2_ears_close(R2Ears *ears)
         ears->file_stream = NULL;
     }
 
+    if (ears->open) {
+        char details[768];
+        snprintf(details, sizeof(details),
+                 "source=%s; origin=%d; bytes_since_last_journal_entry=%llu",
+                 ears->event.source_name[0] ? ears->event.source_name : "(unknown)",
+                 (int)ears->event.origin,
+                 (unsigned long long)ears->bytes_since_log);
+        r2_log_sensory("audio_source_closed",
+                       "R2 Ears stopped receiving audio samples.",
+                       details, "Ears.c");
+    }
+
     ears->file_pid = -1;
     ears->using_file = 0;
     ears->open = 0;
+    ears->bytes_since_log = 0;
+    ears->last_log_timestamp_us = 0;
 
     r2_ears_reset_event(ears);
 }
@@ -717,6 +736,19 @@ int r2_ears_open_source(
 
     ears->using_file = 0;
     ears->open = 1;
+    ears->bytes_since_log = 0;
+    ears->last_log_timestamp_us = ears->event.timestamp;
+
+    {
+        char details[768];
+        snprintf(details, sizeof(details),
+                 "origin=world; sample_rate=%u; channels=%u; bits_per_sample=%u",
+                 ears->format.sample_rate, ears->format.channels,
+                 ears->format.bits_per_sample);
+        r2_log_sensory("audio_source_opened",
+                       "R2 Ears opened a live audio input.",
+                       details, ears->event.source_name);
+    }
 
     free(resolved_source);
 
@@ -892,6 +924,20 @@ int r2_ears_open_file(
 
     ears->using_file = 1;
     ears->open = 1;
+    ears->bytes_since_log = 0;
+    ears->last_log_timestamp_us = ears->event.timestamp;
+
+    {
+        char details[768];
+        snprintf(details, sizeof(details),
+                 "origin=file; sample_rate=%u; channels=%u; bits_per_sample=%u; "
+                 "audio_meaning=not_interpreted_by_Ears",
+                 ears->format.sample_rate, ears->format.channels,
+                 ears->format.bits_per_sample);
+        r2_log_sensory("audio_source_opened",
+                       "R2 Ears opened an audio file for PCM input.",
+                       details, path);
+    }
 
     return 0;
 }
@@ -948,6 +994,25 @@ ssize_t r2_ears_read(
         {
             ears->event.timestamp =
                 r2_ears_timestamp();
+            ears->bytes_since_log += bytes_read;
+
+            if (ears->last_log_timestamp_us == 0 ||
+                ears->event.timestamp - ears->last_log_timestamp_us >= 5000000ULL) {
+                char details[768];
+                snprintf(details, sizeof(details),
+                         "source=%s; bytes_received_since_last_entry=%llu; "
+                         "sample_rate=%u; channels=%u; bits_per_sample=%u; "
+                         "audio_interpretation=not_performed_by_Ears",
+                         ears->event.source_name,
+                         (unsigned long long)ears->bytes_since_log,
+                         ears->format.sample_rate, ears->format.channels,
+                         ears->format.bits_per_sample);
+                r2_log_sensory("audio_samples_received",
+                               "R2 Ears received real PCM audio samples.",
+                               details, ears->event.source_name);
+                ears->bytes_since_log = 0;
+                ears->last_log_timestamp_us = ears->event.timestamp;
+            }
 
             return (ssize_t)bytes_read;
         }
@@ -996,6 +1061,25 @@ ssize_t r2_ears_read(
 
         ears->event.timestamp =
             r2_ears_timestamp();
+        ears->bytes_since_log += buffer_size;
+
+        if (ears->last_log_timestamp_us == 0 ||
+            ears->event.timestamp - ears->last_log_timestamp_us >= 5000000ULL) {
+            char details[768];
+            snprintf(details, sizeof(details),
+                     "source=%s; bytes_received_since_last_entry=%llu; "
+                     "sample_rate=%u; channels=%u; bits_per_sample=%u; "
+                     "audio_interpretation=not_performed_by_Ears",
+                     ears->event.source_name,
+                     (unsigned long long)ears->bytes_since_log,
+                     ears->format.sample_rate, ears->format.channels,
+                     ears->format.bits_per_sample);
+            r2_log_sensory("audio_samples_received",
+                           "R2 Ears received real PCM audio samples.",
+                           details, ears->event.source_name);
+            ears->bytes_since_log = 0;
+            ears->last_log_timestamp_us = ears->event.timestamp;
+        }
 
         return (ssize_t)buffer_size;
     }
