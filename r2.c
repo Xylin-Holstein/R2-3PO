@@ -2877,10 +2877,10 @@ static char *chat_with_relevant_memories(
         memory_context = xstrdup("");
 
     if (memory_context && strlen(memory_context) > MAX_RETRIEVED_MEMORY_CHARS) {
-        memory_context[MAX_RETRIEVED_MEMORY_CHARS] = '\\0';
+        memory_context[MAX_RETRIEVED_MEMORY_CHARS] = '\0';
         fprintf(stderr,
                 "[R2 memory] Retrieved memory context capped at %d characters "
-                "to protect the Ollama context window.\\n",
+                "to protect the Ollama context window.\n",
                 MAX_RETRIEVED_MEMORY_CHARS);
     }
 
@@ -6161,10 +6161,10 @@ int r2_init(void)
     ) {
         size_t original_length = strlen(original);
         if (original_length > MAX_ARCHIVED_CONTEXT_CHARS) {
-            original[MAX_ARCHIVED_CONTEXT_CHARS] = '\\0';
+            original[MAX_ARCHIVED_CONTEXT_CHARS] = '\0';
             fprintf(stderr,
                     "[R2 memory] Archived conversation context capped at %d characters; "
-                    "dynamic retrieval remains available.\\n",
+                    "dynamic retrieval remains available.\n",
                     MAX_ARCHIVED_CONTEXT_CHARS);
         }
 
@@ -6271,10 +6271,10 @@ int r2_init(void)
 
     size_t startup_memory_length = strlen(startup_memories);
     if (startup_memory_length > MAX_STARTUP_MEMORY_CHARS) {
-        startup_memories[MAX_STARTUP_MEMORY_CHARS] = '\\0';
+        startup_memories[MAX_STARTUP_MEMORY_CHARS] = '\0';
         fprintf(stderr,
                 "[R2 memory] Startup memory context capped at %d characters; "
-                "dynamic retrieval remains available.\\n",
+                "dynamic retrieval remains available.\n",
                 MAX_STARTUP_MEMORY_CHARS);
     }
 
