@@ -30,6 +30,10 @@ on:
       - ".github/workflows/android-remote.yml"
   workflow_dispatch:
 
+concurrency:
+  group: r2-remote-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
