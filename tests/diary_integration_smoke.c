@@ -189,6 +189,11 @@ int main(void)
     assert(scalar_int("SELECT COUNT(*) FROM r2_log_events "
                       "WHERE details LIKE '%Legacy diary entry about learning%' "
                       "OR summary LIKE '%Legacy diary entry about learning%';") == 0);
+    assert(scalar_int("SELECT COUNT(*) FROM r2_log_events "
+                      "WHERE details LIKE '%Eli isn''t real%' "
+                      "OR summary LIKE '%Eli isn''t real%' "
+                      "OR details LIKE '%I keep calling the creator Eli%' "
+                      "OR summary LIKE '%I keep calling the creator Eli%';") == 0);
 
     context = r2_diary_build_reflection_context(10);
     assert(context != NULL);
