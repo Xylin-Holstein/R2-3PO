@@ -340,7 +340,7 @@ int r2_visual_init(const char *database_path, const char *library_directory)
     if (configured && *configured &&
         strcmp(configured, R2_VISION_DEFAULT_MODEL) != 0) {
         fprintf(stderr,
-                "[R2 Vision] Ignoring R2_VISION_MODEL=%s; this build uses the unified model %s.\\n",
+                "[R2 Vision] Ignoring R2_VISION_MODEL=%s; this build uses the unified model %s.\n",
                 configured, R2_VISION_DEFAULT_MODEL);
     }
     snprintf(visual_model, sizeof(visual_model), "%s", R2_VISION_DEFAULT_MODEL);
@@ -409,7 +409,7 @@ int r2_visual_set_model(const char *model)
     }
     if (strcmp(model, R2_VISION_DEFAULT_MODEL) != 0) {
         fprintf(stderr,
-                "[R2 Vision] Rejected model %s; conversation and vision must share %s.\\n",
+                "[R2 Vision] Rejected model %s; conversation and vision must share %s.\n",
                 model, R2_VISION_DEFAULT_MODEL);
         return -1;
     }
