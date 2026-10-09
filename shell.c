@@ -69,6 +69,142 @@ static volatile sig_atomic_t shell_shutdown = 0;
 static int shell_running = 0;
 static int watch_running = 0;
 
+/* The GUI talks to this local socket; all writes still pass through Reality APIs. */
+static pthread_t tv_control_thread;
+static int tv_control_started = 0;
+static int tv_control_fd = -1;
+static volatile sig_atomic_t tv_control_stop = 0;
+static char tv_control_path[sizeof(((struct sockaddr_un *)0)->sun_path)];
+
+static void *tv_control_server(void *unused)
+{
+    (void)unused;
+    while (!tv_control_stop) {
+        int client = accept(tv_control_fd, NULL, NULL);
+        if (client < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+
+        char command[1200] = {0};
+        size_t used = 0;
+        while (used < sizeof(command) - 1) {
+            ssize_t got = recv(client, command + used, sizeof(command) - 1 - used, 0);
+            if (got <= 0) break;
+            used += (size_t)got;
+            if (memchr(command, '\n', used)) break;
+        }
+        command[used] = '\0';
+        ssize_t got = (ssize_t)used;
+        while (got > 0 && (command[got - 1] == '\n' || command[got - 1] == '\r'))
+            command[--got] = '\0';
+
+        const char *reply = "ERROR invalid command";
+        char *status = NULL;
+        if (got > 0 && !strcmp(command, "status")) {
+            status = r2_reality_tv_status();
+            reply = status ? status : "ERROR unable to read TV state";
+        } else if (!strcmp(command, "power on")) {
+            reply = r2_reality_tv_power(1) == 0 ? "OK powered on" : "ERROR power-on failed";
+        } else if (!strcmp(command, "power off")) {
+            reply = r2_reality_tv_power(0) == 0 ? "OK powered off" : "ERROR power-off failed";
+        } else if (!strncmp(command, "input ", 6)) {
+            char *end = NULL;
+            long n = strtol(command + 6, &end, 10);
+            if (end != command + 6 && *end == '\0' && n >= 1 && n <= 4)
+                reply = r2_reality_tv_select_input((int)n) == 0 ? "OK input selected" : "ERROR input selection failed";
+            else reply = "ERROR input must be 1..4";
+        } else if (!strncmp(command, "tune ", 5)) {
+            char *end = NULL;
+            long n = strtol(command + 5, &end, 10);
+            if (end != command + 5 && *end == '\0' && n >= 2 && n <= 13)
+                reply = r2_reality_tv_tune_rf((int)n) == 0 ? "OK RF channel tuned" : "ERROR RF tuning failed";
+            else reply = "ERROR RF channel must be 2..13";
+        } else if (!strncmp(command, "vcr insert ", 11)) {
+            const char *path = command + 11;
+            reply = *path && r2_reality_tv_vcr_insert(path) == 0
+                ? "OK VCR tape inserted" : "ERROR unsupported or unreadable media file";
+        } else if (!strcmp(command, "vcr play")) {
+            reply = r2_reality_tv_vcr_transport("play") == 0 ? "OK VCR playing" : "ERROR no tape inserted";
+        } else if (!strcmp(command, "vcr pause")) {
+            reply = r2_reality_tv_vcr_transport("pause") == 0 ? "OK VCR paused" : "ERROR no tape inserted";
+        } else if (!strcmp(command, "vcr stop")) {
+            reply = r2_reality_tv_vcr_transport("stop") == 0 ? "OK VCR stopped" : "ERROR no tape inserted";
+        } else if (!strcmp(command, "vcr eject")) {
+            reply = r2_reality_tv_vcr_transport("eject") == 0 ? "OK VCR tape ejected" : "ERROR no tape inserted";
+        } else if (!strncmp(command, "vcr position ", 13)) {
+            char *end = NULL;
+            double seconds = strtod(command + 13, &end);
+            if (end != command + 13 && *end == '\0' && isfinite(seconds) && seconds >= 0.0)
+                reply = r2_reality_tv_vcr_set_position(seconds) == 0 ? "OK VCR position saved" : "ERROR no inserted tape";
+            else reply = "ERROR invalid VCR position";
+        }
+
+        (void)send(client, reply, strlen(reply), MSG_NOSIGNAL);
+        free(status);
+        close(client);
+    }
+    return NULL;
+}
+
+static int tv_control_start(void)
+{
+    if (tv_control_started) return 0;
+    int n = snprintf(tv_control_path, sizeof(tv_control_path), "%s/R2/tv-control.sock", R2_HOME);
+    if (n < 0 || (size_t)n >= sizeof(tv_control_path)) return -1;
+
+    struct stat st;
+    if (lstat(tv_control_path, &st) == 0) {
+        if (!S_ISSOCK(st.st_mode)) return -1;
+        int probe = socket(AF_UNIX, SOCK_STREAM, 0);
+        if (probe < 0) return -1;
+        struct sockaddr_un existing;
+        memset(&existing, 0, sizeof(existing));
+        existing.sun_family = AF_UNIX;
+        snprintf(existing.sun_path, sizeof(existing.sun_path), "%s", tv_control_path);
+        int connected = connect(probe, (struct sockaddr *)&existing, sizeof(existing));
+        int connect_error = errno;
+        close(probe);
+        if (connected == 0 || connect_error != ECONNREFUSED) return -1;
+        if (unlink(tv_control_path) != 0) return -1; /* stale socket only */
+    } else if (errno != ENOENT) return -1;
+
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+    struct sockaddr_un address;
+    memset(&address, 0, sizeof(address));
+    address.sun_family = AF_UNIX;
+    snprintf(address.sun_path, sizeof(address.sun_path), "%s", tv_control_path);
+    if (bind(fd, (struct sockaddr *)&address, sizeof(address)) != 0 ||
+        chmod(tv_control_path, S_IRUSR | S_IWUSR) != 0 || listen(fd, 4) != 0) {
+        close(fd);
+        unlink(tv_control_path);
+        return -1;
+    }
+    tv_control_fd = fd;
+    tv_control_stop = 0;
+    if (pthread_create(&tv_control_thread, NULL, tv_control_server, NULL) != 0) {
+        close(fd);
+        tv_control_fd = -1;
+        unlink(tv_control_path);
+        return -1;
+    }
+    tv_control_started = 1;
+    return 0;
+}
+
+static void tv_control_stop_server(void)
+{
+    if (!tv_control_started) return;
+    tv_control_stop = 1;
+    shutdown(tv_control_fd, SHUT_RDWR);
+    close(tv_control_fd);
+    tv_control_fd = -1;
+    pthread_join(tv_control_thread, NULL);
+    unlink(tv_control_path);
+    tv_control_started = 0;
+}
+
 
 /* ============================================================
    SIGNAL HANDLING
@@ -257,6 +393,9 @@ static void shell_help(void)
         "\n"
         "  give <item> <quantity> [| description | container]\n"
         "      Creator command: create item stacks from nothing; give money <dollars> adds cash.\n"
+        "\n"
+        "  tv [status|on|off|input 1..4|tune <channel>|connect <name> | input/RF | <port>|disconnect <name>|vcr ...]\n"
+        "      Operate the persistent CRT television and built-in VCR.\n"
         "\n"
         "  gameboy [status|verify|list|insert <rom>|eject|power on|power off|press <button>]\n"
         "      Operate the virtual console; power on launches mGBA with the inserted ROM.\n"
@@ -1113,6 +1252,8 @@ static void shell_restart(void)
         );
 
         shell_running = 1;
+    if (tv_control_start() != 0)
+        fprintf(stderr, "[TV] GUI control socket unavailable; shell TV commands remain available.\\n");
     }
 }
 
@@ -1347,6 +1488,325 @@ static int shell_give(const char *arg)
             snprintf(details, sizeof(details),
                      "Creator command=give money; individual $1 file count=%.0f; destination=Pockets/Wallet; explicit user creator action.",
                      amount);
+        } else {
+            snprintf(summary, sizeof(summary), "The user created a gift for R2: %s x %.0f.", name, amount);
+            snprintf(details, sizeof(details),
+                     "Creator command=give; target=%s; quantity=%.0f; destination=%s; source=explicit user creator action; no purchase or price was involved.",
+                     name, amount, destination);
+        }
+        (void)r2_log_event_with_memory(R2_LOG_WORLD, "creator_gift", summary, details, "shell.c", 1);
+    }
+    free(copy);
+    return 1;
+}
+
+static void shell_tv(const char *argument)
+{
+    if (!r2_reality_is_initialized()) {
+        printf("[TV] Reality engine is not initialized.\n");
+        return;
+    }
+    if (!argument || !*argument || !strcasecmp(argument, "status")) {
+        char *status = r2_reality_tv_status();
+        printf("%s", status ? status : "[TV] Could not read TV state.\n");
+        free(status);
+        return;
+    }
+    if (!strcasecmp(argument, "on") || !strcasecmp(argument, "power on")) {
+        printf(r2_reality_tv_power(1) == 0 ? "[TV] Powered on. Eyes/attention were not changed.\n" : "[TV] Power-on failed.\n");
+        return;
+    }
+    if (!strcasecmp(argument, "off") || !strcasecmp(argument, "power off")) {
+        printf(r2_reality_tv_power(0) == 0 ? "[TV] Powered off. Eyes/attention were not changed.\n" : "[TV] Power-off failed.\n");
+        return;
+    }
+    if (shell_starts_with(argument, "input ")) {
+        char *end = NULL; long n = strtol(argument + 6, &end, 10);
+        while (end && *end && isspace((unsigned char)*end)) ++end;
+        if (end != argument + 6 && end && !*end && n >= 1 && n <= 4 &&
+            r2_reality_tv_select_input((int)n) == 0)
+            printf("[TV] Selected AV input %ld.\n", n);
+        else printf("Usage: tv input 1..4\n");
+        return;
+    }
+    if (shell_starts_with(argument, "tune ")) {
+        char *end = NULL; long n = strtol(argument + 5, &end, 10);
+        while (end && *end && isspace((unsigned char)*end)) ++end;
+        if (end != argument + 5 && end && !*end && n >= 2 && n <= 13 &&
+            r2_reality_tv_tune_rf((int)n) == 0) {
+            char *status = r2_reality_tv_status();
+            printf("%s", status ? status : "[TV] Tuned RF channel; status unavailable.\n");
+            free(status);
+        } else printf("Usage: tv tune <RF channel 2..13>\n");
+        return;
+    }
+    if (shell_starts_with(argument, "connect ")) {
+        char *copy = strdup(argument + 8);
+        if (!copy) return;
+        char *parts[3] = {0}; int count = 0; char *save = NULL;
+        for (char *p = strtok_r(copy, "|", &save); p && count < 3; p = strtok_r(NULL, "|", &save))
+            parts[count++] = reality_trim(p);
+        int port = count >= 3 ? atoi(parts[2]) : 0;
+        int rc = count == 3 ? r2_reality_tv_connect(parts[0], parts[1], port) : -1;
+        if (rc == 0) printf("[TV] Connected %s to %s %d.\n", parts[0], parts[1], port);
+        else printf("Usage: tv connect <device name> | input/RF | <port/channel> (AV inputs 2..4, RF channels 2..13).\n");
+        free(copy);
+        return;
+    }
+    if (shell_starts_with(argument, "disconnect ")) {
+        const char *name = shell_trim((char *)argument + 11);
+        printf(r2_reality_tv_disconnect(name) == 0 ? "[TV] Device disconnected.\n" : "[TV] No connected device with that name.\n");
+        return;
+    }
+    if (shell_starts_with(argument, "vcr insert ")) {
+        const char *path = shell_trim((char *)argument + 11);
+        printf(r2_reality_tv_vcr_insert(path) == 0
+            ? "[TV] Tape inserted; its saved position is retained.\n"
+            : "[TV] Could not insert tape. Use a readable VLC-supported video file.\n");
+        return;
+    }
+    if (shell_starts_with(argument, "vcr ")) {
+        const char *action = shell_trim((char *)argument + 4);
+        if (!strcasecmp(action, "play") || !strcasecmp(action, "pause") ||
+            !strcasecmp(action, "stop") || !strcasecmp(action, "eject")) {
+            printf(r2_reality_tv_vcr_transport(action) == 0
+                ? "[TV] VCR transport updated.\n"
+                : "[TV] No tape is inserted, or the transport command failed.\n");
+        } else {
+            printf("Usage: tv vcr insert <absolute media path> | tv vcr play | pause | stop | eject\n");
+        }
+        return;
+    }
+    printf("TV commands: tv status, tv on, tv off, tv input 1..4, tv tune <RF channel 2..13>, tv connect <name> | input/RF | <port>, tv disconnect <name>, tv vcr insert/play/pause/stop/eject.\n");
+}
+
+static int shell_reality(const char *argument)
+{
+    if (!r2_reality_is_initialized()) {
+        printf("[R2 Reality] Engine is not initialized.\n");
+        return 1;
+    }
+    if (!argument || !*argument || !strcasecmp(argument, "look")) {
+        char *view = r2_reality_room_look();
+        printf("%s", view ? view : "[R2 Reality] Could not read room state.\n");
+        free(view);
+        return 1;
+    }
+    if (!strcasecmp(argument, "status")) {
+        char *status = r2_reality_status();
+        printf("%s", status ? status : "[R2 Reality] Could not read status.\n");
+        free(status);
+        return 1;
+    }
+    if (shell_starts_with(argument, "add ")) {
+        char *copy = strdup(argument + 4);
+        if (!copy) return 1;
+        char *parts[4] = {0};
+        int n = 0;
+        char *save = NULL;
+        for (char *p = strtok_r(copy, "|", &save); p && n < 4; p = strtok_r(NULL, "|", &save))
+            parts[n++] = reality_trim(p);
+        if (n < 1 || !*parts[0]) {
+            printf("Usage: room add <name> | <description> | <container> | <quantity>\n");
+        } else {
+            const char *desc = n >= 2 ? parts[1] : "An object in R2's persistent room.";
+            const char *container = n >= 3 && *parts[2] ? parts[2] : "room";
+            int quantity = n >= 4 ? atoi(parts[3]) : 1;
+            int rc = r2_reality_add_item(parts[0], desc, container, quantity);
+            printf(rc == 0 ? "[R2 Reality] Item recorded.\n" : "[R2 Reality] Item could not be recorded.\n");
+        }
+        free(copy);
+        return 1;
+    }
+    if (shell_starts_with(argument, "move ")) {
+        char *copy = strdup(argument + 5);
+        if (!copy) return 1;
+        char *sep = strchr(copy, '|');
+        if (!sep) {
+            printf("Usage: room move <name> | <container>\n");
+        } else {
+            *sep = '\0';
+            char *name = reality_trim(copy);
+            char *container = reality_trim(sep + 1);
+            int rc = r2_reality_move_item(name, container);
+            printf(rc == 0 ? "[R2 Reality] Item moved.\n" : "[R2 Reality] Move failed; check the item name.\n");
+        }
+        free(copy);
+        return 1;
+    }
+    if (shell_starts_with(argument, "remove ")) {
+        const char *name = reality_trim((char *)argument + 7);
+        int rc = r2_reality_remove_item(name);
+        printf(rc == 0 ? "[R2 Reality] Item removed.\n" : "[R2 Reality] Removal failed; check the item name.\n");
+        return 1;
+    }
+    if (!strcasecmp(argument, "shelf") || !strcasecmp(argument, "box") ||
+        !strcasecmp(argument, "pockets") || !strcasecmp(argument, "wallet") ||
+        !strcasecmp(argument, "room")) {
+        char *items = r2_reality_list(argument);
+        printf("%s:\n%s", argument, items ? items : "(could not read container)\n");
+        free(items);
+        return 1;
+    }
+    /* Unknown room subcommands are treated as named container lookups,
+       so commands such as "room toy box" inspect custom containers. */
+    char *items = r2_reality_list(argument);
+    printf("%s:\n%s", argument, items ? items : "(could not read container)\n");
+    free(items);
+    return 1;
+}
+
+static int shell_pockets(const char *argument)
+{
+    if (!argument || !*argument) return shell_reality("pockets");
+    if (!strcasecmp(argument, "wallet")) return shell_reality("wallet");
+    if (shell_starts_with(argument, "put ")) {
+        char command[8192];
+        snprintf(command, sizeof(command), "move %s | pockets", argument + 4);
+        return shell_reality(command);
+    }
+    if (shell_starts_with(argument, "wallet ")) {
+        char command[8192];
+        snprintf(command, sizeof(command), "move %s | wallet", argument + 7);
+        return shell_reality(command);
+    }
+    if (shell_starts_with(argument, "take ")) {
+        char *copy = strdup(argument + 5);
+        if (!copy) return 1;
+        char *sep = strchr(copy, '|');
+        if (sep) *sep++ = '\0';
+        char command[8192];
+        snprintf(command, sizeof(command), "move %s | %s", reality_trim(copy),
+                 sep && *reality_trim(sep) ? reality_trim(sep) : "room");
+        int rc = shell_reality(command);
+        free(copy);
+        return rc;
+    }
+    printf("Usage: pockets [wallet|put <name>|wallet <name>|take <name> [| container]]\n");
+    return 1;
+}
+
+
+
+
+static int shell_fridge(const char *argument)
+{
+    if (!argument || !*argument || !strcasecmp(argument, "look")) {
+        char *items = r2_fridge_context();
+        printf("%s\n", items ? items : "[R2 Fridge] Database unavailable.");
+        free(items);
+        return 1;
+    }
+    if (shell_starts_with(argument, "take ")) {
+        const char *food = reality_trim((char *)argument + 5);
+        int rc = r2_fridge_take(food);
+        printf(rc == 0 ? "[R2 Fridge] Moved one %s into pockets.\n" :
+                         "[R2 Fridge] Could not take that item.\n", food);
+        return 1;
+    }
+    if (shell_starts_with(argument, "eat ")) {
+        const char *food = reality_trim((char *)argument + 4);
+        int rc = r2_eat_fridge_and_learn(food, -1.0);
+        printf(rc == 0 ? "[R2 Fridge] Ate %s from fridge stock; hunger updated.\n" :
+                         "[R2 Fridge] Could not eat that item from the fridge.\n", food);
+        return 1;
+    }
+    if (shell_starts_with(argument, "store ")) {
+        const char *food = reality_trim((char *)argument + 6);
+        int rc = r2_reality_move_item(food, "fridge");
+        printf(rc == 0 ? "[R2 Fridge] Stored %s from pockets/inventory into the fridge.\n" :
+                         "[R2 Fridge] Could not store that tracked item.\n", food);
+        return 1;
+    }
+    printf("Usage: fridge [look|take <food>|eat <food>|store <food>]\n");
+    return 1;
+}
+
+static int shell_parse_amount(const char *text, double *value);
+
+static int shell_give(const char *arg)
+{
+    if (!arg || !*arg) {
+        printf("Usage: give <item> <quantity> [| description | container]\n");
+        printf("       give money <quantity> creates separate physical money items.\n");
+        return 1;
+    }
+    char *copy = strdup(arg);
+    if (!copy) {
+        printf("[Creator] Memory allocation failed.\n");
+        return 1;
+    }
+    char *fields[3] = {0};
+    int count = 0;
+    char *save = NULL;
+    for (char *part = strtok_r(copy, "|", &save);
+         part && count < 3;
+         part = strtok_r(NULL, "|", &save))
+        fields[count++] = shell_trim(part);
+
+    char *head = fields[0] ? fields[0] : copy;
+    char *space = strrchr(head, ' ');
+    if (!space || space == head || !space[1]) {
+        printf("Usage: give <item> <quantity> [| description | container]\n");
+        free(copy);
+        return 1;
+    }
+    *space++ = '\0';
+    char *name = shell_trim(head);
+    char *amount_text = shell_trim(space);
+    double amount = 0.0;
+    if (!*name || !shell_parse_amount(amount_text, &amount) ||
+        amount <= 0.0 || amount > 1000000.0 || floor(amount) != amount) {
+        printf("[Give] Quantity must be a positive whole number (maximum 1000000).\n");
+        free(copy);
+        return 1;
+    }
+    const char *destination = count >= 3 && fields[2] && *fields[2]
+        ? fields[2] : "pockets";
+    const char *description = count >= 2 && fields[1] && *fields[1]
+        ? fields[1] : "Created from nothing by the user through the creator give command";
+    int rc = 0;
+    int money = !strcasecmp(name, "money");
+    if (money) {
+        if (amount > 1000.0) {
+            printf("[Creator] A single money gift is limited to 1000 separate objects.\n");
+            free(copy);
+            return 1;
+        }
+        /* One object and one .r2item mirror per unit; never interpret quantity
+           as dollars or collapse separate money pieces into one stack. */
+        for (int i = 1; i <= (int)amount; ++i) {
+            char item_name[96], item_description[512];
+            snprintf(item_name, sizeof(item_name), "money gift %ld %ld %d",
+                     (long)time(NULL), (long)getpid(), i);
+            snprintf(item_description, sizeof(item_description),
+                     "Individual physical money item created by the user; denomination unspecified. Gift batch quantity=%d.",
+                     (int)amount);
+            if (r2_reality_add_item(item_name, item_description, destination, 1) != 0) {
+                fprintf(stderr, "[Creator] Could not create %s in %s; stopping after %d of %.0f items.\n",
+                        item_name, destination, i - 1, amount);
+                rc = -1;
+                break;
+            }
+        }
+        if (rc == 0)
+            printf("[Creator] Created %.0f separate money items in %s; no cash balance or denomination was assumed.\n",
+                   amount, destination);
+    } else {
+        rc = r2_reality_add_item(name, description, destination, (int)amount);
+        if (rc == 0)
+            printf("[Creator] Created %d x %s in %s.\n", (int)amount, name, destination);
+        else
+            printf("[Creator] Could not create %s in %s; check location and container access.\n",
+                   name, destination);
+    }
+    if (rc == 0 && r2_log_is_initialized()) {
+        char summary[512], details[1024];
+        if (money) {
+            snprintf(summary, sizeof(summary), "The user created %.0f separate physical money items for R2.", amount);
+            snprintf(details, sizeof(details),
+                     "Creator command=give money; individual item count=%.0f; destination=%s; physical inventory objects only; no dollar value, cash balance, purchase, or denomination was assumed.",
+                     amount, destination);
         } else {
             snprintf(summary, sizeof(summary), "The user created a gift for R2: %s x %.0f.", name, amount);
             snprintf(details, sizeof(details),
@@ -1718,6 +2178,10 @@ static int shell_dispatch(char *input)
         shell_give(shell_starts_with(command, "give ") ? shell_trim(command + 5) : NULL);
         return 1;
     }
+    if (!strcasecmp(command, "tv") || shell_starts_with(command, "tv ")) {
+        shell_tv(shell_starts_with(command, "tv ") ? shell_trim(command + 3) : NULL);
+        return 1;
+    }
     if (!strcasecmp(command, "gameboy") || shell_starts_with(command, "gameboy ")) {
         shell_gameboy(shell_starts_with(command, "gameboy ") ? shell_trim(command + 8) : NULL);
         return 1;
@@ -1981,7 +2445,8 @@ int r2_shell_run(void)
         watch_running = 0;
     }
 
-    free(line);
+    tv_control_stop_server();
+        free(line);
 
     return 0;
 }
