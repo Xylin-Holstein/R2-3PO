@@ -845,7 +845,7 @@ static int r2_diary_link_entry(int64_t entry_id, const char *created_at)
         char pointer[512];
         snprintf(pointer, sizeof(pointer),
                  "Life Log event %" PRId64 ": [thinking/diary_entry_linked] %s",
-                 event_id, summary);
+                 (int64_t)event_id, summary);
         if (r2_save_memory(pointer, "experience") == 0) {
             rc = sqlite3_prepare_v2(r2_diary_db,
                 "UPDATE r2_log_events SET memory_saved=1 WHERE id=?;",
