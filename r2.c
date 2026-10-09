@@ -45,6 +45,7 @@
 #define OLLAMA_MAX_SYSTEM_MESSAGE_CHARS 10000
 #define OLLAMA_MAX_SYSTEM_TOTAL_CHARS 18000
 #define OLLAMA_MAX_TOTAL_CHARS 60000
+#define OLLAMA_MAX_RESPONSE_BYTES (16U * 1024U * 1024U)
 
 #define OLLAMA_URL "http://127.0.0.1:11434/api/chat"
 
@@ -2536,9 +2537,14 @@ static size_t curl_write(
     void *userdata)
 {
     Buffer *b = userdata;
+    if (!b || (size && nmemb > SIZE_MAX / size))
+        return 0;
 
-    size_t add =
-        size * nmemb;
+    size_t add = size * nmemb;
+    if (b->size > OLLAMA_MAX_RESPONSE_BYTES ||
+        add > OLLAMA_MAX_RESPONSE_BYTES - b->size ||
+        add > SIZE_MAX - b->size - 1)
+        return 0;
 
     char *p =
         realloc(
@@ -2691,6 +2697,11 @@ static char *ollama_chat_with_limit(
     Buffer b = {0};
     struct curl_slist *headers = NULL;
     headers = curl_slist_append(headers, "Content-Type: application/json");
+    if (!headers) {
+        curl_easy_cleanup(curl);
+        json_object_put(root);
+        return NULL;
+    }
     char curl_error[CURL_ERROR_SIZE] = {0};
 
     curl_easy_setopt(curl, CURLOPT_URL, OLLAMA_URL);
