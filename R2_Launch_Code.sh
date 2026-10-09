@@ -36,6 +36,7 @@ REQUIRED_FILES=(
 
     "$R2_SOURCE/Eyes.c"
     "$R2_SOURCE/Eyes.h"
+    "$R2_SOURCE/V-Webcam.py"
 
     "$R2_SOURCE/shell.c"
     "$R2_SOURCE/shell.h"
