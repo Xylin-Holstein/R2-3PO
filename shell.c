@@ -1158,7 +1158,11 @@ static int shell_reality(const char *argument)
         free(items);
         return 1;
     }
-    printf("Usage: room [look|status|shelf|box|pockets|wallet|add ...|move ...|remove ...]\n");
+    /* Unknown room subcommands are treated as named container lookups,
+       so commands such as "room toy box" inspect custom containers. */
+    char *items = r2_reality_list(argument);
+    printf("%s:\n%s", argument, items ? items : "(could not read container)\n");
+    free(items);
     return 1;
 }
 
