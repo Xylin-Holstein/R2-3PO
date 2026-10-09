@@ -25,6 +25,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential libcurl4-openssl-dev libsqlite3-dev libjson-c-dev libpulse-dev
 
+      - name: Compile R2 with the same sources and flags as the launcher
+        run: make clean all CFLAGS="-std=c11 -Wall -Wextra -Werror -O2"
+
       - name: Check every shell script for syntax errors
         run: find . -type f -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
 
@@ -59,5 +62,3 @@ jobs:
             -o /tmp/r2-diary-integration-smoke
           /tmp/r2-diary-integration-smoke
 
-      - name: Compile R2 with the same sources and flags as the launcher
-        run: make clean all CFLAGS="-std=c11 -Wall -Wextra -Werror -O2"
