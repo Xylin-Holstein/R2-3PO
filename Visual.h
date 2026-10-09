@@ -16,6 +16,7 @@ extern "C" {
 int r2_visual_init(const char *database_path, const char *library_directory);
 void r2_visual_shutdown(void);
 int r2_visual_is_initialized(void);
+int r2_visual_set_model(const char *model);
 const char *r2_visual_model_name(void);
 
 /* Analyze one real Eyes frame. Returns a malloc-owned description. */
