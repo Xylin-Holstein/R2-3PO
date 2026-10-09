@@ -50,6 +50,9 @@ int main(void) {
     assert(r2_reality_money_deposit(1.50)==0);
     assert(bill_count(wallet)==2 && change_cents(wallet)==50);
     assert(bill_count(bank)==1 && change_cents(bank)==50);
+    assert(r2_reality_money_withdraw(0.50)==0);
+    assert(bill_count(wallet)==3 && change_cents(wallet)==0);
+    assert(bill_count(bank)==1 && change_cents(bank)==0);
     assert(r2_reality_buy_item("soda","A purchased drink",3.50,"fridge")==0);
     assert(bill_count(wallet)==0 && change_cents(wallet)==0);
     assert(bill_count(bank)==0 && change_cents(bank)==50);
