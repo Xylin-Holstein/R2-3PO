@@ -54,11 +54,15 @@ static int mkdir_one(const char *path)
 
 static int make_room_dirs(void)
 {
-    char room[1024], shelf[1100], box[1100];
+    char room[1024], shelf[1100], box[1100], pockets[1100], wallet[1100], toy_box[1100];
     snprintf(room, sizeof(room), "%s/room", R2_ROOT);
     snprintf(shelf, sizeof(shelf), "%s/shelf", room);
     snprintf(box, sizeof(box), "%s/box", room);
-    if (mkdir_one(room) || mkdir_one(shelf) || mkdir_one(box)) {
+    snprintf(pockets, sizeof(pockets), "%s/pockets", room);
+    snprintf(wallet, sizeof(wallet), "%s/wallet", room);
+    snprintf(toy_box, sizeof(toy_box), "%s/toy_box", room);
+    if (mkdir_one(room) || mkdir_one(shelf) || mkdir_one(box) ||
+        mkdir_one(pockets) || mkdir_one(wallet) || mkdir_one(toy_box)) {
         fprintf(stderr, "[R2 Reality] Could not create room/shelf/box directories under %s\n", R2_ROOT);
         return -1;
     }
@@ -122,7 +126,10 @@ static int mirror_path(const char *name, const char *container, char *path, size
     if (!strcmp(container, "room")) folder = "";
     else if (!strcmp(container, "shelf")) folder = "/shelf";
     else if (!strcmp(container, "box")) folder = "/box";
-    else return 1; /* Inventory and named containers are database-only. */
+    else if (!strcmp(container, "pockets")) folder = "/pockets";
+    else if (!strcmp(container, "wallet")) folder = "/wallet";
+    else if (!strcmp(container, "toy box")) folder = "/toy_box";
+    else return 1; /* Other named containers remain database-only. */
     char slug[256];
     item_slug(name, slug, sizeof(slug));
     int n = snprintf(path, cap, "%s/room%s/%s.r2item", R2_ROOT, folder, slug);
@@ -312,11 +319,13 @@ int r2_reality_init(void)
     if (reality_ready) { pthread_mutex_unlock(&reality_lock); return 0; }
     if (make_room_dirs() != 0) { pthread_mutex_unlock(&reality_lock); return -1; }
 
-    int rc = sqlite3_open_v2(R2_DIARY_DATABASE, &reality_db,
+    int rc = char reality_path[1200];
+    snprintf(reality_path, sizeof(reality_path), "%s/r2_reality.db", R2_HOME);
+    rc = sqlite3_open_v2(reality_path, &reality_db,
         SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, NULL);
     if (rc != SQLITE_OK) {
-        fprintf(stderr, "[R2 Reality] Cannot open shared database %s: %s\n",
-                R2_DIARY_DATABASE, reality_db ? sqlite3_errmsg(reality_db) : "unknown error");
+        fprintf(stderr, "[R2 Reality] Cannot open dedicated database %s: %s\n",
+                reality_path, reality_db ? sqlite3_errmsg(reality_db) : "unknown error");
         if (reality_db) sqlite3_close(reality_db);
         reality_db = NULL;
         pthread_mutex_unlock(&reality_lock);
@@ -327,6 +336,14 @@ int r2_reality_init(void)
     const char *schema =
         "CREATE TABLE IF NOT EXISTS r2_reality_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);"
         "INSERT OR IGNORE INTO r2_reality_meta(key,value) VALUES('world_elapsed_seconds','0');"
+        "CREATE TABLE IF NOT EXISTS r2_reality_item_memory (id INTEGER PRIMARY KEY AUTOINCREMENT, item_name TEXT NOT NULL COLLATE NOCASE, description TEXT, exact_quantity INTEGER, approximate_quantity INTEGER, precision TEXT NOT NULL DEFAULT 'exact' CHECK(precision IN ('exact','approximate','vague')), collected_at INTEGER NOT NULL, last_decay_at INTEGER NOT NULL);"
+        "CREATE INDEX IF NOT EXISTS r2_reality_item_memory_age_idx ON r2_reality_item_memory(collected_at);"
+        "CREATE TABLE IF NOT EXISTS r2_food_experiences (id INTEGER PRIMARY KEY AUTOINCREMENT, food_name TEXT NOT NULL COLLATE NOCASE, ingredients TEXT, fullness REAL NOT NULL, energy_bonus REAL NOT NULL, satisfaction INTEGER, notes TEXT, eaten_at INTEGER NOT NULL, rated_at INTEGER);"
+        "CREATE INDEX IF NOT EXISTS r2_food_experiences_food_idx ON r2_food_experiences(food_name,eaten_at);"
+        "CREATE TABLE IF NOT EXISTS r2_food_ingredient_preferences (ingredient TEXT PRIMARY KEY COLLATE NOCASE, satisfaction_sum REAL NOT NULL DEFAULT 0, rating_count INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL);"
+        "CREATE TABLE IF NOT EXISTS r2_food_preferences (food_name TEXT PRIMARY KEY COLLATE NOCASE, satisfaction_sum REAL NOT NULL DEFAULT 0, rating_count INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL);"
+        "CREATE TABLE IF NOT EXISTS r2_food_experience_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);"
+        "INSERT OR IGNORE INTO r2_food_experience_meta(key,value) VALUES('schema_version','1');"
         "CREATE TABLE IF NOT EXISTS r2_reality_self (id INTEGER PRIMARY KEY CHECK(id=1), hunger REAL NOT NULL DEFAULT 0, seconds_since_meal REAL NOT NULL DEFAULT 0, sleepiness REAL NOT NULL DEFAULT 0, energy REAL NOT NULL DEFAULT 100, last_tick INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "INSERT OR IGNORE INTO r2_reality_self(id,hunger,seconds_since_meal,sleepiness,energy,last_tick) VALUES(1,0,0,0,100,strftime('%s','now'));"
         "CREATE TABLE IF NOT EXISTS r2_reality_self_facts (key TEXT PRIMARY KEY, value TEXT NOT NULL, evidence TEXT, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
@@ -366,7 +383,7 @@ int r2_reality_init(void)
     pthread_mutex_unlock(&reality_lock);
 
     bridge_event("reality_engine_started", "R2's persistent reality engine started.",
-        "Self-continuity and world-continuity are stored separately and advance together in r2_memory.db. Room directories: room/, room/shelf/, room/box/.", 1, 0);
+        "Self-continuity and world-continuity are stored in dedicated r2_reality.db; Life Log and searchable memory remain in r2_memory.db. Room folders include room/, shelf/, box/, pockets/, wallet/, and toy_box/.", 1, 0);
     return 0;
 }
 
