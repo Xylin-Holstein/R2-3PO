@@ -444,8 +444,8 @@ static void shell_help(void)
         "  vision search <text>\n"
         "      Search the visual experience library.\n"
         "\n"
-        "  vision model <name>\n"
-        "      Select the local Ollama vision model.\n"
+        "  vision model gemma3:4b\n"
+        "      Confirm the single model shared by conversation and vision.\n"
         "\n"
         "  vision close\n"
         "      Close the current visual source.\n"
@@ -998,9 +998,10 @@ static void shell_vision(const char *argument)
     if (shell_starts_with(argument, "model ")) {
         const char *model = shell_trim((char *)argument + 6);
         if (r2_vision_set_model(model) == 0)
-            printf("[Vision model set to %s. Make sure this model is installed in Ollama.]\n", model);
+            printf("[Conversation and vision both use %s.]\n", r2_vision_model_name());
         else
-            printf("[Invalid vision model name.]\n");
+            printf("[This build requires %s for both conversation and vision; separate models are disabled.]\n",
+                   r2_vision_model_name());
         return;
     }
 
