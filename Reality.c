@@ -683,30 +683,33 @@ char *r2_reality_context(void)
     char *facts = query_text("SELECT key,value,evidence FROM r2_reality_self_facts ORDER BY updated_at DESC", NULL);
     char *items_memory = query_text(
         "SELECT item_name,CASE precision WHEN 'exact' THEN printf('remembers collecting exactly %d',exact_quantity) WHEN 'approximate' THEN printf('remembers collecting about %d',approximate_quantity) ELSE 'remembers collecting some; exact quantity and timing have faded' END,CASE precision WHEN 'exact' THEN printf('%d days ago',MAX(0,(strftime('%s','now')-collected_at)/86400)) WHEN 'approximate' THEN 'older collection memory; approximate quantity' ELSE 'older vague memory' END FROM r2_reality_item_memory ORDER BY collected_at DESC LIMIT 80", NULL);
+    char *food_preferences = query_text("SELECT ingredient,printf('average satisfaction %.2f/2',satisfaction_sum/rating_count),printf('%d ratings',rating_count) FROM r2_food_ingredient_preferences WHERE rating_count>0 ORDER BY satisfaction_sum*1.0/rating_count DESC", NULL);
+    char *food_experiences = query_text("SELECT food_name,printf('satisfaction %+d/2',satisfaction),notes FROM r2_food_experiences WHERE satisfaction IS NOT NULL ORDER BY eaten_at DESC LIMIT 20", NULL);
     char *foods = food_metrics_context();
-    if (!status || !room || !facts || !items_memory || !foods) {
-        free(status); free(room); free(facts); free(items_memory); free(foods);
+    if (!status || !room || !facts || !items_memory || !food_preferences || !food_experiences || !foods) {
+        free(status); free(room); free(facts); free(items_memory); free(food_preferences); free(food_experiences); free(foods);
         return NULL;
     }
-    size_t n = strlen(status) + strlen(room) + strlen(facts) + strlen(items_memory) + strlen(foods) + 2100;
+    size_t n = strlen(status) + strlen(room) + strlen(facts) + strlen(items_memory) + strlen(food_preferences) + strlen(food_experiences) + strlen(foods) + 2600;
     char *out = malloc(n);
     if (out) snprintf(out, n,
         "PERSISTENT REALITY CONTEXT (authoritative database state; do not invent changes):\n"
-        "%s\n%s\nSELF-CONTINUITY FACTS:\n%s\nCOLLECTION MEMORIES (precision intentionally fades; not current inventory):\n%s\nAVAILABLE FOOD METRICS:\n%s\n"
+        "%s\n%s\nSELF-CONTINUITY FACTS:\n%s\nCOLLECTION MEMORIES (precision intentionally fades; not current inventory):\n%s\nLEARNED FOOD/INGREDIENT PREFERENCES (subjective scores):\n%s\nRECENT RATED FOOD EXPERIENCES:\n%s\nAVAILABLE FOOD METRICS:\n%s\n"
         "WORLD ACTIONS: Put one action on its own line. Use [WORLD] look to inspect the room; "
         "[WORLD] add|name|description|container|quantity to create an item; "
         "[WORLD] move|name|container to move it; [WORLD] remove|name to remove it; "
         "[WORLD] eat|food|fullness_points (or auto for XML) to update hunger; "
         "[WORLD] sleep|hours to advance sleep recovery and trigger a private dream simulation; "
         "[WORLD] dream|description to record a reported dream; "
+        "[WORLD] ratefood|food|-2..2|reason to rate the most recent unrated eating experience. "
         "[WORLD] self|key|value|evidence to record a self-state fact. "
-        "Food metrics live in room/food_metrics.xml; choose only foods listed above and use auto rather than guessing. "
+        "Food metrics live in room/food_metrics.xml; each food can define fullness, energy, ingredients (comma-separated), and taste (sensory description). Use only listed metrics and auto rather than guessing. "
         "Containers: room, shelf, box, toy box, pockets, wallet; named containers can be created by moving an item to a new container name. "
         "Food fullness points are modeled values, not measured biological facts. Sleep advances hunger and world time. "
         "Dreams are stored as simulated reports, not waking facts. Ask before moving or deleting a user's important item. "
         "Do not claim an action succeeded unless the action result confirms it.",
-        status, room, facts, items_memory, foods);
-    free(status); free(room); free(facts); free(items_memory); free(foods);
+        status, room, facts, items_memory, food_preferences, food_experiences, foods);
+    free(status); free(room); free(facts); free(items_memory); free(food_preferences); free(food_experiences); free(foods);
     return out;
 }
 
