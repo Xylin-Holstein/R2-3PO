@@ -45,5 +45,18 @@ jobs:
             -o /tmp/r2-altself-smoke-test
           /tmp/r2-altself-smoke-test
 
+      - name: Exercise diary, Life Log, and memory reconnection
+        run: |
+          rm -rf /tmp/r2-diary-smoke
+          cc -std=c11 -Wall -Wextra -Werror -O2 -I. \
+            -DR2_ROOT='"/tmp/r2-diary-smoke"' \
+            -DR2_HOME='"/tmp/r2-diary-smoke/R2"' \
+            -DR2_WORKSPACE='"/tmp/r2-diary-smoke"' \
+            -DR2_DIARY_DATABASE='"/tmp/r2-diary-smoke/R2/r2_memory.db"' \
+            -DR2_DIARY_DIR='"/tmp/r2-diary-smoke/R2_Diary"' \
+            tests/diary_integration_smoke.c r2_diary.c -lsqlite3 -lpthread \
+            -o /tmp/r2-diary-integration-smoke
+          /tmp/r2-diary-integration-smoke
+
       - name: Compile R2 with the same sources and flags as the launcher
         run: make clean all CFLAGS="-std=c11 -Wall -Wextra -Werror -O2"
