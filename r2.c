@@ -4372,15 +4372,15 @@ static char *process_tools(
                 int64_t branch_id = r2_altself_create(
                     fields[0], fields[1], fields[2], fields[3], fields[4], evidence_id);
                 if (branch_id > 0)
-                    APPEND("ALTERNATE-SELF LAB RESULT: saved hypothetical branch #%lld (%s). It is not a factual memory or real-world event.\\n",
+                    APPEND("ALTERNATE-SELF LAB RESULT: saved hypothetical branch #%lld (%s). It is not a factual memory or real-world event.\n",
                            (long long)branch_id, fields[0]);
                 else
-                    APPEND("ALTERNATE-SELF LAB ERROR: the hypothetical branch could not be saved.\\n");
+                    APPEND("ALTERNATE-SELF LAB ERROR: the hypothetical branch could not be saved.\n");
             } else {
-                APPEND("ALTERNATE-SELF LAB ERROR: expected name and scenario, with optional positive evidence event ID.\\n");
+                APPEND("ALTERNATE-SELF LAB ERROR: expected name and scenario, with optional positive evidence event ID.\n");
             }
         } else {
-            APPEND("ALTERNATE-SELF LAB ERROR: expected name|scenario|assumptions|predicted outcome|conclusion|optional evidence event ID.\\n");
+            APPEND("ALTERNATE-SELF LAB ERROR: expected name|scenario|assumptions|predicted outcome|conclusion|optional evidence event ID.\n");
         }
         free(entry);
     }
