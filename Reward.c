@@ -166,19 +166,25 @@ static int64_t find_existing_log_event(sqlite3_int64 reward_id)
     if (sqlite3_open_v2(R2_DIARY_DATABASE, &db,
         SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX, NULL) != SQLITE_OK) {
         if (db) sqlite3_close(db);
-        return 0;
+        return -1;
     }
     sqlite3_busy_timeout(db, 3000);
-    if (sqlite3_prepare_v2(db,
+    int rc = sqlite3_prepare_v2(db,
         "SELECT id FROM r2_log_events WHERE event_type='enjoyment_changed' "
-        "AND details GLOB ? ORDER BY id DESC LIMIT 1", -1, &st, NULL) == SQLITE_OK) {
+        "AND details GLOB ? ORDER BY id DESC LIMIT 1", -1, &st, NULL);
+    if (rc == SQLITE_OK) {
         sqlite3_bind_text(st, 1, pattern, -1, SQLITE_TRANSIENT);
-        if (sqlite3_step(st) == SQLITE_ROW)
+        rc = sqlite3_step(st);
+        if (rc == SQLITE_ROW) {
             event_id = sqlite3_column_int64(st, 0);
+            rc = SQLITE_OK;
+        } else if (rc == SQLITE_DONE) {
+            rc = SQLITE_OK; /* No previous event is a normal recovery case. */
+        }
     }
     if (st) sqlite3_finalize(st);
     sqlite3_close(db);
-    return event_id;
+    return rc == SQLITE_OK ? event_id : -1;
 }
 
 static int ensure_reward_memory_pointer(int64_t log_event_id,
@@ -410,13 +416,18 @@ int r2_reward_reconnect_history(int limit)
         return -1;
     }
 
+    int failed = 0;
     for (int i = 0; i < count; ++i) {
         PendingReward *item = &pending[i];
         int64_t log_event_id = item->log_event_id > 0
             ? item->log_event_id : find_existing_log_event(item->id);
         char summary[512], details[1600];
         format_reward_event(item, summary, sizeof(summary), details, sizeof(details));
-        if (log_event_id <= 0)
+        if (log_event_id < 0) {
+            failed++;
+            continue;
+        }
+        if (log_event_id == 0)
             log_event_id = r2_log_event_with_memory(R2_LOG_WORLD,
                 "enjoyment_changed", summary, details, "Reward.c", 0);
         if (log_event_id > 0) {
@@ -424,9 +435,19 @@ int r2_reward_reconnect_history(int limit)
             if (store_log_link(item->id, log_event_id, memory_indexed > 0) == 0 &&
                 memory_indexed > 0)
                 linked++;
+            else
+                failed++;
+        } else {
+            failed++;
         }
     }
     free(pending);
+    if (failed > 0) {
+        fprintf(stderr,
+                "[R2 Reward] Reconciliation left %d event%s pending for retry.\\n",
+                failed, failed == 1 ? "" : "s");
+        return -1;
+    }
     return linked;
 }
 
