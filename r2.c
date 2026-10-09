@@ -4549,6 +4549,18 @@ static int sync_gameboy_verified_events(void)
         if (life_event_id <= 0)
             continue;
 
+        /* Reinforce only adapter-verified game state changes, never raw button
+           presses or guessed achievements. Feedback is game-agnostic. */
+        char reward_target[300];
+        snprintf(reward_target, sizeof(reward_target), "game:%.240s",
+                 title && *title ? title : "unknown");
+        int reward_points = (!strcmp(event_type, "life_lost") ||
+                             !strcmp(event_type, "damage_taken")) ? -1 :
+                            (!strcmp(event_type, "game_completed") ||
+                             !strcmp(event_type, "level_completed")) ? 3 : 1;
+        (void)r2_reward_apply(reward_target, "verified_game_event", reward_points,
+            "A separately verified game-state change was recorded by the adapter.", 1);
+
         char event_id_text[32];
         char ack_output[512] = {0};
         snprintf(event_id_text, sizeof(event_id_text), "%lld", (long long)event_id);
@@ -4975,6 +4987,10 @@ static char *process_tools(
                         ) == 0
                     ) {
 
+                        (void)r2_reward_apply("filesystem_write", "file_generation", 3,
+                            "A requested workspace file was written successfully.", 0);
+                        r2_log_file_event("write_succeeded", written,
+                                          "success", "Workspace write completed.");
                         APPEND(
                             "REAL WRITE RESULT:\n"
                             "Written: %s\n"
@@ -4985,6 +5001,10 @@ static char *process_tools(
 
                     } else {
 
+                        (void)r2_reward_apply("filesystem_write", "file_generation", -2,
+                            "A requested workspace file write failed; use the error to correct the approach.", 0);
+                        r2_log_file_event("write_failed", path,
+                                          "failure", "Workspace write failed.");
                         APPEND(
                             "REAL WRITE ERROR:\n"
                             "Could not write: %s\n",
@@ -6020,16 +6040,24 @@ int r2_diary_active(void)
 static char *append_reality_context(char *base)
 {
     char *reality = r2_reality_context();
-    if (!reality) return base;
-    if (!base) {
-        return reality;
-    }
-    size_t n = strlen(base) + strlen(reality) + 128;
+    char *reward = r2_reward_context();
+    size_t base_n = base ? strlen(base) : 0;
+    size_t reality_n = reality ? strlen(reality) : 0;
+    size_t reward_n = reward ? strlen(reward) : 0;
+    if (!base && !reality && !reward) return NULL;
+    size_t n = base_n + reality_n + reward_n + 128;
     char *combined = malloc(n);
-    if (combined)
-        snprintf(combined, n, "%s\n\n%s", base, reality);
+    if (combined) {
+        snprintf(combined, n, "%s%s%s%s%s",
+            base ? base : "",
+            base_n && reality_n ? "\n\n" : "",
+            reality ? reality : "",
+            (base_n || reality_n) && reward_n ? "\n\n" : "",
+            reward ? reward : "");
+    }
     free(base);
     free(reality);
+    free(reward);
     return combined;
 }
 
@@ -7290,6 +7318,11 @@ int r2_init(void)
         db = NULL;
         die("could not initialize R2 Life Log");
     }
+
+    /* The reinforcement ledger is separate durable state, bridged to the
+       Life Log and existing habit evaluator through the shared API. */
+    if (r2_reward_init() != 0)
+        fprintf(stderr, "[R2 Reward] Initialization failed; reinforcement will retry lazily.\\n");
 
     /* Reconnect older diary history in bounded, restart-safe batches. The
        original diary rows and Markdown mirrors are preserved unchanged. */
