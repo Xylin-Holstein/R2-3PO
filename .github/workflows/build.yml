@@ -23,7 +23,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libcurl4-openssl-dev libsqlite3-dev libjson-c-dev libpulse-dev
+          sudo apt-get install -y build-essential libcurl4-openssl-dev libsqlite3-dev libjson-c-dev libpulse-dev python3-tk
 
       - name: Compile R2 with the same sources and flags as the launcher
         run: make clean all CFLAGS="-std=c11 -Wall -Wextra -Werror -O2"
