@@ -9,6 +9,12 @@ echo "        R2-3PO LAUNCH SEQUENCE"
 echo "========================================"
 echo
 
+if ! mkdir -p "$R2_ROOT"; then
+    echo "ERROR: Could not create R2 workspace root: $R2_ROOT"
+    read -p "Press Enter to exit..."
+    exit 1
+fi
+
 cd "$R2_ROOT" || {
     echo "ERROR: Could not enter R2 workspace."
     read -p "Press Enter to exit..."
