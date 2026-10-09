@@ -945,6 +945,110 @@ int r2_reality_eat(const char *food, double fullness)
     return 0;
 }
 
+
+char *r2_reality_food_context(const char *food)
+{
+    if (!food || !*food || !r2_reality_is_initialized()) return NULL;
+    char ingredients[1024] = {0}, taste[1024] = {0};
+    double fullness = -1.0, energy = 0.0;
+    (void)food_metric(food, &fullness, &energy);
+    food_attributes(food, ingredients, sizeof(ingredients), taste, sizeof(taste));
+    char *preferences = query_text(
+        "SELECT ingredient,printf('average satisfaction %.2f/2',satisfaction_sum/rating_count),printf('%d ratings',rating_count) FROM r2_food_ingredient_preferences WHERE rating_count>0 ORDER BY satisfaction_sum*1.0/rating_count DESC", NULL);
+    char *history = query_text(
+        "SELECT food_name,printf('satisfaction %+d/2',satisfaction),notes FROM r2_food_experiences WHERE food_name=? COLLATE NOCASE AND satisfaction IS NOT NULL ORDER BY eaten_at DESC LIMIT 10", food);
+    char *food_pref = query_text(
+        "SELECT food_name,printf('average satisfaction %.2f/2',satisfaction_sum/rating_count),printf('%d ratings',rating_count) FROM r2_food_preferences WHERE food_name=? COLLATE NOCASE AND rating_count>0", food);
+    if (!preferences || !history || !food_pref) {
+        free(preferences); free(history); free(food_pref); return NULL;
+    }
+    size_t n = strlen(food)+strlen(ingredients)+strlen(taste)+strlen(preferences)+strlen(history)+strlen(food_pref)+1024;
+    char *out = malloc(n);
+    if (out) snprintf(out,n,
+        "FOOD EXPERIENCE CONTEXT (learned subjective preferences; not hard-coded):\n"
+        "Food: %s\nConfigured fullness: %s%.1f/100\nConfigured energy bonus: %.1f\nIngredients: %s\nSensory description: %s\n"
+        "Past experiences with this food:\n%sFood preference summary:\n%sIngredient preference summaries:\n%s"
+        "Satisfaction is a subjective modeled rating from -2 (strong dislike) to +2 (strong enjoyment); 0 means neutral/uncertain. "
+        "Fullness and satisfaction are independent. Ingredient summaries are learned only from rated eating experiences.",
+        food, fullness < 0 ? "not configured; " : "", fullness < 0 ? 0.0 : fullness, energy,
+        *ingredients ? ingredients : "not specified", *taste ? taste : "not specified",
+        history, food_pref, preferences);
+    free(preferences); free(history); free(food_pref);
+    return out;
+}
+
+int r2_reality_rate_food(const char *food, int satisfaction, const char *notes)
+{
+    if (!food || !*food || satisfaction < -2 || satisfaction > 2 ||
+        !r2_reality_is_initialized()) return -1;
+    char ingredients[1024] = {0}, taste[1024] = {0};
+    food_attributes(food, ingredients, sizeof(ingredients), taste, sizeof(taste));
+    pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *st = NULL;
+    sqlite3_int64 experience_id = 0;
+    if (sqlite3_prepare_v2(reality_db,
+        "SELECT id FROM r2_food_experiences WHERE food_name=? COLLATE NOCASE AND satisfaction IS NULL ORDER BY eaten_at DESC LIMIT 1",
+        -1, &st, NULL) == SQLITE_OK) {
+        bind_text(st, 1, food);
+        if (sqlite3_step(st) == SQLITE_ROW) experience_id = sqlite3_column_int64(st, 0);
+    }
+    if (st) sqlite3_finalize(st);
+    st = NULL;
+    int rc = SQLITE_ERROR;
+    if (experience_id && sqlite3_prepare_v2(reality_db,
+        "UPDATE r2_food_experiences SET satisfaction=?,notes=?,rated_at=? WHERE id=?",
+        -1, &st, NULL) == SQLITE_OK) {
+        sqlite3_bind_int(st, 1, satisfaction);
+        bind_text(st, 2, notes ? notes : "");
+        sqlite3_bind_int64(st, 3, (sqlite3_int64)time(NULL));
+        sqlite3_bind_int64(st, 4, experience_id);
+        rc = sqlite3_step(st);
+    }
+    if (st) sqlite3_finalize(st);
+    st = NULL;
+    if (rc == SQLITE_DONE && sqlite3_prepare_v2(reality_db,
+        "INSERT INTO r2_food_preferences(food_name,satisfaction_sum,rating_count,updated_at) VALUES(?,?,1,?) ON CONFLICT(food_name) DO UPDATE SET satisfaction_sum=satisfaction_sum+excluded.satisfaction_sum,rating_count=rating_count+1,updated_at=excluded.updated_at",
+        -1, &st, NULL) == SQLITE_OK) {
+        bind_text(st, 1, food);
+        sqlite3_bind_double(st, 2, (double)satisfaction);
+        sqlite3_bind_int64(st, 3, (sqlite3_int64)time(NULL));
+        rc = sqlite3_step(st);
+    } else if (rc == SQLITE_DONE) rc = SQLITE_ERROR;
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reality_lock);
+    if (rc != SQLITE_DONE) return -1;
+
+    char *copy = strdup(ingredients);
+    if (copy) {
+        char *save = NULL;
+        for (char *part = strtok_r(copy, ",", &save); part; part = strtok_r(NULL, ",", &save)) {
+            while (isspace((unsigned char)*part)) part++;
+            size_t len = strlen(part);
+            while (len && isspace((unsigned char)part[len-1])) part[--len] = '\0';
+            if (!*part) continue;
+            pthread_mutex_lock(&reality_lock);
+            st = NULL;
+            if (sqlite3_prepare_v2(reality_db,
+                "INSERT INTO r2_food_ingredient_preferences(ingredient,satisfaction_sum,rating_count,updated_at) VALUES(?,?,1,?) ON CONFLICT(ingredient) DO UPDATE SET satisfaction_sum=satisfaction_sum+excluded.satisfaction_sum,rating_count=rating_count+1,updated_at=excluded.updated_at",
+                -1, &st, NULL) == SQLITE_OK) {
+                bind_text(st, 1, part);
+                sqlite3_bind_double(st, 2, (double)satisfaction);
+                sqlite3_bind_int64(st, 3, (sqlite3_int64)time(NULL));
+                sqlite3_step(st);
+            }
+            if (st) sqlite3_finalize(st);
+            pthread_mutex_unlock(&reality_lock);
+        }
+        free(copy);
+    }
+    char summary[512], details[2048];
+    snprintf(summary,sizeof(summary),"R2's modeled satisfaction with %s was rated %+d/2.",food,satisfaction);
+    snprintf(details,sizeof(details),"Food=%s; ingredients=%s; sensory description=%s; satisfaction=%d/2; reason=%s. This is a learned subjective simulation, not an externally verified reaction.",
+        food,*ingredients?ingredients:"not specified",*taste?taste:"not specified",satisfaction,notes?notes:"not supplied");
+    bridge_event("food_preference_learned",summary,details,1,0);
+    return 0;
+}
+
 int r2_reality_sleep(double hours)
 {
     if (!r2_reality_is_initialized() || hours <= 0.0 || hours > 48.0) return -1;
