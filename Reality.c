@@ -274,7 +274,7 @@ int r2_reality_init(void)
         "CREATE INDEX IF NOT EXISTS r2_reality_objects_container_idx ON r2_reality_objects(container);"
         "CREATE TABLE IF NOT EXISTS r2_reality_ticks (id INTEGER PRIMARY KEY AUTOINCREMENT, previous_tick INTEGER NOT NULL, current_tick INTEGER NOT NULL, elapsed_seconds INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "INSERT OR IGNORE INTO r2_reality_containers(name,kind,description,parent) VALUES"
-        "('room','room','R2\'s room',''),('shelf','surface','The shelf in R2\'s room','room'),('box','container','The general storage box in R2\'s room','room'),('pockets','inventory','R2\'s pockets','self'),('wallet','inventory','R2\'s wallet','self');";
+        "('room','room','R2\'s room',''),('shelf','surface','The shelf in R2\'s room','room'),('box','container','The general storage box in R2\'s room','room'),('toy box','container','A toy storage box in R2\'s room','room'),('pockets','inventory','R2\'s pockets','self'),('wallet','inventory','R2\'s wallet','self');";
     if (exec_sql(schema) != 0) {
         sqlite3_close(reality_db); reality_db = NULL;
         pthread_mutex_unlock(&reality_lock); return -1;
@@ -404,7 +404,7 @@ char *r2_reality_room_look(void)
     char *box = r2_reality_list("box");
     char *pockets = r2_reality_list("pockets");
     char *wallet = r2_reality_list("wallet");
-    char *named = query_text("SELECT container,group_concat(name, ', '),printf('%d items',count(*)) FROM r2_reality_objects WHERE container NOT IN ('room','shelf','box','pockets','wallet') GROUP BY container ORDER BY container",NULL);
+    char *named = query_text("SELECT c.name,group_concat(o.name, ', '),printf('%d items',count(o.id)) FROM r2_reality_containers c LEFT JOIN r2_reality_objects o ON o.container=c.name WHERE c.parent='room' AND c.name NOT IN ('room','shelf','box') GROUP BY c.name ORDER BY c.name",NULL);
     if (!room || !shelf || !box || !pockets || !wallet || !named) {
         free(room); free(shelf); free(box); free(pockets); free(wallet); free(named); return NULL;
     }
@@ -517,7 +517,7 @@ int r2_reality_move_item(const char *name,const char *container)
     if (prior) sqlite3_finalize(prior);
     sqlite3_stmt *st=NULL;
     int rc=sqlite3_prepare_v2(reality_db,"INSERT INTO r2_reality_containers(name,kind,description,parent) VALUES(?,?,?,?) ON CONFLICT(name) DO NOTHING",-1,&st,NULL);
-    if(rc==SQLITE_OK){bind_text(st,1,container);bind_text(st,2,(!strcmp(container,"pockets")||!strcmp(container,"wallet"))?"inventory":"container");bind_text(st,3,"Persistent object container");bind_text(st,4,(!strcmp(container,"shelf")||!strcmp(container,"box"))?"room":"");rc=sqlite3_step(st);}
+    if(rc==SQLITE_OK){bind_text(st,1,container);bind_text(st,2,(!strcmp(container,"pockets")||!strcmp(container,"wallet"))?"inventory":"container");bind_text(st,3,"Persistent object container");bind_text(st,4,(!strcmp(container,"pockets")||!strcmp(container,"wallet"))?"self":"room");rc=sqlite3_step(st);}
     if(st)sqlite3_finalize(st);
     st=NULL;
     if(rc==SQLITE_DONE) rc=sqlite3_prepare_v2(reality_db,"UPDATE r2_reality_objects SET container=?,updated_at=CURRENT_TIMESTAMP WHERE name=? COLLATE NOCASE",-1,&st,NULL);
