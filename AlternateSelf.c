@@ -83,6 +83,10 @@ int64_t r2_altself_create(const char *name, const char *scenario,
                           const char *conclusion, int64_t evidence_event_id)
 {
     if (!name || !*name || !scenario || !*scenario) return -1;
+    pthread_mutex_lock(&as_lock);
+    int ready = as_ready && as_db != NULL;
+    pthread_mutex_unlock(&as_lock);
+    if (!ready) return -1;
     char detail[8192];
     snprintf(detail, sizeof(detail),
         "ALTERNATE-SELF HYPOTHESIS — NOT A REAL EVENT OR MEMORY\n"
@@ -225,7 +229,7 @@ static char *as_query(const char *sql, int64_t first, int64_t second, int limit)
         int needed=snprintf(NULL,0,
             "Branch #%lld [%s] %s\n  Scenario: %s\n  Assumptions: %s\n"
             "  Predicted outcome: %s\n  Tentative conclusion: %s\n"
-            "  Evidence event ID: %lld\n  Created UTC: %s\n",
+            "  Evidence event ID: %lld\n  Created UTC: %s\n\n",
             (long long)id,status?(const char*)status:"unknown",
             name?(const char*)name:"unnamed",
             scenario?(const char*)scenario:"",
