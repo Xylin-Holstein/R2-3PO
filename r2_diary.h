@@ -32,7 +32,9 @@
 #define R2_HOME R2_ROOT "/R2"
 #define R2_WORKSPACE R2_ROOT
 
+#ifndef R2_DIARY_DATABASE
 #define R2_DIARY_DATABASE R2_HOME "/r2_memory.db"
+#endif
 #define R2_DIARY_DIR R2_ROOT "/R2_Diary"
 
 
