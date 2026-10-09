@@ -5161,31 +5161,36 @@ static char *memory_decision(
 
     char *prior_memories = get_relevant_memories(query, 12);
     char *prior_beliefs = r2_log_search("belief_updated", 8);
+    char *prior_diary = r2_diary_build_reflection_context(5);
     if (!prior_memories) prior_memories = xstrdup("No related persistent memories retrieved.");
     if (!prior_beliefs) prior_beliefs = xstrdup("No belief-history records retrieved.");
+    if (!prior_diary) prior_diary = xstrdup("Previous diary context unavailable.");
 
     size_t n = strlen(user) + strlen(reply) + strlen(prior_memories) +
-               strlen(prior_beliefs) + 1024;
+               strlen(prior_beliefs) + strlen(prior_diary) + 1200;
     char *u = malloc(n);
     if (!u) {
         free(query);
         free(prior_memories);
         free(prior_beliefs);
+        free(prior_diary);
         return NULL;
     }
 
     snprintf(
         u, n,
         "RELATED PERSISTENT MEMORIES (may be mistaken or outdated):\n%s\n\n"
+        "DIARY HISTORY (prior reflections, not proof that their claims were true):\n%s\n\n"
         "RECORDED BELIEF HISTORY (historical updates, not unquestionable truth):\n%s\n\n"
         "LATEST USER MESSAGE:\n%s\n\n"
         "LATEST R2 RESPONSE:\n%s\n\n"
-        "Compare this exchange with prior evidence. Evaluate only supported learning; "
+        "Compare this exchange with all supplied prior evidence. Evaluate only supported learning; "
         "if there is no useful new information or evidence-backed correction, return NONE.",
-        prior_memories, prior_beliefs, user, reply);
+        prior_memories, prior_diary, prior_beliefs, user, reply);
     free(query);
     free(prior_memories);
     free(prior_beliefs);
+    free(prior_diary);
 
     Message m = {
         "user",
