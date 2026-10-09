@@ -162,12 +162,48 @@ static int make_room_dirs(void)
     return 0;
 }
 
+static void append_factual_log_file(const char *type, const char *summary,
+                                   const char *details)
+{
+    char directory[1200], path[1400];
+    int n = snprintf(directory, sizeof(directory), "%s/log", R2_ROOT);
+    if (n <= 0 || (size_t)n >= sizeof(directory)) return;
+    if (ensure_dir_tree(directory) != 0) {
+        fprintf(stderr, "[R2 Reality] Could not create factual log directory %s\\n", directory);
+        return;
+    }
+    n = snprintf(path, sizeof(path), "%s/log.txt", directory);
+    if (n <= 0 || (size_t)n >= sizeof(path)) return;
+
+    FILE *fp = fopen(path, "a");
+    if (!fp) {
+        fprintf(stderr, "[R2 Reality] Could not append factual event to %s\\n", path);
+        return;
+    }
+    time_t now = time(NULL);
+    struct tm local_now;
+    char timestamp[40] = "time-unavailable";
+    if (localtime_r(&now, &local_now))
+        strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S %z", &local_now);
+
+    /* One complete, timestamped factual event per block. */
+    fprintf(fp, "[%s] [%s] %s\\n", timestamp,
+            type && *type ? type : "world_event",
+            summary && *summary ? summary : "(no summary)");
+    if (details && *details)
+        fprintf(fp, "  Details: %s\\n", details);
+    fputc('\\n', fp);
+    if (fclose(fp) != 0)
+        fprintf(stderr, "[R2 Reality] Error closing factual log %s\\n", path);
+}
+
 static void bridge_event(const char *type, const char *summary, const char *details,
                          int remember, int diary)
 {
-    /* Life Log is the factual chronology; persistent memory gets a searchable
-       summary/pointer; the diary receives only a short factual note on major
-       world changes, never a duplicate of the whole database. */
+    /* The plain-text /log/log.txt and the structured Life Log are factual
+       chronology. The private diary is reserved for reflection, not routine
+       world events such as eating. */
+    append_factual_log_file(type, summary, details);
     if (r2_log_is_initialized())
         r2_log_event_with_memory(R2_LOG_WORLD, type, summary, details,
                                  "Reality.c", remember);
@@ -1619,7 +1655,7 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
     snprintf(summary, sizeof(summary), "R2 ate %s; satisfaction increased and hunger decreased by the food's %.1f-point fullness value.", food, fullness);
     snprintf(details, sizeof(details), "Food=%s; modeled satisfaction increase=%.1f/100; modeled hunger reduction=%.1f/100; tracked object consumed=%s; these are simulated need values, not measured biological quantities.",
              food, fullness, fullness, consumed_tracked_item ? "yes" : "no");
-    bridge_event("food_consumed", summary, details, 1, 1);
+    bridge_event("food_consumed", summary, details, 1, 0);
     return 0;
 }
 
