@@ -402,6 +402,19 @@ static pthread_cond_t task_queue_cond =
 
 static MessageList messages = {0};
 
+/*
+ * A conversation session is distinct from the lifetime of the R2 process.
+ * A new session starts explicitly from the shell/API, or after 30 minutes
+ * without a completed conversational turn. Historical turns remain in the
+ * Life Log; only the live chat context is reset (pinned architecture context
+ * is preserved).
+ */
+#define CONVERSATION_IDLE_SECONDS 1800
+static time_t conversation_session_started_at = 0;
+static time_t last_conversation_activity_at = 0;
+static time_t previous_session_last_activity_at = 0;
+static int conversation_session_active = 0;
+
 
 /* ============================================================
    BASIC HELPERS
@@ -626,6 +639,144 @@ static void message_free_all(void)
     messages.items = NULL;
     messages.count = 0;
     messages.capacity = 0;
+}
+
+/* Caller holds conversation_request_lock. */
+static void conversation_session_begin_locked(const char *source)
+{
+    time_t now = time(NULL);
+    char now_text[48] = "unavailable";
+    struct tm local_tm;
+    if (localtime_r(&now, &local_tm))
+        strftime(now_text, sizeof(now_text), "%Y-%m-%d %H:%M:%S %z", &local_tm);
+
+    if (conversation_session_active && r2_log_is_initialized()) {
+        char details[256];
+        snprintf(details, sizeof(details),
+                 "Conversation session ended at %s; reason: a new session began.",
+                 now_text);
+        r2_log_event(R2_LOG_LIFECYCLE, "conversation_session_ended",
+                     "R2's previous conversational session ended.",
+                     details, source ? source : "conversation");
+    }
+
+    previous_session_last_activity_at = last_conversation_activity_at;
+
+    /* Start a genuinely new live conversation while preserving pinned context. */
+    size_t write_index = 0;
+    for (size_t read_index = 0; read_index < messages.count; ++read_index) {
+        Message item = messages.items[read_index];
+        if (!item.pinned) {
+            free(item.role);
+            free(item.content);
+            continue;
+        }
+        if (write_index != read_index)
+            messages.items[write_index] = item;
+        ++write_index;
+    }
+    messages.count = write_index;
+
+    conversation_session_started_at = now;
+    last_conversation_activity_at = 0;
+    conversation_session_active = 1;
+
+    if (r2_log_is_initialized()) {
+        char details[384];
+        snprintf(details, sizeof(details),
+                 "New conversational session started at %s. "
+                 "This session is separate from earlier conversations; "
+                 "historical turns remain in the Life Log.",
+                 now_text);
+        r2_log_event(R2_LOG_LIFECYCLE, "conversation_session_started",
+                     "A new R2 conversational session began.",
+                     details, source ? source : "conversation");
+    }
+}
+
+/* Caller holds conversation_request_lock. */
+static void conversation_session_ensure_locked(void)
+{
+    time_t now = time(NULL);
+    if (!conversation_session_active) {
+        conversation_session_begin_locked("automatic_first_message");
+        return;
+    }
+
+    time_t reference = last_conversation_activity_at
+        ? last_conversation_activity_at
+        : conversation_session_started_at;
+    if (reference > 0 && now >= reference &&
+        now - reference >= CONVERSATION_IDLE_SECONDS) {
+        conversation_session_begin_locked("inactivity_timeout");
+    }
+}
+
+/* Caller holds conversation_request_lock. */
+static void conversation_session_end_locked(const char *reason)
+{
+    if (!conversation_session_active)
+        return;
+
+    time_t now = time(NULL);
+    char now_text[48] = "unavailable";
+    struct tm local_tm;
+    if (localtime_r(&now, &local_tm))
+        strftime(now_text, sizeof(now_text), "%Y-%m-%d %H:%M:%S %z", &local_tm);
+
+    if (r2_log_is_initialized()) {
+        char details[384];
+        snprintf(details, sizeof(details),
+                 "Conversational session ended at %s. Reason: %s. "
+                 "The Life Log retains its historical turns.",
+                 now_text, reason ? reason : "unspecified");
+        r2_log_event(R2_LOG_LIFECYCLE, "conversation_session_ended",
+                     "R2's conversational session ended.",
+                     details, "conversation");
+    }
+
+    conversation_session_active = 0;
+}
+
+/* Supply reliable temporal facts; let R2 decide whether they matter in reply. */
+static char *conversation_time_context(void)
+{
+    time_t now = time(NULL);
+    char now_text[48] = "unavailable";
+    char start_text[48] = "unavailable";
+    char previous_text[48] = "unavailable";
+    struct tm local_tm;
+    if (localtime_r(&now, &local_tm))
+        strftime(now_text, sizeof(now_text), "%Y-%m-%d %H:%M:%S %z", &local_tm);
+    if (conversation_session_started_at > 0 &&
+        localtime_r(&conversation_session_started_at, &local_tm))
+        strftime(start_text, sizeof(start_text), "%Y-%m-%d %H:%M:%S %z", &local_tm);
+
+    char context[1024];
+    int used = snprintf(context, sizeof(context),
+        "CURRENT TEMPORAL CONTEXT (system-provided facts; use naturally, not mechanically):\n"
+        "Current local date/time: %s\n"
+        "Current conversational session began: %s\n"
+        "This is a distinct conversation session. Earlier sessions and events remain part of your history, "
+        "but they are not one uninterrupted live conversation. The Life Log is the historical record.\n",
+        now_text, start_text);
+
+    if (previous_session_last_activity_at > 0 &&
+        previous_session_last_activity_at <= now) {
+        long long elapsed = (long long)(now - previous_session_last_activity_at);
+        if (localtime_r(&previous_session_last_activity_at, &local_tm))
+            strftime(previous_text, sizeof(previous_text), "%Y-%m-%d %H:%M:%S %z", &local_tm);
+        if (used > 0 && (size_t)used < sizeof(context)) {
+            int extra = snprintf(context + used, sizeof(context) - (size_t)used,
+                "Previous session's last completed interaction: %s\n"
+                "Elapsed time since that interaction: %lld seconds (about %lld minutes). "
+                "This timing is context, not a requirement to mention the gap.\n",
+                previous_text, elapsed, elapsed / 60);
+            if (extra > 0) used += extra;
+        }
+    }
+
+    return xstrdup(context);
 }
 
 
@@ -2830,6 +2981,20 @@ static char *chat_with_relevant_memories(
 
     if (!memory_context)
         memory_context = xstrdup("");
+
+    char *time_context = conversation_time_context();
+    if (time_context && *time_context) {
+        size_t old_n = strlen(memory_context);
+        size_t time_n = strlen(time_context);
+        char *joined = malloc(old_n + time_n + 3);
+        if (joined) {
+            snprintf(joined, old_n + time_n + 3, "%s%s%s",
+                     memory_context, old_n ? "\n\n" : "", time_context);
+            free(memory_context);
+            memory_context = joined;
+        }
+    }
+    free(time_context);
 
     /*
        Conversation continuity: the Life Log retains complete historical
@@ -5757,6 +5922,7 @@ static char *r2_talk_serialized(const char *message)
     if (!core_initialized || shutting_down || !message)
         return NULL;
 
+    conversation_session_ensure_locked();
     handle_completed_messages();
 
     pthread_mutex_lock(&messages_lock);
@@ -5816,6 +5982,8 @@ static char *r2_talk_serialized(const char *message)
                 "to conversation context.\n");
 
     pthread_mutex_unlock(&messages_lock);
+
+    last_conversation_activity_at = time(NULL);
 
     int64_t turn_event_id = r2_log_conversation_turn(message, reply);
     if (turn_event_id < 0)
@@ -6003,6 +6171,22 @@ char *r2_talk(const char *message)
     char *reply = r2_talk_serialized(message);
     pthread_mutex_unlock(&conversation_request_lock);
     return reply;
+}
+
+/*
+ * Explicitly begin a separate live conversation. Historical turns remain
+ * available through persistent memory and the Life Log.
+ */
+int r2_conversation_session_begin(const char *source)
+{
+    pthread_mutex_lock(&conversation_request_lock);
+    if (!core_initialized || shutting_down) {
+        pthread_mutex_unlock(&conversation_request_lock);
+        return -1;
+    }
+    conversation_session_begin_locked(source ? source : "explicit");
+    pthread_mutex_unlock(&conversation_request_lock);
+    return 0;
 }
 
 int r2_conversation(void)
@@ -6538,6 +6722,9 @@ void r2_shutdown(void)
         return;
 
     shutting_down = 1;
+    pthread_mutex_lock(&conversation_request_lock);
+    conversation_session_end_locked("R2 core shutdown");
+    pthread_mutex_unlock(&conversation_request_lock);
     r2_remote_stop();
     watch_running = 0;
     r2_vision_watch_stop();
