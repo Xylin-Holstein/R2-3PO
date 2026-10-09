@@ -36,7 +36,21 @@ int main(void) {
     char wallet[1024],bank[1024],bill[1200];
     snprintf(wallet,sizeof(wallet),"%s/Pockets/Wallet",R2_ROOT);
     snprintf(bank,sizeof(bank),"%s/room/piggybank",R2_ROOT);
+    /* Upgrade old lowercase mirror folders without losing portable items. */
+    char legacy[1400], legacy_wallet[1500], migrated[1500];
+    snprintf(legacy,sizeof(legacy),"%s/pockets",R2_ROOT);
+    snprintf(legacy_wallet,sizeof(legacy_wallet),"%s/wallet",legacy);
+    assert(mkdir(legacy,0755)==0);
+    assert(mkdir(legacy_wallet,0755)==0);
+    snprintf(migrated,sizeof(migrated),"%s/legacy_item.r2item",legacy);
+    FILE *lf=fopen(migrated,"w"); assert(lf); fputs("legacy pocket item\n",lf); fclose(lf);
+    snprintf(migrated,sizeof(migrated),"%s/legacy_wallet_item.r2item",legacy_wallet);
+    lf=fopen(migrated,"w"); assert(lf); fputs("legacy wallet item\n",lf); fclose(lf);
     assert(r2_reality_init()==0);
+    snprintf(migrated,sizeof(migrated),"%s/Pockets/legacy_item.r2item",R2_ROOT);
+    assert(access(migrated,F_OK)==0);
+    snprintf(migrated,sizeof(migrated),"%s/Pockets/Wallet/legacy_wallet_item.r2item",R2_ROOT);
+    assert(access(migrated,F_OK)==0);
     assert(bill_count(wallet)==5);
     assert(r2_reality_money_receive(1000000.01)!=0); /* Every money operation has the same hard cap. */
     assert(bill_count(wallet)==5);
