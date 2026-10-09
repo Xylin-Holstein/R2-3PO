@@ -2,6 +2,7 @@
 """Isolated state-machine smoke test for the virtual Game Boy console."""
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import subprocess
@@ -74,6 +75,29 @@ def main() -> int:
 
         result = run(root, emulator, "eject", expect_ok=False)
         assert result["cartridge_inserted"] is True
+
+        # Only a trusted adapter API can enqueue a verified virtual event.
+        os.environ["R2_GAMEBOY_ROOT"] = str(root)
+        os.environ["R2_MGBA_EXECUTABLE"] = str(emulator)
+        spec = importlib.util.spec_from_file_location("r2_gameboy_console", CONSOLE)
+        assert spec and spec.loader
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        device_db = module.connect()
+        event_id = module.record_verified_game_event(
+            device_db, "coin_collected", "Mario collected a coin.",
+            "Observed coin counter increase from 12 to 13.",
+            "adapter:test-mario"
+        )
+        pending = module.pending_verified_events(device_db)
+        assert len(pending) == 1
+        assert pending[0]["event_id"] == event_id
+        assert pending[0]["context"] == "virtual"
+        assert pending[0]["verified"] is True
+        assert pending[0]["evidence_source"] == "adapter:test-mario"
+        assert module.acknowledge_verified_event(device_db, event_id) is True
+        assert module.pending_verified_events(device_db) == []
+        device_db.close()
 
         # Power off ends the emulator session without ejecting the cartridge.
         result = run(root, emulator, "power", "off")
