@@ -58,6 +58,12 @@ R2's age is measured from the filesystem birth/creation time of `R2/r2_original_
 
 Money is a crude persistent prototype, not a built-in shop. `money` shows carried cash and bank balance; `money receive 40` records an explicit gift/payment as cash; the one-time initial $5 balance is seeded separately; `money deposit 30` moves $30 cash into `room/piggybank/`; `money withdraw 10` returns $10 to cash. `money buy Chair | 20 | A chair | room` deducts the price (cash first, then bank) and places the chair in the room; omitting the destination puts a purchased item in pockets so it can be carried to the fridge or elsewhere. A one-time initial $5 cash balance is seeded into carried money and mirrored in `pockets/wallet/cash.txt`; this migration is tracked in Reality metadata so restarts never grant it again. No store stock, products, or prices are hardcoded.
 
+## Diary, Life Log, and persistent-memory continuity
+
+The private diary remains in `diary_entries` in `R2/r2_memory.db`, with dated Markdown mirrors in `R2_Diary/`. Diary prose is not copied into the Observer Log. Each diary entry is cross-referenced in `r2_diary_entry_links` to a private-category Life Log event; the Life Log event contributes a concise pointer to the existing searchable-memory system, while the original diary text stays in its authoritative diary row and Markdown mirror. Failed secondary writes remain pending and can be retried.
+
+At startup, R2 reconciles existing diary rows with the Life Log in bounded batches of 100. The per-entry link is idempotent, so restarting does not intentionally duplicate already-linked events. Autonomous reflection receives three distinct inputs: recent diary entries, relevant recent Life Log events, and memories retrieved through the existing memory interface. These sources remain separate evidence types; diary interpretations are not automatically treated as verified facts. The Observer's explicit public-event allowlist continues to exclude private diary entries and thinking events.
+
 ## Persistent reality, room, and inventory
 
 The Reality engine stores self-continuity, world-continuity, current objects,
