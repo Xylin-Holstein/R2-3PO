@@ -14,8 +14,10 @@ extern "C" {
  *   - SELF continuity: R2's changing needs, condition, intentions and state.
  *   - WORLD continuity: room, objects, containers, ownership and elapsed time.
  *
- * The engine owns r2_reality_* tables in the existing r2_memory.db.
- * It does not replace the core memory, Life Log, or reflective diary.
+ * The engine owns its tables in r2_reality.db, separate from r2_memory.db.
+ * r2_memory.db remains the searchable-memory and Life Log database. A
+ * one-time migration imports legacy r2_reality_* tables without replacing
+ * the existing memory, Log, or reflective diary.
  */
 int r2_reality_init(void);
 void r2_reality_shutdown(void);
