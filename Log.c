@@ -624,7 +624,7 @@ int64_t r2_log_conversation_turn(const char *user_text,
     if (!details) return -1;
 
     snprintf(details, details_size,
-             "USER SAID:\n%.*s\n\nR2 REPLIED:\n%.*s",
+             "USER SAID:\n%.*s\nR2 REPLIED:\n%.*s",
              (int)user_len, user_text,
              (int)assistant_len, assistant_text);
 
