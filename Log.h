@@ -23,6 +23,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* Recent persisted conversation turns as a JSON array; caller frees. */
+char *r2_log_conversation_recent_json(int limit);
+
 #ifdef __cplusplus
 extern "C" {
 #endif
