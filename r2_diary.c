@@ -918,9 +918,9 @@ char *r2_diary_recent(
     }
 
     if (limit <= 0)
-    {
         limit = R2_DEFAULT_DIARY_LIMIT;
-    }
+    if (limit > 20)
+        limit = 20;
     if (limit > 20)
         limit = 20;
 
@@ -1085,9 +1085,9 @@ char *r2_diary_search(
     }
 
     if (limit <= 0)
-    {
         limit = 20;
-    }
+    if (limit > 20)
+        limit = 20;
     if (limit > 20)
         limit = 20;
 
