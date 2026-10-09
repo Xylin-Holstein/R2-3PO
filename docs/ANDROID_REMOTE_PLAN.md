@@ -2,7 +2,7 @@
 
 **Working branch:** `feature/android-remote-connection`  
 **Base:** `main`  
-**Status:** initial gateway and Android companion implementation committed on this branch; debug APK and core build are being checked by GitHub Actions. Live calling and speech transcription remain unimplemented.
+**Status:** Android debug APK and R2 core compile passed GitHub Actions on commit 94bb954. The branch includes the remote gateway, Android companion, daily text Life Log mirror, diary write serialization, and the V-Webcam-style R2 face popup. WebRTC live calling, live frame transport, and speech transcription remain unimplemented.
 
 ## Product goal
 
@@ -118,6 +118,7 @@ A practical first version can use push-to-talk or turn-based voice conversation 
 - [ ] Add live speech recognition and TTS integration on the PC-side call path.
 - [ ] Add controlled video-frame sampling, speaking/listening state, interruption, and echo prevention.
 - [x] Android can speak completed text replies using the phone's installed TTS engine; this is not a live call.
+- [x] Add a V-Webcam-style popup panel to represent R2 in the call UI. The UI is present; it currently waits for a live Eyes frame transport.
 
 ### Phase 5 — Security, recovery, and release
 - Test large/invalid uploads, interrupted connections, reconnects, concurrent PC/phone messages, and service restarts.
@@ -136,6 +137,14 @@ A practical first version can use push-to-talk or turn-based voice conversation 
 
 ## Current status
 
-Implemented on this branch: authenticated HTTP gateway integrated into the existing R2 process; serialization of full conversation turns; durable conversation history endpoint backed by the existing Life Log conversation table; Android Compose project with chat, diary, Life Log, memory search, status, phone-side TTS, and authenticated photo/video/audio uploads. Image/video uploads invoke the existing visual input path when available. GitHub Actions is configured to compile R2 and build a debug APK.
+Implemented and build-verified on this branch:
+- Authenticated remote gateway integrated with R2's existing r2_talk() and Life Log conversation persistence.
+- Native Android app with chat, diary, Life Log, recent/searchable memories, uploads, and phone-side TTS for completed responses.
+- Photo/video/audio upload handling with 50 MiB cap and MIME/signature validation; visual uploads use the existing vision path when available.
+- Daily Life Log text mirror at /home/x/R2_Home/R2_Log/Log[YYYY-MM-DD].txt, alongside the existing SQLite Life Log. The launcher prepares the directory for the dedicated r2 account.
+- Diary write serialization and cleaner diary initialization failure handling.
+- V-Webcam-style R2 face popup in the Android call UI, matching the existing dark canvas/green status design.
 
-Not complete yet: live WebRTC calling, live microphone streaming, speech-to-text/audio interpretation, continuous remote transcript push, media preview/download history, and device-tested release packaging. The app intentionally labels live calling as not implemented instead of presenting a fake call button.
+GitHub Actions run 37887831496 passed both the Android debug APK build and the R2 core compile. The APK is published as the r2-remote-debug-apk workflow artifact.
+
+Still not implemented: WebRTC camera/microphone calls, live Eyes-frame delivery into the face popup, PC-side live speech recognition/TTS streaming, audio transcription, continuous push synchronization, media preview/download history, and physical-device testing. The face popup is a UI component, not a claim that a live call is connected.
