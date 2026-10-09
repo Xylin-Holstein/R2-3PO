@@ -2860,8 +2860,8 @@ static char *chat_with_relevant_memories(
             char *joined = malloc(old_n + visual_n + 160);
             if (joined) {
                 snprintf(joined, old_n + visual_n + 160,
-                         "%s%sPRIOR VISUAL EXPERIENCES (historical; may not describe the current scene):\\n%s\\n",
-                         memory_context, old_n ? "\\n\\n" : "", prior_visual);
+                         "%s%sPRIOR VISUAL EXPERIENCES (historical; may not describe the current scene):\n%s\n",
+                         memory_context, old_n ? "\n\n" : "", prior_visual);
                 free(memory_context);
                 memory_context = joined;
             }
@@ -2882,8 +2882,8 @@ static char *chat_with_relevant_memories(
         if (joined) {
             snprintf(joined, old_n + visual_n + 160,
                      "%s%sCURRENT LIVE VISUAL OBSERVATION (newly analyzed frame; "
-                     "use as evidence, but acknowledge uncertainty):\\n%s\\n",
-                     memory_context, old_n ? "\\n\\n" : "", visual_context);
+                     "use as evidence, but acknowledge uncertainty):\n%s\n",
+                     memory_context, old_n ? "\n\n" : "", visual_context);
             free(memory_context);
             memory_context = joined;
         }
