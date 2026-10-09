@@ -269,7 +269,7 @@ echo
 # for R2's 16 GB RAM system than large models such as Llama 3.3 70B.
 # Explicit environment overrides remain supported.
 CHAT_MODEL="${R2_CHAT_MODEL:-llama3.2:3b}"
-CHAT_NUM_CTX="${R2_CHAT_NUM_CTX:-8192}"
+CHAT_NUM_CTX="${R2_CHAT_NUM_CTX:-16384}"
 echo "Conversation model: $CHAT_MODEL (context: $CHAT_NUM_CTX tokens)"
 echo "Vision model: qwen2.5vl:3b (independent of the conversation model)"
 echo "If needed, install the conversation model with: ollama pull $CHAT_MODEL"
