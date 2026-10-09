@@ -186,7 +186,9 @@ static int food_metric(const char *food, double *fullness, double *energy)
     char line[4096];
     int found = -1;
     while (fgets(line, sizeof(line), fp)) {
-        if (!strcasestr(line, "<food")) continue;
+        const char *tag = strcasestr(line, "<food");
+        const char *comment = strstr(line, "<!--");
+        if (!tag || (comment && comment < tag)) continue; /* Ignore XML comments/examples. */
         char name[512] = {0}, full[128] = {0}, en[128] = {0};
         if (xml_attribute(line, "name", name, sizeof(name)) != 0 ||
             strcasecmp(name, food) != 0 ||
