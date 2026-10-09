@@ -57,6 +57,14 @@ int r2_reality_money_deposit(double amount);
 int r2_reality_money_withdraw(double amount);
 int r2_reality_buy_item(const char *name,const char *description,double price,const char *container);
 
+/* Persistent CRT television state and explicitly connected signal sources. */
+char *r2_reality_tv_status(void);
+int r2_reality_tv_power(int on);
+int r2_reality_tv_select_input(int input);
+int r2_reality_tv_tune_rf(int channel);
+int r2_reality_tv_connect(const char *name, const char *kind, int port);
+int r2_reality_tv_disconnect(const char *name);
+
 #ifdef __cplusplus
 }
 #endif
