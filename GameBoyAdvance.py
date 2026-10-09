@@ -25,6 +25,7 @@ CARTRIDGES = ROOT / "Cartridges"
 SAVES = ROOT / "Saves"
 STATE = ROOT / "State"
 DB_PATH = Path(os.environ.get("R2_GAMEBOY_DB", str(ROOT / "gameboy.db")))
+STATE_DB_PATH = STATE / "console_state.db"
 EMULATOR = os.environ.get("R2_MGBA_EXECUTABLE", "/usr/games/mgba-qt")
 ROM_EXTENSIONS = {".gba", ".gb", ".gbc"}
 BUTTON_KEYS = {
@@ -47,18 +48,25 @@ def ensure_dirs() -> None:
 
 def connect() -> sqlite3.Connection:
     ensure_dirs()
-    db = sqlite3.connect(DB_PATH, timeout=5.0)
+    db = sqlite3.connect(STATE_DB_PATH, timeout=5.0)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA busy_timeout=5000")
     db.execute("PRAGMA journal_mode=WAL")
+    # gameboy.db is intentionally only the cartridge slot. Runtime/power state
+    # and the event history live in State/console_state.db instead.
+    db.execute("ATTACH DATABASE ? AS cartridge", (str(DB_PATH),))
     db.executescript("""
+        CREATE TABLE IF NOT EXISTS cartridge.cartridge_slot (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            rom_path TEXT,
+            rom_title TEXT,
+            inserted_at TEXT
+        );
+        INSERT OR IGNORE INTO cartridge.cartridge_slot(id) VALUES (1);
         CREATE TABLE IF NOT EXISTS console_state (
             id INTEGER PRIMARY KEY CHECK (id = 1),
             power_state TEXT NOT NULL DEFAULT 'off'
                 CHECK (power_state IN ('off','on')),
-            cartridge_path TEXT,
-            cartridge_title TEXT,
-            cartridge_inserted_at TEXT,
             emulator_pid INTEGER,
             emulator_start_ticks INTEGER,
             game_started_at TEXT,
@@ -116,7 +124,12 @@ def process_matches(pid: int | None, expected_ticks: int | None) -> bool:
 
 
 def state_row(db: sqlite3.Connection) -> sqlite3.Row:
-    row = db.execute("SELECT * FROM console_state WHERE id=1").fetchone()
+    row = db.execute(
+        "SELECT s.*, c.rom_path AS cartridge_path, c.rom_title AS cartridge_title, "
+        "c.inserted_at AS cartridge_inserted_at "
+        "FROM console_state AS s CROSS JOIN cartridge.cartridge_slot AS c "
+        "WHERE s.id=1 AND c.id=1"
+    ).fetchone()
     assert row is not None
     return row
 
@@ -186,6 +199,7 @@ def status_data(db: sqlite3.Connection) -> dict[str, Any]:
         "emulator_pid": row["emulator_pid"],
         "game_running": bool(row["power_state"] == "on" and row["emulator_pid"]),
         "database": str(DB_PATH),
+        "state_database": str(STATE_DB_PATH),
         "cartridges_directory": str(CARTRIDGES),
         "saves_directory": str(SAVES),
     }
@@ -356,7 +370,7 @@ def insert_cartridge(db: sqlite3.Connection, name: str) -> dict[str, Any]:
         return {"ok": False, "message": str(exc), **status_data(db)}
     title = read_rom_title(path)
     db.execute(
-        "UPDATE console_state SET cartridge_path=?, cartridge_title=?, cartridge_inserted_at=? WHERE id=1",
+        "UPDATE cartridge.cartridge_slot SET rom_path=?, rom_title=?, inserted_at=? WHERE id=1",
         (str(path), title, utc_now()),
     )
     db.commit()
@@ -377,7 +391,7 @@ def eject_cartridge(db: sqlite3.Connection) -> dict[str, Any]:
     if not row["cartridge_path"]:
         return {"ok": False, "message": "The cartridge slot is already empty.", **status_data(db)}
     db.execute(
-        "UPDATE console_state SET cartridge_path=NULL, cartridge_title=NULL, cartridge_inserted_at=NULL WHERE id=1"
+        "UPDATE cartridge.cartridge_slot SET rom_path=NULL, rom_title=NULL, inserted_at=NULL WHERE id=1"
     )
     db.commit()
     record_event(db, "physical", "cartridge_ejected",
