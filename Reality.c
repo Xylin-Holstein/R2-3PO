@@ -1677,7 +1677,7 @@ int r2_reality_buy_item(const char *name,const char *description,double price,co
         if(sqlite3_prepare_v2(reality_db,"UPDATE r2_money_account SET cash_cents=cash_cents+?,bank_cents=bank_cents+?,updated_at=CURRENT_TIMESTAMP WHERE id=1",-1,&st,NULL)==SQLITE_OK){sqlite3_bind_int64(st,1,pc);sqlite3_bind_int64(st,2,pb);(void)sqlite3_step(st);}if(st)sqlite3_finalize(st);
         (void)money_read_locked(&cash,&bank);pthread_mutex_unlock(&reality_lock);money_mirror_write(cash,bank);return -1;}
     money_mirror_write(cash,bank);char summary[512],details[1024];snprintf(summary,sizeof(summary),"R2 purchased %s for $%.2f.",name,cents/100.0);
-    snprintf(details,sizeof(details),"Item=%s; price=$%.2f; destination=%s; cash paid first, then bank.",name,cents/100.0,container&&*container?container:"room");bridge_event("purchase",summary,details,1,1);return 0;
+    snprintf(details,sizeof(details),"Item=%s; price=$%.2f; destination=%s; cash paid first, then bank.",name,cents/100.0,container&&*container?container:"pockets");bridge_event("purchase",summary,details,1,1);return 0;
 }
 
 int r2_reality_set_self(const char *key,const char *value,const char *evidence)
