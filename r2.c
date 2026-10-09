@@ -91,6 +91,7 @@
 #include "Ears.h"
 #include "Log.h"
 #include "Reality.h"
+#include "AlternateSelf.h"
 #include "Visual.h"
 
 
@@ -326,6 +327,15 @@ static const char *SYSTEM_PROMPT =
 "observations.\n"
 "\n"
 "You are allowed to be uncertain and to have questions.\n"
+"\n"
+"============================================================\n"
+"ALTERNATE-SELF / CHOICE LAB\n"
+"============================================================\n"
+"Consider any possible choice or option; the lab is not a fixed menu.\n"
+"Use counterfactual reasoning for questions such as what a hypothetical view, sound, taste, smell, or touch might reveal.\n"
+"Combine sensory evidence and learned preferences, but label imagined details as predictions, never as observations.\n"
+"Use [ALTERNATE_LIST], [ALTERNATE_SHOW] id, or [ALTERNATE_COMPARE] id id to inspect stored what-if branches.\n"
+"Do not discard or retain a branch unless asked. A retained hypothesis is still not a factual memory.\n"
 "\n"
 "============================================================\n"
 "GENERAL\n"
@@ -4310,6 +4320,43 @@ static char *process_tools(
         }                                                             \
     } while (0)
 
+    /* Alternate-Self Lab queries only read or compare hypothetical branches. */
+    if (strstr(reply, "[ALTERNATE_LIST]")) {
+        char *branches = r2_altself_list(20);
+        if (branches) {
+            APPEND("ALTERNATE-SELF LAB RESULT (all entries are hypothetical):\n%s\n", branches);
+            free(branches);
+        } else {
+            APPEND("ALTERNATE-SELF LAB ERROR: branch storage is unavailable.\n");
+        }
+    }
+
+    const char *alt_marker = strstr(reply, "[ALTERNATE_SHOW]");
+    if (alt_marker) {
+        long long branch_id = 0;
+        if (sscanf(alt_marker + strlen("[ALTERNATE_SHOW]"), "%lld", &branch_id) == 1 && branch_id > 0) {
+            char *branch = r2_altself_show((int64_t)branch_id);
+            if (branch) {
+                APPEND("ALTERNATE-SELF BRANCH (hypothetical only):\n%s\n", branch);
+                free(branch);
+            } else APPEND("ALTERNATE-SELF LAB ERROR: branch could not be read.\n");
+        } else APPEND("ALTERNATE-SELF LAB ERROR: expected a positive branch ID.\n");
+    }
+
+    alt_marker = strstr(reply, "[ALTERNATE_COMPARE]");
+    if (alt_marker) {
+        long long first_id = 0, second_id = 0;
+        char extra = '\0';
+        if (sscanf(alt_marker + strlen("[ALTERNATE_COMPARE]"), "%lld %lld %c", &first_id, &second_id, &extra) == 2 &&
+            first_id > 0 && second_id > 0) {
+            char *branches = r2_altself_compare((int64_t)first_id, (int64_t)second_id);
+            if (branches) {
+                APPEND("ALTERNATE-SELF COMPARISON INPUT (hypothetical branches; not factual events):\n%s\n", branches);
+                free(branches);
+            } else APPEND("ALTERNATE-SELF LAB ERROR: branches could not be compared.\n");
+        } else APPEND("ALTERNATE-SELF LAB ERROR: expected two positive branch IDs.\n");
+    }
+
     if (strstr(reply, "[READ_DIARY]")) {
 
         char *diary_context =
@@ -6361,6 +6408,9 @@ static void log_structured_self_report(const char *reply, int64_t parent_event_i
                 int64_t child = r2_log_hypothetical(
                     scenario, assumptions, predicted, conclusion,
                     "explicit R2 response; model-extracted");
+                if (child > 0)
+                    (void)r2_altself_import_hypothesis(
+                        scenario, assumptions, predicted, conclusion, child, 0);
                 if (parent_event_id > 0 && child > 0)
                     r2_log_link(parent_event_id, child,
                                 "contains_hypothetical", scenario);
@@ -6728,6 +6778,20 @@ int r2_init(void)
                      "Text conversation remains available; visual analysis is disabled.",
                      "r2_init");
     }
+
+    /* The Alternate-Self Lab uses the existing Life Log database. */
+    if (r2_altself_init() != 0)
+        r2_log_event(R2_LOG_ERROR, "alternate_self_init_failed",
+                     "Alternate-Self Lab could not initialize.",
+                     "Factual memory and the Life Log remain available.",
+                     "r2_init");
+    else
+        r2_log_continuity("r2_alternate_self_lab", "subsystem",
+                          "Alternate-Self Lab",
+                          "What-if branches are kept distinct from factual events and memories.",
+                          "in_progress",
+                          "Connect hypothetical sensory reasoning and learned preferences without promoting predictions to observations.",
+                          "r2_init");
 
     /* --------------------------------------------------------
        INITIAL SYSTEM MESSAGE
@@ -7124,6 +7188,7 @@ void r2_shutdown(void)
     }
 
     r2_visual_shutdown();
+    r2_altself_shutdown();
 
     /* Close the reality engine before the shared Life Log/diary/core DB. */
     r2_reality_shutdown();
