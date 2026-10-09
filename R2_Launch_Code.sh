@@ -39,6 +39,9 @@ REQUIRED_FILES=(
 
     "$R2_SOURCE/shell.c"
     "$R2_SOURCE/shell.h"
+
+    "$R2_SOURCE/World.c"
+    "$R2_SOURCE/World.h"
 )
 
 for FILE in "${REQUIRED_FILES[@]}"; do
@@ -53,6 +56,62 @@ for FILE in "${REQUIRED_FILES[@]}"; do
 done
 
 echo "All R2 source modules found."
+echo
+
+# ------------------------------------------------------------
+# INITIALIZE R2'S PERSISTENT PERSONAL WORLD
+# ------------------------------------------------------------
+# Directories are owned by the r2 account so R2 can manage his
+# own possessions. Existing contents are never cleared.
+echo "[1b/4] Checking R2's pockets and room..."
+echo
+
+if ! id r2 >/dev/null 2>&1; then
+    echo "ERROR: The Linux user 'r2' does not exist."
+    echo "R2 was NOT launched."
+    read -p "Press Enter to exit..."
+    exit 1
+fi
+
+if ! sudo install -d -o r2 -g r2 -m 0755 \
+    "$R2_ROOT/Pockets" \
+    "$R2_ROOT/Pockets/Wallet" \
+    "$R2_ROOT/Room" \
+    "$R2_ROOT/Room/shelf" \
+    "$R2_ROOT/Room/box"; then
+    echo "ERROR: Could not initialize R2's world folders."
+    echo "R2 was NOT launched."
+    read -p "Press Enter to exit..."
+    exit 1
+fi
+
+WALLET="$R2_ROOT/Pockets/Wallet"
+WALLET_MARKER="$WALLET/.initial_five_dollars_granted"
+
+# This marker prevents every subsequent launch from replenishing
+# money that R2 has spent. The C world module has the same
+# first-run safeguard for launches that bypass this script.
+if ! sudo -u r2 test -e "$WALLET_MARKER"; then
+    for NAME in money 'money(1)' 'money(2)' 'money(3)' 'money(4)'; do
+        if ! sudo -u r2 test -e "$WALLET/$NAME"; then
+            if ! sudo -u r2 touch -- "$WALLET/$NAME"; then
+                echo "ERROR: Could not seed R2's initial wallet."
+                echo "R2 was NOT launched."
+                read -p "Press Enter to exit..."
+                exit 1
+            fi
+        fi
+    done
+    if ! printf '%s\\n' "Initial five-dollar wallet grant; do not replenish on restart." | sudo -u r2 tee "$WALLET_MARKER" >/dev/null; then
+        echo "ERROR: Could not record initial wallet grant."
+        echo "R2 was NOT launched."
+        read -p "Press Enter to exit..."
+        exit 1
+    fi
+fi
+
+echo "Pockets, Wallet, Room, shelf, and box are ready."
+echo "Initial wallet grant is one-time only."
 echo
 
 echo "[2/4] Configuring R2 private clock..."
@@ -276,6 +335,7 @@ echo "    Log.c"
 echo "    Visual.c"
 echo "    Ears.c"
 echo "    Eyes.c"
+echo "    World.c"
 echo
 
 echo "[4/4] Transitioning to Linux user: r2..."
