@@ -92,7 +92,15 @@ static void *tv_control_server(void *unused)
         }
 
         char command[256] = {0};
-        ssize_t got = recv(client, command, sizeof(command) - 1, 0);
+        size_t used = 0;
+        while (used < sizeof(command) - 1) {
+            ssize_t got = recv(client, command + used, sizeof(command) - 1 - used, 0);
+            if (got <= 0) break;
+            used += (size_t)got;
+            if (memchr(command, '\n', used)) break;
+        }
+        command[used] = '\0';
+        ssize_t got = (ssize_t)used;
         while (got > 0 && (command[got - 1] == '\n' || command[got - 1] == '\r'))
             command[--got] = '\0';
 
