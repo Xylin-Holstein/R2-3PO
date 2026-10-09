@@ -1,6 +1,7 @@
 package com.robobot3000.r2remote
 
 import org.json.JSONObject
+import org.json.JSONArray
 import java.net.HttpURLConnection
 import java.net.URLEncoder
 import java.net.URL
@@ -40,6 +41,7 @@ class RemoteApi(private val baseUrl: String, private val token: String) {
     fun status() = request("GET", "/api/status")
     fun chat(message: String) = request("POST", "/api/chat",
         JSONObject().put("message", message).toString()).optString("reply")
+    fun conversation(limit: Int = 50): JSONArray = request("GET", "/api/conversation?limit=$limit").optJSONArray("turns") ?: JSONArray()
     fun diary(limit: Int = 30) = request("GET", "/api/diary?limit=$limit").optString("content")
     fun lifeLog(limit: Int = 50) = request("GET", "/api/life-log?limit=$limit").optString("content")
     fun memories(query: String) = request("GET", "/api/memories?query=" +
