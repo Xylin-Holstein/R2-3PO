@@ -12,7 +12,7 @@
    FEATURE CONFIGURATION
    ============================================================ */
 
-#define MODEL "llama3"
+#define MODEL "llama3.2:3b"
 
 #define THINK_INTERVAL 900
 
@@ -229,6 +229,8 @@ static const char *SYSTEM_PROMPT =
 "============================================================\n"
 "Your diary is NOT a replacement for conversation.\n"
 "When the user is talking to you, respond naturally and fully.\n"
+"Answer the substance of the latest user message directly. Do not merely announce that you will answer, describe your intention to respond, or narrate the task instead of doing it.\n"
+"If you are unsure what the user means, ask a specific clarifying question. Before finishing, check that your response actually addresses the message.\n"
 "You are allowed to think out loud with the user.\n"
 "You are allowed to share immediate reactions, questions, ideas, curiosity,\n"
 "confusion, discoveries, and thoughts.\n"
@@ -2547,6 +2549,42 @@ static char *ollama_chat(
     struct json_object *arr =
         json_object_new_array();
 
+    /*
+     * Keep requests within a practical context budget for the local
+     * 3B model. MAX_MESSAGES limits message count, not total size.
+     * Preserve the first system prompt, then retain the newest
+     * contiguous messages that fit. Ollama's num_ctx below provides
+     * the hard model-side context limit.
+     */
+    const size_t context_char_budget = 24000;
+    unsigned char *include_message =
+        calloc(count ? count : 1, sizeof(*include_message));
+    size_t context_chars = 0;
+    size_t first_message = 0;
+
+    if (!include_message) {
+        json_object_put(root);
+        return NULL;
+    }
+
+    if (count > 0 && !strcmp(msgs[0].role, "system")) {
+        size_t len = strlen(msgs[0].content);
+        include_message[0] = 1;
+        context_chars = len;
+        first_message = 1;
+    }
+
+    for (size_t i = count; i > first_message; --i) {
+        size_t index = i - 1;
+        size_t len = strlen(msgs[index].content);
+        size_t remaining = context_chars < context_char_budget
+                         ? context_char_budget - context_chars : 0;
+        if (len > remaining)
+            break;
+        include_message[index] = 1;
+        context_chars += len;
+    }
+
     if (system_override) {
 
         struct json_object *m =
@@ -2572,9 +2610,9 @@ static char *ollama_chat(
         );
     }
 
-    for (size_t i = 0;
-         i < count;
-         ++i) {
+    for (size_t i = 0; i < count; ++i) {
+        if (!include_message[i])
+            continue;
 
         struct json_object *m =
             json_object_new_object();
@@ -2582,24 +2620,19 @@ static char *ollama_chat(
         json_object_object_add(
             m,
             "role",
-            json_object_new_string(
-                msgs[i].role
-            )
+            json_object_new_string(msgs[i].role)
         );
 
         json_object_object_add(
             m,
             "content",
-            json_object_new_string(
-                msgs[i].content
-            )
+            json_object_new_string(msgs[i].content)
         );
 
-        json_object_array_add(
-            arr,
-            m
-        );
+        json_object_array_add(arr, m);
     }
+
+    free(include_message);
 
     json_object_object_add(
         root,
@@ -2612,6 +2645,16 @@ static char *ollama_chat(
         "stream",
         json_object_new_boolean(0)
     );
+
+    /* Explicit settings for the local Llama 3.2 3B model. */
+    struct json_object *options = json_object_new_object();
+    if (options) {
+        json_object_object_add(options, "num_ctx",
+                               json_object_new_int(8192));
+        json_object_object_add(options, "num_predict",
+                               json_object_new_int(512));
+        json_object_object_add(root, "options", options);
+    }
 
     const char *payload =
         json_object_to_json_string(root);
@@ -5808,7 +5851,22 @@ static char *r2_talk_serialized(const char *message)
         pthread_mutex_lock(&messages_lock);
 
         int assistant_rc = message_add("assistant", reply);
-        int tool_rc = message_add("user", tools);
+
+        /*
+         * Tool output is not a new human message. Keep it in a user
+         * role for compatibility with Ollama's chat endpoint, but
+         * label it explicitly as execution results.
+         */
+        size_t tool_len = strlen(tools) + 128;
+        char *tool_context = malloc(tool_len);
+        int tool_rc = -1;
+        if (tool_context) {
+            snprintf(tool_context, tool_len,
+                     "RESULTS FROM YOUR TOOL REQUESTS (not a new user message):\n%s",
+                     tools);
+            tool_rc = message_add("user", tool_context);
+            free(tool_context);
+        }
 
         pthread_mutex_unlock(&messages_lock);
 
