@@ -312,7 +312,7 @@ if [ -n "${DISPLAY:-}" ] && [ -f "$R2_SOURCE/V-Webcam.py" ]; then
     fi
 
     if python3 -c 'import tkinter' >/dev/null 2>&1 && command -v xauth >/dev/null 2>&1; then
-        VWEBCAM_AUTH="$R2_ROOT/.r2-vwebcam.Xauthority"
+        VWEBCAM_AUTH="/tmp/r2-vwebcam-r2/Xauthority"
         sudo -u r2 -- mkdir -p /tmp/r2-vwebcam-r2
         sudo -u r2 -- chmod 0700 /tmp/r2-vwebcam-r2
         sudo -u r2 -- touch "$VWEBCAM_AUTH"
