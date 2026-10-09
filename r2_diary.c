@@ -960,10 +960,8 @@ char *r2_diary_recent(
         limit
     );
 
-    while (
-        sqlite3_step(statement)
-        == SQLITE_ROW
-    )
+    int step_result;
+    while ((step_result = sqlite3_step(statement)) == SQLITE_ROW)
     {
         const char *entry;
         const char *created;
@@ -1046,10 +1044,13 @@ char *r2_diary_recent(
         );
     }
 
-    sqlite3_finalize(
-        statement
-    );
+    if (step_result != SQLITE_DONE) {
+        sqlite3_finalize(statement);
+        free(result_text);
+        return NULL;
+    }
 
+    sqlite3_finalize(statement);
     return result_text;
 }
 
@@ -1170,10 +1171,8 @@ char *r2_diary_search(
         free(pattern);
     }
 
-    while (
-        sqlite3_step(statement)
-        == SQLITE_ROW
-    )
+    int step_result;
+    while ((step_result = sqlite3_step(statement)) == SQLITE_ROW)
     {
         const char *entry;
         const char *created;
@@ -1256,10 +1255,13 @@ char *r2_diary_search(
         );
     }
 
-    sqlite3_finalize(
-        statement
-    );
+    if (step_result != SQLITE_DONE) {
+        sqlite3_finalize(statement);
+        free(result_text);
+        return NULL;
+    }
 
+    sqlite3_finalize(statement);
     return result_text;
 }
 
