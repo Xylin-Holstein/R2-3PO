@@ -4560,7 +4560,8 @@ static int sync_gameboy_verified_events(void)
                             (!strcmp(event_type, "game_completed") ||
                              !strcmp(event_type, "level_completed")) ? 3 : 1;
         (void)r2_reward_apply(reward_target, "verified_game_event", reward_points,
-            "A separately verified game-state change was recorded by the adapter.", 1);
+            "A separately verified game-state change was recorded by the adapter.",
+            reward_points > 0);
 
         char event_id_text[32];
         char ack_output[512] = {0};
