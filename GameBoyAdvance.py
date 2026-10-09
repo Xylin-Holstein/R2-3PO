@@ -197,22 +197,8 @@ def mgba_environment() -> dict[str, str]:
     env["XDG_CONFIG_HOME"] = str(STATE / "mgba-config")
     config_dir = STATE / "mgba-config" / "mgba"
     config_dir.mkdir(parents=True, exist_ok=True)
-    # Ordinary cartridge saves are retained; periodic save-state creation and
-    # rewind are disabled in this console's private mGBA configuration.
-    config = config_dir / "config.ini"
-    existing = config.read_text(encoding="utf-8") if config.exists() else ""
-    settings = {
-        "savegamePath": str(SAVES),
-        "savestatePath": str(STATE / "disabled-save-states"),
-        "autosave": "false",
-        "rewindEnable": "false",
-    }
-    lines = [line for line in existing.splitlines()
-             if not any(line.split("=", 1)[0].strip() == key for key in settings
-                        if "=" in line)]
-    lines.extend(f"{key}={value}" for key, value in settings.items())
-    config.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
+    # Save paths and rewind/autosave options are passed explicitly with -C when
+    # launching mGBA. Do not rewrite a config.ini with uncertain section state.
     # mGBA's Qt frontend reads keyboard shortcuts from qt.ini. Empty values
     # override its default save/load-state and rewind hotkeys for this console.
     qt_config = config_dir / "qt.ini"
