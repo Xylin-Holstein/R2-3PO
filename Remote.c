@@ -125,6 +125,35 @@ static char *header_value(char *headers, const char *name)
     return NULL;
 }
 
+static int valid_media_signature(const char *mime,
+                                   const unsigned char *data,
+                                   size_t length)
+{
+    if (!mime || !data) return 0;
+    if (!strcmp(mime, "image/jpeg"))
+        return length >= 3 && data[0] == 0xff && data[1] == 0xd8 && data[2] == 0xff;
+    if (!strcmp(mime, "image/png"))
+        return length >= 8 && memcmp(data, "\\x89PNG\\r\\n\\x1a\\n", 8) == 0;
+    if (!strcmp(mime, "image/webp"))
+        return length >= 12 && memcmp(data, "RIFF", 4) == 0 && memcmp(data + 8, "WEBP", 4) == 0;
+    if (!strcmp(mime, "video/mp4") || !strcmp(mime, "video/quicktime") ||
+        !strcmp(mime, "audio/mp4"))
+        return length >= 12 && memcmp(data + 4, "ftyp", 4) == 0;
+    if (!strcmp(mime, "video/webm"))
+        return length >= 4 && data[0] == 0x1a && data[1] == 0x45 &&
+               data[2] == 0xdf && data[3] == 0xa3;
+    if (!strcmp(mime, "audio/wav") || !strcmp(mime, "audio/x-wav"))
+        return length >= 12 && memcmp(data, "RIFF", 4) == 0 && memcmp(data + 8, "WAVE", 4) == 0;
+    if (!strcmp(mime, "audio/ogg"))
+        return length >= 4 && memcmp(data, "OggS", 4) == 0;
+    if (!strcmp(mime, "audio/mpeg"))
+        return length >= 3 && (memcmp(data, "ID3", 3) == 0 ||
+               (data[0] == 0xff && (data[1] & 0xe0) == 0xe0));
+    if (!strcmp(mime, "audio/aac"))
+        return length >= 2 && data[0] == 0xff && (data[1] & 0xf6) == 0xf0;
+    return 0;
+}
+
 static long content_length(char *headers)
 {
     char *value = header_value(headers, "Content-Length");
@@ -284,9 +313,10 @@ static void handle_request(int fd)
         else if (!strcmp(mime, "audio/mp4")) { extension = ".m4a"; media_type = "audio"; }
         else if (!strcmp(mime, "audio/aac")) { extension = ".aac"; media_type = "audio"; }
 
-        if (!extension || body_length <= 0) {
+        if (!extension || body_length <= 0 ||
+            !valid_media_signature(mime, (const unsigned char *)body, (size_t)body_length)) {
             respond_error(fd, 415, "Unsupported Media Type",
-                          "supported: JPEG/PNG/WebP images, MP4/MOV/WebM videos, MP3/WAV/OGG/M4A/AAC audio");
+                          "unsupported type or file signature does not match the declared MIME type");
         } else {
             char upload_dir[4096];
             char upload_path[4096];
