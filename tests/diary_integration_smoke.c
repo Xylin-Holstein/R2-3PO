@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #include "r2_diary.h"
 #include "Log.h"
+#include "Reward.h"
 
 #include <assert.h>
 #include <stdint.h>
@@ -14,6 +15,32 @@ static int log_ready = 0;
 int r2_log_is_initialized(void)
 {
     return log_ready;
+}
+
+int r2_addiction_record_choice(const char *target, const char *target_type,
+                               int enjoyment_0_100, const char *source,
+                               const char *details)
+{
+    (void)target; (void)target_type; (void)enjoyment_0_100;
+    (void)source; (void)details;
+    return 0;
+}
+
+static int reward_total(void)
+{
+    sqlite3 *db = NULL;
+    sqlite3_stmt *st = NULL;
+    int value = -99999;
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/r2_rewards.db", R2_HOME);
+    if (sqlite3_open(path, &db) != SQLITE_OK) return value;
+    if (sqlite3_prepare_v2(db, "SELECT points FROM reward_totals WHERE id=1",
+                           -1, &st, NULL) == SQLITE_OK &&
+        sqlite3_step(st) == SQLITE_ROW)
+        value = sqlite3_column_int(st, 0);
+    if (st) sqlite3_finalize(st);
+    sqlite3_close(db);
+    return value;
 }
 
 static int open_test_db(sqlite3 **db)
@@ -142,6 +169,14 @@ int main(void)
 
     assert(r2_diary_write("New reflection connected to history.") == 0);
     assert(scalar_int("SELECT COUNT(*) FROM diary_entries;") == 2);
+
+    /* The correction earns +5; repeating the configured identity error earns
+       -7. Only the decision and short reason are logged, never diary prose. */
+    assert(r2_reward_review_diary(100, "Eli isn't real; you are the intended person.") == 0);
+    assert(r2_reward_review_diary(101, "I keep calling the creator Eli.") == 0);
+    assert(reward_total() == -5);
+    assert(r2_reward_current_modifier("diary_identity_correction") <= 0);
+    assert(r2_reward_current_modifier("diary_identity_correction") >= -14);
     assert(scalar_int("SELECT COUNT(*) FROM r2_diary_entry_links "
                       "WHERE log_event_id IS NOT NULL;") == 2);
     assert(scalar_int("SELECT COUNT(*) FROM r2_diary_entry_links "
