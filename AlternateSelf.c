@@ -128,6 +128,43 @@ int64_t r2_altself_create(const char *name, const char *scenario,
     return id;
 }
 
+int64_t r2_altself_import_hypothesis(const char *scenario,
+                                    const char *assumptions,
+                                    const char *predicted_outcome,
+                                    const char *conclusion,
+                                    int64_t hypothetical_event_id,
+                                    int64_t evidence_event_id)
+{
+    if (!scenario || !*scenario || hypothetical_event_id <= 0) return -1;
+    char name[128];
+    snprintf(name, sizeof(name), "R2 hypothesis from event %lld",
+             (long long)hypothetical_event_id);
+    pthread_mutex_lock(&as_lock);
+    if (!as_ready || !as_db) {
+        pthread_mutex_unlock(&as_lock);
+        return -1;
+    }
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(as_db,
+        "INSERT INTO r2_alternate_self_branches"
+        "(name,scenario,assumptions,predicted_outcome,conclusion,status,evidence_event_id,log_event_id)"
+        " VALUES(?,?,?,?,?,'active',?,?);", -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        sqlite3_bind_text(st, 1, name, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 2, scenario, -1, SQLITE_TRANSIENT);
+        if (assumptions) sqlite3_bind_text(st, 3, assumptions, -1, SQLITE_TRANSIENT); else sqlite3_bind_null(st, 3);
+        if (predicted_outcome) sqlite3_bind_text(st, 4, predicted_outcome, -1, SQLITE_TRANSIENT); else sqlite3_bind_null(st, 4);
+        if (conclusion) sqlite3_bind_text(st, 5, conclusion, -1, SQLITE_TRANSIENT); else sqlite3_bind_null(st, 5);
+        if (evidence_event_id > 0) sqlite3_bind_int64(st, 6, evidence_event_id); else sqlite3_bind_null(st, 6);
+        sqlite3_bind_int64(st, 7, hypothetical_event_id);
+        rc = sqlite3_step(st);
+    }
+    int64_t id = rc == SQLITE_DONE ? sqlite3_last_insert_rowid(as_db) : -1;
+    sqlite3_finalize(st);
+    pthread_mutex_unlock(&as_lock);
+    return id;
+}
+
 static int as_set_status(int64_t id, const char *status)
 {
     if (id <= 0) return -1;
