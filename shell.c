@@ -48,7 +48,6 @@
 #include "r2.h"
 #include "Log.h"
 #include "Reality.h"
-#include "r2_diary.h"
 #include "Addiction.h"
 #include "AlternateSelf.h"
 
@@ -109,6 +108,10 @@ static void *tv_control_server(void *unused)
         if (got > 0 && !strcmp(command, "status")) {
             status = r2_reality_tv_status();
             reply = status ? status : "ERROR unable to read TV state";
+        } else if (!strcmp(command, "display opened")) {
+            reply = r2_reality_tv_display_event(1) == 0 ? "OK TV display-open event recorded" : "ERROR could not record TV display-open event";
+        } else if (!strcmp(command, "display closed")) {
+            reply = r2_reality_tv_display_event(0) == 0 ? "OK TV display-close event recorded" : "ERROR could not record TV display-close event";
         } else if (!strcmp(command, "power on")) {
             reply = r2_reality_tv_power(1) == 0 ? "OK powered on" : "ERROR power-on failed";
         } else if (!strcmp(command, "power off")) {
@@ -155,7 +158,10 @@ static void *tv_control_server(void *unused)
 static int tv_control_start(void)
 {
     if (tv_control_started) return 0;
-    int n = snprintf(tv_control_path, sizeof(tv_control_path), "%s/tv-control.sock", R2_HOME);
+    const char *configured_path = getenv("R2_TV_SOCKET");
+    const char *default_path = "/home/x/R2_Home/R2/tv-control.sock";
+    int n = snprintf(tv_control_path, sizeof(tv_control_path), "%s",
+                     configured_path && *configured_path ? configured_path : default_path);
     if (n < 0 || (size_t)n >= sizeof(tv_control_path)) return -1;
 
     struct stat st;
@@ -341,9 +347,7 @@ static void shell_help(void)
         "\n"
         "  diary\n"
         "      Trigger a diary-writing operation.\n"
-        "\n"        "  tv [status|on|off|input 1..4|tune <channel>|connect <name> | input/RF | <port>|disconnect <name>]\n"
-        "      Control the persistent CRT TV; external inputs and RF signals exist only for connected devices.\n"
-        "  room [look]\n"
+        "\n"        "  room [look]\n"
         "      Inspect R2's persistent room, shelf, and storage box.\n"
         "  room add <name> | <description> | <container> | <quantity>\n"
         "      Add an object to the persistent world (default container: room).\n"
@@ -401,6 +405,9 @@ static void shell_help(void)
         "  give <item> <quantity> [| description | container]\n"
         "      Creator command: create item stacks from nothing; give money <dollars> adds cash.\n"
         "\n"
+        "  tv [status|on|off|input 1..4|tune <channel>|connect <name> | input/RF | <port>|disconnect <name>|vcr ...]\n"
+        "      Operate the persistent CRT television and built-in VCR.\n"
+        "\n"
         "  gameboy [status|verify|list|insert <rom>|eject|power on|power off|press <button>]\n"
         "      Operate the virtual console; power on launches mGBA with the inserted ROM.\n"
         "\n"
@@ -437,8 +444,8 @@ static void shell_help(void)
         "  vision search <text>\n"
         "      Search the visual experience library.\n"
         "\n"
-        "  vision model <name>\n"
-        "      Select the local Ollama vision model.\n"
+        "  vision model gemma3:4b\n"
+        "      Confirm the single model shared by conversation and vision.\n"
         "\n"
         "  vision close\n"
         "      Close the current visual source.\n"
@@ -991,9 +998,10 @@ static void shell_vision(const char *argument)
     if (shell_starts_with(argument, "model ")) {
         const char *model = shell_trim((char *)argument + 6);
         if (r2_vision_set_model(model) == 0)
-            printf("[Vision model set to %s. Make sure this model is installed in Ollama.]\n", model);
+            printf("[Conversation and vision both use %s.]\n", r2_vision_model_name());
         else
-            printf("[Invalid vision model name.]\n");
+            printf("[This build requires %s for both conversation and vision; separate models are disabled.]\n",
+                   r2_vision_model_name());
         return;
     }
 
@@ -1277,6 +1285,7 @@ static char *reality_trim(char *text)
     return text;
 }
 
+static int shell_parse_amount(const char *text, double *value);
 
 static void shell_tv(const char *argument)
 {
@@ -1956,16 +1965,12 @@ static int shell_dispatch(char *input)
         shell_give(shell_starts_with(command, "give ") ? shell_trim(command + 5) : NULL);
         return 1;
     }
-    if (!strcasecmp(command, "gameboy") || shell_starts_with(command, "gameboy ")) {
-        shell_gameboy(shell_starts_with(command, "gameboy ") ? shell_trim(command + 8) : NULL);
-        return 1;
-    }
-
-    /* --------------------------------------------------------
-       PERSISTENT CRT TELEVISION
-       -------------------------------------------------------- */
     if (!strcasecmp(command, "tv") || shell_starts_with(command, "tv ")) {
         shell_tv(shell_starts_with(command, "tv ") ? shell_trim(command + 3) : NULL);
+        return 1;
+    }
+    if (!strcasecmp(command, "gameboy") || shell_starts_with(command, "gameboy ")) {
+        shell_gameboy(shell_starts_with(command, "gameboy ") ? shell_trim(command + 8) : NULL);
         return 1;
     }
 
@@ -2160,8 +2165,9 @@ int r2_shell_run(void)
 
     shell_shutdown = 0;
     shell_running = 1;
+
     if (tv_control_start() != 0)
-        fprintf(stderr, "[TV] GUI control socket unavailable; shell TV commands remain available.\\n");
+        fprintf(stderr, "[TV] GUI control socket unavailable; shell TV commands remain available.\n");
 
     signal(
         SIGINT,
@@ -2229,8 +2235,8 @@ int r2_shell_run(void)
         watch_running = 0;
     }
 
-    free(line);
     tv_control_stop_server();
+        free(line);
 
     return 0;
 }
