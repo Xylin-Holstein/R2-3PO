@@ -866,7 +866,7 @@ static int r2_diary_link_entry(int64_t entry_id, const char *created_at)
     sqlite3_bind_int64(st, 2, entry_id);
     rc = sqlite3_step(st);
     sqlite3_finalize(st);
-    return rc == SQLITE_DONE ? 0 : -1;
+    return (rc == SQLITE_DONE && memory_indexed) ? 0 : -1;
 }
 
 int r2_diary_reconnect_history(int limit)
@@ -897,7 +897,7 @@ int r2_diary_reconnect_history(int limit)
     rc = sqlite3_prepare_v2(r2_diary_db,
         "SELECT d.id,d.created_at FROM diary_entries d "
         "JOIN r2_diary_entry_links l ON l.diary_entry_id=d.id "
-        "WHERE COALESCE(l.log_event_id,0)=0 ORDER BY d.id ASC LIMIT ?;",
+        "WHERE COALESCE(l.log_event_id,0)=0 OR COALESCE(l.memory_indexed,0)=0 ORDER BY d.id ASC LIMIT ?;",
         -1, &st, NULL);
     if (rc != SQLITE_OK) {
         free(pending);
