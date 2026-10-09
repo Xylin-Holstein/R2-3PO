@@ -781,9 +781,13 @@ static int r2_diary_link_entry(int64_t entry_id, const char *created_at)
         -1, &st, NULL);
     if (rc != SQLITE_OK) return -1;
     sqlite3_bind_int64(st, 1, entry_id);
-    if (sqlite3_step(st) == SQLITE_ROW) {
+    rc = sqlite3_step(st);
+    if (rc == SQLITE_ROW) {
         event_id = sqlite3_column_int64(st, 0);
         memory_indexed = sqlite3_column_int(st, 1);
+    } else {
+        sqlite3_finalize(st);
+        return -1;
     }
     sqlite3_finalize(st);
     st = NULL;
@@ -845,9 +849,13 @@ static int r2_diary_link_entry(int64_t entry_id, const char *created_at)
             -1, &st, NULL);
         if (rc != SQLITE_OK) return -1;
         sqlite3_bind_int64(st, 1, entry_id);
-        if (sqlite3_step(st) == SQLITE_ROW) {
+        rc = sqlite3_step(st);
+        if (rc == SQLITE_ROW) {
             event_id = sqlite3_column_int64(st, 0);
             memory_indexed = sqlite3_column_int(st, 1);
+        } else {
+            sqlite3_finalize(st);
+            return -1;
         }
         sqlite3_finalize(st);
         st = NULL;
