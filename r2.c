@@ -1889,6 +1889,9 @@ static int safe_path(
     char resolved[PATH_MAX];
 
     if (!realpath(joined, resolved)) {
+        struct stat target_stat;
+        if (lstat(joined, &target_stat) == 0 || errno != ENOENT)
+            return -1; /* Do not follow a dangling symlink on file creation. */
 
         char parent[PATH_MAX];
         char base[NAME_MAX + 1];
