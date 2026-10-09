@@ -1,6 +1,8 @@
 #ifndef R2_REWARD_H
 #define R2_REWARD_H
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
