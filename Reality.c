@@ -404,15 +404,16 @@ char *r2_reality_room_look(void)
     char *box = r2_reality_list("box");
     char *pockets = r2_reality_list("pockets");
     char *wallet = r2_reality_list("wallet");
-    if (!room || !shelf || !box || !pockets || !wallet) {
-        free(room); free(shelf); free(box); free(pockets); free(wallet); return NULL;
+    char *named = query_text("SELECT container,group_concat(name, ', '),printf('%d items',count(*)) FROM r2_reality_objects WHERE container NOT IN ('room','shelf','box','pockets','wallet') GROUP BY container ORDER BY container",NULL);
+    if (!room || !shelf || !box || !pockets || !wallet || !named) {
+        free(room); free(shelf); free(box); free(pockets); free(wallet); free(named); return NULL;
     }
-    size_t n = strlen(room)+strlen(shelf)+strlen(box)+strlen(pockets)+strlen(wallet)+512;
+    size_t n = strlen(room)+strlen(shelf)+strlen(box)+strlen(pockets)+strlen(wallet)+strlen(named)+640;
     char *out = malloc(n);
     if (out) snprintf(out,n,
-        "R2'S ROOM\nRoom: %sShelf: %sBox: %sPockets: %sWallet: %s",
-        room,shelf,box,pockets,wallet);
-    free(room); free(shelf); free(box); free(pockets); free(wallet);
+        "R2'S ROOM\nRoom: %sShelf: %sBox: %sNamed containers and their contents:\n%sPockets: %sWallet: %s",
+        room,shelf,box,named,pockets,wallet);
+    free(room); free(shelf); free(box); free(pockets); free(wallet); free(named);
     return out;
 }
 
@@ -477,7 +478,7 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
     if (prior) sqlite3_finalize(prior);
     sqlite3_stmt *st=NULL;
     int rc=sqlite3_prepare_v2(reality_db,"INSERT INTO r2_reality_containers(name,kind,description,parent) VALUES(?,?,?,?) ON CONFLICT(name) DO NOTHING",-1,&st,NULL);
-    if(rc==SQLITE_OK){bind_text(st,1,container);bind_text(st,2,(!strcmp(container,"pockets")||!strcmp(container,"wallet"))?"inventory":"container");bind_text(st,3,"Persistent object container");bind_text(st,4,(!strcmp(container,"shelf")||!strcmp(container,"box"))?"room":"");rc=sqlite3_step(st);}
+    if(rc==SQLITE_OK){bind_text(st,1,container);bind_text(st,2,(!strcmp(container,"pockets")||!strcmp(container,"wallet"))?"inventory":"container");bind_text(st,3,"Persistent object container");bind_text(st,4,(!strcmp(container,"pockets")||!strcmp(container,"wallet"))?"self":"room");rc=sqlite3_step(st);}
     if(st)sqlite3_finalize(st);
     st=NULL;
     if(rc==SQLITE_DONE) rc=sqlite3_prepare_v2(reality_db,"INSERT INTO r2_reality_objects(name,description,quantity,container,owner) VALUES(?,?,?,?, 'R2') ON CONFLICT(name) DO UPDATE SET description=excluded.description,quantity=excluded.quantity,container=excluded.container,updated_at=CURRENT_TIMESTAMP",-1,&st,NULL);
