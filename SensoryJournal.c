@@ -55,7 +55,10 @@ int r2_sj_init(void)
         " FOREIGN KEY(event_id) REFERENCES r2_log_events(id)"
         ");"
         "CREATE INDEX IF NOT EXISTS r2_sensory_journal_kind_idx "
-        "ON r2_sensory_journal(journal_kind,event_id);";
+        "ON r2_sensory_journal(journal_kind,event_id);"
+        "INSERT OR IGNORE INTO r2_sensory_journal(event_id,journal_kind) "
+        "SELECT id,category FROM r2_log_events "
+        "WHERE category IN ('sensory','thinking','conversation');";
     if (sj_exec(schema) != 0) {
         sqlite3_close(sj_db);
         sj_db = NULL;
