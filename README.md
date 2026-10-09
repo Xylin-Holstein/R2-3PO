@@ -48,9 +48,12 @@ GitHub Actions checks shell-script syntax and compiles this source set on pushes
 
 ## Persistent reality, room, and inventory
 
-The Reality engine stores self-continuity and world-continuity in separate
-`r2_reality_*` tables in the existing `r2_memory.db`. It shares the database
-file with the core memory, diary, and Life Log without replacing their tables.
+The Reality engine stores self-continuity, world-continuity, current objects,
+collection-memory events, food experiences, and learned preferences in its own
+`r2_reality.db` at `/home/x/R2_Home/R2/r2_reality.db`. The existing
+`r2_memory.db` remains the core searchable-memory and Life Log database. On
+first startup, a one-time migration copies older Reality state from
+`r2_memory.db` into the dedicated database without replacing the Log or diary.
 World changes are recorded in the Life Log and indexed in persistent memory;
 major object changes also create a short factual diary note. The engine supplies
 the current authoritative state to each conversation turn.
@@ -60,6 +63,8 @@ On startup, R2 creates these workspace directories if missing:
 - `room/` — objects currently in the room
 - `room/shelf/` — physical shelf location
 - `room/box/` — physical storage-box location
+- `room/pockets/` and `room/wallet/` — physical inventory folders for carried items
+- `room/toy_box/` — the named toy-storage container
 
 The dedicated reality database stores current objects, needs, collection-memory events, food experiences, and learned preferences. The physical folders `room/pockets/`, `room/wallet/`, and `room/toy_box/` mirror tracked items in those containers. If an object is in R2's pockets, its `.r2item` file is placed in `room/pockets/`; moving it elsewhere updates its mirror location. Current inventory stays exact even when the collection-memory record loses precision. On startup, R2 creates `room/food_metrics.xml` if it is missing. Put one XML entry per line inside the `<foods>` root, for example `<food name="burger" fullness="100" energy="10" ingredients="bread,beef,cheese" taste="savory, warm, salty" />`. `fullness` is the hunger reduction (0–100); `energy` is an optional energy bonus; `ingredients` is a comma-separated ingredient list; `taste` is an optional sensory description. These fields describe food, not a hard-coded like/dislike. If `eat <food>` has no explicit value, R2 looks up the food by name in this file and reports an error rather than guessing when no metric exists.
 
@@ -84,7 +89,20 @@ result to the model; R2 must not claim success when a write fails.
 
 Need model: hunger and sleepiness increase as modeled time advances; energy
 falls over time. Eating reduces hunger by the configured fullness points, and
-sleep advances needs before restoring energy and reducing sleepiness. The current
-shell accepts explicit modeled values with `eat <food> | <fullness 0-100>` and
-`sleep <hours>`. Dream entries are stored as reports, not independently verified
-facts.
+sleep advances needs before restoring energy and reducing sleepiness. The shell accepts `eat <food>` (uses XML metrics), `eat <food> | <fullness 0-100>`,
+and `sleep <hours>`. After a successful meal, the local model records a subjective
+satisfaction estimate from -2 (dislike) to +2 (enjoyment) using the configured
+ingredients, sensory description, and R2's prior ratings. Fullness and satisfaction
+are independent: a filling meal can be disliked, and a tasty snack can be unfulfilling.
+Ingredient and food preferences are averages learned from rated experiences, not
+hard-coded likes/dislikes. When evidence is weak, the model is instructed to record
+neutral satisfaction and acknowledge uncertainty. The XML may include `ingredients`
+(comma-separated) and `taste` attributes as well as `fullness` and optional `energy`.
+
+Collection memories preserve exact quantities for 7 days, become approximate
+(rounded to a nearby group of five) for days 7–30, then become vague recollections
+without exact quantity or timing. This decay applies only to collection memory:
+current inventory quantities and object locations remain exact. For example, R2
+can forget how many rocks he collected while still knowing he currently has 20 rocks
+in `room/pockets/`. Dream entries remain simulated reports, not waking events or
+independently verified facts.
