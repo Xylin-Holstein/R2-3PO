@@ -27,6 +27,11 @@ jobs:
       - name: Check every shell script for syntax errors
         run: find . -type f -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
 
+      - name: Check observer syntax and privacy allowlist
+        run: |
+          python3 -m py_compile Observer.py tests/observer_filter_smoke.py
+          python3 tests/observer_filter_smoke.py
+
       - name: Exercise Alternate-Self Lab persistence
         run: |
           cc -std=c11 -Wall -Wextra -Werror -O2 -I. \
