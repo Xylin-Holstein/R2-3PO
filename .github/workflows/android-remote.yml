@@ -7,6 +7,23 @@ on:
     paths:
       - "android/**"
       - ".github/workflows/android-remote.yml"
+      - "r2.c"
+      - "r2.h"
+      - "shell.c"
+      - "shell.h"
+      - "r2_diary.c"
+      - "r2_diary.h"
+      - "Log.c"
+      - "Log.h"
+      - "Remote.c"
+      - "Remote.h"
+      - "Visual.c"
+      - "Visual.h"
+      - "Ears.c"
+      - "Ears.h"
+      - "Eyes.c"
+      - "Eyes.h"
+      - "R2_Launch_Code.sh"
   pull_request:
     paths:
       - "android/**"
