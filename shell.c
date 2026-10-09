@@ -91,7 +91,7 @@ static void *tv_control_server(void *unused)
             break;
         }
 
-        char command[256] = {0};
+        char command[1200] = {0};
         size_t used = 0;
         while (used < sizeof(command) - 1) {
             ssize_t got = recv(client, command + used, sizeof(command) - 1 - used, 0);
@@ -125,6 +125,24 @@ static void *tv_control_server(void *unused)
             if (end != command + 5 && *end == '\0' && n >= 2 && n <= 13)
                 reply = r2_reality_tv_tune_rf((int)n) == 0 ? "OK RF channel tuned" : "ERROR RF tuning failed";
             else reply = "ERROR RF channel must be 2..13";
+        } else if (!strncmp(command, "vcr insert ", 11)) {
+            const char *path = command + 11;
+            reply = *path && r2_reality_tv_vcr_insert(path) == 0
+                ? "OK VCR tape inserted" : "ERROR unsupported or unreadable media file";
+        } else if (!strcmp(command, "vcr play")) {
+            reply = r2_reality_tv_vcr_transport("play") == 0 ? "OK VCR playing" : "ERROR no tape inserted";
+        } else if (!strcmp(command, "vcr pause")) {
+            reply = r2_reality_tv_vcr_transport("pause") == 0 ? "OK VCR paused" : "ERROR no tape inserted";
+        } else if (!strcmp(command, "vcr stop")) {
+            reply = r2_reality_tv_vcr_transport("stop") == 0 ? "OK VCR stopped" : "ERROR no tape inserted";
+        } else if (!strcmp(command, "vcr eject")) {
+            reply = r2_reality_tv_vcr_transport("eject") == 0 ? "OK VCR tape ejected" : "ERROR no tape inserted";
+        } else if (!strncmp(command, "vcr position ", 13)) {
+            char *end = NULL;
+            double seconds = strtod(command + 13, &end);
+            if (end != command + 13 && *end == '\0' && isfinite(seconds) && seconds >= 0.0)
+                reply = r2_reality_tv_vcr_set_position(seconds) == 0 ? "OK VCR position saved" : "ERROR no inserted tape";
+            else reply = "ERROR invalid VCR position";
         }
 
         (void)send(client, reply, strlen(reply), MSG_NOSIGNAL);
