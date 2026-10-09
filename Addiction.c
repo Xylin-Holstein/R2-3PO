@@ -94,7 +94,7 @@ static int upsert_target_locked(const char *target, const char *target_type,
     sqlite3_stmt *st = NULL;
     int rc = sqlite3_prepare_v2(addiction_db,
         "INSERT INTO addiction_targets(target,target_type,enjoyment,status,first_seen,last_chosen,updated_at)"
-        " VALUES(?,?,?,'inactive',?,?,?)"
+        " VALUES(?,?,?,'inactive',?,NULL,?)"
         " ON CONFLICT(target) DO UPDATE SET target_type=excluded.target_type,"
         " enjoyment=excluded.enjoyment,updated_at=excluded.updated_at",
         -1, &st, NULL);
@@ -104,7 +104,6 @@ static int upsert_target_locked(const char *target, const char *target_type,
         sqlite3_bind_int(st, 3, enjoyment);
         sqlite3_bind_int64(st, 4, now);
         sqlite3_bind_int64(st, 5, now);
-        sqlite3_bind_int64(st, 6, now);
         rc = sqlite3_step(st);
     }
     if (st) sqlite3_finalize(st);
