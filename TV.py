@@ -314,7 +314,7 @@ class CRTDisplay:
                 if not tape_path:
                     headline = "VCR EMPTY\nNO TAPE INSERTED"
                 elif transport == "play":
-                    headline = ""
+                    headline = "" if self._player is not None else "VLC PLAYBACK UNAVAILABLE"
                 elif transport == "pause":
                     headline = "VCR PAUSED"
                 else:
