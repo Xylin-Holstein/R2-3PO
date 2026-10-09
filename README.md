@@ -30,7 +30,7 @@ gcc -std=c11 -Wall -Wextra -O2 \
 
 ## Compilation source inventory
 
-The build requires these nine C translation units:
+The build requires these ten C translation units:
 
 - `r2.c` — core
 - `shell.c` — command shell
