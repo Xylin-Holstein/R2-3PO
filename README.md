@@ -23,20 +23,21 @@ You can also compile directly with the same source list and libraries:
 
 ```sh
 gcc -std=c11 -Wall -Wextra -O2 \
-  r2.c shell.c r2_diary.c Log.c Reality.c Visual.c Ears.c Eyes.c \
+  r2.c shell.c r2_diary.c Log.c Reality.c AlternateSelf.c Visual.c Ears.c Eyes.c \
   -o r2 \
   -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
 ```
 
 ## Compilation source inventory
 
-The build requires these eight C translation units:
+The build requires these nine C translation units:
 
 - `r2.c` — core
 - `shell.c` — command shell
 - `r2_diary.c` — diary subsystem
 - `Log.c` — factual Life Log chronology
 - `Reality.c` — persistent self-continuity, world state, room objects, needs, and inventory containers
+- `AlternateSelf.c` — persistent, explicitly hypothetical Choice Lab branches
 - `Visual.c` — vision-model integration
 - `Ears.c` — audio input
 - `Eyes.c` — visual input
