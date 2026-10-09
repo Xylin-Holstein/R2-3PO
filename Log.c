@@ -395,6 +395,7 @@ int r2_log_init(void)
     }
 
     sqlite3_busy_timeout(log_db, 5000);
+    sqlite3_exec(log_db, "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;", NULL, NULL, NULL);
 
     if (ensure_tables() != 0) {
         sqlite3_close(log_db);
