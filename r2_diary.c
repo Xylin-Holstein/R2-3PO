@@ -391,6 +391,18 @@ static int r2_workspace_path(
     }
 
     /*
+     * A dangling symlink makes realpath() fail even though the directory
+     * entry exists. Do not mistake it for a new file: fopen("w") would
+     * follow that symlink and could create a file outside the workspace.
+     */
+    else
+    {
+        struct stat target_stat;
+        if (lstat(candidate, &target_stat) == 0 || errno != ENOENT)
+            return -1;
+    }
+
+    /*
      * --------------------------------------------------------
      * New target
      * --------------------------------------------------------
