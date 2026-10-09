@@ -48,6 +48,8 @@
 #define _XOPEN_SOURCE 700
 
 #include "r2_diary.h"
+#include "r2.h"
+#include "Log.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -64,6 +66,8 @@
 #include <time.h>
 #include <pthread.h>
 #include <sqlite3.h>
+#include <stdint.h>
+#include <inttypes.h>
 
 
 /* ============================================================
@@ -658,6 +662,27 @@ int r2_diary_init(void)
         NULL,
         NULL
     );
+
+    /* Cross-reference private diary entries with the Life Log without
+       copying diary prose into the public/factual event stream. */
+    result = sqlite3_exec(
+        r2_diary_db,
+        "CREATE TABLE IF NOT EXISTS r2_diary_entry_links ("
+        " diary_entry_id INTEGER PRIMARY KEY,"
+        " log_event_id INTEGER,"
+        " relationship TEXT NOT NULL DEFAULT 'reflection',"
+        " linked_at TEXT NOT NULL,"
+        " memory_indexed INTEGER NOT NULL DEFAULT 0);"
+        "CREATE INDEX IF NOT EXISTS r2_diary_entry_links_event_idx "
+        "ON r2_diary_entry_links(log_event_id);",
+        NULL, NULL, &error_message
+    );
+    if (result != SQLITE_OK) {
+        fprintf(stderr, "[R2 DIARY] Could not create diary linkage table: %s\\n",
+                error_message ? error_message : "unknown error");
+        sqlite3_free(error_message);
+        return -1;
+    }
 
     printf(
         "[R2 DIARY] Initialized.\n"
