@@ -11,6 +11,8 @@ extern "C" {
  * limited to +1..+5; penalties are limited to -1..-7. Enjoyment modifiers
  * are temporary and decay rather than permanently rewriting preferences. */
 int r2_reward_init(void);
+/* Retry cross-linking persisted reward rows to Life Log events after startup. */
+int r2_reward_reconnect_history(int limit);
 void r2_reward_shutdown(void);
 int r2_reward_apply(const char *target, const char *source, int points,
                     const char *reason, int voluntary_choice);
