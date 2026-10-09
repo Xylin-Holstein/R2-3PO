@@ -18,6 +18,8 @@ PUBLIC_EVENT_TYPES = frozenset({
     # Generic future hooks for verified activity sessions and location changes.
     "activity_started", "activity_progress", "activity_ended",
     "location_changed", "departure", "arrival",
+    # Explicitly public Game Boy device/session facts; raw button presses stay private to the device log.
+    "gameboy_device_action", "gameboy_game_started", "gameboy_console_powered_off",
 })
 def is_observer_event(category: str, event_type: str) -> bool:
     """True only for explicitly approved factual event types/categories."""
