@@ -142,8 +142,11 @@ static unsigned char *encode_jpeg(const R2VisionFrame *frame, size_t *jpeg_lengt
         frame->format.pixel_format != R2_PIXEL_RGB24)
         return NULL;
 
-    uint64_t expected = (uint64_t)frame->format.width *
-                        (uint64_t)frame->format.height * 3U;
+    uint64_t width = (uint64_t)frame->format.width;
+    uint64_t height = (uint64_t)frame->format.height;
+    if (height == 0 || width > UINT64_MAX / height / 3U)
+        return NULL;
+    uint64_t expected = width * height * 3U;
     if (expected != frame->size || expected > 100U * 1024U * 1024U)
         return NULL;
 
@@ -153,9 +156,14 @@ static unsigned char *encode_jpeg(const R2VisionFrame *frame, size_t *jpeg_lengt
     if (ppm_fd < 0) return NULL;
     int jpg_fd = mkstemps(jpg_template, 4);
     if (jpg_fd < 0) { close(ppm_fd); unlink(ppm_template); return NULL; }
-    close(jpg_fd);
-    unlink(jpg_template);
-
+    if (close(jpg_fd) != 0) {
+        close(ppm_fd);
+        unlink(ppm_template);
+        unlink(jpg_template);
+        return NULL;
+    }
+    /* Keep the unique file created by mkstemps; ffmpeg's -y overwrites it. */
+    
     char header[128];
     int header_len = snprintf(header, sizeof(header), "P6\n%u %u\n255\n",
                               frame->format.width, frame->format.height);
