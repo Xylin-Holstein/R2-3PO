@@ -298,7 +298,7 @@ echo
 
 # Run the observer as r2 to preserve private database permissions.
 # Do not pass R2's virtual-clock environment to the observer.
-sudo -u r2 env DISPLAY="${DISPLAY:-}" XAUTHORITY="${XAUTHORITY:-}" \
+sudo -u r2 env DISPLAY="${DISPLAY:-}" XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}" \
     python3 "$R2_SOURCE/Observer.py" &
 OBSERVER_PID=$!
 
