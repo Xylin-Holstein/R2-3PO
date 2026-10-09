@@ -6915,7 +6915,7 @@ static char *r2_talk_impl(const char *message)
     if (!reply) {
         /* First generation failed. Refresh live Reality context and rebuild the
            memory/history-augmented prompt once before giving up on this turn. */
-        r2_log_event(R2_LOG_WARN, "conversation_generation_retry",
+        r2_log_event(R2_LOG_SYSTEM, "conversation_generation_retry",
                      "R2's first contextual response attempt failed; refreshing context and retrying once.",
                      "The original user turn remains in memory; the temporary intent summary is reused if available.",
                      "r2_talk");
