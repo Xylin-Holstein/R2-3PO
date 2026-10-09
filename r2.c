@@ -4831,6 +4831,10 @@ static char *process_tools(
             int rc = r2_eat_fridge_and_learn(fields[1], -1.0);
             APPEND("FRIDGE %s: eating '%s' %s.\n", rc == 0 ? "RESULT" : "ERROR", fields[1],
                    rc == 0 ? "reduced hunger and consumed fridge stock" : "failed; item may not be in the fridge");
+        } else if (nf >= 2 && !strcasecmp(fields[0], "fridge_store")) {
+            int rc = r2_reality_move_item(fields[1], "fridge");
+            APPEND("FRIDGE %s: '%s' %s.\n", rc == 0 ? "RESULT" : "ERROR", fields[1],
+                   rc == 0 ? "was moved from inventory into the fridge" : "could not be stored");
         } else if (nf >= 3 && !strcasecmp(fields[0], "eat")) {
             double fullness = !strcasecmp(fields[2], "auto") ? -1.0 : atof(fields[2]);
             int rc = r2_eat_and_learn(fields[1], fullness);
