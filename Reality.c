@@ -381,7 +381,7 @@ char *r2_reality_context(void)
     char *out=malloc(n);
     if(out) snprintf(out,n,
         "PERSISTENT REALITY CONTEXT (authoritative database state; do not invent changes):\n%s\n%s\n"
-        "WORLD ACTIONS: Use [WORLD] look to inspect the room; [WORLD] add|name|description|container|quantity to create an item; [WORLD] move|name|container to move it; [WORLD] remove|name to remove it; [WORLD] self|key|value|evidence to record a self-state fact. Containers: room, shelf, box, pockets, wallet; named containers can be created by moving an item to a new container name. Ask before moving or deleting a user's important item. Do not claim an action succeeded unless the action result confirms it.",
+        "WORLD ACTIONS: Use [WORLD] look to inspect the room; [WORLD] add|name|description|container|quantity to create an item; [WORLD] move|name|container to move it; [WORLD] remove|name to remove it; [WORLD] eat|food|fullness_points to update hunger; [WORLD] sleep|hours to advance sleep recovery; [WORLD] dream|description to record a reported dream; [WORLD] self|key|value|evidence to record a self-state fact. Containers: room, shelf, box, pockets, wallet; named containers can be created by moving an item to a new container name. Food fullness points are modeled values, not measured biological facts. Sleep still advances hunger and elapsed need state. Dreams are stored as reports, not independently verified facts. Ask before moving or deleting a user's important item. Do not claim an action succeeded unless the action result confirms it.",
         status,room);
     free(status); free(room);
     return out;
@@ -396,11 +396,10 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
     char old_container[REALITY_MAX_TEXT + 1] = {0};
     pthread_mutex_lock(&reality_lock);
     sqlite3_stmt *prior = NULL;
-    if (sqlite3_prepare_v2(reality_db, "SELECT container,description,quantity FROM r2_reality_objects WHERE name=? COLLATE NOCASE", -1, &prior, NULL) == SQLITE_OK) {
+    if (sqlite3_prepare_v2(reality_db, "SELECT container FROM r2_reality_objects WHERE name=? COLLATE NOCASE", -1, &prior, NULL) == SQLITE_OK) {
         bind_text(prior, 1, name);
         if (sqlite3_step(prior) == SQLITE_ROW) {
             const unsigned char *oc = sqlite3_column_text(prior, 0);
-            const unsigned char *od = sqlite3_column_text(prior, 1);
             if (oc) snprintf(old_container, sizeof(old_container), "%s", (const char *)oc);
         }
     }
@@ -523,6 +522,9 @@ int r2_reality_sleep(double hours)
     if (!r2_reality_is_initialized() || hours <= 0.0 || hours > 48.0) return -1;
     if (r2_reality_tick() != 0) return -1;
     pthread_mutex_lock(&reality_lock);
+    /* Sleeping advances the modeled body clock: needs still accrue during
+       sleep, then rest restores energy and reduces sleepiness. */
+    update_hunger_locked(hours * 3600.0);
     sqlite3_stmt *st = NULL;
     int rc = sqlite3_prepare_v2(reality_db,
         "UPDATE r2_reality_self SET sleepiness=MAX(0,sleepiness-?), energy=MIN(100,energy+?), updated_at=CURRENT_TIMESTAMP WHERE id=1",
