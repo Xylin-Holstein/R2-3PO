@@ -350,7 +350,8 @@ static const char *SYSTEM_PROMPT =
 "When a proposed purchase has no user-supplied or otherwise evidenced price, do not invent a price or pretend a store has stock. Ask for the price or wait for explicit price information. Only execute [WORLD] buy|item name|price|description|destination after the item, price, and intended destination are established; report failure if funds or the transaction are insufficient.\n"
 "Use [WORLD] location|location name|home or [WORLD] location|location name|outside only when simulated movement is actually being carried out, not merely planned. Use home only for the actual home; stores and other away places use outside. The location transition persists, and private Welcome Home memory is created only after an away-to-home transition.\n"
 "For a real activity/device session, use [WORLD] activity_start|activity key|activity or game name|optional details only when it actually starts, and [WORLD] activity_end|activity key|last verified state|stop reason|optional details when it actually ends. Use a stable generic key such as gameboy:game-title; never assume a device exists or invent gameplay. If the last in-game state or reason is not known, record unknown rather than guessing.\n"
-"The virtual Game Boy Advance is a separate persistent device at " R2_ROOT "/Devices/GameBoyAdvance/GameBoyAdvance. Use only these [WORLD] actions: gameboy_status, gameboy_list, gameboy_insert|ROM_FILENAME, gameboy_eject, gameboy_power_on, gameboy_power_off, gameboy_press|BUTTON|DURATION_MS. Insert/eject only while powered off; if powered on, the console refuses cartridge changes. Opening the console powers it on; with no cartridge, no emulator starts. Powering off does not issue an in-game save or create a save state. Buttons: A, B, L, R, START, SELECT, UP, DOWN, LEFT, RIGHT. Use the filename only, never an arbitrary path. Keep physical console activity distinct from virtual gameplay. The console can verify which ROM is loaded and which inputs were sent, but do not claim that a character collected an item, reached a goal, or completed a game unless a game-specific observer independently verifies it.\n"
+"The CRT television is a persistent physical object in R2's room, with built-in VCR on AV input 1. TV power/source and visual attention are separate; turning it on does not open Eyes or prove watching. External AV inputs and RF channels have signal only when an explicitly connected device is present; unused RF remains NO SIGNAL (no snow-show yet). Use [WORLD] tv_status, tv_power|on/off, tv_input|1..4, tv_tune|2..13, tv_connect|device name|input/RF|port, or tv_disconnect|device name to update the persistent TV state.\n"
+        "The virtual Game Boy Advance is a separate persistent device at " R2_ROOT "/Devices/GameBoyAdvance/GameBoyAdvance. Use only these [WORLD] actions: gameboy_status, gameboy_list, gameboy_insert|ROM_FILENAME, gameboy_eject, gameboy_power_on, gameboy_power_off, gameboy_press|BUTTON|DURATION_MS. Insert/eject only while powered off; if powered on, the console refuses cartridge changes. Opening the console powers it on; with no cartridge, no emulator starts. Powering off does not issue an in-game save or create a save state. Buttons: A, B, L, R, START, SELECT, UP, DOWN, LEFT, RIGHT. Use the filename only, never an arbitrary path. Keep physical console activity distinct from virtual gameplay. The console can verify which ROM is loaded and which inputs were sent, but do not claim that a character collected an item, reached a goal, or completed a game unless a game-specific observer independently verifies it.\n"
 "\n"
 "============================================================\n"
 "GENERAL\n"
@@ -5416,6 +5417,38 @@ static char *process_tools(
             int rc = r2_eat_fridge_and_learn(fields[1], -1.0);
             APPEND("FRIDGE %s: eating '%s' %s.\n", rc == 0 ? "RESULT" : "ERROR", fields[1],
                    rc == 0 ? "reduced hunger and consumed fridge stock" : "failed; item may not be in the fridge");
+        } else if (nf == 1 && !strcasecmp(fields[0], "tv_status")) {
+            char *tv = r2_reality_tv_status();
+            APPEND("TV STATUS:\n%s", tv ? tv : "TV state unavailable.\n");
+            free(tv);
+        } else if (nf >= 2 && !strcasecmp(fields[0], "tv_power")) {
+            int on = !strcasecmp(fields[1], "on") ? 1 : !strcasecmp(fields[1], "off") ? 0 : -1;
+            int rc = on >= 0 ? r2_reality_tv_power(on) : -1;
+            APPEND("TV %s: power %s. Eyes/attention are separate and were not changed.\n",
+                   rc == 0 ? "RESULT" : "ERROR", on ? "on" : "off");
+        } else if (nf >= 2 && !strcasecmp(fields[0], "tv_input")) {
+            char *end = NULL; long input = strtol(fields[1], &end, 10);
+            int rc = (end != fields[1] && !*end && input >= 1 && input <= 4)
+                ? r2_reality_tv_select_input((int)input) : -1;
+            APPEND("TV %s: AV input %s.\n", rc == 0 ? "RESULT" : "ERROR", fields[1]);
+        } else if (nf >= 2 && !strcasecmp(fields[0], "tv_tune")) {
+            char *end = NULL; long channel = strtol(fields[1], &end, 10);
+            int rc = (end != fields[1] && !*end && channel >= 2 && channel <= 13)
+                ? r2_reality_tv_tune_rf((int)channel) : -1;
+            char *tv = r2_reality_tv_status();
+            APPEND("TV %s: RF channel %s selected. Current state:\n%s",
+                   rc == 0 ? "RESULT" : "ERROR", fields[1], tv ? tv : "unavailable\n");
+            free(tv);
+        } else if (nf >= 4 && !strcasecmp(fields[0], "tv_connect")) {
+            char *end = NULL; long port = strtol(fields[3], &end, 10);
+            int rc = (end != fields[3] && !*end)
+                ? r2_reality_tv_connect(fields[1], fields[2], (int)port) : -1;
+            APPEND("TV DEVICE %s: %s connected to %s %s.\n",
+                   rc == 0 ? "RESULT" : "ERROR", fields[1], fields[2], fields[3]);
+        } else if (nf >= 2 && !strcasecmp(fields[0], "tv_disconnect")) {
+            int rc = r2_reality_tv_disconnect(fields[1]);
+            APPEND("TV DEVICE %s: %s disconnected.\n",
+                   rc == 0 ? "RESULT" : "ERROR", fields[1]);
         } else if (nf >= 2 && !strcasecmp(fields[0], "fridge_store")) {
             int rc = r2_reality_move_item(fields[1], "fridge");
             APPEND("FRIDGE %s: '%s' %s.\n", rc == 0 ? "RESULT" : "ERROR", fields[1],
