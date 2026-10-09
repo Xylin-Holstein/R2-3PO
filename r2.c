@@ -284,6 +284,17 @@ static const char *SYSTEM_PROMPT =
 "Do not substitute a description of file contents for an actual WRITE.\n"
 "\n"
 "============================================================\n"
+"ALTERNATE-SELF LAB (COUNTERFACTUAL BRANCHES)\n"
+"============================================================\n"
+"Your Alternate-Self Lab stores explicit what-if scenarios separately from factual events.\n"
+"These branches are hypotheses, not memories of things that actually happened.\n"
+"To inspect branches, use [ALTERNATE_LIST].\n"
+"To inspect one branch, use [ALTERNATE_SHOW] branch_id.\n"
+"To retrieve two branches for comparison, use [ALTERNATE_COMPARE] first_id second_id.\n"
+"Compare only the supplied branches and their stated evidence; separate assumptions from observed facts.\n"
+"Do not claim a predicted outcome happened. Do not discard or retain branches unless the user asks.\n"
+"\n"
+"============================================================\n"
 "REAL BACKGROUND HANDS\n"
 "============================================================\n"
 "When you want the computer to perform a task, use:\n"
@@ -4110,6 +4121,41 @@ static char *process_tools(
             results[len] = '\0';                                     \
         }                                                             \
     } while (0)
+
+    if (strstr(reply, "[ALTERNATE_LIST]")) {
+        char *branches = r2_altself_list(20);
+        if (branches) {
+            APPEND("ALTERNATE-SELF LAB RESULT (all entries are hypothetical):\\n%s\\n", branches);
+            free(branches);
+        } else {
+            APPEND("ALTERNATE-SELF LAB ERROR: branch storage is unavailable.\\n");
+        }
+    }
+
+    const char *alt_marker = strstr(reply, "[ALTERNATE_SHOW]");
+    if (alt_marker) {
+        long long branch_id = 0;
+        if (sscanf(alt_marker + strlen("[ALTERNATE_SHOW]"), "%lld", &branch_id) == 1 && branch_id > 0) {
+            char *branch = r2_altself_show((int64_t)branch_id);
+            if (branch) {
+                APPEND("ALTERNATE-SELF BRANCH (hypothetical only):\\n%s\\n", branch);
+                free(branch);
+            } else APPEND("ALTERNATE-SELF LAB ERROR: branch could not be read.\\n");
+        } else APPEND("ALTERNATE-SELF LAB ERROR: expected a positive branch ID.\\n");
+    }
+
+    alt_marker = strstr(reply, "[ALTERNATE_COMPARE]");
+    if (alt_marker) {
+        long long first_id = 0, second_id = 0;
+        if (sscanf(alt_marker + strlen("[ALTERNATE_COMPARE]"), "%lld %lld", &first_id, &second_id) == 2 &&
+            first_id > 0 && second_id > 0) {
+            char *branches = r2_altself_compare((int64_t)first_id, (int64_t)second_id);
+            if (branches) {
+                APPEND("ALTERNATE-SELF COMPARISON INPUT (hypothetical branches; not factual events):\\n%s\\n", branches);
+                free(branches);
+            } else APPEND("ALTERNATE-SELF LAB ERROR: branches could not be compared.\\n");
+        } else APPEND("ALTERNATE-SELF LAB ERROR: expected two positive branch IDs.\\n");
+    }
 
     if (strstr(reply, "[READ_DIARY]")) {
 
