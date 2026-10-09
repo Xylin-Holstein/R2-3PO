@@ -5325,7 +5325,9 @@ int r2_vision_close(void)
 
 int r2_eyes_start(void)
 {
+    pthread_mutex_lock(&visual_capture_lock);
     int rc = eyes ? r2_eyes_open_camera(eyes) : -1;
+    pthread_mutex_unlock(&visual_capture_lock);
     r2_log_event(R2_LOG_SENSORY, rc == 0 ? "eyes_started" : "eyes_start_failed",
                  rc == 0 ? "R2 Eyes camera was opened." : "R2 Eyes camera could not be opened.",
                  NULL, "r2_eyes_start");
@@ -5335,9 +5337,11 @@ int r2_eyes_start(void)
 int r2_eyes_stop(void)
 {
     if (!eyes) return -1;
+    pthread_mutex_lock(&visual_capture_lock);
     r2_eyes_close(eyes);
+    pthread_mutex_unlock(&visual_capture_lock);
     r2_log_event(R2_LOG_SENSORY, "eyes_stopped",
-                 "R2 Eyes camera was closed.", NULL, "r2_eyes_stop");
+                 "R2 Eyes input was closed.", NULL, "r2_eyes_stop");
     return 0;
 }
 
