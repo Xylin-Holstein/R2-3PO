@@ -1463,10 +1463,6 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
         }
     }
     if (prior) sqlite3_finalize(prior);
-    if (!*old_container || !container_accessible(old_container) || !container_accessible(container)) {
-        pthread_mutex_unlock(&reality_lock);
-        return -1;
-    }
     sqlite3_stmt *st=NULL;
     int rc=sqlite3_prepare_v2(reality_db,"INSERT INTO r2_reality_containers(name,kind,description,parent) VALUES(?,?,?,?) ON CONFLICT(name) DO NOTHING",-1,&st,NULL);
     if(rc==SQLITE_OK){bind_text(st,1,container);bind_text(st,2,container_is_inventory(container)?"inventory":"container");bind_text(st,3,"Persistent object container");bind_text(st,4,container_parent_name(container));rc=sqlite3_step(st);}
@@ -1590,6 +1586,10 @@ int r2_reality_move_item(const char *name,const char *container)
         }
     }
     if (prior) sqlite3_finalize(prior);
+    if (!*old_container || !container_accessible(old_container) || !container_accessible(container)) {
+        pthread_mutex_unlock(&reality_lock);
+        return -1;
+    }
     sqlite3_stmt *st=NULL;
     int rc=sqlite3_prepare_v2(reality_db,"INSERT INTO r2_reality_containers(name,kind,description,parent) VALUES(?,?,?,?) ON CONFLICT(name) DO NOTHING",-1,&st,NULL);
     if(rc==SQLITE_OK){bind_text(st,1,container);bind_text(st,2,container_is_inventory(container)?"inventory":"container");bind_text(st,3,"Persistent object container");bind_text(st,4,container_parent_name(container));rc=sqlite3_step(st);}
