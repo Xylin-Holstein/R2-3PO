@@ -11,6 +11,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/stat.h>
 
 /*
  * R2-3PO Eyes
@@ -90,12 +91,70 @@ struct R2Eyes
     uint64_t frame_count;
     uint64_t timestamp;
     uint64_t last_log_timestamp;
+    uint64_t last_vwebcam_timestamp;
 
     R2VisionEvent event;
     R2VisionFrame frame;
 
     char source_name[512];
 };
+
+/*
+ * V-Webcam is a read-only monitor of the exact RGB frames already
+ * received by Eyes. It does not capture a second stream or influence
+ * visual analysis. Files stay private to the dedicated r2 account.
+ */
+#define R2_VWEBCAM_DIR "/tmp/r2-vwebcam-r2"
+
+static int r2_vwebcam_write_status(const R2Eyes *eyes, int active)
+{
+    if (mkdir(R2_VWEBCAM_DIR, 0700) != 0 && errno != EEXIST)
+        return -1;
+    char tmp[256], path[256];
+    snprintf(path, sizeof(path), "%s/status.txt", R2_VWEBCAM_DIR);
+    snprintf(tmp, sizeof(tmp), "%s/status.txt.tmp", R2_VWEBCAM_DIR);
+    FILE *f = fopen(tmp, "w");
+    if (!f) return -1;
+    int ok = fprintf(f, "%d\n%s\n%u\n%u\n%llu\n",
+        active && eyes && eyes->open ? 1 : 0,
+        (eyes && eyes->source_name[0]) ? eyes->source_name : "No source",
+        (eyes && eyes->open) ? eyes->format.width : 0,
+        (eyes && eyes->open) ? eyes->format.height : 0,
+        (unsigned long long)((eyes && eyes->open) ? eyes->frame_count : 0)) >= 0;
+    if (fclose(f) != 0) ok = 0;
+    if (!ok || rename(tmp, path) != 0) { unlink(tmp); return -1; }
+    return 0;
+}
+
+static void r2_vwebcam_publish_frame(R2Eyes *eyes)
+{
+    if (!eyes || !eyes->open || !eyes->frame_buffer ||
+        eyes->format.pixel_format != R2_PIXEL_RGB24)
+        return;
+
+    /* Keep the display responsive without writing ten full frames/sec. */
+    if (eyes->last_vwebcam_timestamp &&
+        eyes->timestamp >= eyes->last_vwebcam_timestamp &&
+        eyes->timestamp - eyes->last_vwebcam_timestamp < 500)
+        return;
+
+    if (mkdir(R2_VWEBCAM_DIR, 0700) != 0 && errno != EEXIST)
+        return;
+
+    char tmp[256], path[256];
+    snprintf(path, sizeof(path), "%s/frame.ppm", R2_VWEBCAM_DIR);
+    snprintf(tmp, sizeof(tmp), "%s/frame.ppm.tmp", R2_VWEBCAM_DIR);
+    FILE *f = fopen(tmp, "wb");
+    if (!f) return;
+    int ok = fprintf(f, "P6\n%u %u\n255\n",
+                     eyes->format.width, eyes->format.height) > 0 &&
+             fwrite(eyes->frame_buffer, 1, eyes->frame_size, f) == eyes->frame_size;
+    if (fclose(f) != 0) ok = 0;
+    if (!ok || rename(tmp, path) != 0) { unlink(tmp); return; }
+
+    eyes->last_vwebcam_timestamp = eyes->timestamp;
+    (void)r2_vwebcam_write_status(eyes, 1);
+}
 
 static uint64_t r2_eyes_timestamp(void)
 {
@@ -333,6 +392,9 @@ static void r2_eyes_reset_frame(R2Eyes *eyes)
 
     eyes->frame.frame_number =
         eyes->frame_count;
+
+    /* Publish a display-only copy of the same frame R2 received. */
+    r2_vwebcam_publish_frame(eyes);
 
     eyes->frame.timestamp =
         eyes->timestamp;
@@ -680,6 +742,8 @@ void r2_eyes_close(R2Eyes *eyes)
     if (!eyes)
         return;
 
+    (void)r2_vwebcam_write_status(eyes, 0);
+
     if (eyes->stream)
     {
         pclose(eyes->stream);
@@ -704,6 +768,7 @@ void r2_eyes_close(R2Eyes *eyes)
     eyes->frame_count = 0;
     eyes->timestamp = 0;
     eyes->last_log_timestamp = 0;
+    eyes->last_vwebcam_timestamp = 0;
 
     memset(
         eyes->source_name,
@@ -828,6 +893,7 @@ static int r2_eyes_open_internal(
 
     r2_eyes_reset_event(eyes);
     r2_eyes_reset_frame(eyes);
+    (void)r2_vwebcam_write_status(eyes, 1);
 
     char details[768];
     snprintf(details, sizeof(details),
@@ -997,6 +1063,7 @@ int r2_eyes_open_vlc(
 
     r2_eyes_reset_event(eyes);
     r2_eyes_reset_frame(eyes);
+    (void)r2_vwebcam_write_status(eyes, 1);
 
     r2_log_sensory("vision_source_opened",
                    "R2 Eyes began capturing the visible VLC window.",
