@@ -41,7 +41,7 @@ The build requires these eight C translation units:
 - `Ears.c` — audio input
 - `Eyes.c` — visual input
 
-Their matching headers are included in the repository: `r2.h`, `shell.h`, `r2_diary.h`, `Log.h`, `Reality.h`, `Visual.h`, `Ears.h`, and `Eyes.h`.
+Their matching headers are included in the repository: `r2.h`, `shell.h`, `r2_diary.h`, `Log.h`, `Reality.h`, `AlternateSelf.h`, `Visual.h`, `Ears.h`, and `Eyes.h`.
 
 GitHub Actions checks shell-script syntax and compiles this source set on pushes to the audit branch and the configured main branches. A successful compile confirms compilation/linking only; it does not exercise Ollama, live audio/video devices, or the runtime database.
 
