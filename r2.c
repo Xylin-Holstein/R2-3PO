@@ -142,6 +142,8 @@ static int watch_running = 0;
 static int diary_initialized = 0;
 
 static void log_structured_self_report(const char *reply, int64_t parent_event_id);
+static char *append_reality_context(char *base);
+static void autonomous_needs_check(void);
 
 
 
