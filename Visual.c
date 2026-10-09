@@ -41,7 +41,7 @@ struct response_buffer {
 static size_t response_write(char *ptr, size_t size, size_t nmemb, void *userdata)
 {
     struct response_buffer *b = userdata;
-    if (!b || size && nmemb > SIZE_MAX / size) return 0;
+    if (!b || (size && nmemb > SIZE_MAX / size)) return 0;
     size_t amount = size * nmemb;
     if (amount > R2_VISION_MAX_RESPONSE - b->length) return 0;
     size_t needed = b->length + amount + 1;
@@ -393,10 +393,24 @@ char *r2_visual_analyze_frame(const R2VisionFrame *frame,
     if (!description) { free(jpeg); return NULL; }
 
     char image_path[PATH_MAX];
-    snprintf(image_path, sizeof(image_path), "%s/visual_%llu_%llu.jpg",
-             visual_directory,
-             (unsigned long long)frame->timestamp,
-             (unsigned long long)frame->frame_number);
+    char image_suffix[128];
+    int suffix_length = snprintf(image_suffix, sizeof(image_suffix),
+                                 "/visual_%llu_%llu.jpg",
+                                 (unsigned long long)frame->timestamp,
+                                 (unsigned long long)frame->frame_number);
+    size_t directory_length = strlen(visual_directory);
+    if (suffix_length < 0 ||
+        (size_t)suffix_length >= sizeof(image_suffix) ||
+        directory_length + (size_t)suffix_length >= sizeof(image_path)) {
+        r2_log_sensory("visual_image_archive_path_too_long",
+                       "R2 analyzed a frame but could not archive it because the image path was too long.",
+                       "The encoded image was not written to disk.", source);
+        free(jpeg);
+        free(description);
+        return NULL;
+    }
+    memcpy(image_path, visual_directory, directory_length);
+    memcpy(image_path + directory_length, image_suffix, (size_t)suffix_length + 1);
     int image_fd = open(image_path, O_WRONLY | O_CREAT | O_EXCL, 0640);
     if (image_fd < 0 || write_all(image_fd, jpeg, jpeg_length) != 0) {
         if (image_fd >= 0) close(image_fd);
