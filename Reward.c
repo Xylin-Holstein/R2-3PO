@@ -47,7 +47,7 @@ static int ensure_db_locked(void)
         "CREATE TABLE IF NOT EXISTS reward_totals ("
         " id INTEGER PRIMARY KEY CHECK(id=1), points INTEGER NOT NULL DEFAULT 0,"
         " updated_at INTEGER NOT NULL);"
-        "INSERT OR IGNORE INTO reward_totals(id,points,updated_at) VALUES(1,0,unixepoch());"
+        "INSERT OR IGNORE INTO reward_totals(id,points,updated_at) VALUES(1,0,CAST(strftime('%s','now') AS INTEGER));"
         "CREATE TABLE IF NOT EXISTS reward_events ("
         " id INTEGER PRIMARY KEY AUTOINCREMENT, target TEXT NOT NULL,"
         " source TEXT NOT NULL, points INTEGER NOT NULL CHECK(points BETWEEN -7 AND 5 AND points<>0),"
