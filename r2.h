@@ -90,6 +90,15 @@ int r2_is_shutting_down(void);
 char *r2_talk(const char *message);
 
 /*
+ * Send an Android companion message through a dedicated live transcript.
+ * The terminal and Android histories are isolated; both share persistent
+ * memories, diary, tools, and Life Log. Set new_session to reset only the
+ * Android conversation's short-term history.
+ * Returned string is allocated by the R2 core and must be freed by caller.
+ */
+char *r2_talk_remote(const char *message, int new_session);
+
+/*
  * Explicitly begin a distinct live conversation session.
  * Existing turns remain in the Life Log and persistent memory.
  * Returns 0 on success, -1 if the core is unavailable.
