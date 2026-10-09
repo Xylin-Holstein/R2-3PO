@@ -280,13 +280,16 @@ static int make_room_dirs(void)
 {
     char room[1024], shelf[1100], box[1100], pockets[1100], wallet[1200];
     char fridge[1100], piggybank[1100], diary[1100];
-    char old_pockets[1200], old_wallet[1200], old_fridge[1200], old_toy_box[1200];
+    char old_pockets[1200], old_wallet[1200], old_room_pockets[1200], old_room_wallet[1200];
+    char old_fridge[1200], old_toy_box[1200];
     snprintf(room,sizeof(room),"%s/room",R2_ROOT); snprintf(shelf,sizeof(shelf),"%s/shelf",room);
     snprintf(box,sizeof(box),"%s/box",room); snprintf(pockets,sizeof(pockets),"%s/Pockets",R2_ROOT);
     snprintf(wallet,sizeof(wallet),"%s/Wallet",pockets);
     snprintf(fridge,sizeof(fridge),"%s/fridge",R2_ROOT); snprintf(piggybank,sizeof(piggybank),"%s/piggybank",room);
     snprintf(old_pockets,sizeof(old_pockets),"%s/pockets",R2_ROOT);
     snprintf(old_wallet,sizeof(old_wallet),"%s/pockets/wallet",R2_ROOT);
+    snprintf(old_room_pockets,sizeof(old_room_pockets),"%s/room/pockets",R2_ROOT);
+    snprintf(old_room_wallet,sizeof(old_room_wallet),"%s/room/wallet",R2_ROOT);
     snprintf(old_fridge,sizeof(old_fridge),"%s/room/fridge",R2_ROOT);
     snprintf(old_toy_box,sizeof(old_toy_box),"%s/room/toy_box",R2_ROOT);
     snprintf(diary,sizeof(diary),"%s",R2_DIARY_DIR);
@@ -298,6 +301,8 @@ static int make_room_dirs(void)
     }
     if (migrate_mirror_directory(old_pockets, pockets) != 0 ||
         migrate_mirror_directory(old_wallet, wallet) != 0 ||
+        migrate_mirror_directory(old_room_pockets, pockets) != 0 ||
+        migrate_mirror_directory(old_room_wallet, wallet) != 0 ||
         migrate_mirror_directory(old_fridge, fridge) != 0 ||
         migrate_mirror_directory(old_toy_box, box) != 0) {
         fprintf(stderr, "[R2 Reality] Could not migrate one or more old mirror directories.\n");
