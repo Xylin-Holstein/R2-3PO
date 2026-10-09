@@ -98,6 +98,9 @@
 
 static sqlite3 *r2_diary_db = NULL;
 
+/* Keep insert -> last_insert_rowid -> linkage atomic across caller threads. */
+static pthread_mutex_t r2_diary_write_lock = PTHREAD_MUTEX_INITIALIZER;
+
 
 /* ============================================================
  * INTERNAL HELPERS
@@ -964,7 +967,7 @@ int r2_diary_reconnect_history(int limit)
  * ============================================================
  */
 
-int r2_diary_write(
+static int r2_diary_write_unlocked(
     const char *entry
 )
 {
@@ -1170,6 +1173,21 @@ int r2_diary_write(
  *
  * Caller MUST free() the returned string.
  *
+ * ============================================================
+ */
+
+int r2_diary_write(const char *entry)
+{
+    int rc;
+    pthread_mutex_lock(&r2_diary_write_lock);
+    rc = r2_diary_write_unlocked(entry);
+    pthread_mutex_unlock(&r2_diary_write_lock);
+    return rc;
+}
+
+
+/* ============================================================
+ * RECENT DIARY ENTRIES
  * ============================================================
  */
 
