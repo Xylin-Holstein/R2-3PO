@@ -327,9 +327,18 @@ private fun R2RemoteScreen(
                         modifier = Modifier.fillMaxWidth(), label = { Text("Search memories") },
                         enabled = !busy
                     )
-                    Button(enabled = !busy && memoryQuery.isNotBlank(), onClick = {
-                        runRequest({ it.memories(memoryQuery.trim()) })
-                    }) { Icon(Icons.Default.Search, null); Spacer(Modifier.width(6.dp)); Text("Search R2's memories") }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(enabled = !busy, onClick = {
+                            runRequest({ it.recentMemories(100) })
+                        }, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.History, null); Spacer(Modifier.width(6.dp)); Text("Recent memories")
+                        }
+                        Button(enabled = !busy && memoryQuery.isNotBlank(), onClick = {
+                            runRequest({ it.memories(memoryQuery.trim()) })
+                        }, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.Search, null); Spacer(Modifier.width(6.dp)); Text("Search")
+                        }
+                    }
                     Text(output, Modifier.weight(1f).verticalScroll(rememberScrollState()))
                 }
                 Section.MEDIA -> {
