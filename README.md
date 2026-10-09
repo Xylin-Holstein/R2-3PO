@@ -19,6 +19,29 @@ make clean all
 
 The resulting executable is `./r2`. To remove it, run `make clean`.
 
+## Ollama model: conversation and vision
+
+R2's default conversation model and visual-perception model are both `gemma3:4b`.
+Install the model locally before launching R2:
+
+```sh
+ollama pull gemma3:4b
+ollama run gemma3:4b
+```
+
+At the Ollama prompt, test a short message and then enter `/bye`. The launch script
+also reports the expected model name. R2 uses the same model for text and image input;
+visual inference shares the Ollama request lock with conversation and yields when a
+foreground conversation is waiting. Ordinary conversation does not trigger a new frame
+analysis unless the user asks about visual context; ongoing Eyes/VLC observation can
+continue through its existing watcher. If a vision request cannot run, its incomplete
+result is discarded rather than being treated as a valid observation.
+
+R2 builds a completed conversational response from the current user message and
+relevant memories/perceptions. A separate intent-summary inference is not used as an
+intermediate replacement for the answer. Build and smoke tests do not replace a live
+test with the locally installed Ollama model and actual Eyes/TV setup.
+
 You can also compile directly with the same source list and libraries:
 
 ```sh
@@ -45,7 +68,7 @@ The build requires these ten C translation units:
 
 Their matching headers are included in the repository: `r2.h`, `shell.h`, `r2_diary.h`, `Log.h`, `Reality.h`, `Addiction.h`, `AlternateSelf.h`, `Visual.h`, `Ears.h`, and `Eyes.h`.
 
-GitHub Actions checks shell-script syntax and compiles this source set on pushes to the audit branch and the configured main branches. A successful compile confirms compilation/linking only; it does not exercise Ollama, live audio/video devices, or the runtime database.
+GitHub Actions checks shell-script syntax and compiles this source set on pushes to the audit branch and the configured main branches. It also runs isolated smoke tests for file-authoritative money (seed, deletion, restart, deposit/withdrawal, purchase rollback, and cents) and the GBA launcher/lifecycle. These tests do not exercise Ollama, live audio/video devices, or the user's actual graphical desktop.
 
 
 ## Choice Lab, age, senses, and money
@@ -56,7 +79,7 @@ Sensory counterfactuals can ask what a hypothetical view, sound, taste, smell, o
 
 R2's age is measured from the filesystem birth/creation time of `R2/r2_original_conversation.txt` (the original conversation archive), saved in Reality metadata so later edits do not reset it. If the file is absent or the filesystem does not expose a creation timestamp, age is left unestablished rather than guessed from modification time.
 
-Money is a crude persistent prototype, not a built-in shop. `money` shows carried cash and bank balance; `money receive 40` records an explicit gift/payment as cash; the one-time initial $5 balance is seeded separately; `money deposit 30` moves $30 cash into `room/piggybank/`; `money withdraw 10` returns $10 to cash. `money buy Chair | 20 | A chair | room` deducts the price (cash first, then bank) and places the chair in the room; omitting the destination puts a purchased item in pockets so it can be carried to the fridge or elsewhere. A one-time initial $5 cash balance is seeded into carried money and mirrored in `pockets/wallet/cash.txt`; this migration is tracked in Reality metadata so restarts never grant it again. No store stock, products, or prices are hardcoded.
+Money is a crude persistent prototype, not a built-in shop. `money` shows carried cash and piggybank balance; `money receive 40` records an explicit gift/payment as cash; the initial $5 is seeded once into the physical `Pockets/Wallet/` directory as five separate `$1` files (`money`, `money(1)`, etc.). Deleting a bill deletes that dollar permanently, including across restarts. `change.txt` records cents below $1; the piggybank `room/piggybank/account.txt` and SQLite account are derived summaries, not the source of truth. `money deposit 1.50` moves physical value from `Pockets/Wallet/` to `room/piggybank/`; `money withdraw 0.50` returns it. `money buy Soda | 3.50 | A drink | fridge` deducts carried cash first and then piggybank funds, and adds the item to fridge stock; if item placement fails, funds are restored. Purchases are rejected when funds are insufficient. Each money operation is bounded to $1,000,000. No store stock, products, or prices are hardcoded.
 
 ## Diary, Life Log, and persistent-memory continuity
 
@@ -97,12 +120,12 @@ On startup, R2 creates these workspace directories if missing:
 - `room/` — objects currently in the room
 - `room/shelf/` — physical shelf location
 - `room/box/` — physical storage-box location
-- `pockets/` — portable inventory; items remain accessible wherever R2 goes
-- `pockets/wallet/` — portable wallet, including the mirrored carried-cash balance in `cash.txt`
+- `Pockets/` — portable inventory; item mirrors and the physical wallet share this hierarchy
+- `Pockets/Wallet/` — physical wallet; each bill is a separate file and `change.txt` stores cents
 - `fridge/` — fixed home fridge, with human-readable mirrors for the separate fridge inventory
 - `room/piggybank/` — bank-account mirror file (`account.txt`); SQLite remains authoritative
 
-The dedicated reality database stores current objects, needs, collection-memory events, food experiences, and learned preferences. The separate `r2_addictions.db` stores enjoyment updates and voluntary-choice history for foods and other activities. A high enjoyment score alone never creates an addiction label: the evaluator requires repeated choices across multiple days, and logs meaningful enjoyment/status changes to the Life Log. The shell commands `addictions`, `give <item> <quantity>`, `give money <quantity>`, and `gameboy verify` expose the habit history, creator gifts, and console verification. Creator gifts are recorded in the Life Log; ordinary gifts create tracked objects from nothing. `give money 5` creates five distinct physical money inventory objects (each with its own `.r2item` mirror in pockets by default), without inventing a dollar denomination or changing the cash/bank account. The desktop Observer Log explicitly allowlists factual `creator_gift`, `enjoyment_changed`, and `addiction_status_changed` events; private thoughts and diary content remain excluded. The addiction database references target names and event evidence while ordinary searchable memory receives concise Life Log pointers through the existing integration. The fridge has its own independent `r2_fridge.db`; its stock is not stored in the room inventory database. If the fridge is completely empty, it generates one burger with configured fullness of 100/100 and energy bonus 10. R2 can inspect it with `fridge`, move one item into his pockets with `fridge take burger`, eat directly from it with `fridge eat burger`, or store a tracked inventory item with `fridge store burger`. World actions that add an item to or move an item into the `fridge` container write to the fridge database rather than the room-object database. The fridge is physically at home and is accessible only while R2 is home. The persistent location state is synchronized with the Reality database: while away, R2 can access only his portable `pockets/` and `pockets/wallet/`; room objects and fridge stock are inaccessible until he returns home. The physical folders `pockets/` and `pockets/wallet/` mirror carried items and wallet cash; the old `room/pockets/`, `room/wallet/`, and `room/toy_box/` mirrors are migrated non-destructively on startup. If an object is in R2's pockets, its `.r2item` file is placed in `pockets/`; moving it elsewhere updates its mirror location. Current inventory stays exact even when the collection-memory record loses precision. On startup, R2 creates `room/food_metrics.xml` if it is missing. Put one XML entry per line inside the `<foods>` root, for example `<food name="burger" fullness="100" energy="10" ingredients="bread,beef,cheese" taste="savory, warm, salty" />`. `fullness` is the hunger reduction (0–100); `energy` is an optional energy bonus; `ingredients` is a comma-separated ingredient list; `taste` is an optional sensory description. These fields describe food, not a hard-coded like/dislike. If `eat <food>` has no explicit value, R2 looks up the food by name in this file and reports an error rather than guessing when no metric exists.
+The dedicated reality database stores current objects, needs, collection-memory events, food experiences, and learned preferences. The separate `r2_addictions.db` stores enjoyment updates and voluntary-choice history for foods and other activities. A high enjoyment score alone never creates an addiction label: the evaluator requires repeated choices across multiple days, and logs meaningful enjoyment/status changes to the Life Log. The shell commands `addictions`, `give <item> <quantity>`, `give money <quantity>`, and `gameboy verify` expose the habit history, creator gifts, and console verification. Creator gifts are recorded in the Life Log; ordinary gifts create tracked objects from nothing. `give money 5` explicitly grants five $1 bills in `Pockets/Wallet/`; it is a creator gift, so it changes the actual cash balance rather than creating generic inventory objects. The desktop Observer Log explicitly allowlists factual `creator_gift`, `enjoyment_changed`, and `addiction_status_changed` events; private thoughts and diary content remain excluded. The addiction database references target names and event evidence while ordinary searchable memory receives concise Life Log pointers through the existing integration. The fridge has its own independent `r2_fridge.db`; its stock is not stored in the room inventory database. If the fridge is completely empty, it generates one burger with configured fullness of 100/100 and energy bonus 10. R2 can inspect it with `fridge`, move one item into his pockets with `fridge take burger`, eat directly from it with `fridge eat burger`, or store a tracked inventory item with `fridge store burger`. World actions that add an item to or move an item into the `fridge` container write to the fridge database rather than the room-object database. The fridge is physically at home and is accessible only while R2 is home. The persistent location state is synchronized with the Reality database: while away, R2 can access only his portable `Pockets/` inventory and `Pockets/Wallet/`; room objects and fridge stock are inaccessible until he returns home. The physical folders `Pockets/` and `Pockets/Wallet/` mirror portable items and hold authoritative money files; legacy `.r2item` mirrors from lowercase `pockets/`, `pockets/wallet/`, `room/pockets/`, and `room/wallet/` are migrated non-destructively on startup. If an object is in R2's pockets, its `.r2item` file is placed in `Pockets/`; moving it elsewhere updates its mirror location. Current inventory stays exact even when the collection-memory record loses precision. On startup, R2 creates `room/food_metrics.xml` if it is missing. Put one XML entry per line inside the `<foods>` root, for example `<food name="burger" fullness="100" energy="10" ingredients="bread,beef,cheese" taste="savory, warm, salty" />`. `fullness` is the hunger reduction (0–100); `energy` is an optional energy bonus; `ingredients` is a comma-separated ingredient list; `taste` is an optional sensory description. These fields describe food, not a hard-coded like/dislike. If `eat <food>` has no explicit value, R2 looks up the food by name in this file and reports an error rather than guessing when no metric exists.
 
 Shell examples:
 
@@ -143,7 +166,7 @@ Collection memories preserve exact quantities for 7 days, become approximate
 without exact quantity or timing. This decay applies only to collection memory:
 current inventory quantities and object locations remain exact. For example, R2
 can forget how many rocks he collected while still knowing he currently has 20 rocks
-in `pockets/`. Dream entries remain simulated reports, not waking events or
+in `Pockets/`. Dream entries remain simulated reports, not waking events or
 independently verified facts.
 
 
@@ -156,7 +179,7 @@ The C Life Log now has generic persistent activity-session APIs, also callable t
  
 ## Virtual Game Boy Advance console
 
-The GameBoyAdvance.py program is the source for R2's virtual console. Run bash install_gameboy_console.sh from this repository to install the executable at /home/x/R2_Home/Devices/GameBoyAdvance/GameBoyAdvance (override the destination with R2_GAMEBOY_DIR). The emulator stays external at /usr/games/mgba-qt by default; set R2_MGBA_EXECUTABLE if the path differs. The desktop launcher and `gameboy` shell command power on using the one ROM recorded in the cartridge slot; `gameboy verify` checks the emulator executable, writable directories, and current ROM path before launch. The console creates its own gameboy.db, Cartridges/, Saves/, and State/ directory. Loose .gba, .gb, and .gbc ROM files belong in Cartridges/. The gameboy.db file contains only the single cartridge-slot record (the current ROM path/title, or NULL when empty); power state, process/session details, and device event history live separately in State/console_state.db. The ROM files themselves are never replaced or deleted by cartridge changes.
+The GameBoyAdvance.py program is the source for R2's virtual console. Run bash install_gameboy_console.sh from this repository to install the executable at /home/x/R2_Home/Devices/GameBoyAdvance/GameBoyAdvance (override the destination with R2_GAMEBOY_DIR). The emulator stays external at /usr/games/mgba-qt by default; set R2_MGBA_EXECUTABLE if the path differs. The installer also registers a desktop-app entry at `/home/x/.local/share/applications/GameBoyAdvance.desktop` (override with `R2_DESKTOP_DIR`); launch it from the application menu rather than running the `.desktop` file through bash. The installer registers a desktop-app entry at `/home/x/.local/share/applications/GameBoyAdvance.desktop` (override with `R2_DESKTOP_DIR`); launch it from the application menu rather than running the `.desktop` file through bash. The desktop launcher and `gameboy` shell command power on using the one ROM recorded in the cartridge slot; `gameboy verify` checks the emulator executable, writable directories, and current ROM path before launch. The console creates its own gameboy.db, Cartridges/, Saves/, and State/ directory. Loose .gba, .gb, and .gbc ROM files belong in Cartridges/. The gameboy.db file contains only the single cartridge-slot record (the current ROM path/title, or NULL when empty); power state, process/session details, and device event history live separately in State/console_state.db. The ROM files themselves are never replaced or deleted by cartridge changes.
 
 Opening the executable with no arguments is equivalent to powering the console on. Powering on with no cartridge leaves the console on but does not start mGBA. Cartridge insertion/ejection is rejected while powered on. Power off stops the emulator without issuing an in-game save command or creating a save state; the cartridge remains inserted until explicitly ejected while powered off. Ordinary game save data is stored separately in Saves/. The console uses its own mGBA configuration, disables periodic save-state autosaving, rewind, and the usual save/load-state keyboard shortcuts. mGBA's menu still exists, so this is a console-interface restriction rather than a security boundary against a human manually clicking emulator menus.
 
@@ -189,3 +212,22 @@ The reinforcement engine uses a dedicated `r2_rewards.db` ledger under `R2/`; it
 Positive signals are capped at +1 through +5 points. Corrective signals are capped at -7 points, and the temporary enjoyment modifier decays over 30 minutes. This modifier is separate from persistent food preferences, so a mistake does not permanently teach R2 to dislike an activity. Each reward row stores its linked Life Log event ID and memory-indexing status; startup retries interrupted links without duplicating an already-created event. Reinforcement summaries are bridged to the Life Log, searchable memory pointers, and Observer's existing public enjoyment-change allowlist; private diary prose is never copied into reward-event details. Rewarded voluntary activities may also inform the existing Addiction/habit evaluator through its public API.
 
 Diary review includes one narrow continuity correction rule for the currently tracked identity-attribution mistake: a diary that explicitly says Eli is not real and redirects identity to the user/creator earns +5; a diary that mentions Eli without that correction receives -7; other successfully persisted diary entries earn +1. This is a simple phrase-based rule, not a general semantic judge, and should be expanded only with testable correction patterns. Reward points are simulated feedback, not a measure of R2's worth or consciousness.
+
+
+Money is backed by individual files in `Pockets/Wallet` and `room/piggybank`: each `money`/`money(N)` file represents $1, `change.txt` represents cents, and SQLite/account text are derived summaries. The five-dollar wallet grant occurs once only; deleting or spending a money file does not cause it to be recreated.
+
+
+## Game Boy Advance console
+
+The console controller is installed at `/home/x/R2_Home/Devices/GameBoyAdvance/GameBoyAdvance`. The installer places a desktop-entry copy at `/home/x/R2_Home/Pockets/GameBoyAdvance.desktop` and registers a normal desktop launcher under `~/.local/share/applications/`. The pocket file is launcher metadata, not a shell script; launch it through a desktop-entry handler rather than executing it as a command. The configured emulator defaults to `/usr/games/mgba-qt`; override it with `R2_MGBA_EXECUTABLE` if the executable is elsewhere. The installer checks the controller and launcher paths and reports whether the emulator path is executable. After installing mGBA, run the controller's `verify` command to inspect emulator and cartridge-slot state. An empty cartridge slot is valid when R2 does not yet own a game; do not record game ownership or play activity until a cartridge and actual session are verified.
+
+## CRT television and built-in VCR
+
+The CRT television is seeded as a persistent physical object in R2's Reality world at `room`; initialization uses `INSERT OR IGNORE`, so an existing TV object that R2 has moved is not moved back on restart. TV power, selected input, explicitly connected external devices, inserted VCR tape, transport state, and per-file playback position live in the authoritative `r2_reality.db`. The GUI reads Reality state read-only and sends controls to the running shell through the private Unix socket `/home/x/R2_Home/R2/tv-control.sock`; it does not write SQLite state itself. The room launcher runs the GUI as Linux user `r2`, which owns the private database and socket. It removes the desktop user's `XAUTHORITY` and passes `DISPLAY`; launch the TV while `R2_Launch_Code.sh` is running, because that launcher temporarily grants `r2` access to the desktop display. The launcher keeps a terminal available for `sudo` authentication if needed.
+
+Run `bash install_tv.sh` from this repository to place the device files under `/home/x/R2_Home/room/TV/` and create the media directory `/home/x/R2_Home/VCR_Tapes/`. Open `room/TV/TV.desktop` from R2's room to launch the GUI. The installed `device.txt` is descriptive metadata; Reality remains authoritative. Set `R2_HOME`, `R2_TV_DIR`, `R2_VCR_MEDIA_DIR`, `R2_REALITY_DB`, or `R2_TV_SOCKET` to override default paths when running/installing in a test environment. The shell must be running for GUI controls to change Reality state.
+
+The built-in VCR is AV input 1. Place supported video files in `VCR_Tapes/`, then use the GUI's insert/play/pause/stop/eject controls. Tape position is saved in Reality and retained when a tape is ejected and reinserted. Playback depends on the local VLC/libVLC runtime. AV inputs 2–4 and RF channels 2–13 remain `NO SIGNAL` unless a named device has been explicitly connected to that input/channel. Unused RF channels stay unavailable; no static or snow-show is fabricated. TV power and source selection do not imply that R2 is watching and do not open Eyes or alter visual attention.
+
+The automated tests cover read-only state display, control-command validation/socket transport, empty versus connected signal sources, persistent VCR position display, and installing the device files under a temporary `room/TV/` directory. They do not prove that VLC opens on the real desktop; verify that interactively on R2's machine.
+
