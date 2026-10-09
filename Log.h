@@ -94,6 +94,18 @@ int64_t r2_log_event_with_memory(
 int r2_log_session_start(void);
 int r2_log_session_end(const char *reason);
 
+/* Generic device/game/activity session hooks. Activity names are not hardcoded;
+ * a future Game Boy or other device can use the same tracker.
+ * Pass "unknown" when the last verified state or stop reason is unavailable.
+ */
+int64_t r2_log_activity_start(const char *activity_key,
+                              const char *activity_name,
+                              const char *details);
+int64_t r2_log_activity_end(const char *activity_key,
+                            const char *last_verified_state,
+                            const char *stop_reason,
+                            const char *details);
+
 /* Persist an explicit location transition. Welcome Home is private and only
  * created on a previously-away to home transition.
  */
