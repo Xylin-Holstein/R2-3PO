@@ -4443,6 +4443,66 @@ static void gameboy_start_activity_sessions(const char *title)
                           "physical_and_virtual_views_of_same_session", game);
 }
 
+/* Pull only adapter-verified virtual events into the authoritative Life Log.
+ * Each console event is acknowledged only after the Life Log insert succeeds. */
+static int sync_gameboy_verified_events(void)
+{
+    char output[8192] = {0};
+    int rc = run_gameboy_console("events", NULL, NULL, output, sizeof(output));
+    if (rc != 0 || !output[0])
+        return 0;
+    struct json_object *events = json_tokener_parse(output);
+    if (!events || !json_object_is_type(events, json_type_array)) {
+        if (events) json_object_put(events);
+        return 0;
+    }
+
+    int synced = 0;
+    size_t count = json_object_array_length(events);
+    for (size_t i = 0; i < count; ++i) {
+        struct json_object *item = json_object_array_get_idx(events, i);
+        struct json_object *id_object = NULL;
+        if (!item || !json_object_is_type(item, json_type_object) ||
+            !json_object_object_get_ex(item, "event_id", &id_object))
+            continue;
+        int64_t event_id = json_object_get_int64(id_object);
+        const char *event_type = gameboy_json_string(item, "event_type", "unknown");
+        const char *summary_text = gameboy_json_string(item, "summary", "Verified game event.");
+        const char *details_text = gameboy_json_string(item, "details", "");
+        const char *title = gameboy_json_string(item, "game_title", "unknown game");
+        const char *evidence = gameboy_json_string(item, "evidence_source", "unknown");
+        const char *session = gameboy_json_string(item, "session_id", "unknown");
+        const char *timestamp = gameboy_json_string(item, "timestamp", "unknown");
+        if (event_id <= 0 || !*evidence || strncmp(evidence, "adapter:", 8) != 0)
+            continue;
+
+        char summary[1200];
+        char details[4096];
+        snprintf(summary, sizeof(summary), "%s: %.800s",
+                 title && *title ? title : "Game Boy game",
+                 summary_text ? summary_text : "Verified game event.");
+        snprintf(details, sizeof(details),
+                 "context=virtual; event_type=%s; game_title=%s; "
+                 "evidence_source=%s; console_event_id=%lld; session_id=%s; "
+                 "observed_at=%s; adapter_details=%.2200s",
+                 event_type, title, evidence, (long long)event_id,
+                 session, timestamp, details_text ? details_text : "");
+        int64_t life_event_id = r2_log_event(
+            R2_LOG_WORLD, "gameboy_game_event", summary, details, "GameBoyAdvance");
+        if (life_event_id <= 0)
+            continue;
+
+        char event_id_text[32];
+        char ack_output[512] = {0};
+        snprintf(event_id_text, sizeof(event_id_text), "%lld", (long long)event_id);
+        if (run_gameboy_console("ack_event", event_id_text, NULL,
+                                ack_output, sizeof(ack_output)) == 0)
+            synced++;
+    }
+    json_object_put(events);
+    return synced;
+}
+
 static char *process_tools(
     const char *reply)
 {
@@ -5185,6 +5245,13 @@ static char *process_tools(
             } else {
                 APPEND("GAME BOY CONSOLE: %s\n",
                        message ? message : "command completed");
+            }
+
+            if (command_ok) {
+                int synced_events = sync_gameboy_verified_events();
+                if (synced_events > 0)
+                    APPEND("GAME BOY: synchronized %d verified in-game event(s) with the Life Log.\\n",
+                           synced_events);
             }
 
             if (command_ok && command &&
