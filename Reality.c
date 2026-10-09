@@ -594,7 +594,7 @@ int r2_fridge_add_item(const char *name, const char *description, int quantity,
         "INSERT INTO r2_fridge_items(name,description,quantity,fullness,energy,ingredients,taste) VALUES(?,?,?,?,?,?,?) "
         "ON CONFLICT(name) DO UPDATE SET description=excluded.description,quantity=r2_fridge_items.quantity+excluded.quantity,"
         "fullness=excluded.fullness,energy=excluded.energy,ingredients=excluded.ingredients,taste=excluded.taste,updated_at=CURRENT_TIMESTAMP",
-        -1, &st, NULL);
+        -1, &st, NULL) : SQLITE_ERROR;
     if (rc == SQLITE_OK) {
         bind_text(st, 1, name); bind_text(st, 2, description ? description : "");
         sqlite3_bind_int(st, 3, quantity); sqlite3_bind_double(st, 4, fullness); sqlite3_bind_double(st, 5, energy);
