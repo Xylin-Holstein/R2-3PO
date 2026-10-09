@@ -3121,6 +3121,7 @@ static char *chat_with_relevant_memories(
 
         size_t n =
             strlen(memory_context) +
+            strlen(copy[base_count - 1].content) +
             2048;
 
         char *combined =
