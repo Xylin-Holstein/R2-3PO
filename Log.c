@@ -28,6 +28,7 @@
 #include "Log.h"
 #include "r2.h"
 #include "r2_diary.h"
+#include "SensoryJournal.h"
 
 #include <errno.h>
 #include <inttypes.h>
@@ -551,6 +552,10 @@ int64_t r2_log_event(
 
     sqlite3_finalize(statement);
     pthread_mutex_unlock(&log_lock);
+
+    /* Index only the original event ID; the journal never rewrites the event. */
+    if (inserted_id > 0 && log_initialized)
+        r2_sj_index_event(inserted_id, category_name(category), event_type, source);
 
     return inserted_id;
 }
