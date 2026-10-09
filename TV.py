@@ -325,6 +325,8 @@ class CRTDisplay:
 
             showing_vcr = bool(power and kind == "input" and value == 1 and tape_path
                                and transport == "play" and self._player is not None)
+            if self._player:
+                self._player.audio_set_mute(not bool(power and kind == "input" and value == 1))
             if showing_vcr:
                 self.video_surface.lift()
             else:
