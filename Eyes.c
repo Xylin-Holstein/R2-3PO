@@ -2,6 +2,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "Eyes.h"
+#include "Log.h"
 
 #include <errno.h>
 #include <stdint.h>
@@ -88,6 +89,7 @@ struct R2Eyes
 
     uint64_t frame_count;
     uint64_t timestamp;
+    uint64_t last_log_timestamp;
 
     R2VisionEvent event;
     R2VisionFrame frame;
@@ -683,11 +685,24 @@ void r2_eyes_close(R2Eyes *eyes)
         eyes->stream = NULL;
     }
 
+    if (eyes->open) {
+        char details[768];
+        snprintf(details, sizeof(details),
+                 "source=%s; frames_captured=%llu; resolution=%ux%u",
+                 eyes->source_name[0] ? eyes->source_name : "(unknown)",
+                 (unsigned long long)eyes->frame_count,
+                 eyes->format.width, eyes->format.height);
+        r2_log_sensory("vision_source_closed",
+                       "R2 Eyes stopped receiving visual frames.",
+                       details, "Eyes.c");
+    }
+
     eyes->open = 0;
     eyes->source_is_live = 0;
     eyes->origin = R2_VISION_NONE;
     eyes->frame_count = 0;
     eyes->timestamp = 0;
+    eyes->last_log_timestamp = 0;
 
     memset(
         eyes->source_name,
@@ -799,6 +814,15 @@ static int r2_eyes_open_internal(
 
     r2_eyes_reset_event(eyes);
     r2_eyes_reset_frame(eyes);
+
+    char details[768];
+    snprintf(details, sizeof(details),
+             "origin=%s; resolution=%ux%u; pixel_format=RGB24; sampling_fps=%d",
+             origin == R2_VISION_WORLD ? "world_camera" : "file",
+             width, height, R2_EYES_FPS);
+    r2_log_sensory("vision_source_opened",
+                   "R2 Eyes opened a visual input source.",
+                   details, eyes->source_name);
 
     return 0;
 }
@@ -956,6 +980,11 @@ int r2_eyes_open_vlc(
     r2_eyes_reset_event(eyes);
     r2_eyes_reset_frame(eyes);
 
+    r2_log_sensory("vision_source_opened",
+                   "R2 Eyes began capturing the visible VLC window.",
+                   "origin=VLC; frames are raw pixels until a vision model interprets them.",
+                   "VLC");
+
     return 0;
 }
 
@@ -1039,6 +1068,29 @@ int r2_eyes_capture(
 
     eyes->frame.frame_number =
         eyes->frame_count;
+
+    /*
+     * Record a bounded-rate sensory journal heartbeat instead of
+     * writing a database row for every 10-fps frame. The full frame
+     * remains available to the consumer; this entry documents that
+     * real pixels arrived and identifies their source and format.
+     */
+    if (eyes->last_log_timestamp == 0 ||
+        eyes->timestamp - eyes->last_log_timestamp >= 5000) {
+        char details[768];
+        snprintf(details, sizeof(details),
+                 "source=%s; frame=%llu; resolution=%ux%u; bytes=%zu; "
+                 "timestamp_ms=%llu; interpretation=not_performed_by_Eyes",
+                 eyes->source_name,
+                 (unsigned long long)eyes->frame_count,
+                 eyes->format.width, eyes->format.height,
+                 eyes->frame_size,
+                 (unsigned long long)eyes->timestamp);
+        r2_log_sensory("visual_frame_received",
+                       "R2 Eyes received a real visual frame.",
+                       details, eyes->source_name);
+        eyes->last_log_timestamp = eyes->timestamp;
+    }
 
     return 1;
 }
