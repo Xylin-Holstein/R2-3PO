@@ -2223,7 +2223,7 @@ static char *workspace_list(const char *rel)
     }
 
     if (entries_truncated) {
-        const char *note = "[listing truncated after 10000 entries]\\n";
+        const char *note = "[listing truncated after 10000 entries]\n";
         size_t note_length = strlen(note);
         if (len + note_length + 1 > cap) {
             char *expanded = realloc(out, len + note_length + 1);
