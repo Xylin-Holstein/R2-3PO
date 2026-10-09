@@ -402,7 +402,7 @@ static void handle_request(int fd)
                                     "Please respond to me naturally about the uploaded media. "
                                     "Be clear that a video observation may describe only a sampled frame.",
                                     media_type, upload_path, vision);
-                                reply = r2_talk(prompt);
+                                reply = r2_talk_remote(prompt, 0);
                             }
                         }
                         struct json_object *o = json_object_new_object();
@@ -522,15 +522,7 @@ static void handle_request(int fd)
             respond_error(fd, 400, "Bad Request",
                           "message must be non-empty and at most 65536 bytes");
         } else {
-            if (new_session && r2_conversation_session_begin("remote_api") != 0) {
-                respond_error(fd, 503, "Service Unavailable",
-                              "R2 could not begin a new conversation session");
-                if (request) json_object_put(request);
-                free(body);
-                free(buffer);
-                return;
-            }
-            char *reply = r2_talk(message);
+            char *reply = r2_talk_remote(message, new_session);
             if (!reply) {
                 respond_error(fd, 503, "Service Unavailable",
                               "R2 could not complete the conversation request");
