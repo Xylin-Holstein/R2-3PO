@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import importlib.util
 import sqlite3
+import socket
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -32,6 +34,7 @@ class TVDisplaySmoke(unittest.TestCase):
                 );
             """)
         TV.DB_PATH = self.db_path
+        TV.SOCKET_PATH = Path(self.tempdir.name) / "tv-control.sock"
 
     def set_state(self, power: int, kind: str, value: int) -> None:
         with sqlite3.connect(self.db_path) as db:
@@ -70,6 +73,30 @@ class TVDisplaySmoke(unittest.TestCase):
         before = self.db_path.read_bytes()
         TV.CRTDisplay.read_state(object.__new__(TV.CRTDisplay))
         self.assertEqual(self.db_path.read_bytes(), before)
+
+    def test_control_client_uses_local_socket(self) -> None:
+        received = []
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(str(TV.SOCKET_PATH))
+        server.listen(1)
+
+        def serve_once() -> None:
+            with server:
+                conn, _ = server.accept()
+                with conn:
+                    received.append(conn.recv(256).decode("utf-8"))
+                    conn.sendall(b"OK input selected")
+
+        worker = threading.Thread(target=serve_once)
+        worker.start()
+        self.assertEqual(TV.send_control_command("input 2"), "OK input selected")
+        worker.join(timeout=2)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(received, ["input 2\\n"])
+
+    def test_control_client_rejects_unsupported_commands(self) -> None:
+        with self.assertRaises(ValueError):
+            TV.send_control_command("sql update r2_tv_state")
 
 
 if __name__ == "__main__":
