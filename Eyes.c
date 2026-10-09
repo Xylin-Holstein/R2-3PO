@@ -11,6 +11,8 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/wait.h>
+#include <ctype.h>
 
 /*
  * R2-3PO Eyes
@@ -114,6 +116,8 @@ static char *r2_eyes_shell_quote(const char *input)
         return NULL;
 
     size_t length = strlen(input);
+    if (length > (SIZE_MAX - 3) / 4)
+        return NULL;
     size_t max_size = (length * 4) + 3;
 
     char *output = malloc(max_size);
@@ -169,7 +173,7 @@ static int r2_eyes_probe_dimensions(
 
     char command[4096];
 
-    snprintf(
+    int command_length = snprintf(
         command,
         sizeof(command),
         "ffprobe "
@@ -183,30 +187,48 @@ static int r2_eyes_probe_dimensions(
 
     free(quoted_source);
 
+    if (command_length < 0 || (size_t)command_length >= sizeof(command))
+        return -1;
+
     FILE *probe = popen(command, "r");
 
     if (!probe)
         return -1;
 
-    unsigned int w = 0;
-    unsigned int h = 0;
-
-    int result =
-        fscanf(probe, "%ux%u", &w, &h);
-
+    char dimensions[128];
+    int result = fgets(dimensions, sizeof(dimensions), probe) ? 0 : -1;
     int status = pclose(probe);
-
-    if (result != 2 || status == -1)
+    if (result != 0 || status == -1 ||
+        !WIFEXITED(status) || WEXITSTATUS(status) != 0)
         return -1;
 
-    if (w == 0 || h == 0)
+    char *separator = strchr(dimensions, 'x');
+    if (!separator)
+        return -1;
+    *separator = '\\0';
+
+    errno = 0;
+    char *end = NULL;
+    unsigned long w = strtoul(dimensions, &end, 10);
+    if (errno || end == dimensions)
+        return -1;
+    while (*end && isspace((unsigned char)*end)) ++end;
+    if (*end != '\\0')
         return -1;
 
-    size_t required =
-        (size_t)w *
-        (size_t)h *
-        3;
+    errno = 0;
+    char *height_text = separator + 1;
+    unsigned long h = strtoul(height_text, &end, 10);
+    if (errno || end == height_text)
+        return -1;
+    while (*end && isspace((unsigned char)*end)) ++end;
+    if (*end != '\\0' || w == 0 || h == 0 ||
+        w > UINT32_MAX || h > UINT32_MAX)
+        return -1;
 
+    if ((size_t)w > R2_EYES_MAX_FRAME_BYTES / 3U / (size_t)h)
+        return -1;
+    size_t required = (size_t)w * (size_t)h * 3U;
     if (required > R2_EYES_MAX_FRAME_BYTES)
         return -1;
 
@@ -224,10 +246,13 @@ static int r2_eyes_allocate_native_buffer(
     if (!eyes || width == 0 || height == 0)
         return -1;
 
+    if ((size_t)width > R2_EYES_MAX_FRAME_BYTES / 3U / (size_t)height)
+        return -1;
+
     size_t frame_size =
         (size_t)width *
         (size_t)height *
-        3;
+        3U;
 
     if (frame_size > R2_EYES_MAX_FRAME_BYTES)
         return -1;
