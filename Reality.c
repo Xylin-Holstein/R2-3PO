@@ -121,7 +121,7 @@ static int migrate_mirror_directory(const char *old_dir, const char *new_dir)
 
 static int make_room_dirs(void)
 {
-    char room[1024], shelf[1100], box[1100], pockets[1100], wallet[1100];
+    char room[1024], shelf[1100], box[1100], pockets[1100], wallet[1200];
     char fridge[1100], piggybank[1100], diary[1100];
     char old_pockets[1200], old_wallet[1200], old_fridge[1200], old_toy_box[1200];
     snprintf(room,sizeof(room),"%s/room",R2_ROOT); snprintf(shelf,sizeof(shelf),"%s/shelf",room);
@@ -1374,8 +1374,8 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
     if (mirror_write(name, description, total_quantity, container) != 0)
         fprintf(stderr, "[R2 Reality] Database saved, but room mirror file could not be updated for '%s'.\n", name);
     char summary[512],details[2048];
-    snprintf(summary,sizeof(summary),"R2 recorded item '%s' in %s.",name,container);
-    snprintf(details,sizeof(details),"Item=%s; description=%s; container=%s; quantity=%d",name,description?description:"",container,quantity);
+    snprintf(summary,sizeof(summary),"R2 recorded item '%.200s' in %.200s.",name,container);
+    snprintf(details,sizeof(details),"Item=%.300s; description=%.1200s; container=%.200s; quantity=%d",name,description?description:"",container,quantity);
     bridge_event("object_added",summary,details,1,1);
     return 0;
 }
@@ -1474,8 +1474,8 @@ int r2_reality_move_item(const char *name,const char *container)
     if (mirror_write(name, old_description, old_quantity, container) != 0)
         fprintf(stderr, "[R2 Reality] Database saved, but room mirror file could not be updated for '%s'.\n", name);
     char summary[512],details[2048];
-    snprintf(summary,sizeof(summary),"R2 moved '%s' to %s.",name,container);
-    snprintf(details,sizeof(details),"Object=%s; destination=%s",name,container);
+    snprintf(summary,sizeof(summary),"R2 moved '%.200s' to %.200s.",name,container);
+    snprintf(details,sizeof(details),"Object=%.800s; destination=%.800s",name,container);
     bridge_event("object_moved",summary,details,1,1);
     return 0;
 }
