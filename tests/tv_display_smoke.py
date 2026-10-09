@@ -147,7 +147,7 @@ class TVDisplaySmoke(unittest.TestCase):
         with self.assertRaises(ValueError):
             TV.send_control_command("vcr position -1")
         with self.assertRaises(ValueError):
-            TV.send_control_command("vcr insert /tmp/movie.mp4\\n power off")
+            TV.send_control_command("vcr insert /tmp/movie.mp4\n power off")
 
 if __name__ == "__main__":
     unittest.main()
