@@ -5,6 +5,7 @@
 #include "Reality.h"
 #include "r2_diary.h"
 #include "Log.h"
+#include "Visual.h"
 #include "r2.h"
 
 #include <ctype.h>
@@ -1128,15 +1129,17 @@ char *r2_reality_context(void)
     char *food_experiences = query_text("SELECT food_name,printf('satisfaction %+d/2',satisfaction),notes FROM r2_food_experiences WHERE satisfaction IS NOT NULL ORDER BY eaten_at DESC LIMIT 20", NULL);
     char *foods = food_metrics_context();
     char *fridge=r2_fridge_context(); char *age=origin_age_context(); char *money=r2_reality_money_context();
-    char *recent_log=r2_log_recent(8);
+    char *recent_log=r2_log_recent(5);
+    char *visual_memory=r2_visual_recent(2);
     if(!recent_log) recent_log=strdup("Recent Life Log evidence is unavailable.");
-    if(!status||!room||!facts||!items_memory||!food_preferences||!food_experiences||!foods||!fridge||!age||!money||!recent_log){
-        free(status);free(room);free(fridge);free(facts);free(items_memory);free(food_preferences);free(food_experiences);free(foods);free(age);free(money);free(recent_log);return NULL;}
-    size_t n=strlen(status)+strlen(room)+strlen(fridge)+strlen(facts)+strlen(items_memory)+strlen(food_preferences)+strlen(food_experiences)+strlen(foods)+strlen(age)+strlen(money)+strlen(recent_log)+6000;
+    if(!visual_memory) visual_memory=strdup("No stored visual observations are available.");
+    if(!status||!room||!facts||!items_memory||!food_preferences||!food_experiences||!foods||!fridge||!age||!money||!recent_log||!visual_memory){
+        free(status);free(room);free(fridge);free(facts);free(items_memory);free(food_preferences);free(food_experiences);free(foods);free(age);free(money);free(recent_log);free(visual_memory);return NULL;}
+    size_t n=strlen(status)+strlen(room)+strlen(fridge)+strlen(facts)+strlen(items_memory)+strlen(food_preferences)+strlen(food_experiences)+strlen(foods)+strlen(age)+strlen(money)+strlen(recent_log)+strlen(visual_memory)+6000;
     char *out=malloc(n);
     if(out)snprintf(out,n,
         "PERSISTENT REALITY CONTEXT (authoritative database state; do not invent changes):\n"
-        "%s\n%s\n%s\n%s\n%s\nRECENT LIFE LOG EVIDENCE (events and observations; not automatically current):\n%s\nSELF-CONTINUITY FACTS:\n%s\nCOLLECTION MEMORIES (precision intentionally fades; not current inventory):\n%s\nLEARNED FOOD/INGREDIENT PREFERENCES (subjective scores):\n%s\nRECENT RATED FOOD EXPERIENCES:\n%s\nAVAILABLE FOOD METRICS:\n%s\n"
+        "%s\n%s\n%s\n%s\n%s\nRECENT LIFE LOG EVIDENCE (events and observations; not automatically current):\n%s\nRECENT VISUAL EXPERIENCES (actual stored observations; not necessarily current):\n%s\nSELF-CONTINUITY FACTS:\n%s\nCOLLECTION MEMORIES (precision intentionally fades; not current inventory):\n%s\nLEARNED FOOD/INGREDIENT PREFERENCES (subjective scores):\n%s\nRECENT RATED FOOD EXPERIENCES:\n%s\nAVAILABLE FOOD METRICS:\n%s\n"
         "WORLD ACTIONS: Put one action on its own line. Use [WORLD] look to inspect the room; "
         "[WORLD] add|name|description|container|quantity to collect/add a stack (adds to an existing stack and records a collection memory); "
         "[WORLD] move|name|container to relocate an existing item without counting a new collection; [WORLD] remove|name to remove it; "
@@ -1156,8 +1159,8 @@ char *r2_reality_context(void)
         "SENSORY COUNTERFACTUALS: Imagine what a hypothetical view, sound, taste, smell, or touch might reveal without activating Eyes/Ears, changing the world, or claiming an actual sensation. Label imagined details as predictions. Ask 'what if I looked over here?' or 'would I still like X if I knew Y?' Use recent Life Log observations, learned preferences, and food/ingredient/taste metrics; distinguish evidence from guesses and update preferences only after real experience or explicit feedback. "
         "MONEY: cash is carried money; bank is stored in room/piggybank/. When the user explicitly says R2 receives money, use [WORLD] money_receive|amount; use [WORLD] money_deposit|amount, [WORLD] money_withdraw|amount, or [WORLD] buy|item|price|description|container. A purchase goes to the named destination; use pockets for goods to carry to the fridge, and room for furniture placed in the room. No stock, starting funds, or prices are hardcoded. "
         "Do not claim an action succeeded unless the action result confirms it.",
-        status, room, fridge, age, money, recent_log, facts, items_memory, food_preferences, food_experiences, foods);
-    free(status); free(room); free(fridge); free(facts); free(items_memory); free(food_preferences); free(food_experiences); free(foods); free(age); free(money); free(recent_log);
+        status, room, fridge, age, money, recent_log, visual_memory, facts, items_memory, food_preferences, food_experiences, foods);
+    free(status); free(room); free(fridge); free(facts); free(items_memory); free(food_preferences); free(food_experiences); free(foods); free(age); free(money); free(recent_log); free(visual_memory);
     return out;
 }
 
