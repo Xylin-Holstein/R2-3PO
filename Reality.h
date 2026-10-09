@@ -33,6 +33,8 @@ char *r2_fridge_list(void);
 char *r2_fridge_context(void);
 void r2_fridge_shutdown(void);
 int r2_fridge_take(const char *food);
+int r2_fridge_add_item(const char *name, const char *description, int quantity,
+                       double fullness, double energy, const char *ingredients, const char *taste);
 int r2_reality_fridge_eat(const char *food, double fullness);
 
 /* Persistent object/container operations. */
