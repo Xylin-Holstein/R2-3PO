@@ -267,6 +267,7 @@ int r2_eyes_status(void);
 
 /* Analyze the current frame; opens the camera only for explicit vision requests. */
 int r2_vision_available(void);
+const char *r2_vision_model_name(void);
 int r2_vision_watch_start(void);
 int r2_vision_watch_stop(void);
 int r2_vision_watch_active(void);
