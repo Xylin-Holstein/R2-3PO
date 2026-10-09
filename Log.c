@@ -1309,8 +1309,8 @@ char *r2_log_status_report(void)
         const unsigned char *type = sqlite3_column_text(st, 3);
         const unsigned char *summary = sqlite3_column_text(st, 4);
         if (append_text(&output, &length, &capacity,
-                        "Latest event: #%" PRId64 " at %s (%s/%s)\\n"
-                        "  %s\\n",
+                        "Latest event: #%" PRId64 " at %s (%s/%s)\n"
+                        "  %s\n",
                         sqlite3_column_int64(st, 0),
                         utc ? (const char *)utc : "unknown time",
                         category ? (const char *)category : "unknown",
@@ -1323,7 +1323,7 @@ char *r2_log_status_report(void)
         }
     } else if (rc == SQLITE_DONE) {
         if (append_text(&output, &length, &capacity,
-                        "Latest event: none\\n") != 0) {
+                        "Latest event: none\n") != 0) {
             sqlite3_finalize(st);
             pthread_mutex_unlock(&log_lock);
             free(output);
