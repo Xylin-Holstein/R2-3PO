@@ -4953,6 +4953,7 @@ static void *autonomous_thinking(
         if (shutting_down || !atomic_load(&diary_running))
             break;
 
+        r2_reality_tick();
         uint64_t cycle_started_ms = r2_log_elapsed_ms();
         r2_log_thinking("cycle_started",
                         "Autonomous reflection cycle started.",
@@ -4963,6 +4964,7 @@ static void *autonomous_thinking(
             r2_diary_build_reflection_context(
                 10
             );
+        ctx = append_reality_context(ctx);
 
         if (!ctx) {
             r2_log_event(R2_LOG_ERROR, "reflection_context_failed",
@@ -5440,9 +5442,26 @@ int r2_diary_active(void)
     return diary_initialized ? 1 : 0;
 }
 
+static char *append_reality_context(char *base)
+{
+    char *reality = r2_reality_context();
+    if (!reality) return base;
+    if (!base) {
+        return reality;
+    }
+    size_t n = strlen(base) + strlen(reality) + 128;
+    char *combined = malloc(n);
+    if (combined)
+        snprintf(combined, n, "%s\n\n%s", base, reality);
+    free(base);
+    free(reality);
+    return combined;
+}
+
 int r2_write_diary(void)
 {
     char *ctx = r2_diary_build_reflection_context(10);
+    ctx = append_reality_context(ctx);
     if (!ctx) return -1;
 
     const char *prompt =
