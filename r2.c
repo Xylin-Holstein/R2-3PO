@@ -6089,26 +6089,29 @@ int r2_init(void)
      * The journal indexes the original Life Log events; it does not
      * replace them. Alternate-Self branches remain explicitly hypothetical.
      */
-    if (r2_sj_init() != 0)
+    int sensory_journal_ready = (r2_sj_init() == 0);
+    int alternate_self_ready = (r2_altself_init() == 0);
+
+    if (!sensory_journal_ready)
         r2_log_event(R2_LOG_ERROR, "sensory_journal_init_failed",
                      "Sensory Journal could not initialize.",
                      "Life Log remains available; journal indexing is disabled.",
                      "r2_init");
 
-    if (r2_altself_init() != 0)
+    if (!alternate_self_ready)
         r2_log_event(R2_LOG_ERROR, "alternate_self_init_failed",
                      "Alternate-Self Lab could not initialize.",
                      "Factual memory and the Life Log remain available.",
                      "r2_init");
 
-    if (r2_sj_init() == 0)
+    if (sensory_journal_ready)
         r2_log_continuity("r2_sensory_journal", "subsystem",
                           "Sensory Journal",
                           "Timestamped sensory, thinking, conversation, and diary-write events index the original Life Log records.",
                           "in_progress",
                           "Connect any remaining raw audio/device observations as their interfaces expose them.",
                           "r2_init");
-    if (r2_altself_init() == 0)
+    if (alternate_self_ready)
         r2_log_continuity("r2_alternate_self_lab", "subsystem",
                           "Alternate-Self Lab",
                           "Explicitly hypothetical branches are stored separately from factual events and can be retained as hypotheses or discarded.",
