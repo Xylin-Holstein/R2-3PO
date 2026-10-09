@@ -5138,6 +5138,8 @@ static char *process_tools(
                 console_json, "cartridge_title", "unknown game");
             int game_running = gameboy_json_bool(
                 console_json, "game_running", 0);
+            int cartridge_inserted = gameboy_json_bool(
+                console_json, "cartridge_inserted", 0);
 
             if (command_ok && is_power_on && game_running) {
                 gameboy_end_activity_sessions(
@@ -5167,7 +5169,7 @@ static char *process_tools(
             } else if (is_status && console_json) {
                 APPEND("GAME BOY STATUS: power=%s; cartridge=%s; game_running=%s.\n",
                        gameboy_json_string(console_json, "power_state", "unknown"),
-                       title && *title ? title : "none",
+                       cartridge_inserted ? (title && *title ? title : "unknown game") : "(empty)",
                        game_running ? "yes" : "no");
             } else if (command && !strcmp(command, "list") && console_json &&
                        json_object_is_type(console_json, json_type_array)) {
