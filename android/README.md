@@ -38,7 +38,7 @@ The token is a shared bearer secret. Anyone who obtains it can access the gatewa
 - `POST /api/chat` with JSON `{"message":"..."}`
 - `GET /api/diary?limit=20`
 - `GET /api/life-log?limit=30`
-- `GET /api/memories?query=...`
+- `GET /api/memories?limit=100` (recent saved memories)\n- `GET /api/memories?query=...` (search memories)
 
 The current gateway accepts JSON request bodies up to 2 MiB and text messages up to 64 KiB. It is a minimal single-request-at-a-time HTTP/1.1 server, not yet a general-purpose internet-facing web server.
 
