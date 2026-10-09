@@ -107,6 +107,12 @@ static R2Ears *ears = NULL;
 static pthread_mutex_t visual_capture_lock = PTHREAD_MUTEX_INITIALIZER;
 /* Keep this process from flooding the local text model with concurrent requests. */
 static pthread_mutex_t ollama_request_lock = PTHREAD_MUTEX_INITIALIZER;
+/* Foreground conversations can interrupt background Ollama bookkeeping. */
+static atomic_int foreground_ollama_waiting = ATOMIC_VAR_INIT(0);
+static _Thread_local int ollama_background_mode = 0;
+static pthread_mutex_t post_turn_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t post_turn_cond = PTHREAD_COND_INITIALIZER;
+static unsigned int post_turn_active = 0;
 /* A conversation turn must be atomic so failed-turn rollback cannot erase another turn. */
 static pthread_mutex_t conversation_turn_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t vision_watch_thread;
@@ -2639,7 +2645,9 @@ static int ollama_progress(void *userdata,
     (void)download_now;
     (void)upload_total;
     (void)upload_now;
-    return shutting_down ? 1 : 0;
+    return shutting_down ||
+           (ollama_background_mode &&
+            atomic_load(&foreground_ollama_waiting) > 0) ? 1 : 0;
 }
 
 static char *ollama_chat_with_limit(
@@ -2805,7 +2813,20 @@ static char *ollama_chat_with_limit(
     curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, ollama_progress);
     curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
 
-    pthread_mutex_lock(&ollama_request_lock);
+    if (ollama_background_mode) {
+        /* Never queue background reflection/bookkeeping ahead of a live turn. */
+        if (pthread_mutex_trylock(&ollama_request_lock) != 0) {
+            curl_slist_free_all(headers);
+            curl_easy_cleanup(curl);
+            json_object_put(root);
+            free(b.data);
+            return NULL;
+        }
+    } else {
+        atomic_fetch_add(&foreground_ollama_waiting, 1);
+        pthread_mutex_lock(&ollama_request_lock);
+        atomic_fetch_sub(&foreground_ollama_waiting, 1);
+    }
     CURLcode cc = curl_easy_perform(curl);
     pthread_mutex_unlock(&ollama_request_lock);
 
@@ -2815,6 +2836,14 @@ static char *ollama_chat_with_limit(
     curl_easy_cleanup(curl);
 
     if (cc != CURLE_OK) {
+        /* A background request intentionally yields when a foreground turn
+           arrives or shutdown begins; that is not a user-facing transport error. */
+        if (ollama_background_mode &&
+            (shutting_down || atomic_load(&foreground_ollama_waiting) > 0)) {
+            free(b.data);
+            json_object_put(root);
+            return NULL;
+        }
         const char *why = curl_error[0] ? curl_error : curl_easy_strerror(cc);
         char details[768];
         snprintf(details, sizeof(details),
@@ -2897,8 +2926,12 @@ static char *ollama_chat(
     size_t count,
     const char *system_override)
 {
-    /* Long waits belong only to the user's primary answer, not every helper call. */
-    return ollama_chat_with_limit(msgs, count, system_override, 0, 600L);
+    /* Generic helper calls are background work; live conversations take priority. */
+    int previous_mode = ollama_background_mode;
+    ollama_background_mode = 1;
+    char *result = ollama_chat_with_limit(msgs, count, system_override, 0, 600L);
+    ollama_background_mode = previous_mode;
+    return result;
 }
 
 /*
@@ -6872,6 +6905,81 @@ static void log_structured_self_report(const char *reply, int64_t parent_event_i
 }
 
 
+typedef struct {
+    char *user;
+    char *reply;
+    int64_t event_id;
+} R2PostTurnJob;
+
+static void *post_turn_worker(void *opaque)
+{
+    R2PostTurnJob *job = (R2PostTurnJob *)opaque;
+    if (!job) return NULL;
+    ollama_background_mode = 1;
+
+    log_structured_self_report(job->reply, job->event_id);
+    if (!shutting_down) {
+        char *decision = memory_decision(job->user, job->reply);
+        if (decision) {
+            char *p = trim(decision);
+            if (strcasecmp(p, "NONE") && strchr(p, '|')) {
+                char *sep = strchr(p, '|');
+                *sep = '\0';
+                char *category = trim(p);
+                char *memory = trim(sep + 1);
+                if (*memory && save_memory(memory, category) == 0)
+                    r2_log_event(R2_LOG_MEMORY, "memory_saved",
+                                 "A persistent memory was saved after the conversation response was delivered.",
+                                 memory, category);
+            }
+            free(decision);
+        }
+    }
+
+    ollama_background_mode = 0;
+    free(job->user);
+    free(job->reply);
+    free(job);
+
+    pthread_mutex_lock(&post_turn_lock);
+    if (post_turn_active > 0) post_turn_active--;
+    pthread_cond_broadcast(&post_turn_cond);
+    pthread_mutex_unlock(&post_turn_lock);
+    return NULL;
+}
+
+/* These model-assisted bookkeeping tasks must never delay delivery of R2's
+   actual answer. They yield to foreground inference and are joined at shutdown. */
+static void schedule_post_turn_processing(const char *user, const char *reply,
+                                          int64_t event_id)
+{
+    if (!user || !reply || shutting_down) return;
+    R2PostTurnJob *job = calloc(1, sizeof(*job));
+    if (!job) return;
+    job->user = xstrdup(user);
+    job->reply = xstrdup(reply);
+    job->event_id = event_id;
+    if (!job->user || !job->reply) {
+        free(job->user); free(job->reply); free(job); return;
+    }
+
+    pthread_mutex_lock(&post_turn_lock);
+    post_turn_active++;
+    pthread_mutex_unlock(&post_turn_lock);
+
+    pthread_t thread;
+    if (pthread_create(&thread, NULL, post_turn_worker, job) != 0) {
+        pthread_mutex_lock(&post_turn_lock);
+        if (post_turn_active > 0) post_turn_active--;
+        pthread_cond_broadcast(&post_turn_cond);
+        pthread_mutex_unlock(&post_turn_lock);
+        free(job->user); free(job->reply); free(job);
+        return;
+    }
+    pthread_detach(thread);
+}
+
+
 /* Refresh the live Reality snapshot rather than accumulating stale copies.
    The bounded Ollama prompt keeps system messages in insertion order, so old
    snapshots could otherwise crowd out the current hunger/world state. */
@@ -7041,30 +7149,9 @@ static char *r2_talk_impl(const char *message)
         }
     }
 
-    log_structured_self_report(reply, turn_event_id);
-
-    char *md = memory_decision(message, reply);
-
-    if (md) {
-        char *p = trim(md);
-
-        if (strcasecmp(p, "NONE") && strchr(p, '|')) {
-            char *sep = strchr(p, '|');
-            *sep = '\0';
-
-            char *cat = trim(p);
-            char *memory = trim(sep + 1);
-
-            if (*memory && save_memory(memory, cat) == 0) {
-                printf("[R2 remembered: %s]\n", memory);
-                r2_log_event(R2_LOG_MEMORY, "memory_saved",
-                             "A persistent memory was saved.",
-                             memory, cat);
-            }
-        }
-
-        free(md);
-    }
+    /* Deliver the generated answer immediately; model-assisted bookkeeping
+       continues independently and yields if a new foreground turn arrives. */
+    schedule_post_turn_processing(message, reply, turn_event_id);
 
     return reply;
 }
@@ -7663,6 +7750,12 @@ void r2_shutdown(void)
         pthread_join(hands_thread, NULL);
         hands_thread_started = 0;
     }
+
+    /* Stop background post-turn Ollama/DB work before closing persistent stores. */
+    pthread_mutex_lock(&post_turn_lock);
+    while (post_turn_active > 0)
+        pthread_cond_wait(&post_turn_cond, &post_turn_lock);
+    pthread_mutex_unlock(&post_turn_lock);
 
     if (ears) {
         r2_ears_shutdown(ears);
