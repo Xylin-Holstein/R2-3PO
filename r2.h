@@ -63,6 +63,15 @@ void r2_shutdown(void);
  */
 int r2_is_shutting_down(void);
 
+/*
+ * Shared Ollama request gate. Vision uses this same gate as text generation
+ * so the single local model is never asked to run competing inference jobs.
+ * Vision requests are opportunistic and must yield when a foreground turn waits.
+ */
+int r2_ollama_vision_request_begin(void);
+void r2_ollama_vision_request_end(void);
+int r2_ollama_vision_request_should_abort(void);
+
 
 /* ============================================================
    CONVERSATION
