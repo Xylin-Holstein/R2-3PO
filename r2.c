@@ -4542,6 +4542,8 @@ static void *autonomous_thinking(
         if (shutting_down)
             break;
 
+        r2_log_system_snapshot("periodic_reflection_interval");
+
         char *ctx =
             r2_diary_build_reflection_context(
                 10
@@ -5044,13 +5046,19 @@ int r2_think(void)
 
 int r2_eyes_start(void)
 {
-    return eyes ? r2_eyes_open_camera(eyes) : -1;
+    int rc = eyes ? r2_eyes_open_camera(eyes) : -1;
+    r2_log_event(R2_LOG_SENSORY, rc == 0 ? "eyes_started" : "eyes_start_failed",
+                 rc == 0 ? "R2 Eyes camera was opened." : "R2 Eyes camera could not be opened.",
+                 NULL, "r2_eyes_start");
+    return rc;
 }
 
 int r2_eyes_stop(void)
 {
     if (!eyes) return -1;
     r2_eyes_close(eyes);
+    r2_log_event(R2_LOG_SENSORY, "eyes_stopped",
+                 "R2 Eyes camera was closed.", NULL, "r2_eyes_stop");
     return 0;
 }
 
@@ -5061,13 +5069,19 @@ int r2_eyes_status(void)
 
 int r2_ears_start(void)
 {
-    return ears ? r2_ears_open_microphone(ears) : -1;
+    int rc = ears ? r2_ears_open_microphone(ears) : -1;
+    r2_log_event(R2_LOG_SENSORY, rc == 0 ? "ears_started" : "ears_start_failed",
+                 rc == 0 ? "R2 Ears microphone was opened." : "R2 Ears microphone could not be opened.",
+                 NULL, "r2_ears_start");
+    return rc;
 }
 
 int r2_ears_stop(void)
 {
     if (!ears) return -1;
     r2_ears_close(ears);
+    r2_log_event(R2_LOG_SENSORY, "ears_stopped",
+                 "R2 Ears microphone was closed.", NULL, "r2_ears_stop");
     return 0;
 }
 
@@ -5082,12 +5096,16 @@ int r2_watch_start(void)
 {
     if (!core_initialized || shutting_down) return -1;
     watch_running = 1;
+    r2_log_event(R2_LOG_SENSORY, "watch_started",
+                 "R2 Watch mode was activated.", NULL, "r2_watch_start");
     return 0;
 }
 
 int r2_watch_stop(void)
 {
     watch_running = 0;
+    r2_log_event(R2_LOG_SENSORY, "watch_stopped",
+                 "R2 Watch mode was stopped.", NULL, "r2_watch_stop");
     return 0;
 }
 
