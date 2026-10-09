@@ -1,0 +1,33 @@
+name: R2 Linux compile check
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, feature/sensory-journal-alternate-self]
+  workflow_dispatch:
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Install R2 build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc libcurl4-openssl-dev libsqlite3-dev libjson-c-dev libpulse-dev
+      - name: Compile the same C sources used by the launcher
+        run: |
+          gcc -std=c11 -Wall -Wextra -O2 \
+            r2.c \
+            shell.c \
+            r2_diary.c \
+            Log.c \
+            SensoryJournal.c \
+            AlternateSelf.c \
+            Visual.c \
+            Ears.c \
+            Eyes.c \
+            -o /tmp/r2-3po-compile-check \
+            -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
