@@ -3,7 +3,7 @@ set -euo pipefail
 
 SOURCE_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 R2_HOME="${R2_HOME:-/home/x/R2_Home}"
-TV_DIR="${R2_TV_DIR:-$R2_HOME/Room/TV}"
+TV_DIR="${R2_TV_DIR:-$R2_HOME/room/TV}"
 MEDIA_DIR="${R2_VCR_MEDIA_DIR:-$R2_HOME/VCR_Tapes}"
 
 if [[ ! -f "$SOURCE_DIR/TV.py" ]]; then
