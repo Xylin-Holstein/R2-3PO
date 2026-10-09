@@ -88,7 +88,7 @@ static int ensure_db_locked(void)
         }
         sqlite3_finalize(columns);
         if (column_rc != SQLITE_DONE) {
-            fprintf(stderr, "[R2 Reward] Could not read reward schema: %s\\n",
+            fprintf(stderr, "[R2 Reward] Could not read reward schema: %s\n",
                     sqlite3_errmsg(reward_db));
             sqlite3_close(reward_db);
             reward_db = NULL;
