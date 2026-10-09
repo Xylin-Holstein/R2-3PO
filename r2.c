@@ -5466,8 +5466,12 @@ char *r2_talk(const char *message)
             char *cat = trim(p);
             char *memory = trim(sep + 1);
 
-            if (*memory && save_memory(memory, cat) == 0)
+            if (*memory && save_memory(memory, cat) == 0) {
                 printf("[R2 remembered: %s]\n", memory);
+                r2_log_event(R2_LOG_MEMORY, "memory_saved",
+                             "A persistent memory was saved.",
+                             memory, cat);
+            }
         }
 
         free(md);
