@@ -882,6 +882,8 @@ int r2_log_system_snapshot(const char *reason)
     int64_t system_uptime = -1;
     uint64_t disk_total = 0;
     uint64_t disk_free = 0;
+    double load_average[3] = {0.0, 0.0, 0.0};
+    int have_load_average = 0;
     int have_uts = 0;
     int have_fs = 0;
     int64_t event_id;
@@ -907,6 +909,9 @@ int r2_log_system_snapshot(const char *reason)
         }
     }
 #endif
+
+    if (getloadavg(load_average, 3) == 3)
+        have_load_average = 1;
 
     if (statvfs(R2_ROOT, &fs) == 0) {
         have_fs = 1;
@@ -936,6 +941,8 @@ int r2_log_system_snapshot(const char *reason)
              "workspace_statvfs_available=%s\n",
              hostname, os_name, kernel, machine, (long)getpid(),
              r2_log_elapsed_ms(), system_uptime, total_ram, free_ram,
+             load_average[0], load_average[1], load_average[2],
+             have_load_average ? "yes" : "no",
              R2_ROOT, disk_total, disk_free,
              have_uts ? "yes" : "no", have_fs ? "yes" : "no");
 
