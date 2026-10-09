@@ -81,6 +81,7 @@
 #include "Eyes.h"
 #include "Ears.h"
 #include "Log.h"
+#include "Visual.h"
 
 
 /* ============================================================
@@ -91,6 +92,7 @@ static sqlite3 *db = NULL;
 
 static R2Eyes *eyes = NULL;
 static R2Ears *ears = NULL;
+static pthread_mutex_t visual_capture_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static pthread_mutex_t db_lock =
     PTHREAD_MUTEX_INITIALIZER;
@@ -2842,6 +2844,34 @@ static char *chat_with_relevant_memories(
     if (!memory_context)
         memory_context = xstrdup("");
 
+    /*
+     * When the user explicitly asks about current visual input,
+     * analyze a frame only if Eyes is already active. Never activate
+     * a camera silently from an ordinary conversation turn.
+     */
+    char *visual_context = NULL;
+    if (query_requests_visual_context(query) && eyes &&
+        r2_eyes_is_open(eyes) && r2_visual_is_initialized()) {
+        visual_context = vision_analyze_current_frame(
+            "Describe the current frame for R2's active conversation. "
+            "Separate visible facts from inference and uncertainty.", 0);
+    }
+
+    if (visual_context && *visual_context) {
+        size_t old_n = strlen(memory_context);
+        size_t visual_n = strlen(visual_context);
+        char *joined = malloc(old_n + visual_n + 128);
+        if (joined) {
+            snprintf(joined, old_n + visual_n + 128,
+                     "%s%sRECENT LIVE VISUAL OBSERVATION (newly analyzed frame; "
+                     "use as evidence, but acknowledge uncertainty):\n%s\n",
+                     memory_context, old_n ? "\n\n" : "", visual_context);
+            free(memory_context);
+            memory_context = joined;
+        }
+        free(visual_context);
+    }
+
     pthread_mutex_lock(
         &messages_lock
     );
@@ -5065,6 +5095,132 @@ int r2_think(void)
     return r2_write_diary();
 }
 
+
+/* ============================================================
+   VISUAL PERCEPTION BRIDGE
+   ============================================================ */
+
+static int query_requests_visual_context(const char *query)
+{
+    if (!query) return 0;
+    const char *terms[] = {
+        "what do you see", "what can you see", "look at", "look on",
+        "what is on the screen", "what's on the screen", "what is playing",
+        "what's playing", "describe this", "describe the image",
+        "describe the video", "in this picture", "in this image",
+        "in the video", "in the movie", "camera", "visually", "vision"
+    };
+    char lower[2048];
+    size_t n = strlen(query);
+    if (n >= sizeof(lower)) n = sizeof(lower) - 1;
+    for (size_t i = 0; i < n; ++i)
+        lower[i] = (char)tolower((unsigned char)query[i]);
+    lower[n] = '\0';
+    for (size_t i = 0; i < sizeof(terms)/sizeof(terms[0]); ++i)
+        if (strstr(lower, terms[i])) return 1;
+    return 0;
+}
+
+/* Analyze the next real frame. Never starts a camera implicitly here. */
+static char *vision_analyze_current_frame(const char *question, int open_camera)
+{
+    if (!r2_visual_is_initialized()) return NULL;
+    pthread_mutex_lock(&visual_capture_lock);
+
+    if ((!eyes || !r2_eyes_is_open(eyes)) && open_camera) {
+        if (!eyes || r2_eyes_open_camera(eyes) != 0) {
+            pthread_mutex_unlock(&visual_capture_lock);
+            r2_log_sensory("vision_camera_start_failed",
+                           "R2 could not start a camera for visual analysis.",
+                           "The camera did not open successfully.", "r2_vision");
+            return NULL;
+        }
+    }
+
+    if (!eyes || !r2_eyes_is_open(eyes)) {
+        pthread_mutex_unlock(&visual_capture_lock);
+        return NULL;
+    }
+
+    int captured = r2_eyes_capture(eyes);
+    if (captured != 1) {
+        pthread_mutex_unlock(&visual_capture_lock);
+        r2_log_sensory("vision_frame_unavailable",
+                       "R2 could not obtain a new frame for visual analysis.",
+                       captured == 0 ? "The visual stream reached its end." :
+                                       "Eyes returned a frame-capture error.",
+                       "r2_vision");
+        return NULL;
+    }
+
+    R2VisionFrame frame;
+    R2VisionEvent event;
+    if (r2_eyes_get_frame(eyes, &frame) != 0 ||
+        r2_eyes_get_event(eyes, &event) != 0) {
+        pthread_mutex_unlock(&visual_capture_lock);
+        return NULL;
+    }
+
+    char *description = r2_visual_analyze_frame(
+        &frame, event.source_name, question);
+    pthread_mutex_unlock(&visual_capture_lock);
+    return description;
+}
+
+char *r2_vision_see(const char *question)
+{
+    char *description = vision_analyze_current_frame(question, 1);
+    if (!description) return NULL;
+    r2_log_event(R2_LOG_SENSORY, "vision_observation_available",
+                 "R2 completed a visual analysis for the current request.",
+                 description, "r2_vision_see");
+    return description;
+}
+
+char *r2_vision_recent(int limit)
+{
+    return r2_visual_recent(limit);
+}
+
+char *r2_vision_search(const char *query, int limit)
+{
+    return r2_visual_search(query, limit);
+}
+
+int r2_vision_set_model(const char *model)
+{
+    return r2_visual_set_model(model);
+}
+
+int r2_vision_open_vlc(void)
+{
+    if (!eyes || !r2_visual_is_initialized()) return -1;
+    pthread_mutex_lock(&visual_capture_lock);
+    int rc = r2_eyes_open_vlc(eyes);
+    pthread_mutex_unlock(&visual_capture_lock);
+    return rc;
+}
+
+int r2_vision_open_file(const char *path)
+{
+    if (!eyes || !path || !*path || !r2_visual_is_initialized()) return -1;
+    pthread_mutex_lock(&visual_capture_lock);
+    int rc = r2_eyes_open_file(eyes, path);
+    pthread_mutex_unlock(&visual_capture_lock);
+    return rc;
+}
+
+int r2_vision_close(void)
+{
+    if (!eyes) return -1;
+    pthread_mutex_lock(&visual_capture_lock);
+    r2_eyes_close(eyes);
+    pthread_mutex_unlock(&visual_capture_lock);
+    r2_log_sensory("vision_input_closed",
+                   "R2 visual input was closed on request.", NULL, "r2_vision_close");
+    return 0;
+}
+
 int r2_eyes_start(void)
 {
     int rc = eyes ? r2_eyes_open_camera(eyes) : -1;
@@ -5634,6 +5790,17 @@ int r2_init(void)
         );
     }
 
+    /*
+     * Vision is a separate local perception model. R2's existing
+     * conversational model, tools, and memory architecture remain intact.
+     */
+    if (r2_visual_init(DB_PATH, R2_ROOT "/Visual_Library") != 0) {
+        r2_log_event(R2_LOG_ERROR, "visual_library_init_failed",
+                     "R2 Visual Experience Library could not initialize.",
+                     "Text conversation remains available; visual analysis is disabled.",
+                     "r2_init");
+    }
+
     /* --------------------------------------------------------
        INITIAL SYSTEM MESSAGE
        -------------------------------------------------------- */
@@ -6025,6 +6192,8 @@ void r2_shutdown(void)
         r2_eyes_shutdown(eyes);
         eyes = NULL;
     }
+
+    r2_visual_shutdown();
 
     if (r2_log_is_initialized()) {
         r2_log_session_end("normal shutdown");
