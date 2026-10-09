@@ -61,6 +61,19 @@ static int make_room_dirs(void)
         fprintf(stderr, "[R2 Reality] Could not create room/shelf/box directories under %s\n", R2_ROOT);
         return -1;
     }
+    char food_xml[1200];
+    snprintf(food_xml, sizeof(food_xml), "%s/food_metrics.xml", room);
+    if (access(food_xml, F_OK) != 0) {
+        FILE *fp = fopen(food_xml, "w");
+        if (fp) {
+            fputs("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                  "<foods>\n"
+                  "  <!-- Add one food per line. fullness is 0..100; energy is optional. -->\n"
+                  "  <!-- Example: <food name=\"burger\" fullness=\"100\" energy=\"10\" /> -->\n"
+                  "</foods>\n", fp);
+            fclose(fp);
+        }
+    }
     return 0;
 }
 
@@ -141,6 +154,61 @@ static int mirror_write(const char *name, const char *description,
     return 0;
 }
 
+
+
+static int xml_attribute(const char *line, const char *key, char *out, size_t cap)
+{
+    char pattern[64];
+    if (snprintf(pattern, sizeof(pattern), "%s=", key) <= 0) return -1;
+    const char *p = strcasestr(line, pattern);
+    if (!p) return -1;
+    p += strlen(pattern);
+    while (*p && isspace((unsigned char)*p)) p++;
+    if (*p != '"' && *p != '\'') return -1;
+    char quote = *p++;
+    const char *end = strchr(p, quote);
+    if (!end) return -1;
+    size_t n = (size_t)(end - p);
+    if (n >= cap) n = cap - 1;
+    memcpy(out, p, n);
+    out[n] = '\0';
+    return 0;
+}
+
+/* Food metrics are data, not hard-coded guesses. Each XML <food> entry
+ * supplies a name and fullness value; energy is optional. */
+static int food_metric(const char *food, double *fullness, double *energy)
+{
+    char path[1200];
+    snprintf(path, sizeof(path), "%s/room/food_metrics.xml", R2_ROOT);
+    FILE *fp = fopen(path, "r");
+    if (!fp) return -1;
+    char line[4096];
+    int found = -1;
+    while (fgets(line, sizeof(line), fp)) {
+        if (!strcasestr(line, "<food")) continue;
+        char name[512] = {0}, full[128] = {0}, en[128] = {0};
+        if (xml_attribute(line, "name", name, sizeof(name)) != 0 ||
+            strcasecmp(name, food) != 0 ||
+            xml_attribute(line, "fullness", full, sizeof(full)) != 0)
+            continue;
+        char *end = NULL;
+        double f = strtod(full, &end);
+        if (end == full || *end || f < 0.0 || f > 100.0) continue;
+        double e = f * 0.1;
+        if (xml_attribute(line, "energy", en, sizeof(en)) == 0) {
+            end = NULL;
+            double parsed = strtod(en, &end);
+            if (end != en && !*end && parsed >= 0.0 && parsed <= 100.0) e = parsed;
+        }
+        if (fullness) *fullness = f;
+        if (energy) *energy = e;
+        found = 0;
+        break;
+    }
+    fclose(fp);
+    return found;
+}
 
 static void update_hunger_locked(double elapsed)
 {
@@ -493,8 +561,16 @@ int r2_reality_remove_item(const char *name)
 int r2_reality_eat(const char *food, double fullness)
 {
     if (!food || !*food || !r2_reality_is_initialized()) return -1;
-    if (fullness < 0.0) fullness = 0.0;
+    double energy_bonus = fullness >= 0.0 ? fullness * 0.1 : 0.0;
+    if (fullness < 0.0) {
+        if (food_metric(food, &fullness, &energy_bonus) != 0) {
+            fprintf(stderr, "[R2 Reality] No food metric found for '%s' in room/food_metrics.xml.\n", food);
+            return -1;
+        }
+    }
     if (fullness > 100.0) fullness = 100.0;
+    if (energy_bonus < 0.0) energy_bonus = 0.0;
+    if (energy_bonus > 100.0) energy_bonus = 100.0;
     if (r2_reality_tick() != 0) return -1;
 
     char container[REALITY_MAX_TEXT + 1] = {0};
@@ -524,7 +600,7 @@ int r2_reality_eat(const char *food, double fullness)
     if (rc == SQLITE_OK) {
         sqlite3_bind_double(st, 1, fullness);
         sqlite3_bind_double(st, 2, fullness);
-        sqlite3_bind_double(st, 3, fullness * 0.1);
+        sqlite3_bind_double(st, 3, energy_bonus);
         rc = sqlite3_step(st);
     }
     if (st) sqlite3_finalize(st);
