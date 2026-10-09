@@ -812,9 +812,17 @@ int r2_reality_record_dream(const char *description)
     if (!description || !*description || strlen(description) > REALITY_MAX_TEXT) return -1;
     int rc = r2_reality_set_self("last_reported_dream", description,
         "A dream description explicitly reported or authored by R2; not independently verified.");
-    if (rc == 0)
-        bridge_event("dream_reported", "R2 recorded a dream report.",
-                     description, 0, 1);
+    if (rc == 0) {
+        bridge_event("dream_reported", "R2 recorded a private simulated dream.",
+                     description, 0, 0);
+        size_t n = strlen(description) + 128;
+        char *entry = malloc(n);
+        if (entry) {
+            snprintf(entry, n, "Private simulated dream report (not a waking event):\n%s", description);
+            if (r2_diary_active()) r2_diary_write(entry);
+            free(entry);
+        }
+    }
     return rc;
 }
 
