@@ -692,6 +692,31 @@ int64_t r2_log_event_with_memory(
 }
 
 /*
+ * Return the Unix epoch of the most recent persisted conversation turn.
+ * Returns 0 when no prior turn is available. This lets a new process/session
+ * calculate elapsed time without treating old chat as the current live chat.
+ */
+int64_t r2_log_last_conversation_epoch(void)
+{
+    sqlite3_stmt *statement = NULL;
+    int64_t result = 0;
+
+    pthread_mutex_lock(&log_lock);
+    if (log_initialized && log_db &&
+        sqlite3_prepare_v2(log_db,
+            "SELECT CAST(strftime('%s', utc_time) AS INTEGER) "
+            "FROM r2_log_events WHERE event_type='conversation_turn' "
+            "ORDER BY id DESC LIMIT 1;",
+            -1, &statement, NULL) == SQLITE_OK) {
+        if (sqlite3_step(statement) == SQLITE_ROW)
+            result = sqlite3_column_int64(statement, 0);
+    }
+    sqlite3_finalize(statement);
+    pthread_mutex_unlock(&log_lock);
+    return result > 0 ? result : 0;
+}
+
+/*
  * Store the exact visible conversation turn in both the searchable
  * chronological event stream and the dedicated conversation table.
  * The dedicated table is for durable full-text continuity; the event
