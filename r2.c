@@ -16,7 +16,7 @@
    ============================================================ */
 
 #define DEFAULT_MODEL "llama3.2:3b"
-#define DEFAULT_NUM_CTX 8192L
+#define DEFAULT_NUM_CTX 16384L
 #define MAX_CHAT_HISTORY_MESSAGES 24
 #define MAX_ARCHIVED_CONTEXT_CHARS 8000
 #define MAX_STARTUP_MEMORY_CHARS 10000
@@ -2677,11 +2677,8 @@ static char *ollama_chat(
         &b
     );
 
-    curl_easy_setopt(
-        curl,
-        CURLOPT_TIMEOUT,
-        600L
-    );
+    /* Allow arbitrarily slow local inference; no overall request timeout. */
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 0L);
 
     CURLcode cc = curl_easy_perform(curl);
     long http_status = 0;
