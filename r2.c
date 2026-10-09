@@ -7289,6 +7289,18 @@ int r2_init(void)
         die("could not initialize R2 Life Log");
     }
 
+    /* Reconnect older diary history in bounded, restart-safe batches. The
+       original diary rows and Markdown mirrors are preserved unchanged. */
+    int diary_links = r2_diary_reconnect_history(100);
+    if (diary_links < 0) {
+        fprintf(stderr,
+                "[R2 DIARY] History reconciliation is pending; existing diary data is preserved.\n");
+    } else if (diary_links > 0) {
+        fprintf(stderr,
+                "[R2 DIARY] Reconnected %d diary entries to Life Log/memory.\n",
+                diary_links);
+    }
+
     if (r2_reality_init() != 0) {
         r2_log_event(R2_LOG_ERROR, "reality_init_failed",
                      "R2 persistent reality engine could not initialize.",
