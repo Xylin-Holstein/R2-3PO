@@ -266,6 +266,7 @@ int r2_eyes_status(void);
    ============================================================ */
 
 /* Analyze the current frame; opens the camera only for explicit vision requests. */
+int r2_vision_available(void);
 char *r2_vision_see(const char *question);
 char *r2_vision_recent(int limit);
 char *r2_vision_search(const char *query, int limit);
