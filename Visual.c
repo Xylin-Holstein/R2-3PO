@@ -32,6 +32,52 @@ static int visual_initialized = 0;
 static char visual_directory[PATH_MAX];
 static char visual_model[256];
 
+
+/* Focus metadata is emitted by R2's existing visual model; V-Webcam only draws it. */
+static void publish_focus_region(json_object *focus) {
+    const char *dir="/tmp/r2-vwebcam-r2", *path="/tmp/r2-vwebcam-r2/focus.json",
+               *tmp="/tmp/r2-vwebcam-r2/focus.tmp";
+    if(!focus||!json_object_is_type(focus,json_type_object)){(void)unlink(path);return;}
+    json_object *xv=NULL,*yv=NULL,*wv=NULL,*hv=NULL,*lv=NULL;
+    if(!json_object_object_get_ex(focus,"x",&xv)||!json_object_object_get_ex(focus,"y",&yv)||
+       !json_object_object_get_ex(focus,"width",&wv)||!json_object_object_get_ex(focus,"height",&hv)){
+        (void)unlink(path);return;
+    }
+    double x=json_object_get_double(xv),y=json_object_get_double(yv),
+           w=json_object_get_double(wv),h=json_object_get_double(hv);
+    if(x<0||y<0||w<=0||h<=0||x>1||y>1||w>1||h>1||x+w>1.001||y+h>1.001){
+        (void)unlink(path);return;
+    }
+    (void)json_object_object_get_ex(focus,"label",&lv);
+    if(mkdir(dir,0700)!=0&&errno!=EEXIST)return;(void)chmod(dir,0700);
+    FILE *f=fopen(tmp,"w");if(!f)return;
+    fprintf(f,"{\"x\":%.6f,\"y\":%.6f,\"width\":%.6f,\"height\":%.6f,\"label\":",x,y,w,h);
+    json_object *label=json_object_new_string(lv&&json_object_is_type(lv,json_type_string)?
+        json_object_get_string(lv):"Selected region");
+    if(label){fputs(json_object_to_json_string(label),f);json_object_put(label);}
+    else fputs("\"Selected region\"",f);
+    fputs("}\n",f);
+    if(fclose(f)==0)(void)rename(tmp,path);else(void)unlink(tmp);
+}
+static char *extract_visual_description(char *text) {
+    if(!text)return NULL;
+    while(*text==' '||*text=='\n'||*text=='\r'||*text=='\t')++text;
+    if(!strncmp(text,"```",3)){char *nl=strchr(text,'\n');if(nl){text=nl+1;char *end=strstr(text,"```");if(end)*end='\0';}}
+    json_object *root=json_tokener_parse(text);
+    if(!root||!json_object_is_type(root,json_type_object)){
+        if(root)json_object_put(root);publish_focus_region(NULL);return strdup(text);
+    }
+    json_object *desc=NULL,*focus=NULL;char *out=NULL;
+    if(json_object_object_get_ex(root,"description",&desc)&&json_object_is_type(desc,json_type_string)){
+        const char *s=json_object_get_string(desc);if(s)out=strdup(s);
+    }
+    if(json_object_object_get_ex(root,"focus",&focus))publish_focus_region(focus);
+    else publish_focus_region(NULL);
+    json_object_put(root);if(!out)out=strdup(text);return out;
+}
+
+
+
 struct response_buffer {
     char *data;
     size_t length;
@@ -203,7 +249,11 @@ static char *call_vision_model(const char *image_base64, const char *question)
         "Analyze only the supplied image. Be concrete and evidence-based. "
         "Distinguish what is directly visible from inference and uncertainty. "
         "Do not claim motion or events from a single frame. Do not identify private people. "
-        "Return a useful description for another conversational model to reason about."
+        "Return ONLY valid JSON with keys description and focus. description is a concise natural-language "
+        "description. focus is null or an object with label, x, y, width, height. Coordinates are normalized "
+        "0..1 fractions of the full image, x/y are top-left and width/height are size. Select one region "
+        "that best represents a distinct object or detail worth inspecting. Never invent a region; use null "
+        "if no clear target exists. Do not wrap JSON in markdown."
     );
     json_object *root = json_object_new_object();
     json_object *messages = json_object_new_array();
@@ -388,8 +438,11 @@ char *r2_visual_analyze_frame(const R2VisionFrame *frame,
     }
     char *base64 = base64_encode(jpeg, jpeg_length);
     if (!base64) { free(jpeg); return NULL; }
-    char *description = call_vision_model(base64, question);
+    char *model_text = call_vision_model(base64, question);
     free(base64);
+    if (!model_text) { free(jpeg); return NULL; }
+    char *description = extract_visual_description(model_text);
+    free(model_text);
     if (!description) { free(jpeg); return NULL; }
 
     char image_path[PATH_MAX];
