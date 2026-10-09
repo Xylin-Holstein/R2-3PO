@@ -700,10 +700,10 @@ static void shell_vision(const char *argument)
     }
 
     if (!strcasecmp(argument, "status")) {
-        printf("Vision library: %s\\n", r2_vision_available() ? "READY" : "UNAVAILABLE");
-        printf("Vision model: %s\\n", r2_vision_model_name());
-        printf("Eyes input: %s\\n", r2_eyes_status() > 0 ? "OPEN" : "CLOSED");
-        printf("Continuous observation: %s\\n",
+        printf("Vision library: %s\n", r2_vision_available() ? "READY" : "UNAVAILABLE");
+        printf("Vision model: %s\n", r2_vision_model_name());
+        printf("Eyes input: %s\n", r2_eyes_status() > 0 ? "OPEN" : "CLOSED");
+        printf("Continuous observation: %s\n",
                r2_vision_watch_active() ? "ACTIVE" : "STOPPED");
         return;
     }
