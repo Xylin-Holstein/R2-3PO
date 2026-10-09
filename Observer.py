@@ -15,6 +15,8 @@ MAX_ROWS = 250
 PUBLIC_EVENT_TYPES = frozenset({
     "object_added", "object_moved", "object_removed", "fridge_item_taken",
     "fridge_food_consumed", "fridge_item_stored", "food_consumed", "purchase",
+    # Public, factual changes in modeled enjoyment/addiction status; private thoughts remain excluded.
+    "enjoyment_changed", "addiction_status_changed",
     # Generic future hooks for verified activity sessions and location changes.
     "activity_started", "activity_progress", "activity_ended",
     "location_changed", "departure", "arrival",
