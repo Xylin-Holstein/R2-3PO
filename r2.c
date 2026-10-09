@@ -4544,11 +4544,6 @@ static void *autonomous_thinking(
 
     while (!shutting_down) {
 
-        uint64_t cycle_started_ms = r2_log_elapsed_ms();
-        r2_log_thinking("cycle_started",
-                        "Autonomous reflection cycle started.",
-                        "This records cycle boundaries and results, not hidden model reasoning.");
-
         for (
             int i = 0;
             i < THINK_INTERVAL &&
@@ -4560,6 +4555,10 @@ static void *autonomous_thinking(
         if (shutting_down)
             break;
 
+        uint64_t cycle_started_ms = r2_log_elapsed_ms();
+        r2_log_thinking("cycle_started",
+                        "Autonomous reflection cycle started.",
+                        "This records cycle boundaries and results, not hidden model reasoning.");
         r2_log_system_snapshot("periodic_reflection_interval");
 
         char *ctx =
