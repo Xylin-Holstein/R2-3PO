@@ -1072,7 +1072,7 @@ char *r2_reality_context(void)
         "[WORLD] dream|description to record a reported dream; "
         "[WORLD] ratefood|food|-2..2|reason to rate the most recent unrated eating experience. "
         "[WORLD] self|key|value|evidence to record a self-state fact. "
-        "[WORLD] fridge|look to inspect fridge stock; [WORLD] fridge_take|food to move one item into pockets; [WORLD] fridge_eat|food to eat directly from fridge stock without consuming a similarly named pocket item. "
+        "[WORLD] fridge|look to inspect fridge stock; [WORLD] fridge_take|food to move one item into pockets; [WORLD] fridge_eat|food to eat directly from fridge stock without consuming a similarly named pocket item; [WORLD] fridge_store|food to move a tracked inventory item into fridge stock. "
         "The fridge is accessible from anywhere in this prototype and automatically generates one burger with fullness 100/100 whenever all stock is gone. Its stock is stored in a separate r2_fridge.db. "
         "Food metrics live in room/food_metrics.xml; each food can define fullness, energy, ingredients (comma-separated), and taste (sensory description). Use only listed metrics and auto rather than guessing. "
         "Containers: room, shelf, box, toy box, pockets, wallet; named containers can be created by moving an item to a new container name. "
