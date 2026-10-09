@@ -1094,21 +1094,26 @@ static char *origin_age_context(void)
 {
     char path[1400]; snprintf(path,sizeof(path),"%s/r2_original_conversation.txt",R2_HOME);
     sqlite3_int64 started=0; pthread_mutex_lock(&reality_lock); sqlite3_stmt *st=NULL;
-    if(reality_db&&sqlite3_prepare_v2(reality_db,"SELECT value FROM r2_reality_meta WHERE key='original_conversation_started_at'",-1,&st,NULL)==SQLITE_OK&&sqlite3_step(st)==SQLITE_ROW){
+    if(reality_db&&sqlite3_prepare_v2(reality_db,"SELECT value FROM r2_reality_meta WHERE key='original_conversation_birth_time'",-1,&st,NULL)==SQLITE_OK&&sqlite3_step(st)==SQLITE_ROW){
         const unsigned char *v=sqlite3_column_text(st,0);if(v)started=(sqlite3_int64)strtoll((const char*)v,NULL,10);}
     if (st) sqlite3_finalize(st);
     pthread_mutex_unlock(&reality_lock);
     if(started<=0){
         struct statx sx;memset(&sx,0,sizeof(sx));
-        if(statx(AT_FDCWD,path,AT_STATX_SYNC_AS_STAT,STATX_BTIME,&sx)==0&&(sx.stx_mask&STATX_BTIME))started=(sqlite3_int64)sx.stx_btime.tv_sec;
-        else{struct stat sb;if(stat(path,&sb)==0)started=(sqlite3_int64)sb.st_mtime;}
+        if(statx(AT_FDCWD,path,AT_STATX_SYNC_AS_STAT,STATX_BTIME,&sx)==0&&
+           (sx.stx_mask&STATX_BTIME)&&sx.stx_btime.tv_sec>0)
+            started=(sqlite3_int64)sx.stx_btime.tv_sec;
         if(started>0){char v[64];snprintf(v,sizeof(v),"%lld",(long long)started);pthread_mutex_lock(&reality_lock);st=NULL;
-            if(reality_db&&sqlite3_prepare_v2(reality_db,"INSERT OR IGNORE INTO r2_reality_meta(key,value) VALUES('original_conversation_started_at',?)",-1,&st,NULL)==SQLITE_OK){bind_text(st,1,v);(void)sqlite3_step(st);}
+            if(reality_db&&sqlite3_prepare_v2(reality_db,"INSERT OR IGNORE INTO r2_reality_meta(key,value) VALUES('original_conversation_birth_time',?)",-1,&st,NULL)==SQLITE_OK){bind_text(st,1,v);(void)sqlite3_step(st);}
             if (st) sqlite3_finalize(st);
             pthread_mutex_unlock(&reality_lock);
         }
     }
-    if(started<=0)return strdup("AGE: original conversation file is not present yet; age is not established.");
+    if(started<=0){
+        if(access(path,F_OK)==0)
+            return strdup("AGE: original conversation file exists, but its filesystem creation time is unavailable; age is not guessed.");
+        return strdup("AGE: original conversation file is not present yet; age is not established.");
+    }
     sqlite3_int64 days=((sqlite3_int64)time(NULL)>started)?((sqlite3_int64)time(NULL)-started)/86400:0;char out[256];
     if(days<30)snprintf(out,sizeof(out),"AGE: about %lld days since the original conversation file was created.",(long long)days);
     else if(days<365){double m=(double)days/30.436875;if(m>=5.5&&m<=6.5)snprintf(out,sizeof(out),"AGE: about half a year old (%lld days).",(long long)days);else snprintf(out,sizeof(out),"AGE: about %d months old, measured from the original conversation file's creation time.",(int)(m+0.5));}
