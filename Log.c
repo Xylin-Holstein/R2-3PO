@@ -1542,12 +1542,19 @@ static char *query_events(const char *query, int limit)
     );
 
     if (rc != SQLITE_OK) {
+        sqlite3_finalize(statement);
         pthread_mutex_unlock(&log_lock);
         return NULL;
     }
 
     if (query) {
         size_t qlen = strlen(query);
+        if (qlen > (SIZE_MAX - 3) / 2) {
+            sqlite3_finalize(statement);
+            pthread_mutex_unlock(&log_lock);
+            errno = E2BIG;
+            return NULL;
+        }
         char *pattern = malloc(qlen * 2 + 3);
 
         if (!pattern) {
@@ -1568,13 +1575,24 @@ static char *query_events(const char *query, int limit)
         pattern[p++] = '%';
         pattern[p] = '\0';
 
-        for (int i = 1; i <= 5; ++i)
-            sqlite3_bind_text(statement, i, pattern, -1, SQLITE_TRANSIENT);
+        for (int i = 1; i <= 5 && rc == SQLITE_OK; ++i)
+            rc = sqlite3_bind_text(statement, i, pattern, -1, SQLITE_TRANSIENT);
 
-        sqlite3_bind_int(statement, 6, limit);
+        if (rc == SQLITE_OK)
+            rc = sqlite3_bind_int(statement, 6, limit);
         free(pattern);
+        if (rc != SQLITE_OK) {
+            sqlite3_finalize(statement);
+            pthread_mutex_unlock(&log_lock);
+            return NULL;
+        }
     } else {
-        sqlite3_bind_int(statement, 1, limit);
+        rc = sqlite3_bind_int(statement, 1, limit);
+        if (rc != SQLITE_OK) {
+            sqlite3_finalize(statement);
+            pthread_mutex_unlock(&log_lock);
+            return NULL;
+        }
     }
 
     output = malloc(4096);
@@ -1631,13 +1649,17 @@ static char *query_events(const char *query, int limit)
         }
     }
 
-    if (output && length == 0) {
-        const char *empty = query
-            ? "No Life Log events matched that search.\n"
-            : "The Life Log contains no events yet.\n";
-        snprintf(output, capacity, "%s", empty);
+    if (rc != SQLITE_DONE) {
+        free(output);
+        output = NULL;
     }
 
+    if (output && length == 0) {
+        const char *empty = query
+            ? "No Life Log events matched that search.\\n"
+            : "The Life Log contains no events yet.\\n";
+        snprintf(output, capacity, "%s", empty);
+    }
     sqlite3_finalize(statement);
     pthread_mutex_unlock(&log_lock);
     return output;
