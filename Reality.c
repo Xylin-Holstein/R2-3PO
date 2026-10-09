@@ -847,7 +847,7 @@ int r2_reality_init(void)
         "CREATE INDEX IF NOT EXISTS r2_reality_objects_container_idx ON r2_reality_objects(container);"
         "CREATE TABLE IF NOT EXISTS r2_reality_ticks (id INTEGER PRIMARY KEY AUTOINCREMENT, previous_tick INTEGER NOT NULL, current_tick INTEGER NOT NULL, elapsed_seconds INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "INSERT OR IGNORE INTO r2_reality_containers(name,kind,description,parent) VALUES"
-        "('room','room','R2\'s room',''),('shelf','surface','The shelf in R2\'s room','room'),('box','container','The general storage box in R2\'s room','room'),('toy box','container','A toy storage box in R2\'s room','room'),('pockets','inventory','R2\'s pockets','self'),('wallet','inventory','R2\'s wallet','self');";
+        "('room','room','R2''s room',''),('shelf','surface','The shelf in R2''s room','room'),('box','container','The general storage box in R2''s room','room'),('toy box','container','A toy storage box in R2''s room','room'),('pockets','inventory','R2''s pockets','self'),('wallet','inventory','R2''s wallet','self');";
     if (exec_sql(schema) != 0) {
         sqlite3_close(reality_db); reality_db = NULL;
         pthread_mutex_unlock(&reality_lock); return -1;
