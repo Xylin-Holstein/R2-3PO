@@ -5,7 +5,8 @@ on:
     branches:
       - main
       - fix/text-model-network-and-sensory-continuity
-      - r2-audit-fixes-2026-10-09\n      - feature/pockets-room-world
+      - r2-audit-fixes-2026-10-09
+      - feature/pockets-room-world
   pull_request:
     branches:
       - main
