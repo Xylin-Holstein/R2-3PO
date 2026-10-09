@@ -265,17 +265,11 @@ echo "Compilation successful."
 echo "Executable updated:"
 echo "    $R2_EXEC"
 echo
-CHAT_MODEL="${R2_CHAT_MODEL:-}"
-if [ -z "$CHAT_MODEL" ]; then
-    # Prefer the user's installed Llama 3.3 if available, otherwise use
-    # the smaller legacy llama3 tag. An explicit environment override wins.
-    if command -v ollama >/dev/null 2>&1 && ollama list 2>/dev/null | awk 'NR > 1 {print $1}' | grep -Eq '^llama3\.3(:|$)'; then
-        CHAT_MODEL="llama3.3"
-    else
-        CHAT_MODEL="llama3"
-    fi
-fi
-CHAT_NUM_CTX="${R2_CHAT_NUM_CTX:-8192}"
+# Llama 3.2 3B is the default chat model because it is a better fit
+# for R2's 16 GB RAM system than large models such as Llama 3.3 70B.
+# Explicit environment overrides remain supported.
+CHAT_MODEL="${R2_CHAT_MODEL:-llama3.2:3b}"
+CHAT_NUM_CTX="${R2_CHAT_NUM_CTX:-4096}"
 echo "Conversation model: $CHAT_MODEL (context: $CHAT_NUM_CTX tokens)"
 echo "Vision model: qwen2.5vl:3b (independent of the conversation model)"
 echo "If needed, install the conversation model with: ollama pull $CHAT_MODEL"
