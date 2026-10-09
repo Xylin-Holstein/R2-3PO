@@ -31,6 +31,7 @@ The token is a shared bearer secret. Anyone who obtains it can access the gatewa
 ## API currently implemented
 
 - `GET /api/status`
+- `GET /api/conversation?limit=50` (persistent conversation turns shared with the PC shell)
 - `POST /api/chat` with JSON `{"message":"..."}`
 - `GET /api/diary?limit=20`
 - `GET /api/life-log?limit=30`
