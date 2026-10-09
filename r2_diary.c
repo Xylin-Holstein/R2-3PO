@@ -730,6 +730,201 @@ void r2_diary_shutdown(void)
 
 
 /* ============================================================
+ * DIARY / LIFE LOG / MEMORY LINKAGE
+ * ============================================================
+ *
+ * Diary prose remains private in diary_entries and the Markdown mirror.
+ * The Life Log receives a private-category pointer and metadata only. The
+ * existing memory API indexes that pointer, while reflection can retrieve
+ * the diary text and related events from their authoritative stores.
+ */
+static int r2_diary_link_entry(int64_t entry_id, const char *created_at)
+{
+    sqlite3_stmt *st = NULL;
+    sqlite3_int64 event_id = 0;
+    int memory_indexed = 0;
+    int rc;
+    char timestamp[64], summary[256], details[512], pattern[96];
+
+    if (!r2_diary_db || entry_id <= 0)
+        return -1;
+    snprintf(timestamp, sizeof(timestamp), "%s",
+             created_at && *created_at ? created_at : "time unavailable");
+
+    rc = sqlite3_prepare_v2(r2_diary_db,
+        "INSERT OR IGNORE INTO r2_diary_entry_links"
+        "(diary_entry_id,log_event_id,relationship,linked_at,memory_indexed)"
+        " VALUES(?,NULL,'reflection',?,0);", -1, &st, NULL);
+    if (rc != SQLITE_OK) return -1;
+    sqlite3_bind_int64(st, 1, entry_id);
+    sqlite3_bind_text(st, 2, timestamp, -1, SQLITE_TRANSIENT);
+    rc = sqlite3_step(st);
+    sqlite3_finalize(st);
+    st = NULL;
+    if (rc != SQLITE_DONE) return -1;
+
+    /* A pending row survives startup ordering or temporary Log failures. */
+    if (!r2_log_is_initialized())
+        return 0;
+
+    rc = sqlite3_prepare_v2(r2_diary_db,
+        "SELECT COALESCE(log_event_id,0),memory_indexed "
+        "FROM r2_diary_entry_links WHERE diary_entry_id=?;",
+        -1, &st, NULL);
+    if (rc != SQLITE_OK) return -1;
+    sqlite3_bind_int64(st, 1, entry_id);
+    if (sqlite3_step(st) == SQLITE_ROW) {
+        event_id = sqlite3_column_int64(st, 0);
+        memory_indexed = sqlite3_column_int(st, 1);
+    }
+    sqlite3_finalize(st);
+    st = NULL;
+
+    snprintf(summary, sizeof(summary),
+             "Private diary entry #%" PRId64 " linked to R2's reflection history.",
+             entry_id);
+    snprintf(details, sizeof(details),
+             "diary_entry_id=%" PRId64 "; created_at=%s; content_location=diary_entries; "
+             "visibility=private; diary text intentionally excluded from Life Log details.",
+             entry_id, timestamp);
+
+    /* Recover an event created just before a prior shutdown, avoiding a
+       duplicate Life Log event when the durable link update was interrupted. */
+    if (event_id <= 0) {
+        snprintf(pattern, sizeof(pattern), "diary_entry_id=%" PRId64 ";%%", entry_id);
+        rc = sqlite3_prepare_v2(r2_diary_db,
+            "SELECT id FROM r2_log_events WHERE event_type='diary_entry_linked' "
+            "AND details LIKE ? ORDER BY id DESC LIMIT 1;", -1, &st, NULL);
+        if (rc == SQLITE_OK) {
+            sqlite3_bind_text(st, 1, pattern, -1, SQLITE_TRANSIENT);
+            if (sqlite3_step(st) == SQLITE_ROW)
+                event_id = sqlite3_column_int64(st, 0);
+        }
+        if (st) sqlite3_finalize(st);
+        st = NULL;
+
+        if (event_id <= 0) {
+            event_id = r2_log_event_with_memory(R2_LOG_THINKING,
+                "diary_entry_linked", summary, details, "r2_diary.c", 1);
+        }
+        if (event_id <= 0) return -1;
+
+        rc = sqlite3_prepare_v2(r2_diary_db,
+            "UPDATE r2_diary_entry_links SET log_event_id=?,linked_at=? "
+            "WHERE diary_entry_id=? AND (log_event_id IS NULL OR log_event_id=0);",
+            -1, &st, NULL);
+        if (rc != SQLITE_OK) return -1;
+        sqlite3_bind_int64(st, 1, event_id);
+        sqlite3_bind_text(st, 2, timestamp, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(st, 3, entry_id);
+        rc = sqlite3_step(st);
+        sqlite3_finalize(st);
+        st = NULL;
+        if (rc != SQLITE_DONE) return -1;
+
+        rc = sqlite3_prepare_v2(r2_diary_db,
+            "SELECT COALESCE(log_event_id,0),memory_indexed "
+            "FROM r2_diary_entry_links WHERE diary_entry_id=?;",
+            -1, &st, NULL);
+        if (rc != SQLITE_OK) return -1;
+        sqlite3_bind_int64(st, 1, entry_id);
+        if (sqlite3_step(st) == SQLITE_ROW) {
+            event_id = sqlite3_column_int64(st, 0);
+            memory_indexed = sqlite3_column_int(st, 1);
+        }
+        sqlite3_finalize(st);
+        st = NULL;
+    }
+
+    /* Retry indexing if the Life Log event persisted but its memory pointer
+       did not. r2_save_memory deduplicates the exact pointer/category pair. */
+    if (!memory_indexed && event_id > 0) {
+        char pointer[512];
+        snprintf(pointer, sizeof(pointer),
+                 "Life Log event %" PRId64 ": [thinking/diary_entry_linked] %s",
+                 event_id, summary);
+        if (r2_save_memory(pointer, "experience") == 0) {
+            rc = sqlite3_prepare_v2(r2_diary_db,
+                "UPDATE r2_log_events SET memory_saved=1 WHERE id=?;",
+                -1, &st, NULL);
+            if (rc == SQLITE_OK) {
+                sqlite3_bind_int64(st, 1, event_id);
+                rc = sqlite3_step(st);
+            }
+            if (st) sqlite3_finalize(st);
+            st = NULL;
+            if (rc != SQLITE_DONE) return -1;
+            memory_indexed = 1;
+        }
+    }
+
+    rc = sqlite3_prepare_v2(r2_diary_db,
+        "UPDATE r2_diary_entry_links SET memory_indexed=? WHERE diary_entry_id=?;",
+        -1, &st, NULL);
+    if (rc != SQLITE_OK) return -1;
+    sqlite3_bind_int(st, 1, memory_indexed);
+    sqlite3_bind_int64(st, 2, entry_id);
+    rc = sqlite3_step(st);
+    sqlite3_finalize(st);
+    return rc == SQLITE_DONE ? 0 : -1;
+}
+
+int r2_diary_reconnect_history(int limit)
+{
+    sqlite3_stmt *st = NULL;
+    int rc, count = 0, linked = 0;
+    typedef struct {
+        int64_t id;
+        char created_at[64];
+    } PendingLink;
+    PendingLink *pending;
+
+    if (!r2_diary_db || !r2_log_is_initialized())
+        return -1;
+    if (limit <= 0) limit = 100;
+    if (limit > 500) limit = 500;
+
+    /* Seed links for legacy diary rows without altering their contents. */
+    rc = sqlite3_exec(r2_diary_db,
+        "INSERT OR IGNORE INTO r2_diary_entry_links"
+        "(diary_entry_id,log_event_id,relationship,linked_at,memory_indexed) "
+        "SELECT id,NULL,'historical_reflection',created_at,0 FROM diary_entries;",
+        NULL, NULL, NULL);
+    if (rc != SQLITE_OK) return -1;
+
+    pending = calloc((size_t)limit, sizeof(*pending));
+    if (!pending) return -1;
+    rc = sqlite3_prepare_v2(r2_diary_db,
+        "SELECT d.id,d.created_at FROM diary_entries d "
+        "JOIN r2_diary_entry_links l ON l.diary_entry_id=d.id "
+        "WHERE COALESCE(l.log_event_id,0)=0 ORDER BY d.id ASC LIMIT ?;",
+        -1, &st, NULL);
+    if (rc != SQLITE_OK) {
+        free(pending);
+        return -1;
+    }
+    sqlite3_bind_int(st, 1, limit);
+    while ((rc = sqlite3_step(st)) == SQLITE_ROW && count < limit) {
+        const unsigned char *created = sqlite3_column_text(st, 1);
+        pending[count].id = sqlite3_column_int64(st, 0);
+        snprintf(pending[count].created_at, sizeof(pending[count].created_at),
+                 "%s", created ? (const char *)created : "time unavailable");
+        count++;
+    }
+    sqlite3_finalize(st);
+    if (rc != SQLITE_DONE && rc != SQLITE_ROW) {
+        free(pending);
+        return -1;
+    }
+    for (int i = 0; i < count; ++i)
+        if (r2_diary_link_entry(pending[i].id, pending[i].created_at) == 0)
+            linked++;
+    free(pending);
+    return linked;
+}
+
+
+/* ============================================================
  * WRITE DIARY ENTRY
  * ============================================================
  */
