@@ -29,7 +29,7 @@ if ! id r2 >/dev/null 2>&1; then
     exit 1
 fi
 exec sudo -u r2 env -u XAUTHORITY \
-    DISPLAY="${DISPLAY:-}" \
+    DISPLAY="\${DISPLAY:-}" \
     R2_REALITY_DB="$R2_REALITY_DB" \
     R2_TV_SOCKET="$R2_TV_SOCKET" \
     R2_VCR_MEDIA_DIR="$R2_VCR_MEDIA_DIR" \
