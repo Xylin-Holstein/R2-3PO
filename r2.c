@@ -5445,17 +5445,20 @@ static void r2_try_media_conversation_recognition(const char *source,
              "Does the current media match something R2 and the user discussed earlier? "
              "Only answer YES if the prior conversation and visual evidence support the same media.",
              source, description, history);
-    free(history);
 
     Message request = { "user", prompt, 0 };
     char *result = ollama_chat(&request, 1, system_prompt);
     free(prompt);
-    if (!result) return;
+    if (!result) {
+        free(history);
+        return;
+    }
 
     char *confidence_text = strstr(result, "CONFIDENCE:");
     double confidence = confidence_text
         ? strtod(confidence_text + strlen("CONFIDENCE:"), NULL) : 0.0;
     if (!strstr(result, "MATCH: YES") || confidence < 0.75) {
+        free(history);
         free(result);
         return;
     }
@@ -5512,6 +5515,34 @@ static void r2_try_media_conversation_recognition(const char *source,
         summary, details, source, 1);
 
     if (event_id > 0) {
+        /*
+         * Link the recognition event back to the actual historical
+         * conversation event IDs used as evidence, preserving the trail.
+         */
+        int64_t linked_ids[8];
+        size_t linked_count = 0;
+        const char *cursor = history;
+        while (cursor && *cursor && linked_count < 8) {
+            if (cursor == history || cursor[-1] == '\n') {
+                if (*cursor == '[' && isdigit((unsigned char)cursor[1])) {
+                    char *end_id = NULL;
+                    long long candidate = strtoll(cursor + 1, &end_id, 10);
+                    if (end_id && *end_id == ']' && candidate > 0) {
+                        int duplicate = 0;
+                        for (size_t j = 0; j < linked_count; ++j)
+                            if (linked_ids[j] == (int64_t)candidate) duplicate = 1;
+                        if (!duplicate) {
+                            linked_ids[linked_count++] = (int64_t)candidate;
+                            r2_log_link(event_id, (int64_t)candidate,
+                                        "recognition_based_on_conversation",
+                                        identification);
+                        }
+                    }
+                }
+            }
+            ++cursor;
+        }
+
         pthread_mutex_lock(&continuity_lock);
         snprintf(continuity_announced_source, sizeof(continuity_announced_source), "%s", source);
         pthread_mutex_unlock(&continuity_lock);
@@ -5522,6 +5553,7 @@ static void r2_try_media_conversation_recognition(const char *source,
         fflush(stdout);
         funlockfile(stdout);
     }
+    free(history);
     free(result);
 }
 
