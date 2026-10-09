@@ -2486,38 +2486,18 @@ typedef struct {
 } Buffer;
 
 
-static size_t curl_write(
-    void *ptr,
-    size_t size,
-    size_t nmemb,
-    void *userdata)
+static size_t curl_write(void *ptr, size_t size, size_t nmemb, void *userdata)
 {
     Buffer *b = userdata;
-
-    size_t add =
-        size * nmemb;
-
-    char *p =
-        realloc(
-            b->data,
-            b->size + add + 1
-        );
-
-    if (!p)
-        return 0;
-
+    if (!b || (size && nmemb > SIZE_MAX / size)) return 0;
+    size_t add = size * nmemb;
+    if (b->size > SIZE_MAX - add - 1) return 0;
+    char *p = realloc(b->data, b->size + add + 1);
+    if (!p) return 0;
     b->data = p;
-
-    memcpy(
-        b->data + b->size,
-        ptr,
-        add
-    );
-
+    memcpy(b->data + b->size, ptr, add);
     b->size += add;
-
     b->data[b->size] = '\0';
-
     return add;
 }
 
@@ -2632,11 +2612,10 @@ static char *ollama_chat(
             "Content-Type: application/json"
         );
 
-    curl_easy_setopt(
-        curl,
-        CURLOPT_URL,
-        OLLAMA_URL
-    );
+    curl_easy_setopt(curl, CURLOPT_URL, OLLAMA_URL);
+    curl_easy_setopt(curl, CURLOPT_POST, 1L);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
 
     curl_easy_setopt(
         curl,
@@ -2644,11 +2623,8 @@ static char *ollama_chat(
         headers
     );
 
-    curl_easy_setopt(
-        curl,
-        CURLOPT_POSTFIELDS,
-        payload
-    );
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)strlen(payload));
 
     curl_easy_setopt(
         curl,
@@ -2668,29 +2644,42 @@ static char *ollama_chat(
         600L
     );
 
-    CURLcode cc =
-        curl_easy_perform(curl);
-
+    CURLcode cc = curl_easy_perform(curl);
+    long http_status = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_status);
     curl_slist_free_all(headers);
-
     curl_easy_cleanup(curl);
-
     json_object_put(root);
 
     if (cc != CURLE_OK) {
-
+        fprintf(stderr, "[R2] Ollama transport failed: %s\n", curl_easy_strerror(cc));
         free(b.data);
-
         return NULL;
     }
-
-    struct json_object *resp =
-        json_tokener_parse(b.data);
-
-    free(b.data);
-
-    if (!resp)
+    if (!b.data || b.size == 0) {
+        fprintf(stderr, "[R2] Ollama returned an empty HTTP %ld response. Check Ollama at %s.\n",
+                http_status, OLLAMA_URL);
+        free(b.data);
         return NULL;
+    }
+    struct json_object *resp = json_tokener_parse(b.data);
+    if (!resp) {
+        fprintf(stderr, "[R2] Ollama returned invalid JSON (HTTP %ld): %.500s\n", http_status, b.data);
+        free(b.data);
+        return NULL;
+    }
+    if (http_status < 200 || http_status >= 300) {
+        struct json_object *api_error = NULL;
+        if (json_object_object_get_ex(resp, "error", &api_error) &&
+            json_object_is_type(api_error, json_type_string))
+            fprintf(stderr, "[R2] Ollama HTTP %ld: %s\n", http_status, json_object_get_string(api_error));
+        else
+            fprintf(stderr, "[R2] Ollama HTTP %ld: %.500s\n", http_status, b.data);
+        json_object_put(resp);
+        free(b.data);
+        return NULL;
+    }
+    free(b.data);
 
     struct json_object *msg = NULL;
     struct json_object *content = NULL;
