@@ -5084,6 +5084,106 @@ static char *process_tools(
                    id > 0 ? "ENDED" : "ERROR",
                    id > 0 ? "session duration and stop details recorded" :
                             "session could not be ended; no matching active session may exist");
+        } else if (nf > 0 && !strncasecmp(fields[0], "gameboy_", 8)) {
+            const char *command = NULL;
+            const char *arg1 = NULL;
+            const char *arg2 = NULL;
+            int is_power_on = 0;
+            int is_power_off = 0;
+            int is_status = 0;
+            if (!strcasecmp(fields[0], "gameboy_status")) {
+                command = "status";
+                is_status = 1;
+            } else if (!strcasecmp(fields[0], "gameboy_list")) {
+                command = "list";
+            } else if (!strcasecmp(fields[0], "gameboy_insert") && nf >= 2) {
+                command = "insert";
+                arg1 = fields[1];
+            } else if (!strcasecmp(fields[0], "gameboy_eject")) {
+                command = "eject";
+            } else if (!strcasecmp(fields[0], "gameboy_power_on")) {
+                command = "power";
+                arg1 = "on";
+                is_power_on = 1;
+            } else if (!strcasecmp(fields[0], "gameboy_power_off")) {
+                command = "power";
+                arg1 = "off";
+                is_power_off = 1;
+            } else if ((!strcasecmp(fields[0], "gameboy_press") ||
+                        !strcasecmp(fields[0], "gameboy_hold")) && nf >= 2) {
+                command = "press";
+                arg1 = fields[1];
+                arg2 = nf >= 3 ? fields[2] : "120";
+            }
+
+            char console_output[8192] = {0};
+            int command_rc = command
+                ? run_gameboy_console(command, arg1, arg2,
+                                      console_output, sizeof(console_output))
+                : -1;
+            struct json_object *console_json = console_output[0]
+                ? json_tokener_parse(console_output) : NULL;
+            int command_ok = command_rc == 0 &&
+                gameboy_json_bool(console_json, "ok", 1);
+            const char *message = gameboy_json_string(
+                console_json, "message", NULL);
+            const char *title = gameboy_json_string(
+                console_json, "cartridge_title", "unknown game");
+            int game_running = gameboy_json_bool(
+                console_json, "game_running", 0);
+
+            if (command_ok && is_power_on && game_running) {
+                gameboy_start_activity_sessions(title);
+                r2_log_event(R2_LOG_WORLD, "gameboy_game_started",
+                             "R2 started a game on the virtual Game Boy Advance.",
+                             title, "GameBoyAdvance");
+            } else if (command_ok && is_power_off) {
+                gameboy_end_activity_sessions(
+                    "console powered off; no in-game save command was issued");
+                r2_log_event(R2_LOG_WORLD, "gameboy_console_powered_off",
+                             "R2 powered off the virtual Game Boy Advance.",
+                             "No emulator save state or in-game save command was issued.",
+                             "GameBoyAdvance");
+            } else if (command_ok && is_status && !game_running) {
+                /* Also closes the recorded activity if R2 closed mGBA manually. */
+                gameboy_end_activity_sessions(
+                    "emulator was no longer running when console status was checked");
+            }
+
+            if (!command_ok) {
+                APPEND("GAME BOY CONSOLE ERROR: %s\n",
+                       message ? message :
+                       (command ? "console command failed; inspect installation and permissions"
+                                : "unsupported Game Boy console action"));
+            } else if (is_status && console_json) {
+                APPEND("GAME BOY STATUS: power=%s; cartridge=%s; game_running=%s.\n",
+                       gameboy_json_string(console_json, "power_state", "unknown"),
+                       title && *title ? title : "none",
+                       game_running ? "yes" : "no");
+            } else if (command && !strcmp(command, "list") && console_json &&
+                       json_object_is_type(console_json, json_type_array)) {
+                APPEND("GAME BOY CARTRIDGES:\n");
+                size_t count = json_object_array_length(console_json);
+                if (!count) APPEND("No supported cartridges found.\n");
+                for (size_t i = 0; i < count; ++i) {
+                    struct json_object *item = json_object_array_get_idx(console_json, i);
+                    APPEND("- %s — %s\n",
+                           gameboy_json_string(item, "filename", "unknown filename"),
+                           gameboy_json_string(item, "title", "unknown title"));
+                }
+            } else {
+                APPEND("GAME BOY CONSOLE: %s\n",
+                       message ? message : "command completed");
+            }
+
+            if (command_ok && !is_status) {
+                char summary[1024];
+                snprintf(summary, sizeof(summary), "Game Boy Advance: %s",
+                         message ? message : "console command completed");
+                r2_log_event(R2_LOG_WORLD, "gameboy_device_action",
+                             summary, NULL, "GameBoyAdvance");
+            }
+            if (console_json) json_object_put(console_json);
         } else if (nf >= 3 && !strcasecmp(fields[0], "location")) {
             int home = !strcasecmp(fields[2], "home");
             int away = !strcasecmp(fields[2], "outside") || !strcasecmp(fields[2], "away");
