@@ -74,7 +74,7 @@ static int make_room_dirs(void)
             fputs("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
                   "<foods>\n"
                   "  <!-- Add one food per line. fullness is 0..100; energy is optional. -->\n"
-                  "  <!-- Example: <food name=\"burger\" fullness=\"100\" energy=\"10\" /> -->\n"
+                  "  <!-- Example: <food name=\"burger\" fullness=\"100\" energy=\"10\" ingredients=\"bread,beef,cheese\" taste=\"savory,warm,salty\" /> -->\n"
                   "</foods>\n", fp);
             fclose(fp);
         }
