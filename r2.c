@@ -109,6 +109,10 @@ static pthread_mutex_t messages_lock =
 static pthread_mutex_t conversation_request_lock =
     PTHREAD_MUTEX_INITIALIZER;
 
+/* Ollama serves one model process; serialize generation across chat and workers. */
+static pthread_mutex_t ollama_request_lock =
+    PTHREAD_MUTEX_INITIALIZER;
+
 static pthread_mutex_t tasks_lock =
     PTHREAD_MUTEX_INITIALIZER;
 
@@ -2910,7 +2914,15 @@ static char *ollama_chat(
         600L
     );
 
+    /*
+     * User turns, autonomous reflection, tool planning, and self-report
+     * extraction all share the local Ollama service. Queue model generations
+     * instead of letting all workers issue simultaneous generations.
+     */
+    pthread_mutex_lock(&ollama_request_lock);
     CURLcode cc = curl_easy_perform(curl);
+    pthread_mutex_unlock(&ollama_request_lock);
+
     long http_status = 0;
     (void)curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_status);
 
