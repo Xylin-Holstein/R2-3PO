@@ -103,6 +103,17 @@ Reality stores each tape by its absolute media path and persists its playback po
 
 External AV inputs are 2–4. RF has a signal only when a device is explicitly connected and transmitting on that channel; an unused channel stays at NO SIGNAL. The snow-show fallback is intentionally deferred. Power and source selection do not imply R2 is watching, and do not activate Eyes by themselves.
 
+
+### Installation and persistent device details
+
+The CRT television is seeded as a persistent physical object in R2's Reality world at `room`; initialization uses `INSERT OR IGNORE`, so an existing TV object that R2 has moved is not moved back on restart. TV power, selected input, explicitly connected external devices, inserted VCR tape, transport state, and per-file playback position live in the authoritative `r2_reality.db`. The GUI reads Reality state read-only and sends controls to the running shell through the private Unix socket `/home/x/R2_Home/R2/tv-control.sock`; it does not write SQLite state itself. The room launcher runs the GUI as Linux user `r2`, which owns the private database and socket. It removes the desktop user's `XAUTHORITY` and passes `DISPLAY`; launch the TV while `R2_Launch_Code.sh` is running, because that launcher temporarily grants `r2` access to the desktop display. The launcher keeps a terminal available for `sudo` authentication if needed.
+
+Run `bash install_tv.sh` from this repository to place the device files under `/home/x/R2_Home/room/TV/` and create the media directory `/home/x/R2_Home/VCR_Tapes/`. Open `room/TV/TV.desktop` from R2's room to launch the GUI. The installed `device.txt` is descriptive metadata; Reality remains authoritative. Set `R2_HOME`, `R2_TV_DIR`, `R2_VCR_MEDIA_DIR`, `R2_REALITY_DB`, or `R2_TV_SOCKET` to override default paths when running/installing in a test environment. The shell must be running for GUI controls to change Reality state.
+
+### Automated checks
+
+The automated tests cover read-only state display, control-command validation/socket transport, empty versus connected signal sources, persistent VCR position display, and installing the device files under a temporary `room/TV/` directory. They do not prove that VLC opens on the real desktop; verify that interactively on R2's machine.
+
 ## Persistent reality, room, and inventory
 
 The Reality engine stores self-continuity, world-continuity, current objects,
@@ -214,20 +225,7 @@ Positive signals are capped at +1 through +5 points. Corrective signals are capp
 Diary review includes one narrow continuity correction rule for the currently tracked identity-attribution mistake: a diary that explicitly says Eli is not real and redirects identity to the user/creator earns +5; a diary that mentions Eli without that correction receives -7; other successfully persisted diary entries earn +1. This is a simple phrase-based rule, not a general semantic judge, and should be expanded only with testable correction patterns. Reward points are simulated feedback, not a measure of R2's worth or consciousness.
 
 
-Money is backed by individual files in `Pockets/Wallet` and `room/piggybank`: each `money`/`money(N)` file represents $1, `change.txt` represents cents, and SQLite/account text are derived summaries. The five-dollar wallet grant occurs once only; deleting or spending a money file does not cause it to be recreated.
-
-
-## Game Boy Advance console
+### Installer and pocket launcher notes
 
 The console controller is installed at `/home/x/R2_Home/Devices/GameBoyAdvance/GameBoyAdvance`. The installer places a desktop-entry copy at `/home/x/R2_Home/Pockets/GameBoyAdvance.desktop` and registers a normal desktop launcher under `~/.local/share/applications/`. The pocket file is launcher metadata, not a shell script; launch it through a desktop-entry handler rather than executing it as a command. The configured emulator defaults to `/usr/games/mgba-qt`; override it with `R2_MGBA_EXECUTABLE` if the executable is elsewhere. The installer checks the controller and launcher paths and reports whether the emulator path is executable. After installing mGBA, run the controller's `verify` command to inspect emulator and cartridge-slot state. An empty cartridge slot is valid when R2 does not yet own a game; do not record game ownership or play activity until a cartridge and actual session are verified.
-
-## CRT television and built-in VCR
-
-The CRT television is seeded as a persistent physical object in R2's Reality world at `room`; initialization uses `INSERT OR IGNORE`, so an existing TV object that R2 has moved is not moved back on restart. TV power, selected input, explicitly connected external devices, inserted VCR tape, transport state, and per-file playback position live in the authoritative `r2_reality.db`. The GUI reads Reality state read-only and sends controls to the running shell through the private Unix socket `/home/x/R2_Home/R2/tv-control.sock`; it does not write SQLite state itself. The room launcher runs the GUI as Linux user `r2`, which owns the private database and socket. It removes the desktop user's `XAUTHORITY` and passes `DISPLAY`; launch the TV while `R2_Launch_Code.sh` is running, because that launcher temporarily grants `r2` access to the desktop display. The launcher keeps a terminal available for `sudo` authentication if needed.
-
-Run `bash install_tv.sh` from this repository to place the device files under `/home/x/R2_Home/room/TV/` and create the media directory `/home/x/R2_Home/VCR_Tapes/`. Open `room/TV/TV.desktop` from R2's room to launch the GUI. The installed `device.txt` is descriptive metadata; Reality remains authoritative. Set `R2_HOME`, `R2_TV_DIR`, `R2_VCR_MEDIA_DIR`, `R2_REALITY_DB`, or `R2_TV_SOCKET` to override default paths when running/installing in a test environment. The shell must be running for GUI controls to change Reality state.
-
-The built-in VCR is AV input 1. Place supported video files in `VCR_Tapes/`, then use the GUI's insert/play/pause/stop/eject controls. Tape position is saved in Reality and retained when a tape is ejected and reinserted. Playback depends on the local VLC/libVLC runtime. AV inputs 2–4 and RF channels 2–13 remain `NO SIGNAL` unless a named device has been explicitly connected to that input/channel. Unused RF channels stay unavailable; no static or snow-show is fabricated. TV power and source selection do not imply that R2 is watching and do not open Eyes or alter visual attention.
-
-The automated tests cover read-only state display, control-command validation/socket transport, empty versus connected signal sources, persistent VCR position display, and installing the device files under a temporary `room/TV/` directory. They do not prove that VLC opens on the real desktop; verify that interactively on R2's machine.
 
