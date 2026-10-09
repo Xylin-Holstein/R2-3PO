@@ -173,21 +173,23 @@ private fun R2RemoteScreen(
         if (uri != null) uploadUri(uri, "audio/mpeg")
     }
 
+    fun restoreChat(raw: String) {
+        val arr = JSONArray(raw)
+        val restored = mutableListOf<Pair<String, String>>()
+        for (i in 0 until arr.length()) {
+            val turn = arr.optJSONObject(i) ?: continue
+            val user = turn.optString("user")
+            val assistant = turn.optString("assistant")
+            if (user.isNotBlank()) restored.add("You" to user)
+            if (assistant.isNotBlank()) restored.add("R2-3PO" to assistant)
+        }
+        chat = restored
+        output = if (restored.isEmpty()) "No saved conversation turns found yet." else ""
+    }
+
     LaunchedEffect(serverUrl, token) {
         if (serverUrl.isNotBlank() && token.isNotBlank()) {
-            runRequest({ api -> api.conversation().toString() }) { raw ->
-                val arr = JSONArray(raw)
-                val restored = mutableListOf<Pair<String, String>>()
-                for (i in 0 until arr.length()) {
-                    val turn = arr.optJSONObject(i) ?: continue
-                    val user = turn.optString("user")
-                    val assistant = turn.optString("assistant")
-                    if (user.isNotBlank()) restored.add("You" to user)
-                    if (assistant.isNotBlank()) restored.add("R2-3PO" to assistant)
-                }
-                chat = restored
-                output = if (restored.isEmpty()) "No saved conversation turns found yet." else ""
-            }
+            runRequest({ api -> api.conversation().toString() }, ::restoreChat)
         }
     }
 
@@ -205,11 +207,15 @@ private fun R2RemoteScreen(
                         Icon(Icons.Default.Settings, contentDescription = "Connection settings")
                     }
                     IconButton(enabled = !busy, onClick = {
-                        runRequest({ api ->
-                            val s = api.status()
-                            "R2 status\nModel: ${s.optString("model")}\nCore initialized: ${s.optBoolean("core_initialized")}\nAutonomous thinking: ${s.optBoolean("thinking_active")}\nMemories: ${s.optInt("memory_count")}"
-                        })
-                    }) { Icon(Icons.Default.Refresh, contentDescription = "Check connection") }
+                        if (section == Section.CHAT) {
+                            runRequest({ api -> api.conversation().toString() }, ::restoreChat)
+                        } else {
+                            runRequest({ api ->
+                                val s = api.status()
+                                "R2 status\nModel: ${s.optString("model")}\nCore initialized: ${s.optBoolean("core_initialized")}\nAutonomous thinking: ${s.optBoolean("thinking_active")}\nMemories: ${s.optInt("memory_count")}"
+                            })
+                        }
+                    }) { Icon(Icons.Default.Refresh, contentDescription = "Refresh current view") }
                 }
             )
         },
@@ -224,19 +230,7 @@ private fun R2RemoteScreen(
                                 Section.DIARY -> runRequest({ it.diary() })
                                 Section.LIFE_LOG -> runRequest({ it.lifeLog() })
                                 Section.MEMORIES -> { output = "Search R2's persistent memories below." }
-                                Section.CHAT -> runRequest({ api -> api.conversation().toString() }) { raw ->
-                                    val arr = JSONArray(raw)
-                                    val restored = mutableListOf<Pair<String, String>>()
-                                    for (i in 0 until arr.length()) {
-                                        val turn = arr.optJSONObject(i) ?: continue
-                                        val user = turn.optString("user")
-                                        val assistant = turn.optString("assistant")
-                                        if (user.isNotBlank()) restored.add("You" to user)
-                                        if (assistant.isNotBlank()) restored.add("R2-3PO" to assistant)
-                                    }
-                                    chat = restored
-                                    output = if (restored.isEmpty()) "No saved conversation turns found yet." else ""
-                                }
+                                Section.CHAT -> runRequest({ api -> api.conversation().toString() }, ::restoreChat)
                                 else -> Unit
                             }
                         },
