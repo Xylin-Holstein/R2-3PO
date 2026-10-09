@@ -5240,7 +5240,9 @@ static void log_structured_self_report(const char *reply, int64_t parent_event_i
         "\"evidence\":\"exact quote\",\"confidence\":0.0,\"status\":\"tentative|supported|disputed|revised|rejected\"}],"
         "\"continuity\":[{\"key\":\"short-stable-key\",\"type\":\"project|task|question|goal|relationship|routine\","
         "\"title\":\"...\",\"description\":\"...\",\"status\":\"open|in_progress|paused|blocked|completed|closed\","
-        "\"next_action\":\"...\"}]}. "
+        "\"next_action\":\"...\"}],"
+        "\"hypotheticals\":[{\"scenario\":\"...\",\"assumptions\":\"...\","
+        "\"predicted_outcome\":\"...\",\"conclusion\":\"...\"}]}. "
         "Use empty arrays when there is no evidence. Include hypotheticals only when R2 explicitly labels a scenario as hypothetical or counterfactual. Confidence is evidence "
         "strength, not a measure of consciousness. Never invent exact quotes.\n\n"
         "R2 visible response:\n";
