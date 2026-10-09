@@ -94,6 +94,7 @@
 #include "Reality.h"
 #include "AlternateSelf.h"
 #include "Visual.h"
+#include "Reward.h"
 
 
 /* ============================================================
