@@ -7348,9 +7348,9 @@ int r2_init(void)
     } else {
         int reward_links = r2_reward_reconnect_history(100);
         if (reward_links < 0)
-            fprintf(stderr, "[R2 Reward] History reconciliation is pending.\\n");
+            fprintf(stderr, "[R2 Reward] History reconciliation is pending.\n");
         else if (reward_links > 0)
-            fprintf(stderr, "[R2 Reward] Reconnected %d reward events to the Life Log.\\n",
+            fprintf(stderr, "[R2 Reward] Reconnected %d reward events to the Life Log.\n",
                     reward_links);
     }
 
