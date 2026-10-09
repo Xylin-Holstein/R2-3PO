@@ -16,7 +16,7 @@
    ============================================================ */
 
 #define DEFAULT_MODEL "llama3.2:3b"
-#define DEFAULT_NUM_CTX 4096L
+#define DEFAULT_NUM_CTX 8192L
 #define MAX_CHAT_HISTORY_MESSAGES 24
 #define MAX_ARCHIVED_CONTEXT_CHARS 8000
 #define MAX_STARTUP_MEMORY_CHARS 10000
