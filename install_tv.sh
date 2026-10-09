@@ -30,9 +30,9 @@ if ! id r2 >/dev/null 2>&1; then
 fi
 exec sudo -u r2 env -u XAUTHORITY \
     DISPLAY="\${DISPLAY:-}" \
-    R2_REALITY_DB="$R2_REALITY_DB" \
-    R2_TV_SOCKET="$R2_TV_SOCKET" \
-    R2_VCR_MEDIA_DIR="$R2_VCR_MEDIA_DIR" \
+    R2_REALITY_DB="\$R2_REALITY_DB" \
+    R2_TV_SOCKET="\$R2_TV_SOCKET" \
+    R2_VCR_MEDIA_DIR="\$R2_VCR_MEDIA_DIR" \
     /usr/bin/env python3 "$TV_DIR/TV.py"
 EOF
 chmod 0755 "$TV_DIR/run_tv.sh"
