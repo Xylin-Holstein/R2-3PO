@@ -40,6 +40,11 @@ jobs:
       - name: Exercise Game Boy installer and desktop entry
         run: bash tests/gameboy_install_smoke.sh
 
+      - name: Exercise CRT TV state reader and control client
+        run: |
+          python3 -m py_compile TV.py tests/tv_display_smoke.py
+          python3 tests/tv_display_smoke.py
+
       - name: Exercise physical money wallet authority and restart behavior
         run: |
           ROOT=/tmp/r2-wallet-smoke
