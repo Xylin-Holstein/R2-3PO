@@ -296,11 +296,21 @@ echo
 echo "Launching the read-only observer window..."
 echo
 
-# Run the observer as r2 to preserve private database permissions.
-# Do not pass R2's virtual-clock environment to the observer.
-sudo -u r2 env DISPLAY="${DISPLAY:-}" XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}" \
-    python3 "$R2_SOURCE/Observer.py" &
-OBSERVER_PID=$!
+# The observer must run as r2 to read the private Life Log database, but
+# the desktop X server normally rejects that separate Linux user. Grant only
+# r2 access to this local X server, then revoke it when R2 exits.
+OBSERVER_XHOST_GRANTED=0
+OBSERVER_PID=""
+if [ -n "${DISPLAY:-}" ] && command -v xhost >/dev/null 2>&1 && xhost +SI:localuser:r2 >/dev/null 2>&1; then
+    OBSERVER_XHOST_GRANTED=1
+    # Don't pass the desktop user's cookie or R2's virtual-clock environment.
+    sudo -u r2 env -u XAUTHORITY DISPLAY="${DISPLAY}" \
+        python3 "$R2_SOURCE/Observer.py" &
+    OBSERVER_PID=$!
+else
+    echo "WARNING: Could not authorize r2 for the desktop display; skipping Observer window."
+    echo "R2 will still launch normally."
+fi
 
 echo "Launching R2..."
 echo
@@ -321,9 +331,12 @@ sudo -u r2 \
 
 status=$?
 
-# Avoid leaving a stale observer window after R2 exits.
+# Avoid leaving a stale observer window or X-server permission after R2 exits.
 if [ -n "${OBSERVER_PID:-}" ]; then
     kill "$OBSERVER_PID" 2>/dev/null || true
+fi
+if [ "${OBSERVER_XHOST_GRANTED:-0}" -eq 1 ]; then
+    xhost -SI:localuser:r2 >/dev/null 2>&1 || true
 fi
 
 echo
