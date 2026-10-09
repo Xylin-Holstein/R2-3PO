@@ -53,6 +53,7 @@ int main(void) {
     assert(access(migrated,F_OK)==0);
     assert(bill_count(wallet)==5);
     assert(r2_reality_money_receive(1000000.01)!=0); /* Every money operation has the same hard cap. */
+    assert(r2_reality_money_receive(1000000.00)!=0); /* A wallet cannot exceed its $1M balance cap. */
     assert(bill_count(wallet)==5);
     char *ctx=money_context(); assert(strstr(ctx,"carried cash=$5.00")); free(ctx);
 
