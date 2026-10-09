@@ -117,7 +117,7 @@ static int startup_memory_loaded = 0;
 static int watch_running = 0;
 static int diary_initialized = 0;
 
-static void log_structured_self_report(const char *reply);
+static void log_structured_self_report(const char *reply, int64_t parent_event_id);
 
 
 
@@ -4648,10 +4648,11 @@ static void *autonomous_thinking(
             ) == 0
         ) {
 
-            r2_log_thinking("reflection_completed",
-                            "Autonomous diary reflection was written.",
-                            reflection);
-            log_structured_self_report(reflection);
+            int64_t reflection_event_id =
+                r2_log_thinking("reflection_completed",
+                                "Autonomous diary reflection was written.",
+                                reflection);
+            log_structured_self_report(reflection, reflection_event_id);
             r2_log_continuity("r2_private_reflection", "routine",
                               "Private autonomous reflection",
                               "R2 periodically reflects on supplied persistent context.",
@@ -5221,7 +5222,7 @@ void r2_diagnostics(void)
  * visible response: expressed emotion, motivation, uncertainty, beliefs,
  * and continuity items. It does not claim access to hidden model reasoning.
  */
-static void log_structured_self_report(const char *reply)
+static void log_structured_self_report(const char *reply, int64_t parent_event_id)
 {
     if (!reply || !*reply || !r2_log_is_initialized())
         return;
@@ -5240,7 +5241,7 @@ static void log_structured_self_report(const char *reply)
         "\"continuity\":[{\"key\":\"short-stable-key\",\"type\":\"project|task|question|goal|relationship|routine\","
         "\"title\":\"...\",\"description\":\"...\",\"status\":\"open|in_progress|paused|blocked|completed|closed\","
         "\"next_action\":\"...\"}]}. "
-        "Use empty arrays when there is no evidence. Confidence is evidence "
+        "Use empty arrays when there is no evidence. Include hypotheticals only when R2 explicitly labels a scenario as hypothetical or counterfactual. Confidence is evidence "
         "strength, not a measure of consciousness. Never invent exact quotes.\n\n"
         "R2 visible response:\n";
     size_t n = strlen(prefix) + strlen(reply) + 1;
@@ -5287,9 +5288,12 @@ static void log_structured_self_report(const char *reply)
                 json_object_is_type(v, json_type_string)) evidence = json_object_get_string(v);
             if (json_object_object_get_ex(item, "confidence", &v) &&
                 json_object_is_type(v, json_type_double)) confidence = json_object_get_double(v);
-            if (description && *description && evidence && *evidence)
-                r2_log_inner_state(kind, description, evidence, confidence,
+            if (description && *description && evidence && *evidence) {
+                int64_t child = r2_log_inner_state(kind, description, evidence, confidence,
                                    "explicit R2 response; model-extracted with quoted evidence");
+                if (parent_event_id > 0 && child > 0)
+                    r2_log_link(parent_event_id, child, "extracts_self_state", evidence);
+            }
         }
     }
 
@@ -5313,9 +5317,12 @@ static void log_structured_self_report(const char *reply)
             if (json_object_object_get_ex(item, "confidence", &v) &&
                 (json_object_is_type(v, json_type_double) ||
                  json_object_is_type(v, json_type_int))) confidence = json_object_get_double(v);
-            if (key && *key && belief && *belief && evidence && *evidence)
-                r2_log_belief(key, belief, evidence, confidence, status,
+            if (key && *key && belief && *belief && evidence && *evidence) {
+                int64_t child = r2_log_belief(key, belief, evidence, confidence, status,
                               "explicit R2 response; model-extracted with quoted evidence");
+                if (parent_event_id > 0 && child > 0)
+                    r2_log_link(parent_event_id, child, "supports_belief_record", evidence);
+            }
         }
     }
 
@@ -5339,10 +5346,13 @@ static void log_structured_self_report(const char *reply)
                 json_object_is_type(v, json_type_string)) status = json_object_get_string(v);
             if (json_object_object_get_ex(item, "next_action", &v) &&
                 json_object_is_type(v, json_type_string)) next_action = json_object_get_string(v);
-            if (key && *key && title && *title)
-                r2_log_continuity(key, type, title, description, status,
+            if (key && *key && title && *title) {
+                int64_t child = r2_log_continuity(key, type, title, description, status,
                                   next_action,
                                   "explicit R2 response; model-extracted");
+                if (parent_event_id > 0 && child > 0)
+                    r2_log_link(parent_event_id, child, "updates_continuity", title);
+            }
         }
     }
 
@@ -5400,12 +5410,13 @@ char *r2_talk(const char *message)
 
     pthread_mutex_unlock(&messages_lock);
 
-    if (r2_log_conversation_turn(message, reply) < 0)
+    int64_t turn_event_id = r2_log_conversation_turn(message, reply);
+    if (turn_event_id < 0)
         r2_log_event(R2_LOG_ERROR, "conversation_log_failed",
                      "Could not persist a conversation turn in the Life Log.",
                      NULL, "r2_talk");
 
-    log_structured_self_report(reply);
+    log_structured_self_report(reply, turn_event_id);
 
     char *md = memory_decision(message, reply);
 
