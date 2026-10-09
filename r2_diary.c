@@ -952,11 +952,12 @@ char *r2_diary_recent(
         return NULL;
     }
 
-    sqlite3_bind_int(
-        statement,
-        1,
-        limit
-    );
+    result = sqlite3_bind_int(statement, 1, limit);
+    if (result != SQLITE_OK) {
+        sqlite3_finalize(statement);
+        free(result_text);
+        return NULL;
+    }
 
     int step_result;
     while ((step_result = sqlite3_step(statement)) == SQLITE_ROW)
@@ -1150,19 +1151,21 @@ char *r2_diary_search(
             search_term
         );
 
-        sqlite3_bind_text(
+        result = sqlite3_bind_text(
             statement,
             1,
             pattern,
             -1,
             SQLITE_TRANSIENT
         );
-
-        sqlite3_bind_int(
-            statement,
-            2,
-            limit
-        );
+        if (result == SQLITE_OK)
+            result = sqlite3_bind_int(statement, 2, limit);
+        if (result != SQLITE_OK) {
+            free(pattern);
+            sqlite3_finalize(statement);
+            free(result_text);
+            return NULL;
+        }
 
         free(pattern);
     }
