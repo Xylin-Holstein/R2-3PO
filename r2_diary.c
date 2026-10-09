@@ -1087,8 +1087,6 @@ char *r2_diary_search(
         limit = 20;
     if (limit > 20)
         limit = 20;
-    if (limit > 20)
-        limit = 20;
 
     result_text = malloc(
         capacity
