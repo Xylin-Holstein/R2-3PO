@@ -213,8 +213,8 @@ static void shell_help(void)
         "      Put an existing object into R2's wallet.\n"
         "  world status\n"
         "      Show persistent needs and self-continuity state.\n"
-        "\n"        "  eat <food> | <fullness 0-100>\n"
-        "      Apply a modeled food value to hunger and energy.\n"
+        "\n"        "  eat <food> [| <fullness 0-100>]\n"
+        "      Use room/food_metrics.xml automatically unless a fullness value is supplied.\n"
         "  sleep <hours>\n"
         "      Advance sleep recovery; elapsed time still affects needs.\n"
         "  dream <description>\n"
@@ -1201,15 +1201,19 @@ static int shell_needs(const char *command)
         char *copy = strdup(command + 4);
         if (!copy) return 1;
         char *sep = strchr(copy, '|');
-        if (!sep) {
-            printf("Usage: eat <food> | <fullness 0-100>\n");
-        } else {
+        char *food = copy;
+        double fullness = -1.0;
+        if (sep) {
             *sep = '\0';
-            char *food = reality_trim(copy);
-            double fullness = atof(reality_trim(sep + 1));
+            fullness = atof(reality_trim(sep + 1));
+        }
+        food = reality_trim(food);
+        if (!*food) {
+            printf("Usage: eat <food> [| <fullness 0-100>]\n");
+        } else {
             int rc = r2_reality_eat(food, fullness);
             printf(rc == 0 ? "[R2 Reality] Food and hunger state updated.\n" :
-                             "[R2 Reality] Eating update failed.\n");
+                             "[R2 Reality] Eating update failed; check room/food_metrics.xml or supply fullness points.\n");
         }
         free(copy);
         return 1;
