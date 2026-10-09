@@ -289,12 +289,34 @@ def power_off(db: sqlite3.Connection) -> dict[str, Any]:
     session_id = row["session_id"]
     if pid and process_matches(int(pid), row["emulator_start_ticks"]):
         try:
-            os.kill(int(pid), signal.SIGTERM)
+            # Ask the window manager to close mGBA normally first. This lets
+            # the emulator flush already-written cartridge save RAM to its
+            # .sav backing file; it does not trigger an in-game save command.
+            if shutil.which("xdotool"):
+                found = subprocess.run(
+                    ["xdotool", "search", "--onlyvisible", "--pid", str(pid)],
+                    capture_output=True, text=True, timeout=2, check=False,
+                )
+                windows = [line.strip() for line in found.stdout.splitlines() if line.strip()]
+                if windows:
+                    subprocess.run(
+                        ["xdotool", "windowclose", windows[0]],
+                        check=False, timeout=3,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    )
             deadline = time.monotonic() + 4.0
             while time.monotonic() < deadline and process_matches(
                 int(pid), row["emulator_start_ticks"]
             ):
                 time.sleep(0.1)
+            # Fall back only if the emulator did not close in response.
+            if process_matches(int(pid), row["emulator_start_ticks"]):
+                os.kill(int(pid), signal.SIGTERM)
+                deadline = time.monotonic() + 2.0
+                while time.monotonic() < deadline and process_matches(
+                    int(pid), row["emulator_start_ticks"]
+                ):
+                    time.sleep(0.1)
             if process_matches(int(pid), row["emulator_start_ticks"]):
                 os.kill(int(pid), signal.SIGKILL)
         except ProcessLookupError:
