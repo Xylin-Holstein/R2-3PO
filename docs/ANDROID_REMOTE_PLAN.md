@@ -148,3 +148,8 @@ Implemented and build-verified on this branch:
 GitHub Actions run 37887831496 passed both the Android debug APK build and the R2 core compile. The APK is published as the r2-remote-debug-apk workflow artifact.
 
 Still not implemented: WebRTC camera/microphone calls, live Eyes-frame delivery into the face popup, PC-side live speech recognition/TTS streaming, audio transcription, continuous push synchronization, media preview/download history, and physical-device testing. The face popup is a UI component, not a claim that a live call is connected.
+
+
+## V-Webcam connection
+
+See [V-WEBCAM.md](V-WEBCAM.md) for the display-only Eyes frame bridge, launch requirements, and status meanings.
