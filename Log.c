@@ -255,6 +255,28 @@ static int ensure_tables(void)
         "ON r2_log_events(id);"
         "CREATE INDEX IF NOT EXISTS r2_log_events_category_idx "
         "ON r2_log_events(category, id);"
+        "CREATE TABLE IF NOT EXISTS r2_log_activity_sessions ("
+        " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        " activity_key TEXT NOT NULL,"
+        " activity_name TEXT NOT NULL,"
+        " started_utc TEXT NOT NULL,"
+        " started_local TEXT NOT NULL,"
+        " started_epoch INTEGER NOT NULL,"
+        " start_monotonic_ms INTEGER NOT NULL,"
+        " ended_utc TEXT,"
+        " ended_local TEXT,"
+        " ended_epoch INTEGER,"
+        " duration_ms INTEGER,"
+        " last_verified_state TEXT,"
+        " stop_reason TEXT,"
+        " start_event_id INTEGER NOT NULL,"
+        " end_event_id INTEGER,"
+        " status TEXT NOT NULL DEFAULT 'active',"
+        " FOREIGN KEY(start_event_id) REFERENCES r2_log_events(id),"
+        " FOREIGN KEY(end_event_id) REFERENCES r2_log_events(id)"
+        ");"
+        "CREATE INDEX IF NOT EXISTS r2_log_activity_key_idx "
+        "ON r2_log_activity_sessions(activity_key,status);"
         "CREATE TABLE IF NOT EXISTS r2_log_location_state ("
         " id INTEGER PRIMARY KEY CHECK(id=1),"
         " current_location TEXT NOT NULL,"
@@ -944,6 +966,163 @@ int64_t r2_log_world_event(const char *object_or_device,
 
     return r2_log_event(R2_LOG_WORLD, event, summary,
                         details, "world");
+}
+
+
+/* ------------------------------------------------------------
+ * GENERIC ACTIVITY SESSION TRACKER
+ * ------------------------------------------------------------ */
+int64_t r2_log_activity_start(const char *activity_key,
+                              const char *activity_name,
+                              const char *details)
+{
+    sqlite3_stmt *statement = NULL;
+    char utc[40], local[48], event_details[4096];
+    int rc;
+    if (!valid_text(activity_key) || !valid_text(activity_name) ||
+        strlen(activity_key) > 256 || strlen(activity_name) > 512 ||
+        (details && strlen(details) > 3000)) return -1;
+
+    pthread_mutex_lock(&log_lock);
+    if (!log_initialized || !log_db) {
+        pthread_mutex_unlock(&log_lock);
+        return -1;
+    }
+    rc = sqlite3_prepare_v2(log_db,
+        "SELECT 1 FROM r2_log_activity_sessions "
+        "WHERE activity_key=? AND status='active' LIMIT 1",
+        -1, &statement, NULL);
+    if (rc == SQLITE_OK) {
+        sqlite3_bind_text(statement, 1, activity_key, -1, SQLITE_TRANSIENT);
+        rc = sqlite3_step(statement) == SQLITE_ROW ? SQLITE_CONSTRAINT : SQLITE_OK;
+    }
+    if (statement) sqlite3_finalize(statement);
+    pthread_mutex_unlock(&log_lock);
+    if (rc != SQLITE_OK) return -1;
+
+    snprintf(event_details, sizeof(event_details), "activity_key=%s%s%s",
+             activity_key, details && *details ? "; " : "",
+             details && *details ? details : "");
+    int64_t event_id = r2_log_event(R2_LOG_MEDIA, "activity_started",
+        "R2 started activity: ", event_details, activity_key);
+    if (event_id < 0) return -1;
+
+    timestamp_pair(utc, sizeof(utc), local, sizeof(local));
+    pthread_mutex_lock(&log_lock);
+    rc = sqlite3_prepare_v2(log_db,
+        "INSERT INTO r2_log_activity_sessions "
+        "(activity_key,activity_name,started_utc,started_local,started_epoch,"
+        "start_monotonic_ms,start_event_id,status) VALUES (?,?,?,?,?,?,?,'active')",
+        -1, &statement, NULL);
+    if (rc == SQLITE_OK) {
+        char summary[1024];
+        (void)summary;
+        sqlite3_bind_text(statement, 1, activity_key, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(statement, 2, activity_name, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(statement, 3, utc, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(statement, 4, local, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(statement, 5, (sqlite3_int64)time(NULL));
+        sqlite3_bind_int64(statement, 6, (sqlite3_int64)r2_log_elapsed_ms());
+        sqlite3_bind_int64(statement, 7, (sqlite3_int64)event_id);
+        rc = sqlite3_step(statement) == SQLITE_DONE ? SQLITE_OK : SQLITE_ERROR;
+    }
+    if (statement) sqlite3_finalize(statement);
+    pthread_mutex_unlock(&log_lock);
+    if (rc != SQLITE_OK) return -1;
+
+    /* Correct the event's generic text with a concise named activity event. */
+    (void)r2_log_event(R2_LOG_MEDIA, "activity_started",
+        "R2 started activity.", activity_key, activity_name);
+    return event_id;
+}
+
+int64_t r2_log_activity_end(const char *activity_key,
+                            const char *last_verified_state,
+                            const char *stop_reason,
+                            const char *details)
+{
+    sqlite3_stmt *statement = NULL;
+    char activity_name[513] = "unknown activity";
+    char start_local[48] = "unknown";
+    char utc[40], local[48], summary[2048], event_details[4096];
+    sqlite3_int64 started_epoch = 0, started_monotonic = 0;
+    sqlite3_int64 ended_epoch = (sqlite3_int64)time(NULL);
+    sqlite3_int64 duration_ms = -1;
+    int rc;
+    if (!valid_text(activity_key) || strlen(activity_key) > 256 ||
+        (last_verified_state && strlen(last_verified_state) > 1024) ||
+        (stop_reason && strlen(stop_reason) > 1024) ||
+        (details && strlen(details) > 2000)) return -1;
+    pthread_mutex_lock(&log_lock);
+    if (!log_initialized || !log_db) {
+        pthread_mutex_unlock(&log_lock);
+        return -1;
+    }
+    rc = sqlite3_prepare_v2(log_db,
+        "SELECT activity_name,started_local,started_epoch,start_monotonic_ms "
+        "FROM r2_log_activity_sessions WHERE activity_key=? AND status='active' "
+        "ORDER BY id DESC LIMIT 1", -1, &statement, NULL);
+    if (rc == SQLITE_OK) {
+        sqlite3_bind_text(statement, 1, activity_key, -1, SQLITE_TRANSIENT);
+        rc = sqlite3_step(statement);
+        if (rc == SQLITE_ROW) {
+            const unsigned char *name = sqlite3_column_text(statement, 0);
+            const unsigned char *started = sqlite3_column_text(statement, 1);
+            if (name) snprintf(activity_name, sizeof(activity_name), "%s", (const char *)name);
+            if (started) snprintf(start_local, sizeof(start_local), "%s", (const char *)started);
+            started_epoch = sqlite3_column_int64(statement, 2);
+            started_monotonic = sqlite3_column_int64(statement, 3);
+            rc = SQLITE_OK;
+        }
+    }
+    if (statement) sqlite3_finalize(statement);
+    pthread_mutex_unlock(&log_lock);
+    if (rc != SQLITE_OK) return -1;
+
+    uint64_t elapsed = r2_log_elapsed_ms();
+    if (elapsed >= (uint64_t)started_monotonic)
+        duration_ms = (sqlite3_int64)(elapsed - (uint64_t)started_monotonic);
+    double seconds = difftime((time_t)ended_epoch, (time_t)started_epoch);
+    if (seconds < 0.0) seconds = -1.0;
+    snprintf(summary, sizeof(summary),
+             "R2 ended activity '%s'; duration %s; last verified state: %s; stop reason: %s.",
+             activity_name,
+             seconds >= 0.0 ? "recorded" : "unknown",
+             valid_text(last_verified_state) ? last_verified_state : "unknown",
+             valid_text(stop_reason) ? stop_reason : "unknown");
+    snprintf(event_details, sizeof(event_details),
+             "activity_key=%s; started=%s; duration_seconds=%.0f; duration_ms=%lld; "
+             "last_verified_state=%s; stop_reason=%s%s%s",
+             activity_key, start_local, seconds, (long long)duration_ms,
+             valid_text(last_verified_state) ? last_verified_state : "unknown",
+             valid_text(stop_reason) ? stop_reason : "unknown",
+             details && *details ? "; " : "", details && *details ? details : "");
+    int64_t event_id = r2_log_event(R2_LOG_MEDIA, "activity_ended", summary,
+                                    event_details, activity_key);
+    if (event_id < 0) return -1;
+    timestamp_pair(utc, sizeof(utc), local, sizeof(local));
+    pthread_mutex_lock(&log_lock);
+    rc = sqlite3_prepare_v2(log_db,
+        "UPDATE r2_log_activity_sessions SET ended_utc=?,ended_local=?,ended_epoch=?,"
+        "duration_ms=?,last_verified_state=?,stop_reason=?,end_event_id=?,status='ended' "
+        "WHERE activity_key=? AND status='active'",
+        -1, &statement, NULL);
+    if (rc == SQLITE_OK) {
+        sqlite3_bind_text(statement, 1, utc, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(statement, 2, local, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(statement, 3, ended_epoch);
+        if (duration_ms >= 0) sqlite3_bind_int64(statement, 4, duration_ms);
+        else sqlite3_bind_null(statement, 4);
+        sqlite3_bind_text(statement, 5, valid_text(last_verified_state) ? last_verified_state : "unknown", -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(statement, 6, valid_text(stop_reason) ? stop_reason : "unknown", -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(statement, 7, (sqlite3_int64)event_id);
+        sqlite3_bind_text(statement, 8, activity_key, -1, SQLITE_TRANSIENT);
+        rc = sqlite3_step(statement) == SQLITE_DONE && sqlite3_changes(log_db) > 0
+            ? SQLITE_OK : SQLITE_ERROR;
+    }
+    if (statement) sqlite3_finalize(statement);
+    pthread_mutex_unlock(&log_lock);
+    return rc == SQLITE_OK ? event_id : -1;
 }
 
 
