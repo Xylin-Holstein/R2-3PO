@@ -211,3 +211,22 @@ char *r2_sj_search(const char *query, int limit)
     if (!query || !*query) return r2_sj_recent(limit);
     return sj_query(query, limit);
 }
+
+long r2_sj_count(void)
+{
+    pthread_mutex_lock(&sj_lock);
+    if (!sj_ready || !sj_db) {
+        pthread_mutex_unlock(&sj_lock);
+        return -1;
+    }
+    sqlite3_stmt *st = NULL;
+    long count = -1;
+    if (sqlite3_prepare_v2(sj_db,
+            "SELECT COUNT(*) FROM r2_sensory_journal;", -1, &st, NULL) == SQLITE_OK &&
+        sqlite3_step(st) == SQLITE_ROW) {
+        count = (long)sqlite3_column_int64(st, 0);
+    }
+    sqlite3_finalize(st);
+    pthread_mutex_unlock(&sj_lock);
+    return count;
+}
