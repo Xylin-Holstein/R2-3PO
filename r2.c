@@ -76,6 +76,7 @@
 #include <time.h>
 #include <regex.h>
 #include <stdint.h>
+#include <math.h>
 
 #include <curl/curl.h>
 #include <sqlite3.h>
@@ -3443,6 +3444,19 @@ static char *trim(char *s)
 }
 
 
+static int parse_finite_double(const char *text, double *value)
+{
+    if (!text || !value) return 0;
+    errno = 0;
+    char *end = NULL;
+    double parsed = strtod(text, &end);
+    if (end == text || errno == ERANGE || !isfinite(parsed)) return 0;
+    while (end && *end && isspace((unsigned char)*end)) ++end;
+    if (end && *end) return 0;
+    *value = parsed;
+    return 1;
+}
+
 static char *strip_code_fence(char *s)
 {
     char *start = s;
@@ -4952,13 +4966,13 @@ static char *process_tools(
                    rc == 0 ? "RESULT" : "ERROR", fields[1],
                    rc == 0 ? "was removed from the tracked world" : "could not be removed (item may not exist)");
         } else if(nf>=2&&!strcasecmp(fields[0],"money_receive")){
-            double a=atof(fields[1]);int rc=r2_reality_money_receive(a);APPEND("MONEY %s: received $%.2f %s.\n",rc==0?"RESULT":"ERROR",a,rc==0?"as carried cash":"failed; check amount");
+            double a=0.0;int valid=parse_finite_double(fields[1],&a);int rc=valid?r2_reality_money_receive(a):-1;APPEND("MONEY %s: received $%.2f %s.\n",rc==0?"RESULT":"ERROR",a,rc==0?"as carried cash":"failed; check amount");
         } else if(nf>=2&&!strcasecmp(fields[0],"money_deposit")){
-            double a=atof(fields[1]);int rc=r2_reality_money_deposit(a);APPEND("MONEY %s: deposit $%.2f %s.\n",rc==0?"RESULT":"ERROR",a,rc==0?"saved to piggybank":"failed; check cash");
+            double a=0.0;int valid=parse_finite_double(fields[1],&a);int rc=valid?r2_reality_money_deposit(a):-1;APPEND("MONEY %s: deposit $%.2f %s.\n",rc==0?"RESULT":"ERROR",a,rc==0?"saved to piggybank":"failed; check cash");
         } else if(nf>=2&&!strcasecmp(fields[0],"money_withdraw")){
-            double a=atof(fields[1]);int rc=r2_reality_money_withdraw(a);APPEND("MONEY %s: withdrawal $%.2f %s.\n",rc==0?"RESULT":"ERROR",a,rc==0?"moved to cash":"failed; check bank balance");
+            double a=0.0;int valid=parse_finite_double(fields[1],&a);int rc=valid?r2_reality_money_withdraw(a):-1;APPEND("MONEY %s: withdrawal $%.2f %s.\n",rc==0?"RESULT":"ERROR",a,rc==0?"moved to cash":"failed; check bank balance");
         } else if(nf>=5&&!strcasecmp(fields[0],"buy")){
-            double price=atof(fields[2]);int rc=r2_reality_buy_item(fields[1],fields[3],price,fields[4]);APPEND("PURCHASE %s: %s for $%.2f %s.\n",rc==0?"RESULT":"ERROR",fields[1],price,rc==0?"paid and added":"failed; check funds and destination");
+            double price=0.0;int valid=parse_finite_double(fields[2],&price);int rc=valid?r2_reality_buy_item(fields[1],fields[3],price,fields[4]):-1;APPEND("PURCHASE %s: %s for $%.2f %s.\n",rc==0?"RESULT":"ERROR",fields[1],price,rc==0?"paid and added":"failed; check funds and destination");
         } else if (nf >= 2 && !strcasecmp(fields[0], "fridge")) {
             char *view = r2_fridge_context();
             APPEND("FRIDGE RESULT:\n%s\n", view ? view : "Fridge database unavailable.");
