@@ -31,6 +31,9 @@ REQUIRED_FILES=(
     "$R2_SOURCE/Visual.c"
     "$R2_SOURCE/Visual.h"
 
+    "$R2_SOURCE/Remote.c"
+    "$R2_SOURCE/Remote.h"
+
     "$R2_SOURCE/Ears.c"
     "$R2_SOURCE/Ears.h"
 
@@ -235,6 +238,7 @@ gcc -std=c11 -Wall -Wextra -O2 \
     "$R2_SOURCE/r2_diary.c" \
     "$R2_SOURCE/Log.c" \
     "$R2_SOURCE/Visual.c" \
+    "$R2_SOURCE/Remote.c" \
     "$R2_SOURCE/Ears.c" \
     "$R2_SOURCE/Eyes.c" \
     -o "$R2_EXEC" \
@@ -265,6 +269,8 @@ echo "Executable updated:"
 echo "    $R2_EXEC"
 echo
 echo "Default vision model: qwen2.5vl:3b"
+echo "Remote API: disabled unless R2_REMOTE_TOKEN is configured (24+ characters)."
+echo "For private remote access, use Tailscale and do not port-forward port 8765."
 echo "R2's conversation model remains llama3; vision perception is handled by the separate local model."
 echo "If it is not installed, run: ollama pull qwen2.5vl:3b"
 echo
@@ -274,6 +280,7 @@ echo "    shell.c"
 echo "    r2_diary.c"
 echo "    Log.c"
 echo "    Visual.c"
+echo "    Remote.c"
 echo "    Ears.c"
 echo "    Eyes.c"
 echo
