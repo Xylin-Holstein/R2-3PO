@@ -19,6 +19,29 @@ make clean all
 
 The resulting executable is `./r2`. To remove it, run `make clean`.
 
+## Ollama model: conversation and vision
+
+R2's default conversation model and visual-perception model are both `gemma3:4b`.
+Install the model locally before launching R2:
+
+```sh
+ollama pull gemma3:4b
+ollama run gemma3:4b
+```
+
+At the Ollama prompt, test a short message and then enter `/bye`. The launch script
+also reports the expected model name. R2 uses the same model for text and image input;
+visual inference shares the Ollama request lock with conversation and yields when a
+foreground conversation is waiting. Ordinary conversation does not trigger a new frame
+analysis unless the user asks about visual context; ongoing Eyes/VLC observation can
+continue through its existing watcher. If a vision request cannot run, its incomplete
+result is discarded rather than being treated as a valid observation.
+
+R2 builds a completed conversational response from the current user message and
+relevant memories/perceptions. A separate intent-summary inference is not used as an
+intermediate replacement for the answer. Build and smoke tests do not replace a live
+test with the locally installed Ollama model and actual Eyes/TV setup.
+
 You can also compile directly with the same source list and libraries:
 
 ```sh
