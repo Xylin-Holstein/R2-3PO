@@ -298,7 +298,7 @@ static const char *SYSTEM_PROMPT =
 "Do not claim that a file was created unless the C kernel reports success.\n"
 "Do not substitute a description of file contents for an actual WRITE.\n"
 "\n"
-"============================================================\\n"
+"============================================================\n"
 "R2'S PERSONAL WORLD: POCKETS, WALLET, AND ROOM\n"
 "============================================================\n"
 "\n"
