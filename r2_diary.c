@@ -678,7 +678,7 @@ int r2_diary_init(void)
         NULL, NULL, &error_message
     );
     if (result != SQLITE_OK) {
-        fprintf(stderr, "[R2 DIARY] Could not create diary linkage table: %s\\n",
+        fprintf(stderr, "[R2 DIARY] Could not create diary linkage table: %s\n",
                 error_message ? error_message : "unknown error");
         sqlite3_free(error_message);
         return -1;
