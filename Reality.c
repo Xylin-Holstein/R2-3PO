@@ -87,25 +87,32 @@ static int bind_text(sqlite3_stmt *st, int n, const char *s)
 static void update_hunger_locked(double elapsed)
 {
     sqlite3_stmt *st = NULL;
-    double hunger = 0.0;
-    double since_meal = 0.0;
+    double hunger = 0.0, since_meal = 0.0, sleepiness = 0.0, energy = 100.0;
     int rc = sqlite3_prepare_v2(reality_db,
-        "SELECT hunger, seconds_since_meal FROM r2_reality_self WHERE id=1",
+        "SELECT hunger, seconds_since_meal, sleepiness, energy FROM r2_reality_self WHERE id=1",
         -1, &st, NULL);
     if (rc == SQLITE_OK && sqlite3_step(st) == SQLITE_ROW) {
         hunger = sqlite3_column_double(st, 0);
         since_meal = sqlite3_column_double(st, 1);
+        sleepiness = sqlite3_column_double(st, 2);
+        energy = sqlite3_column_double(st, 3);
     }
     if (st) sqlite3_finalize(st);
     hunger += elapsed * HUNGER_PER_SECOND;
+    sleepiness += elapsed * HUNGER_PER_SECOND;
+    energy -= elapsed * HUNGER_PER_SECOND;
     if (hunger > 100.0) hunger = 100.0;
+    if (sleepiness > 100.0) sleepiness = 100.0;
+    if (energy < 0.0) energy = 0.0;
     since_meal += elapsed;
     st = NULL;
     if (sqlite3_prepare_v2(reality_db,
-        "UPDATE r2_reality_self SET hunger=?, seconds_since_meal=?, updated_at=CURRENT_TIMESTAMP WHERE id=1",
+        "UPDATE r2_reality_self SET hunger=?, seconds_since_meal=?, sleepiness=?, energy=?, updated_at=CURRENT_TIMESTAMP WHERE id=1",
         -1, &st, NULL) == SQLITE_OK) {
         sqlite3_bind_double(st, 1, hunger);
         sqlite3_bind_double(st, 2, since_meal);
+        sqlite3_bind_double(st, 3, sleepiness);
+        sqlite3_bind_double(st, 4, energy);
         sqlite3_step(st);
     }
     if (st) sqlite3_finalize(st);
