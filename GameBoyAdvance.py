@@ -212,6 +212,21 @@ def mgba_environment() -> dict[str, str]:
                         if "=" in line)]
     lines.extend(f"{key}={value}" for key, value in settings.items())
     config.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    # mGBA's Qt frontend reads keyboard shortcuts from qt.ini. Empty values
+    # override its default save/load-state and rewind hotkeys for this console.
+    qt_config = config_dir / "qt.ini"
+    disabled_actions = [
+        "loadState", "saveState", "loadStateFile", "saveStateFile",
+        "quickLoad", "quickSave", "undoLoadState", "undoSaveState",
+        "holdRewind", "rewind", "frameRewind",
+    ]
+    disabled_actions += [f"quickLoad.{slot}" for slot in range(1, 10)]
+    disabled_actions += [f"quickSave.{slot}" for slot in range(1, 10)]
+    qt_config.write_text(
+        "[shortcutKey]\n" + "".join(f"{action}=\\n" for action in disabled_actions),
+        encoding="utf-8",
+    )
     return env
 
 
