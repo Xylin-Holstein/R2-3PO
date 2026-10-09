@@ -1,0 +1,305 @@
+package com.robobot3000.r2remote
+
+import android.os.Bundle
+import android.speech.tts.TextToSpeech
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKey
+import org.json.JSONObject
+import java.util.Locale
+import java.util.concurrent.Executors
+
+private val io = Executors.newSingleThreadExecutor()
+
+class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
+    private var tts: TextToSpeech? = null
+    private var ttsReady = false
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        tts = TextToSpeech(this, this)
+        val prefs = try {
+            val masterKey = MasterKey.Builder(this)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build()
+            EncryptedSharedPreferences.create(
+                this, "r2_remote_secure", masterKey,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+        } catch (_: Exception) {
+            getSharedPreferences("r2_remote_fallback", MODE_PRIVATE)
+        }
+        setContent {
+            MaterialTheme {
+                Surface(Modifier.fillMaxSize()) {
+                    R2RemoteScreen(
+                        initialUrl = prefs.getString("url", "http://100.100.100.100:8765") ?: "",
+                        initialToken = prefs.getString("token", "") ?: "",
+                        saveSettings = { url, token ->
+                            prefs.edit().putString("url", url).putString("token", token).apply()
+                        },
+                        speak = { text ->
+                            if (ttsReady) tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "r2-reply")
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    override fun onInit(status: Int) {
+        ttsReady = status == TextToSpeech.SUCCESS
+        if (ttsReady) tts?.language = Locale.getDefault()
+    }
+
+    override fun onDestroy() {
+        tts?.stop()
+        tts?.shutdown()
+        io.shutdownNow()
+        super.onDestroy()
+    }
+}
+
+private enum class Section(val label: String) {
+    CHAT("Chat"), DIARY("Diary"), LIFE_LOG("Life Log"), MEMORIES("Memories"), MEDIA("Media & Calls")
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun R2RemoteScreen(
+    initialUrl: String,
+    initialToken: String,
+    saveSettings: (String, String) -> Unit,
+    speak: (String) -> Unit
+) {
+    var section by remember { mutableStateOf(Section.CHAT) }
+    var serverUrl by remember { mutableStateOf(initialUrl) }
+    var token by remember { mutableStateOf(initialToken) }
+    var draft by remember { mutableStateOf("") }
+    var memoryQuery by remember { mutableStateOf("") }
+    var output by remember { mutableStateOf("Connect to R2 using your private network address and remote token.") }
+    var status by remember { mutableStateOf("Not connected") }
+    var busy by remember { mutableStateOf(false) }
+    var autoSpeak by remember { mutableStateOf(true) }
+    var chat by remember { mutableStateOf(listOf<Pair<String, String>>()) }
+    var showSettings by remember { mutableStateOf(initialToken.isBlank()) }
+
+    fun runRequest(action: (RemoteApi) -> String, onSuccess: (String) -> Unit = { output = it }) {
+        if (serverUrl.isBlank() || token.isBlank()) {
+            status = "Set server address and token first"
+            showSettings = true
+            return
+        }
+        busy = true
+        status = "Connecting…"
+        val url = serverUrl
+        val secret = token
+        io.execute {
+            try {
+                val result = action(RemoteApi(url, secret))
+                runOnUiThread {
+                    busy = false
+                    status = "Connected"
+                    onSuccess(result)
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    busy = false
+                    status = "Connection failed"
+                    output = e.message ?: "Could not reach R2."
+                }
+            }
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
+                        Text("R2-3PO Remote", fontWeight = FontWeight.Bold)
+                        Text(status, style = MaterialTheme.typography.labelSmall)
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { showSettings = true }) {
+                        Icon(Icons.Default.Settings, contentDescription = "Connection settings")
+                    }
+                    IconButton(enabled = !busy, onClick = {
+                        runRequest({ api ->
+                            val s = api.status()
+                            "R2 status\nModel: ${s.optString("model")}\nCore initialized: ${s.optBoolean("core_initialized")}\nAutonomous thinking: ${s.optBoolean("thinking_active")}\nMemories: ${s.optInt("memory_count")}"
+                        })
+                    }) { Icon(Icons.Default.Refresh, contentDescription = "Check connection") }
+                }
+            )
+        },
+        bottomBar = {
+            NavigationBar {
+                Section.values().forEach { item ->
+                    NavigationBarItem(
+                        selected = section == item,
+                        onClick = {
+                            section = item
+                            when (item) {
+                                Section.DIARY -> runRequest({ it.diary() })
+                                Section.LIFE_LOG -> runRequest({ it.lifeLog() })
+                                Section.MEMORIES -> { output = "Search R2's persistent memories below." }
+                                else -> Unit
+                            }
+                        },
+                        icon = {
+                            Icon(when (item) {
+                                Section.CHAT -> Icons.Default.Chat
+                                Section.DIARY -> Icons.Default.MenuBook
+                                Section.LIFE_LOG -> Icons.Default.Timeline
+                                Section.MEMORIES -> Icons.Default.Psychology
+                                Section.MEDIA -> Icons.Default.VideoCall
+                            }, contentDescription = item.label)
+                        },
+                        label = { Text(item.label) }
+                    )
+                }
+            }
+        }
+    ) { padding ->
+        Column(
+            Modifier.fillMaxSize().padding(padding).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            when (section) {
+                Section.CHAT -> {
+                    Text("Your existing R2 core", style = MaterialTheme.typography.titleMedium)
+                    Text("This app sends turns to R2's current conversation and memory pipeline.")
+                    LazyColumn(
+                        Modifier.weight(1f).fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(chat) { turn ->
+                            Card(Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(12.dp)) {
+                                    Text(turn.first, fontWeight = FontWeight.Bold)
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(turn.second)
+                                }
+                            }
+                        }
+                        if (chat.isEmpty()) item {
+                            Text(output, modifier = Modifier.padding(vertical = 12.dp))
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = draft, onValueChange = { draft = it },
+                            modifier = Modifier.weight(1f),
+                            placeholder = { Text("Message R2…") },
+                            enabled = !busy, maxLines = 4
+                        )
+                        IconButton(enabled = !busy && draft.isNotBlank(), onClick = {
+                            val message = draft.trim()
+                            draft = ""
+                            chat = chat + ("You" to message)
+                            runRequest({ it.chat(message) }) { reply ->
+                                chat = chat + ("R2-3PO" to reply)
+                                output = reply
+                                if (autoSpeak) speak(reply)
+                            }
+                        }) { Icon(Icons.Default.Send, contentDescription = "Send message") }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Switch(checked = autoSpeak, onCheckedChange = { autoSpeak = it })
+                        Text("Speak R2's replies on this phone")
+                    }
+                }
+                Section.DIARY -> {
+                    Text("R2's diary", style = MaterialTheme.typography.titleLarge)
+                    Text("Private reflections returned by R2's existing diary subsystem.")
+                    Button(enabled = !busy, onClick = { runRequest({ it.diary(50) }) }) {
+                        Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(6.dp)); Text("Refresh diary")
+                    }
+                    Text(output, Modifier.weight(1f).verticalScroll(rememberScrollState()))
+                }
+                Section.LIFE_LOG -> {
+                    Text("R2's Life Log", style = MaterialTheme.typography.titleLarge)
+                    Text("Chronological events, separate from his reflective diary.")
+                    Button(enabled = !busy, onClick = { runRequest({ it.lifeLog(100) }) }) {
+                        Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(6.dp)); Text("Refresh Life Log")
+                    }
+                    Text(output, Modifier.weight(1f).verticalScroll(rememberScrollState()))
+                }
+                Section.MEMORIES -> {
+                    Text("Persistent memories", style = MaterialTheme.typography.titleLarge)
+                    Text("Search the memory system R2 already uses in conversation.")
+                    OutlinedTextField(
+                        value = memoryQuery, onValueChange = { memoryQuery = it },
+                        modifier = Modifier.fillMaxWidth(), label = { Text("Search memories") },
+                        enabled = !busy
+                    )
+                    Button(enabled = !busy && memoryQuery.isNotBlank(), onClick = {
+                        runRequest({ it.memories(memoryQuery.trim()) })
+                    }) { Icon(Icons.Default.Search, null); Spacer(Modifier.width(6.dp)); Text("Search R2's memories") }
+                    Text(output, Modifier.weight(1f).verticalScroll(rememberScrollState()))
+                }
+                Section.MEDIA -> {
+                    Text("Media & live calls", style = MaterialTheme.typography.titleLarge)
+                    Text("The remote gateway currently supports text chat and R2's existing records. Media upload processing and WebRTC calling are not wired up yet.")
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Image, null); Spacer(Modifier.width(8.dp))
+                                Column { Text("Photo / video / audio uploads", fontWeight = FontWeight.SemiBold); Text("Next integration step", style = MaterialTheme.typography.bodySmall) }
+                            }
+                            Divider()
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.VideoCall, null); Spacer(Modifier.width(8.dp))
+                                Column { Text("Live video call with R2", fontWeight = FontWeight.SemiBold); Text("WebRTC + speech recognition + TTS required", style = MaterialTheme.typography.bodySmall) }
+                            }
+                        }
+                    }
+                    Text("TTS works now for R2's text replies using your phone's installed speech engine. This is phone-side speech playback, not a live call.")
+                }
+            }
+        }
+    }
+
+    if (showSettings) {
+        AlertDialog(
+            onDismissRequest = { showSettings = false },
+            title = { Text("Connect to your R2") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Enter the private address of the Linux PC (for example, its Tailscale IP with :8765) and the R2_REMOTE_TOKEN you configured on that PC.")
+                    OutlinedTextField(value = serverUrl, onValueChange = { serverUrl = it },
+                        label = { Text("Gateway URL") }, singleLine = true)
+                    OutlinedTextField(value = token, onValueChange = { token = it },
+                        label = { Text("Remote token") }, singleLine = true)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    saveSettings(serverUrl.trim(), token)
+                    showSettings = false
+                    runRequest({ api ->
+                        val s = api.status()
+                        "Connected to ${s.optString("service")}\nModel: ${s.optString("model")}"
+                    })
+                }) { Text("Save & connect") }
+            },
+            dismissButton = { TextButton(onClick = { showSettings = false }) { Text("Cancel") } }
+        )
+    }
+}
