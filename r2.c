@@ -4814,7 +4814,8 @@ static char *process_tools(
                    rc == 0 ? "RESULT" : "ERROR", fields[1],
                    rc == 0 ? "was removed from the tracked world" : "could not be removed (item may not exist)");
         } else if (nf >= 3 && !strcasecmp(fields[0], "eat")) {
-            int rc = r2_reality_eat(fields[1], atof(fields[2]));
+            double fullness = !strcasecmp(fields[2], "auto") ? -1.0 : atof(fields[2]);
+            int rc = r2_reality_eat(fields[1], fullness);
             APPEND("REAL NEEDS %s: eating '%s' %s.\n",
                    rc == 0 ? "RESULT" : "ERROR", fields[1],
                    rc == 0 ? "updated persistent hunger and energy" : "could not update hunger");
