@@ -54,7 +54,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             MaterialTheme {
                 Surface(Modifier.fillMaxSize()) {
                     R2RemoteScreen(
-                        initialUrl = prefs.getString("url", "http://100.100.100.100:8765") ?: "",
+                        initialUrl = prefs.getString("url", "") ?: "",
                         initialToken = prefs.getString("token", "") ?: "",
                         saveSettings = { url, token ->
                             prefs.edit().putString("url", url).putString("token", token).apply()
