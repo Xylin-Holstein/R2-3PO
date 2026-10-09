@@ -19,7 +19,7 @@ jobs:
           sudo apt-get install -y gcc libcurl4-openssl-dev libsqlite3-dev libjson-c-dev libpulse-dev
       - name: Compile the same C sources used by the launcher
         run: |
-          gcc -std=c11 -Wall -Wextra -O2 \
+          gcc -std=c11 -Wall -Wextra -Werror -O2 \
             r2.c \
             shell.c \
             r2_diary.c \
