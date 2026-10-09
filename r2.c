@@ -4279,7 +4279,15 @@ static char *extract_marker(
 
     s[n] = '\0';
 
-    return trim(s);
+    /*
+     * Callers own and free this allocation. trim() may return an interior
+     * pointer when the marker content begins with whitespace, so compact it
+     * in place before returning to keep free(entry) valid.
+     */
+    char *trimmed = trim(s);
+    if (trimmed != s)
+        memmove(s, trimmed, strlen(trimmed) + 1);
+    return s;
 }
 
 
