@@ -36,7 +36,10 @@ int main(void) {
     char wallet[1024],bank[1024],bill[1200];
     snprintf(wallet,sizeof(wallet),"%s/Pockets/Wallet",R2_ROOT);
     snprintf(bank,sizeof(bank),"%s/room/piggybank",R2_ROOT);
-    /* Upgrade old lowercase mirror folders without losing portable items. */
+    assert(mkdir(R2_ROOT,0755)==0);
+    char room_root[1200]; snprintf(room_root,sizeof(room_root),"%s/room",R2_ROOT);
+    assert(mkdir(room_root,0755)==0);
+    /* Upgrade old lowercase and room-local mirror folders without losing portable items. */
     char legacy[1400], legacy_wallet[1500], legacy_room_pockets[1500], legacy_room_wallet[1500], migrated[1500];
     snprintf(legacy_room_pockets,sizeof(legacy_room_pockets),"%s/room/pockets",R2_ROOT);
     snprintf(legacy_room_wallet,sizeof(legacy_room_wallet),"%s/room/wallet",R2_ROOT);
