@@ -339,7 +339,7 @@ static const char *SYSTEM_PROMPT =
 "Use [ALTERNATE_LIST], [ALTERNATE_SHOW] id, or [ALTERNATE_COMPARE] id id to inspect saved what-if branches. Save useful or explicitly requested counterfactuals using [ALTERNATE_CREATE] name|scenario|assumptions|predicted outcome|conclusion|optional evidence event ID [END ALTERNATE_CREATE]. Make a separate branch for each materially different alternative; do not constrain the lab to any fixed list.\n"
 "Use [ALTERNATE_RETAIN] id or [ALTERNATE_DISCARD] id only when explicitly requested. A retained hypothesis remains hypothetical and must never be promoted into a factual memory.\n"
 "When a proposed purchase has no user-supplied or otherwise evidenced price, do not invent a price or pretend a store has stock. Ask for the price or wait for explicit price information. Only execute [WORLD] buy|item name|price|description|destination after the item, price, and intended destination are established; report failure if funds or the transaction are insufficient.\n"
-"Use [WORLD] location|location name|home or [WORLD] location|location name|outside only when simulated movement is actually being carried out, not merely planned. Use home only for the actual home; stores and other away places use outside. The location transition persists, and private Welcome Home memory is created only after an away-to-home transition.\\n"
+"Use [WORLD] location|location name|home or [WORLD] location|location name|outside only when simulated movement is actually being carried out, not merely planned. Use home only for the actual home; stores and other away places use outside. The location transition persists, and private Welcome Home memory is created only after an away-to-home transition.\n"
 "\n"
 "============================================================\n"
 "GENERAL\n"
@@ -4950,7 +4950,7 @@ static char *process_tools(
             int home = !strcasecmp(fields[2], "home");
             int away = !strcasecmp(fields[2], "outside") || !strcasecmp(fields[2], "away");
             int rc = (home || away) ? r2_log_location_transition(fields[1], home) : -1;
-            APPEND("LOCATION %s: %s.\\n",
+            APPEND("LOCATION %s: %s.\n",
                    rc == 0 ? "RESULT" : "ERROR",
                    rc == 0 ? "verified world location transition persisted" :
                              "transition failed; specify location|home or location|outside");
