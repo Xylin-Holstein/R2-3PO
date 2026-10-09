@@ -61,7 +61,7 @@ On startup, R2 creates these workspace directories if missing:
 - `room/shelf/` — physical shelf location
 - `room/box/` — physical storage-box location
 
-The database also provides `pockets` and `wallet` inventory containers.
+The database also provides `pockets` and `wallet` inventory containers. On startup, R2 creates `room/food_metrics.xml` if it is missing. Put one XML entry per line inside the `<foods>` root, for example `<food name="burger" fullness="100" energy="10" />`. `fullness` is the hunger reduction (0–100); `energy` is an optional energy bonus. If `eat <food>` has no explicit value, R2 looks up the food by name in this file and reports an error rather than guessing when no metric exists.
 
 Shell examples:
 
