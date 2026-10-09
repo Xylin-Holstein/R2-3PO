@@ -1282,7 +1282,7 @@ static int shell_give(const char *arg)
 {
     if (!arg || !*arg) {
         printf("Usage: give <item> <quantity> [| description | container]\n");
-        printf("       give money <quantity> creates separate physical money items.\n");
+        printf("       give money <quantity> adds separate $1 files to Pockets/Wallet.\n");
         return 1;
     }
     char *copy = strdup(arg);
@@ -1327,24 +1327,10 @@ static int shell_give(const char *arg)
             free(copy);
             return 1;
         }
-        /* One object and one .r2item mirror per unit; never interpret quantity
-           as dollars or collapse separate money pieces into one stack. */
-        for (int i = 1; i <= (int)amount; ++i) {
-            char item_name[96], item_description[512];
-            snprintf(item_name, sizeof(item_name), "money gift %ld %ld %d",
-                     (long)time(NULL), (long)getpid(), i);
-            snprintf(item_description, sizeof(item_description),
-                     "Individual physical money item created by the user; denomination unspecified. Gift batch quantity=%d.",
-                     (int)amount);
-            if (r2_reality_add_item(item_name, item_description, destination, 1) != 0) {
-                fprintf(stderr, "[Creator] Could not create %s in %s; stopping after %d of %.0f items.\n",
-                        item_name, destination, i - 1, amount);
-                rc = -1;
-                break;
-            }
-        }
+        /* An explicit creator gift adds individual $1 files to the authoritative Wallet. */
+        rc = r2_reality_money_receive(amount);
         if (rc == 0)
-            printf("[Creator] Created %.0f separate money items in %s; no cash balance or denomination was assumed.\n",
+            printf("[Creator] Added %.0f separate $1 money files to Pockets/Wallet.\n",
                    amount, destination);
     } else {
         rc = r2_reality_add_item(name, description, destination, (int)amount);
@@ -1359,7 +1345,7 @@ static int shell_give(const char *arg)
         if (money) {
             snprintf(summary, sizeof(summary), "The user created %.0f separate physical money items for R2.", amount);
             snprintf(details, sizeof(details),
-                     "Creator command=give money; individual item count=%.0f; destination=%s; physical inventory objects only; no dollar value, cash balance, purchase, or denomination was assumed.",
+                     "Creator command=give money; individual $1 file count=%.0f; destination=Pockets/Wallet; explicit user creator action.",
                      amount, destination);
         } else {
             snprintf(summary, sizeof(summary), "The user created a gift for R2: %s x %.0f.", name, amount);

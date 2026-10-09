@@ -75,35 +75,177 @@ static int ensure_dir_tree(const char *path)
     }
     return 0;
 }
+/* Physical money files are authoritative. Each money/money(N) file is $1;
+ * change.txt stores cents below $1. SQLite/account.txt are derived summaries.
+ * Reads never create missing money files, so deleted/spent cash stays gone. */
+static int money_name_is_bill(const char *name)
+{
+    if (!name) return 0;
+    if (!strcmp(name, "money")) return 1;
+    size_t n = strlen(name);
+    if (n < 8 || strncmp(name, "money(", 6) || name[n-1] != ')') return 0;
+    for (size_t i=6; i+1<n; ++i)
+        if (!isdigit((unsigned char)name[i])) return 0;
+    return 1;
+}
+static void money_dir_path(int bank, char *out, size_t cap)
+{
+    if (bank) snprintf(out, cap, "%s/room/piggybank", R2_ROOT);
+    else snprintf(out, cap, "%s/Pockets/Wallet", R2_ROOT);
+}
+static int money_bill_count(const char *dir)
+{
+    DIR *dp=opendir(dir);
+    if (!dp) return -1;
+    int count=0; struct dirent *entry;
+    while ((entry=readdir(dp)) != NULL) {
+        if (!money_name_is_bill(entry->d_name)) continue;
+        char path[2048]; struct stat st;
+        int n=snprintf(path,sizeof(path),"%s/%s",dir,entry->d_name);
+        if (n>0 && (size_t)n<sizeof(path) && lstat(path,&st)==0 && S_ISREG(st.st_mode)) ++count;
+    }
+    closedir(dp);
+    return count;
+}
+static int money_change_cents(const char *dir)
+{
+    char path[2048]; struct stat st;
+    int n=snprintf(path,sizeof(path),"%s/change.txt",dir);
+    if (n<=0 || (size_t)n>=sizeof(path)) return -1;
+    if (lstat(path,&st)!=0) return errno==ENOENT ? 0 : -1;
+    if (!S_ISREG(st.st_mode)) return -1;
+    FILE *fp=fopen(path,"r");
+    if (!fp) return -1;
+    long cents=-1; int ok=fscanf(fp,"cents=%ld",&cents)==1; fclose(fp);
+    return ok && cents>=0 && cents<100 ? (int)cents : -1;
+}
+static int money_create_bill(const char *dir)
+{
+    char path[2048], name[64];
+    for (unsigned long suffix=0; suffix<1000000UL; ++suffix) {
+        if (!suffix) snprintf(name,sizeof(name),"money");
+        else snprintf(name,sizeof(name),"money(%lu)",suffix);
+        int n=snprintf(path,sizeof(path),"%s/%s",dir,name);
+        if (n<=0 || (size_t)n>=sizeof(path)) return -1;
+        int fd=open(path,O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC,0644);
+        if (fd>=0) {
+            static const char note[]="denomination=1.00\n";
+            ssize_t wrote=write(fd,note,sizeof(note)-1);
+            int closed=close(fd);
+            if (wrote!=(ssize_t)(sizeof(note)-1) || closed!=0) { (void)unlink(path); return -1; }
+            return 0;
+        }
+        if (errno!=EEXIST) return -1;
+    }
+    return -1;
+}
+static int money_set_dir_balance(const char *dir, sqlite3_int64 cents)
+{
+    if (cents<0 || cents>100000000000LL || ensure_dir_tree(dir)!=0) return -1;
+    DIR *dp=opendir(dir);
+    if (!dp) return -1;
+    struct dirent *entry; int result=0;
+    while ((entry=readdir(dp)) != NULL) {
+        if (!money_name_is_bill(entry->d_name) && strcmp(entry->d_name,"change.txt")) continue;
+        char path[2048]; struct stat st;
+        int n=snprintf(path,sizeof(path),"%s/%s",dir,entry->d_name);
+        if (n<=0 || (size_t)n>=sizeof(path)) { result=-1; continue; }
+        if (lstat(path,&st)!=0) { if (errno!=ENOENT) result=-1; continue; }
+        if (!S_ISREG(st.st_mode) || unlink(path)!=0) result=-1;
+    }
+    closedir(dp);
+    if (result!=0) return -1;
+    for (sqlite3_int64 i=0; i<cents/100; ++i)
+        if (money_create_bill(dir)!=0) return -1;
+    int change=(int)(cents%100);
+    if (change) {
+        char path[2048], tmp[2100];
+        snprintf(path,sizeof(path),"%s/change.txt",dir);
+        snprintf(tmp,sizeof(tmp),"%s.tmp.%ld",path,(long)getpid());
+        FILE *fp=fopen(tmp,"w"); if (!fp) return -1;
+        int bad=fprintf(fp,"cents=%d\n",change)<0;
+        if (fclose(fp)!=0) bad=1;
+        if (!bad && rename(tmp,path)!=0) bad=1;
+        if (bad) { (void)unlink(tmp); return -1; }
+    }
+    return 0;
+}
+static int money_dir_balance(const char *dir, sqlite3_int64 *balance)
+{
+    int bills=money_bill_count(dir), change=money_change_cents(dir);
+    if (bills<0 || change<0) return -1;
+    if (balance) *balance=(sqlite3_int64)bills*100+change;
+    return 0;
+}
 static void money_mirror_write(sqlite3_int64 cash, sqlite3_int64 bank)
 {
     char dir[1200], path[1400], tmp[1500];
-    snprintf(dir,sizeof(dir),"%s/room/piggybank",R2_ROOT);
-    if(ensure_dir_tree(dir)!=0)return;
-    snprintf(path,sizeof(path),"%s/account.txt",dir); snprintf(tmp,sizeof(tmp),"%s.tmp.%ld",path,(long)getpid());
-    FILE *fp=fopen(tmp,"w"); if(!fp)return;
-    int bad=fprintf(fp,"cash=%.2f\nbank=%.2f\ntotal=%.2f\n",cash/100.0,bank/100.0,(cash+bank)/100.0)<0;
-    if (fclose(fp) != 0) bad = 1;
-    if (!bad && rename(tmp, path) != 0) bad = 1;
+    money_dir_path(1,dir,sizeof(dir));
+    if (ensure_dir_tree(dir)!=0) return;
+    snprintf(path,sizeof(path),"%s/account.txt",dir);
+    snprintf(tmp,sizeof(tmp),"%s.tmp.%ld",path,(long)getpid());
+    FILE *fp=fopen(tmp,"w"); if (!fp) return;
+    int bad=fprintf(fp,"cash=%.2f\nbank=%.2f\ntotal=%.2f\nDerived summary only; physical money files are authoritative.\n",
+        cash/100.0,bank/100.0,(cash+bank)/100.0)<0;
+    if (fclose(fp)!=0) bad=1;
+    if (!bad && rename(tmp,path)!=0) bad=1;
     if (bad) (void)unlink(tmp);
-    char wallet[1200], cash_path[1400], cash_tmp[1500];
-    snprintf(wallet, sizeof(wallet), "%s/pockets/wallet", R2_ROOT);
-    if (ensure_dir_tree(wallet) != 0) return;
-    snprintf(cash_path, sizeof(cash_path), "%s/cash.txt", wallet);
-    snprintf(cash_tmp, sizeof(cash_tmp), "%s.tmp.%ld", cash_path, (long)getpid());
-    fp = fopen(cash_tmp, "w");
-    if (!fp) return;
-    bad = fprintf(fp, "carried_cash=$%.2f\nThis file mirrors the persistent money account; it is not additional money.\n", cash / 100.0) < 0;
-    if (fclose(fp) != 0) bad = 1;
-    if (!bad && rename(cash_tmp, cash_path) != 0) bad = 1;
-    if (bad) (void)unlink(cash_tmp);
+    char wallet[1200], old_cash[1400];
+    money_dir_path(0,wallet,sizeof(wallet));
+    snprintf(old_cash,sizeof(old_cash),"%s/cash.txt",wallet);
+    (void)unlink(old_cash);
 }
 static int money_read_locked(sqlite3_int64 *cash, sqlite3_int64 *bank)
 {
-    sqlite3_stmt *st=NULL; int rc=sqlite3_prepare_v2(reality_db,"SELECT cash_cents,bank_cents FROM r2_money_account WHERE id=1",-1,&st,NULL);
-    if(rc==SQLITE_OK&&sqlite3_step(st)==SQLITE_ROW){if(cash)*cash=sqlite3_column_int64(st,0);if(bank)*bank=sqlite3_column_int64(st,1);rc=SQLITE_OK;}else rc=SQLITE_ERROR;
+    char wallet[1200], piggybank[1200];
+    sqlite3_int64 c=0,b=0;
+    money_dir_path(0,wallet,sizeof(wallet));
+    money_dir_path(1,piggybank,sizeof(piggybank));
+    if (money_dir_balance(wallet,&c)!=0 || money_dir_balance(piggybank,&b)!=0) return -1;
+    sqlite3_stmt *st=NULL;
+    int rc=sqlite3_prepare_v2(reality_db,
+        "UPDATE r2_money_account SET cash_cents=?,bank_cents=?,updated_at=CURRENT_TIMESTAMP WHERE id=1",
+        -1,&st,NULL);
+    if (rc==SQLITE_OK) { sqlite3_bind_int64(st,1,c); sqlite3_bind_int64(st,2,b); rc=sqlite3_step(st); }
     if (st) sqlite3_finalize(st);
-    return rc == SQLITE_OK ? 0 : -1;
+    if (rc!=SQLITE_DONE) return -1;
+    if (cash) *cash=c;
+    if (bank) *bank=b;
+    return 0;
+}
+static int money_initialize_files(int previously_seeded)
+{
+    char wallet[1200], piggybank[1200];
+    money_dir_path(0,wallet,sizeof(wallet));
+    money_dir_path(1,piggybank,sizeof(piggybank));
+    if (ensure_dir_tree(wallet)!=0 || ensure_dir_tree(piggybank)!=0) return -1;
+    int wb=money_bill_count(wallet), bb=money_bill_count(piggybank);
+    int wc=money_change_cents(wallet), bc=money_change_cents(piggybank);
+    if (wb<0 || bb<0 || wc<0 || bc<0) return -1;
+    if (wb==0 && bb==0 && wc==0 && bc==0) {
+        if (!previously_seeded) {
+            if (money_set_dir_balance(wallet,500)!=0) return -1;
+        } else {
+            /* One-time migration preserves the old account's remaining value.
+             * A previous zero balance remains zero; this path never runs again. */
+            sqlite3_stmt *st=NULL;
+            if (sqlite3_prepare_v2(reality_db,
+                "SELECT cash_cents,bank_cents FROM r2_money_account WHERE id=1",
+                -1,&st,NULL)!=SQLITE_OK || sqlite3_step(st)!=SQLITE_ROW) {
+                if (st) sqlite3_finalize(st);
+                return -1;
+            }
+            sqlite3_int64 cash=sqlite3_column_int64(st,0), bank=sqlite3_column_int64(st,1);
+            sqlite3_finalize(st);
+            if (money_set_dir_balance(wallet,cash)!=0 ||
+                money_set_dir_balance(piggybank,bank)!=0) return -1;
+        }
+    }
+    return exec_sql(
+        "INSERT INTO r2_reality_meta(key,value) VALUES('initial_cash_seeded','1') "
+        "ON CONFLICT(key) DO UPDATE SET value='1';"
+        "INSERT INTO r2_reality_meta(key,value) VALUES('money_files_authoritative','1') "
+        "ON CONFLICT(key) DO UPDATE SET value='1';");
 }
 
 /* Move only generated mirror files when upgrading the old room-local layout.
@@ -134,12 +276,13 @@ static int migrate_mirror_directory(const char *old_dir, const char *new_dir)
 
 static int make_room_dirs(void)
 {
-    char room[1024], shelf[1100], box[1100], pockets[1100], wallet[1200];
+    char room[1024], shelf[1100], box[1100], pockets[1100], wallet[1200], physical_wallet[1200];
     char fridge[1100], piggybank[1100], diary[1100];
     char old_pockets[1200], old_wallet[1200], old_fridge[1200], old_toy_box[1200];
     snprintf(room,sizeof(room),"%s/room",R2_ROOT); snprintf(shelf,sizeof(shelf),"%s/shelf",room);
     snprintf(box,sizeof(box),"%s/box",room); snprintf(pockets,sizeof(pockets),"%s/pockets",R2_ROOT);
     snprintf(wallet,sizeof(wallet),"%s/wallet",pockets);
+    snprintf(physical_wallet,sizeof(physical_wallet),"%s/Pockets/Wallet",R2_ROOT);
     snprintf(fridge,sizeof(fridge),"%s/fridge",R2_ROOT); snprintf(piggybank,sizeof(piggybank),"%s/piggybank",room);
     snprintf(old_pockets,sizeof(old_pockets),"%s/room/pockets",R2_ROOT);
     snprintf(old_wallet,sizeof(old_wallet),"%s/room/wallet",R2_ROOT);
@@ -148,7 +291,7 @@ static int make_room_dirs(void)
     snprintf(diary,sizeof(diary),"%s",R2_DIARY_DIR);
     if(ensure_dir_tree(R2_ROOT)||ensure_dir_tree(R2_HOME)||ensure_dir_tree(diary)||ensure_dir_tree(room)||
        ensure_dir_tree(shelf)||ensure_dir_tree(box)||ensure_dir_tree(pockets)||ensure_dir_tree(wallet)||
-       ensure_dir_tree(fridge)||ensure_dir_tree(piggybank)) {
+       ensure_dir_tree(physical_wallet)||ensure_dir_tree(fridge)||ensure_dir_tree(piggybank)) {
         fprintf(stderr, "[R2 Reality] Could not create room/shelf/box directories under %s\n", R2_ROOT);
         return -1;
     }
@@ -1028,11 +1171,8 @@ int r2_reality_init(void)
         cash_seeded = v && !strcmp((const char *)v, "1");
     }
     if (seed_st) sqlite3_finalize(seed_st);
-    if (!cash_seeded && exec_sql(
-        "UPDATE r2_money_account SET cash_cents=cash_cents+500 WHERE id=1;"
-        "INSERT INTO r2_reality_meta(key,value) VALUES('initial_cash_seeded','1') "
-        "ON CONFLICT(key) DO UPDATE SET value='1';") != 0) {
-        fprintf(stderr, "[R2 Reality] Could not seed initial $5 carried cash.\n");
+    if (money_initialize_files(cash_seeded) != 0) {
+        fprintf(stderr, "[R2 Reality] Could not initialize authoritative wallet files.\n");
         sqlite3_close(reality_db); reality_db = NULL;
         pthread_mutex_unlock(&reality_lock); return -1;
     }
@@ -1982,55 +2122,104 @@ int r2_reality_record_dream(const char *description)
 char *r2_reality_money_context(void)
 {
     if (!r2_reality_is_initialized()) return NULL;
-    sqlite3_int64 cash = 0, bank = 0;
-    pthread_mutex_lock(&reality_lock);int ok=money_read_locked(&cash,&bank)==0;pthread_mutex_unlock(&reality_lock);if(!ok)return NULL;
-    money_mirror_write(cash,bank);char out[512];snprintf(out,sizeof(out),"MONEY ACCOUNT: carried cash=$%.2f; bank/piggybank=$%.2f; total=$%.2f. No funds are created automatically.",cash/100.0,bank/100.0,(cash+bank)/100.0);return strdup(out);
+    sqlite3_int64 cash=0,bank=0;
+    pthread_mutex_lock(&reality_lock);
+    int ok=money_read_locked(&cash,&bank)==0;
+    pthread_mutex_unlock(&reality_lock);
+    if (!ok) return NULL;
+    money_mirror_write(cash,bank);
+    char out[768];
+    snprintf(out,sizeof(out),
+        "MONEY ACCOUNT (derived from physical files): carried cash=$%.2f; piggybank=$%.2f; total=$%.2f. Each money/money(N) file is $1; change.txt stores cents. Deleting a bill removes that dollar permanently; no restart refill occurs.",
+        cash/100.0,bank/100.0,(cash+bank)/100.0);
+    return strdup(out);
 }
 static int money_transfer(double amount,int deposit)
 {
-    if(!r2_reality_is_initialized()||!isfinite(amount)||amount<=0||amount>1000000000.0)return -1;
-    sqlite3_int64 cents=(sqlite3_int64)llround(amount*100.0),cash=0,bank=0;if(cents<=0)return -1;
-    pthread_mutex_lock(&reality_lock);int rc=money_read_locked(&cash,&bank);
+    if(!r2_reality_is_initialized()||!isfinite(amount)||amount<=0.0||amount>1000000000.0)return -1;
+    sqlite3_int64 cents=(sqlite3_int64)llround(amount*100.0),cash=0,bank=0;
+    if(cents<=0||fabs(amount*100.0-(double)cents)>0.0001)return -1;
+    char wallet[1200],piggybank[1200];
+    money_dir_path(0,wallet,sizeof(wallet)); money_dir_path(1,piggybank,sizeof(piggybank));
+    pthread_mutex_lock(&reality_lock);
+    int rc=money_read_locked(&cash,&bank);
     if(rc==0&&((deposit&&cash<cents)||(!deposit&&bank<cents)))rc=-1;
-    if(rc==0){sqlite3_stmt *st=NULL;const char *sql=deposit?"UPDATE r2_money_account SET cash_cents=cash_cents-?,bank_cents=bank_cents+?,updated_at=CURRENT_TIMESTAMP WHERE id=1":"UPDATE r2_money_account SET cash_cents=cash_cents+?,bank_cents=bank_cents-?,updated_at=CURRENT_TIMESTAMP WHERE id=1";
-        if(sqlite3_prepare_v2(reality_db,sql,-1,&st,NULL)!=SQLITE_OK)rc=-1;else{sqlite3_bind_int64(st,1,cents);sqlite3_bind_int64(st,2,cents);rc=sqlite3_step(st)==SQLITE_DONE?0:-1;}if(st)sqlite3_finalize(st);}
-    if (rc == 0) (void)money_read_locked(&cash, &bank);
+    if(rc==0){
+        sqlite3_int64 new_cash=deposit?cash-cents:cash+cents;
+        sqlite3_int64 new_bank=deposit?bank+cents:bank-cents;
+        if(money_set_dir_balance(wallet,new_cash)!=0)rc=-1;
+        else if(money_set_dir_balance(piggybank,new_bank)!=0){
+            (void)money_set_dir_balance(wallet,cash);
+            (void)money_set_dir_balance(piggybank,bank);
+            rc=-1;
+        }
+    }
+    if(rc==0)rc=money_read_locked(&cash,&bank);
     pthread_mutex_unlock(&reality_lock);
-    if (rc == 0) money_mirror_write(cash, bank);
+    if(rc==0)money_mirror_write(cash,bank);
     return rc;
 }
 int r2_reality_money_receive(double amount)
 {
-    if (!r2_reality_is_initialized() || !isfinite(amount) || amount <= 0.0 || amount > 1000000000.0) return -1;
-    sqlite3_int64 cents = (sqlite3_int64)llround(amount * 100.0), cash = 0, bank = 0;
-    if (cents <= 0) return -1;
+    if(!r2_reality_is_initialized()||!isfinite(amount)||amount<=0.0||amount>1000000000.0)return -1;
+    sqlite3_int64 cents=(sqlite3_int64)llround(amount*100.0),cash=0,bank=0;
+    if(cents<=0||fabs(amount*100.0-(double)cents)>0.0001)return -1;
+    char wallet[1200]; money_dir_path(0,wallet,sizeof(wallet));
     pthread_mutex_lock(&reality_lock);
-    sqlite3_stmt *st = NULL;
-    int rc = sqlite3_prepare_v2(reality_db, "UPDATE r2_money_account SET cash_cents=cash_cents+?,updated_at=CURRENT_TIMESTAMP WHERE id=1", -1, &st, NULL);
-    if (rc == SQLITE_OK) { sqlite3_bind_int64(st, 1, cents); rc = sqlite3_step(st); }
-    if (st) sqlite3_finalize(st);
-    if (rc == SQLITE_DONE) { (void)money_read_locked(&cash, &bank); rc = 0; } else rc = -1;
+    int rc=money_read_locked(&cash,&bank);
+    if(rc==0&&cash<=100000000000LL-cents){
+        if(money_set_dir_balance(wallet,cash+cents)!=0){
+            (void)money_set_dir_balance(wallet,cash);
+            rc=-1;
+        }
+    }else rc=-1;
+    if(rc==0)rc=money_read_locked(&cash,&bank);
     pthread_mutex_unlock(&reality_lock);
-    if (rc == 0) money_mirror_write(cash, bank);
+    if(rc==0)money_mirror_write(cash,bank);
     return rc;
 }
 int r2_reality_money_deposit(double amount){return money_transfer(amount,1);}
 int r2_reality_money_withdraw(double amount){return money_transfer(amount,0);}
 int r2_reality_buy_item(const char *name,const char *description,double price,const char *container)
 {
-    if(!name||!*name||!isfinite(price)||price<=0||price>1000000000.0||!r2_reality_is_initialized())return -1;
-    sqlite3_int64 cents=(sqlite3_int64)llround(price*100.0),cash=0,bank=0,pc=0,pb=0;if(cents<=0)return -1;
-    pthread_mutex_lock(&reality_lock);int rc=money_read_locked(&cash,&bank);if(rc==0&&cash+bank<cents)rc=-1;
-    if(rc==0){pc=cash<cents?cash:cents;pb=cents-pc;sqlite3_stmt *st=NULL;
-        if(sqlite3_prepare_v2(reality_db,"UPDATE r2_money_account SET cash_cents=cash_cents-?,bank_cents=bank_cents-?,updated_at=CURRENT_TIMESTAMP WHERE id=1",-1,&st,NULL)!=SQLITE_OK)rc=-1;
-        else{sqlite3_bind_int64(st,1,pc);sqlite3_bind_int64(st,2,pb);rc=sqlite3_step(st)==SQLITE_DONE?0:-1;}if(st)sqlite3_finalize(st);if(rc==0){cash-=pc;bank-=pb;}}
-    pthread_mutex_unlock(&reality_lock);if(rc!=0)return -1;
-    if(r2_reality_add_item(name,description?description:"Purchased item",container&&*container?container:"pockets",1)!=0){
-        pthread_mutex_lock(&reality_lock);sqlite3_stmt *st=NULL;
-        if(sqlite3_prepare_v2(reality_db,"UPDATE r2_money_account SET cash_cents=cash_cents+?,bank_cents=bank_cents+?,updated_at=CURRENT_TIMESTAMP WHERE id=1",-1,&st,NULL)==SQLITE_OK){sqlite3_bind_int64(st,1,pc);sqlite3_bind_int64(st,2,pb);(void)sqlite3_step(st);}if(st)sqlite3_finalize(st);
-        (void)money_read_locked(&cash,&bank);pthread_mutex_unlock(&reality_lock);money_mirror_write(cash,bank);return -1;}
-    money_mirror_write(cash,bank);char summary[512],details[1024];snprintf(summary,sizeof(summary),"R2 purchased %s for $%.2f.",name,cents/100.0);
-    snprintf(details,sizeof(details),"Item=%s; price=$%.2f; destination=%s; cash paid first, then bank.",name,cents/100.0,container&&*container?container:"pockets");bridge_event("purchase",summary,details,1,1);return 0;
+    if(!name||!*name||!isfinite(price)||price<=0.0||price>1000000000.0||!r2_reality_is_initialized())return -1;
+    sqlite3_int64 cents=(sqlite3_int64)llround(price*100.0),cash=0,bank=0,old_cash=0,old_bank=0;
+    if(cents<=0||fabs(price*100.0-(double)cents)>0.0001)return -1;
+    char wallet[1200],piggybank[1200];
+    money_dir_path(0,wallet,sizeof(wallet));money_dir_path(1,piggybank,sizeof(piggybank));
+    pthread_mutex_lock(&reality_lock);
+    int rc=money_read_locked(&cash,&bank);
+    old_cash=cash;old_bank=bank;
+    if(rc==0&&cash+bank<cents)rc=-1;
+    if(rc==0){
+        sqlite3_int64 spend_cash=cash<cents?cash:cents;
+        sqlite3_int64 spend_bank=cents-spend_cash;
+        if(money_set_dir_balance(wallet,cash-spend_cash)!=0)rc=-1;
+        else if(money_set_dir_balance(piggybank,bank-spend_bank)!=0){
+            (void)money_set_dir_balance(wallet,old_cash);
+            (void)money_set_dir_balance(piggybank,old_bank);
+            rc=-1;
+        }
+    }
+    if(rc==0)rc=money_read_locked(&cash,&bank);
+    pthread_mutex_unlock(&reality_lock);
+    if(rc!=0)return -1;
+    const char *destination=container&&*container?container:"pockets";
+    if(r2_reality_add_item(name,description?description:"Purchased item",destination,1)!=0){
+        pthread_mutex_lock(&reality_lock);
+        (void)money_set_dir_balance(wallet,old_cash);
+        (void)money_set_dir_balance(piggybank,old_bank);
+        (void)money_read_locked(&cash,&bank);
+        pthread_mutex_unlock(&reality_lock);
+        money_mirror_write(cash,bank);
+        return -1;
+    }
+    money_mirror_write(cash,bank);
+    char summary[512],details[1024];
+    snprintf(summary,sizeof(summary),"R2 purchased %s for $%.2f.",name,cents/100.0);
+    snprintf(details,sizeof(details),"Item=%s; price=$%.2f; destination=%s; wallet cash paid first, then piggybank.",name,cents/100.0,destination);
+    bridge_event("purchase",summary,details,1,1);
+    return 0;
 }
 
 int r2_reality_set_self(const char *key,const char *value,const char *evidence)

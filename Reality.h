@@ -52,9 +52,9 @@ int r2_reality_set_self(const char *key, const char *value,
                         const char *evidence);
 char *r2_reality_get_self(const char *key);
 char *r2_reality_money_context(void);
-int r2_reality_money_receive(double amount); /* Explicitly recorded money received from outside R2. */
-int r2_reality_money_deposit(double amount);
-int r2_reality_money_withdraw(double amount);
+int r2_reality_money_receive(double amount); /* Explicitly received money; updates physical Wallet files. */
+int r2_reality_money_deposit(double amount); /* Move physical money from Pockets/Wallet to room/piggybank. */
+int r2_reality_money_withdraw(double amount); /* Move physical money from piggybank to Pockets/Wallet. */
 int r2_reality_buy_item(const char *name,const char *description,double price,const char *container);
 
 #ifdef __cplusplus
