@@ -78,6 +78,8 @@
    ============================================================ */
 
 #include "r2_diary.h"
+#include "SensoryJournal.h"
+#include "AlternateSelf.h"
 #include "Eyes.h"
 #include "Ears.h"
 #include "Log.h"
@@ -6075,6 +6077,22 @@ int r2_init(void)
                      "r2_init");
     }
 
+    /*
+     * The journal indexes the original Life Log events; it does not
+     * replace them. Alternate-Self branches remain explicitly hypothetical.
+     */
+    if (r2_sj_init() != 0)
+        r2_log_event(R2_LOG_ERROR, "sensory_journal_init_failed",
+                     "Sensory Journal could not initialize.",
+                     "Life Log remains available; journal indexing is disabled.",
+                     "r2_init");
+
+    if (r2_altself_init() != 0)
+        r2_log_event(R2_LOG_ERROR, "alternate_self_init_failed",
+                     "Alternate-Self Lab could not initialize.",
+                     "Factual memory and the Life Log remain available.",
+                     "r2_init");
+
     /* --------------------------------------------------------
        INITIAL SYSTEM MESSAGE
        -------------------------------------------------------- */
@@ -6097,6 +6115,8 @@ int r2_init(void)
         r2_ears_shutdown(ears);
         ears = NULL;
 
+        r2_altself_shutdown();
+        r2_sj_shutdown();
         r2_visual_shutdown();
 
         r2_eyes_shutdown(eyes);
@@ -6471,6 +6491,8 @@ void r2_shutdown(void)
     }
 
     r2_visual_shutdown();
+    r2_altself_shutdown();
+    r2_sj_shutdown();
 
     if (r2_log_is_initialized()) {
         r2_log_session_end("normal shutdown");
