@@ -42,6 +42,7 @@
 #include "shell.h"
 #include "r2.h"
 #include "Log.h"
+#include "Reality.h"
 
 
 /* ============================================================
@@ -196,7 +197,24 @@ static void shell_help(void)
         "\n"
         "  diary\n"
         "      Trigger a diary-writing operation.\n"
-        "\n"
+        "\n"        "  room [look]\\n"
+        "      Inspect R2's persistent room, shelf, and storage box.\\n"
+        "  room add <name> | <description> | <container> | <quantity>\\n"
+        "      Add an object to the persistent world (default container: room).\\n"
+        "  room move <name> | <container>\\n"
+        "      Move an object to room, shelf, box, pockets, wallet, or a named container.\\n"
+        "  room remove <name>\\n"
+        "      Remove an object from the tracked world.\\n"
+        "  pockets [wallet]\\n"
+        "      Inspect pocket or wallet inventory.\\n"
+        "  pockets put <name>\\n"
+        "      Put an existing object into R2's pockets.\\n"
+        "  pockets wallet <name>\\n"
+        "      Put an existing object into R2's wallet.\\n"
+        "  world status\\n"
+        "      Show persistent needs and self-continuity state.\\n"
+        "\\n"
+
         "  log\n"
         "      Show the latest Life Log events.\n"
         "\n"
@@ -1173,6 +1191,139 @@ static int shell_dispatch(char *input)
         return 1;
     }
 
+
+
+/* ============================================================
+   REALITY / ROOM / INVENTORY
+   ============================================================ */
+
+static char *reality_trim(char *text)
+{
+    if (!text) return text;
+    while (*text && isspace((unsigned char)*text)) text++;
+    char *end = text + strlen(text);
+    while (end > text && isspace((unsigned char)end[-1])) *--end = '\0';
+    return text;
+}
+
+static int shell_reality(const char *argument)
+{
+    if (!r2_reality_is_initialized()) {
+        printf("[R2 Reality] Engine is not initialized.\n");
+        return 1;
+    }
+    if (!argument || !*argument || !strcasecmp(argument, "look")) {
+        char *view = r2_reality_room_look();
+        printf("%s", view ? view : "[R2 Reality] Could not read room state.\n");
+        free(view);
+        return 1;
+    }
+    if (!strcasecmp(argument, "status")) {
+        char *status = r2_reality_status();
+        printf("%s", status ? status : "[R2 Reality] Could not read status.\n");
+        free(status);
+        return 1;
+    }
+    if (shell_starts_with(argument, "add ")) {
+        char *copy = strdup(argument + 4);
+        if (!copy) return 1;
+        char *parts[4] = {0};
+        int n = 0;
+        char *save = NULL;
+        for (char *p = strtok_r(copy, "|", &save); p && n < 4; p = strtok_r(NULL, "|", &save))
+            parts[n++] = reality_trim(p);
+        if (n < 1 || !*parts[0]) {
+            printf("Usage: room add <name> | <description> | <container> | <quantity>\n");
+        } else {
+            const char *desc = n >= 2 ? parts[1] : "An object in R2's persistent room.";
+            const char *container = n >= 3 && *parts[2] ? parts[2] : "room";
+            int quantity = n >= 4 ? atoi(parts[3]) : 1;
+            int rc = r2_reality_add_item(parts[0], desc, container, quantity);
+            printf(rc == 0 ? "[R2 Reality] Item recorded.\n" : "[R2 Reality] Item could not be recorded.\n");
+        }
+        free(copy);
+        return 1;
+    }
+    if (shell_starts_with(argument, "move ")) {
+        char *copy = strdup(argument + 5);
+        if (!copy) return 1;
+        char *sep = strchr(copy, '|');
+        if (!sep) {
+            printf("Usage: room move <name> | <container>\n");
+        } else {
+            *sep = '\0';
+            char *name = reality_trim(copy);
+            char *container = reality_trim(sep + 1);
+            int rc = r2_reality_move_item(name, container);
+            printf(rc == 0 ? "[R2 Reality] Item moved.\n" : "[R2 Reality] Move failed; check the item name.\n");
+        }
+        free(copy);
+        return 1;
+    }
+    if (shell_starts_with(argument, "remove ")) {
+        const char *name = reality_trim((char *)argument + 7);
+        int rc = r2_reality_remove_item(name);
+        printf(rc == 0 ? "[R2 Reality] Item removed.\n" : "[R2 Reality] Removal failed; check the item name.\n");
+        return 1;
+    }
+    if (!strcasecmp(argument, "shelf") || !strcasecmp(argument, "box") ||
+        !strcasecmp(argument, "pockets") || !strcasecmp(argument, "wallet") ||
+        !strcasecmp(argument, "room")) {
+        char *items = r2_reality_list(argument);
+        printf("%s:\n%s", argument, items ? items : "(could not read container)\n");
+        free(items);
+        return 1;
+    }
+    printf("Usage: room [look|status|shelf|box|pockets|wallet|add ...|move ...|remove ...]\n");
+    return 1;
+}
+
+static int shell_pockets(const char *argument)
+{
+    if (!argument || !*argument) return shell_reality("pockets");
+    if (!strcasecmp(argument, "wallet")) return shell_reality("wallet");
+    if (shell_starts_with(argument, "put ")) {
+        char command[8192];
+        snprintf(command, sizeof(command), "move %s | pockets", argument + 4);
+        return shell_reality(command);
+    }
+    if (shell_starts_with(argument, "wallet ")) {
+        char command[8192];
+        snprintf(command, sizeof(command), "move %s | wallet", argument + 7);
+        return shell_reality(command);
+    }
+    if (shell_starts_with(argument, "take ")) {
+        char *copy = strdup(argument + 5);
+        if (!copy) return 1;
+        char *sep = strchr(copy, '|');
+        if (sep) *sep++ = '\0';
+        char command[8192];
+        snprintf(command, sizeof(command), "move %s | %s", reality_trim(copy),
+                 sep && *reality_trim(sep) ? reality_trim(sep) : "room");
+        int rc = shell_reality(command);
+        free(copy);
+        return rc;
+    }
+    printf("Usage: pockets [wallet|put <name>|wallet <name>|take <name> [| container]]\n");
+    return 1;
+}
+
+
+    /* --------------------------------------------------------
+       PERSISTENT REALITY / WORLD
+       -------------------------------------------------------- */
+    if (!strcasecmp(command, "room") || shell_starts_with(command, "room ")) {
+        shell_reality(shell_starts_with(command, "room ") ? shell_trim(command + 5) : NULL);
+        return 1;
+    }
+    if (!strcasecmp(command, "pockets") || shell_starts_with(command, "pockets ")) {
+        shell_pockets(shell_starts_with(command, "pockets ") ? shell_trim(command + 8) : NULL);
+        return 1;
+    }
+    if (!strcasecmp(command, "world status")) {
+        shell_reality("status");
+        return 1;
+    }
 
     /* --------------------------------------------------------
        EYES
