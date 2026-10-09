@@ -205,7 +205,7 @@ static int r2_eyes_probe_dimensions(
     char *separator = strchr(dimensions, 'x');
     if (!separator)
         return -1;
-    *separator = '\\0';
+    *separator = '\0';
 
     errno = 0;
     char *end = NULL;
@@ -213,7 +213,7 @@ static int r2_eyes_probe_dimensions(
     if (errno || end == dimensions)
         return -1;
     while (*end && isspace((unsigned char)*end)) ++end;
-    if (*end != '\\0')
+    if (*end != '\0')
         return -1;
 
     errno = 0;
@@ -222,7 +222,7 @@ static int r2_eyes_probe_dimensions(
     if (errno || end == height_text)
         return -1;
     while (*end && isspace((unsigned char)*end)) ++end;
-    if (*end != '\\0' || w == 0 || h == 0 ||
+    if (*end != '\0' || w == 0 || h == 0 ||
         w > UINT32_MAX || h > UINT32_MAX)
         return -1;
 
