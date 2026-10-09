@@ -80,9 +80,19 @@ class VWebcam:
 def main():
  if not os.environ.get("DISPLAY"):
   raise RuntimeError("V-Webcam needs DISPLAY; start it from the desktop launcher.")
- DATA.mkdir(mode=0o700,parents=True,exist_ok=True)
- os.chmod(DATA,0o700)
- lock=open(LOCK,"w")
+ # Eyes owns this shared directory and its frame/status files. The viewer
+ # must not chmod a directory it did not create: that raises EPERM when
+ # launched manually as the desktop user while the directory belongs to r2.
+ try:
+  DATA.mkdir(mode=0o700,parents=True,exist_ok=True)
+ except OSError as exc:
+  raise RuntimeError(f"Cannot access V-Webcam data directory {DATA}: {exc}. Start V-Webcam through R2_Launch_Code.sh so it runs as the dedicated r2 user.") from exc
+ if not os.access(DATA,os.R_OK|os.X_OK):
+  raise RuntimeError(f"{DATA} is not readable by uid {os.getuid()}. This directory is private to the r2 account; start V-Webcam through R2_Launch_Code.sh.")
+ try:
+  lock=open(LOCK,"a+")
+ except OSError as exc:
+  raise RuntimeError(f"Cannot open V-Webcam lock {LOCK}: {exc}. Start V-Webcam through R2_Launch_Code.sh as the r2 user.") from exc
  try:fcntl.flock(lock.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
  except BlockingIOError:return
  root=tk.Tk(); VWebcam(root); root.mainloop()
