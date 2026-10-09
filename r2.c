@@ -447,6 +447,18 @@ static pthread_cond_t task_queue_cond =
 static MessageList messages = {0};
 
 /*
+ * The Android companion has its own live transcript. It uses the same
+ * persistent SQLite memory and Life Log as the terminal, but its short-term
+ * message history and conversational clock are isolated from the terminal.
+ */
+static MessageList remote_messages = {0};
+static int remote_session_initialized = 0;
+static time_t remote_session_started_at = 0;
+static time_t remote_last_activity_at = 0;
+static time_t remote_previous_activity_at = 0;
+static int remote_session_active = 0;
+
+/*
  * A conversation session is distinct from the lifetime of the R2 process.
  * A new session starts explicitly from the shell/API, or after 30 minutes
  * without a completed conversational turn. Historical turns remain in the
@@ -668,21 +680,77 @@ static int message_add_pinned(
 }
 
 
-static void message_free_all(void)
+static void message_list_free(MessageList *list)
 {
-    for (size_t i = 0;
-         i < messages.count;
-         ++i) {
+    if (!list)
+        return;
 
-        free(messages.items[i].role);
-        free(messages.items[i].content);
+    for (size_t i = 0; i < list->count; ++i) {
+        free(list->items[i].role);
+        free(list->items[i].content);
     }
 
-    free(messages.items);
+    free(list->items);
+    list->items = NULL;
+    list->count = 0;
+    list->capacity = 0;
+}
 
-    messages.items = NULL;
-    messages.count = 0;
-    messages.capacity = 0;
+static void message_free_all(void)
+{
+    message_list_free(&messages);
+}
+
+static void message_rollback_to(size_t count)
+{
+    pthread_mutex_lock(&messages_lock);
+    while (messages.count > count) {
+        --messages.count;
+        free(messages.items[messages.count].role);
+        free(messages.items[messages.count].content);
+        messages.items[messages.count].role = NULL;
+        messages.items[messages.count].content = NULL;
+        messages.items[messages.count].pinned = 0;
+    }
+    pthread_mutex_unlock(&messages_lock);
+}
+
+/* Clone only pinned startup context; never inherit another interface's turns. */
+static int message_list_clone_pinned(MessageList *destination)
+{
+    if (!destination)
+        return -1;
+
+    memset(destination, 0, sizeof(*destination));
+    pthread_mutex_lock(&messages_lock);
+
+    size_t count = 0;
+    for (size_t i = 0; i < messages.count; ++i)
+        if (messages.items[i].pinned)
+            ++count;
+
+    if (count) {
+        destination->items = calloc(count, sizeof(*destination->items));
+        if (!destination->items) {
+            pthread_mutex_unlock(&messages_lock);
+            return -1;
+        }
+        destination->capacity = count;
+    }
+
+    for (size_t i = 0; i < messages.count; ++i) {
+        if (!messages.items[i].pinned)
+            continue;
+
+        Message *copy = &destination->items[destination->count];
+        copy->role = xstrdup(messages.items[i].role);
+        copy->content = xstrdup(messages.items[i].content);
+        copy->pinned = 1;
+        destination->count++;
+    }
+
+    pthread_mutex_unlock(&messages_lock);
+    return 0;
 }
 
 /* Caller holds conversation_request_lock. */
@@ -2842,29 +2910,38 @@ static char *ollama_chat(
         600L
     );
 
-    CURLcode cc =
-        curl_easy_perform(curl);
+    CURLcode cc = curl_easy_perform(curl);
+    long http_status = 0;
+    (void)curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_status);
 
     curl_slist_free_all(headers);
-
     curl_easy_cleanup(curl);
-
     json_object_put(root);
 
     if (cc != CURLE_OK) {
-
+        fprintf(stderr,
+                "[R2 Ollama] transport failure: %s (HTTP %ld, %zu response bytes)\n",
+                curl_easy_strerror(cc), http_status, b.size);
         free(b.data);
-
         return NULL;
     }
 
-    struct json_object *resp =
-        json_tokener_parse(b.data);
+    if (http_status < 200 || http_status >= 300) {
+        fprintf(stderr, "[R2 Ollama] HTTP %ld response: %.400s\n",
+                http_status, b.data ? b.data : "(empty response)");
+        free(b.data);
+        return NULL;
+    }
+
+    struct json_object *resp = json_tokener_parse(b.data ? b.data : "");
+    if (!resp) {
+        fprintf(stderr, "[R2 Ollama] response was not valid JSON (%zu bytes).\n",
+                b.size);
+        free(b.data);
+        return NULL;
+    }
 
     free(b.data);
-
-    if (!resp)
-        return NULL;
 
     struct json_object *msg = NULL;
     struct json_object *content = NULL;
@@ -6003,6 +6080,7 @@ static char *r2_talk_serialized(const char *message)
     handle_completed_messages();
 
     pthread_mutex_lock(&messages_lock);
+    size_t initial_message_count = messages.count;
 
     if (message_add("user", message) != 0) {
         pthread_mutex_unlock(&messages_lock);
@@ -6012,7 +6090,11 @@ static char *r2_talk_serialized(const char *message)
     pthread_mutex_unlock(&messages_lock);
 
     char *reply = chat_with_relevant_memories(message);
-    if (!reply) return NULL;
+    if (!reply) {
+        message_rollback_to(initial_message_count);
+        fprintf(stderr, "[R2] Conversation generation failed; the incomplete turn was removed from live context.\n");
+        return NULL;
+    }
 
     char *tools = process_tools(reply);
 
@@ -6042,11 +6124,17 @@ static char *r2_talk_serialized(const char *message)
         free(reply);
         free(tools);
 
-        if (assistant_rc != 0 || tool_rc != 0)
+        if (assistant_rc != 0 || tool_rc != 0) {
+            message_rollback_to(initial_message_count);
             return NULL;
+        }
 
         reply = chat_with_relevant_memories(message);
-        if (!reply) return NULL;
+        if (!reply) {
+            message_rollback_to(initial_message_count);
+            fprintf(stderr, "[R2] Follow-up generation failed; the incomplete turn was removed from live context.\n");
+            return NULL;
+        }
     } else {
         free(tools);
     }
@@ -6257,6 +6345,71 @@ char *r2_talk(const char *message)
 {
     pthread_mutex_lock(&conversation_request_lock);
     char *reply = r2_talk_serialized(message);
+    pthread_mutex_unlock(&conversation_request_lock);
+    return reply;
+}
+
+/*
+ * Run the existing conversation engine against an isolated Android transcript.
+ * Long-term memories, diary, tools, and Life Log remain shared with terminal.
+ */
+char *r2_talk_remote(const char *message, int new_session)
+{
+    pthread_mutex_lock(&conversation_request_lock);
+
+    if (!core_initialized || shutting_down || !message || !*message) {
+        pthread_mutex_unlock(&conversation_request_lock);
+        return NULL;
+    }
+
+    if (!remote_session_initialized) {
+        if (message_list_clone_pinned(&remote_messages) != 0) {
+            pthread_mutex_unlock(&conversation_request_lock);
+            return NULL;
+        }
+        remote_session_initialized = 1;
+        remote_session_started_at = 0;
+        remote_last_activity_at = 0;
+        remote_previous_activity_at = 0;
+        remote_session_active = 0;
+    }
+
+    pthread_mutex_lock(&messages_lock);
+    MessageList terminal_messages = messages;
+    messages = remote_messages;
+    memset(&remote_messages, 0, sizeof(remote_messages));
+    pthread_mutex_unlock(&messages_lock);
+
+    time_t terminal_started = conversation_session_started_at;
+    time_t terminal_last_activity = last_conversation_activity_at;
+    time_t terminal_previous_activity = previous_session_last_activity_at;
+    int terminal_session_active = conversation_session_active;
+
+    conversation_session_started_at = remote_session_started_at;
+    last_conversation_activity_at = remote_last_activity_at;
+    previous_session_last_activity_at = remote_previous_activity_at;
+    conversation_session_active = remote_session_active;
+
+    if (new_session)
+        conversation_session_begin_locked("android_remote_new_session");
+
+    char *reply = r2_talk_serialized(message);
+
+    pthread_mutex_lock(&messages_lock);
+    remote_messages = messages;
+    messages = terminal_messages;
+    pthread_mutex_unlock(&messages_lock);
+
+    remote_session_started_at = conversation_session_started_at;
+    remote_last_activity_at = last_conversation_activity_at;
+    remote_previous_activity_at = previous_session_last_activity_at;
+    remote_session_active = conversation_session_active;
+
+    conversation_session_started_at = terminal_started;
+    last_conversation_activity_at = terminal_last_activity;
+    previous_session_last_activity_at = terminal_previous_activity;
+    conversation_session_active = terminal_session_active;
+
     pthread_mutex_unlock(&conversation_request_lock);
     return reply;
 }
@@ -6812,6 +6965,12 @@ void r2_shutdown(void)
     shutting_down = 1;
     pthread_mutex_lock(&conversation_request_lock);
     conversation_session_end_locked("R2 core shutdown");
+    message_list_free(&remote_messages);
+    remote_session_initialized = 0;
+    remote_session_started_at = 0;
+    remote_last_activity_at = 0;
+    remote_previous_activity_at = 0;
+    remote_session_active = 0;
     pthread_mutex_unlock(&conversation_request_lock);
     r2_remote_stop();
     watch_running = 0;
