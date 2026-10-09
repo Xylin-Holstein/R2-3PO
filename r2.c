@@ -4934,8 +4934,8 @@ static char *process_tools(
                 r2_log_file_event("write_failed", "invalid_path",
                                   "failure", "Filename exceeded PATH_MAX.");
                 APPEND(
-                    "REAL WRITE ERROR:\\n"
-                    "Filename exceeds PATH_MAX.\\n"
+                    "REAL WRITE ERROR:\n"
+                    "Filename exceeds PATH_MAX.\n"
                 );
             } else {
                 memcpy(
