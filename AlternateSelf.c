@@ -61,7 +61,11 @@ int r2_altself_init(void)
         " FOREIGN KEY(log_event_id) REFERENCES r2_log_events(id)"
         ");"
         "CREATE INDEX IF NOT EXISTS r2_alternate_self_status_idx "
-        "ON r2_alternate_self_branches(status,id);";
+        "ON r2_alternate_self_branches(status,id);"
+        "DELETE FROM r2_alternate_self_branches WHERE id NOT IN "
+        "(SELECT MIN(id) FROM r2_alternate_self_branches GROUP BY log_event_id);"
+        "CREATE UNIQUE INDEX IF NOT EXISTS r2_alternate_self_log_event_idx "
+        "ON r2_alternate_self_branches(log_event_id);";
     if (as_exec(schema) != 0) {
         sqlite3_close(as_db); as_db = NULL;
         pthread_mutex_unlock(&as_lock); return -1;
@@ -152,7 +156,27 @@ int64_t r2_altself_import_hypothesis(const char *scenario,
     }
     sqlite3_stmt *st = NULL;
     int rc = sqlite3_prepare_v2(as_db,
-        "INSERT INTO r2_alternate_self_branches"
+        "SELECT id FROM r2_alternate_self_branches "
+        "WHERE scenario=? AND COALESCE(assumptions,'')=COALESCE(?,'') "
+        "AND COALESCE(predicted_outcome,'')=COALESCE(?,'') "
+        "AND COALESCE(conclusion,'')=COALESCE(?,'') AND status!='discarded' "
+        "ORDER BY id LIMIT 1;", -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        sqlite3_bind_text(st, 1, scenario, -1, SQLITE_TRANSIENT);
+        if (assumptions) sqlite3_bind_text(st, 2, assumptions, -1, SQLITE_TRANSIENT); else sqlite3_bind_null(st, 2);
+        if (predicted_outcome) sqlite3_bind_text(st, 3, predicted_outcome, -1, SQLITE_TRANSIENT); else sqlite3_bind_null(st, 3);
+        if (conclusion) sqlite3_bind_text(st, 4, conclusion, -1, SQLITE_TRANSIENT); else sqlite3_bind_null(st, 4);
+        if (sqlite3_step(st) == SQLITE_ROW) {
+            int64_t existing = sqlite3_column_int64(st, 0);
+            sqlite3_finalize(st);
+            pthread_mutex_unlock(&as_lock);
+            return existing;
+        }
+    }
+    sqlite3_finalize(st);
+    st = NULL;
+    rc = sqlite3_prepare_v2(as_db,
+        "INSERT OR IGNORE INTO r2_alternate_self_branches"
         "(name,scenario,assumptions,predicted_outcome,conclusion,status,evidence_event_id,log_event_id)"
         " VALUES(?,?,?,?,?,'active',?,?);", -1, &st, NULL);
     if (rc == SQLITE_OK) {
