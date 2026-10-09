@@ -1,0 +1,453 @@
+#define _GNU_SOURCE
+#define _POSIX_C_SOURCE 200809L
+
+#include "Remote.h"
+#include "r2.h"
+#include "r2_diary.h"
+#include "Log.h"
+
+#include <arpa/inet.h>
+#include <ctype.h>
+#include <errno.h>
+#include <netinet/in.h>
+#include <pthread.h>
+#include <signal.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <time.h>
+#include <unistd.h>
+
+#include <json-c/json.h>
+
+#define REMOTE_DEFAULT_PORT 8765
+#define REMOTE_HEADER_MAX 16384
+#define REMOTE_BODY_MAX (2 * 1024 * 1024)
+#define REMOTE_TEXT_MAX 65536
+
+static pthread_t remote_thread;
+static pthread_mutex_t remote_state_lock = PTHREAD_MUTEX_INITIALIZER;
+static int remote_listener = -1;
+static int remote_running = 0;
+static char remote_token[512];
+
+static int send_all(int fd, const void *data, size_t length)
+{
+    const char *p = (const char *)data;
+    while (length) {
+        ssize_t n = send(fd, p, length, MSG_NOSIGNAL);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (n == 0) return -1;
+        p += n;
+        length -= (size_t)n;
+    }
+    return 0;
+}
+
+static void respond_json(int fd, int status, const char *reason,
+                         struct json_object *payload)
+{
+    const char *body = payload ? json_object_to_json_string_ext(
+        payload, JSON_C_TO_STRING_PLAIN) : "{}";
+    size_t body_len = strlen(body);
+    char header[512];
+    int n = snprintf(header, sizeof(header),
+        "HTTP/1.1 %d %s\r\n"
+        "Content-Type: application/json; charset=utf-8\r\n"
+        "Content-Length: %zu\r\n"
+        "Cache-Control: no-store\r\n"
+        "Connection: close\r\n"
+        "X-Content-Type-Options: nosniff\r\n\r\n",
+        status, reason, body_len);
+    if (n > 0 && (size_t)n < sizeof(header)) {
+        (void)send_all(fd, header, (size_t)n);
+        (void)send_all(fd, body, body_len);
+    }
+}
+
+static void respond_error(int fd, int status, const char *reason,
+                          const char *message)
+{
+    struct json_object *o = json_object_new_object();
+    json_object_object_add(o, "error", json_object_new_string(message));
+    respond_json(fd, status, reason, o);
+    json_object_put(o);
+}
+
+static int constant_time_equal(const char *a, const char *b)
+{
+    if (!a || !b) return 0;
+    size_t alen = strlen(a), blen = strlen(b);
+    if (alen != blen) return 0;
+    unsigned char diff = 0;
+    for (size_t i = 0; i < alen; ++i)
+        diff |= (unsigned char)a[i] ^ (unsigned char)b[i];
+    return diff == 0;
+}
+
+static char *header_value(char *headers, const char *name)
+{
+    size_t nlen = strlen(name);
+    char *line = strstr(headers, "\r\n");
+    if (!line) return NULL;
+    line += 2;
+    while (*line) {
+        char *end = strstr(line, "\r\n");
+        if (!end) break;
+        if (end == line) break;
+        if ((size_t)(end - line) > nlen &&
+            strncasecmp(line, name, nlen) == 0 &&
+            line[nlen] == ':') {
+            char *value = line + nlen + 1;
+            while (value < end && (*value == ' ' || *value == '\t')) value++;
+            *end = '\0';
+            return value;
+        }
+        line = end + 2;
+    }
+    return NULL;
+}
+
+static long content_length(char *headers)
+{
+    char *value = header_value(headers, "Content-Length");
+    if (!value || !*value) return 0;
+    char *end = NULL;
+    errno = 0;
+    long result = strtol(value, &end, 10);
+    if (errno || !end || *end || result < 0) return -1;
+    return result;
+}
+
+static const char *query_value(const char *path, const char *key,
+                               char *out, size_t out_size)
+{
+    if (!path || !key || !out || out_size == 0) return NULL;
+    out[0] = '\0';
+    const char *q = strchr(path, '?');
+    if (!q) return NULL;
+    q++;
+    size_t key_len = strlen(key);
+    while (*q) {
+        const char *end = strchr(q, '&');
+        if (!end) end = q + strlen(q);
+        const char *eq = memchr(q, '=', (size_t)(end - q));
+        if (eq && (size_t)(eq - q) == key_len &&
+            strncmp(q, key, key_len) == 0) {
+            size_t n = (size_t)(end - eq - 1);
+            if (n >= out_size) n = out_size - 1;
+            memcpy(out, eq + 1, n);
+            out[n] = '\0';
+            for (size_t i = 0; i < n; ++i) {
+                if (out[i] == '+') out[i] = ' ';
+                else if (out[i] == '%' && i + 2 < n &&
+                         isxdigit((unsigned char)out[i+1]) &&
+                         isxdigit((unsigned char)out[i+2])) {
+                    char hex[3] = {out[i+1], out[i+2], 0};
+                    out[i] = (char)strtol(hex, NULL, 16);
+                    memmove(out + i + 1, out + i + 3, n - i - 2);
+                    n -= 2;
+                }
+            }
+            return out;
+        }
+        if (!*end) break;
+        q = end + 1;
+    }
+    return NULL;
+}
+
+static void handle_request(int fd)
+{
+    char *buffer = calloc(1, REMOTE_HEADER_MAX + 1);
+    if (!buffer) {
+        respond_error(fd, 500, "Internal Server Error", "out of memory");
+        return;
+    }
+
+    size_t used = 0;
+    char *separator = NULL;
+    while (used < REMOTE_HEADER_MAX) {
+        ssize_t n = recv(fd, buffer + used, REMOTE_HEADER_MAX - used, 0);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            free(buffer);
+            return;
+        }
+        if (n == 0) { free(buffer); return; }
+        used += (size_t)n;
+        buffer[used] = '\0';
+        separator = strstr(buffer, "\r\n\r\n");
+        if (separator) break;
+    }
+
+    if (!separator) {
+        respond_error(fd, 431, "Request Header Fields Too Large",
+                      "request headers too large");
+        free(buffer);
+        return;
+    }
+
+    *separator = '\0';
+    char method[16] = {0}, path[2048] = {0}, version[16] = {0};
+    if (sscanf(buffer, "%15s %2047s %15s", method, path, version) != 3) {
+        respond_error(fd, 400, "Bad Request", "malformed request line");
+        free(buffer);
+        return;
+    }
+
+    char *authorization = header_value(buffer, "Authorization");
+    if (!authorization || strncasecmp(authorization, "Bearer ", 7) != 0 ||
+        !constant_time_equal(authorization + 7, remote_token)) {
+        respond_error(fd, 401, "Unauthorized", "valid bearer token required");
+        free(buffer);
+        return;
+    }
+
+    long body_length = content_length(buffer);
+    if (body_length < 0 || body_length > REMOTE_BODY_MAX) {
+        respond_error(fd, 413, "Payload Too Large", "request body exceeds 2 MiB limit");
+        free(buffer);
+        return;
+    }
+
+    char *body_start = separator + 4;
+    size_t bytes_after_headers = used - (size_t)((body_start) - buffer);
+    char *body = NULL;
+    if (body_length > 0) {
+        body = calloc(1, (size_t)body_length + 1);
+        if (!body) {
+            respond_error(fd, 500, "Internal Server Error", "out of memory");
+            free(buffer);
+            return;
+        }
+        size_t copied = bytes_after_headers;
+        if (copied > (size_t)body_length) copied = (size_t)body_length;
+        memcpy(body, body_start, copied);
+        size_t total = copied;
+        while (total < (size_t)body_length) {
+            ssize_t n = recv(fd, body + total, (size_t)body_length - total, 0);
+            if (n < 0) {
+                if (errno == EINTR) continue;
+                free(body); free(buffer); return;
+            }
+            if (n == 0) break;
+            total += (size_t)n;
+        }
+        if (total != (size_t)body_length) {
+            respond_error(fd, 400, "Bad Request", "incomplete request body");
+            free(body); free(buffer); return;
+        }
+    }
+
+    if (strcmp(method, "GET") == 0 && strcmp(path, "/api/status") == 0) {
+        struct json_object *o = json_object_new_object();
+        json_object_object_add(o, "ok", json_object_new_boolean(1));
+        json_object_object_add(o, "service", json_object_new_string("R2-3PO Remote Gateway"));
+        json_object_object_add(o, "model", json_object_new_string(
+            r2_model_name() ? r2_model_name() : "unknown"));
+        json_object_object_add(o, "core_initialized",
+                               json_object_new_boolean(r2_is_initialized()));
+        json_object_object_add(o, "thinking_active",
+                               json_object_new_boolean(r2_thinking_active()));
+        json_object_object_add(o, "memory_count",
+                               json_object_new_int64(r2_memory_count()));
+        respond_json(fd, 200, "OK", o);
+        json_object_put(o);
+    } else if (strcmp(method, "GET") == 0 &&
+               (strncmp(path, "/api/diary", 10) == 0)) {
+        char count_text[16];
+        int count = 20;
+        if (query_value(path, "limit", count_text, sizeof(count_text))) {
+            int v = atoi(count_text);
+            if (v > 0 && v <= 100) count = v;
+        }
+        char *entries = r2_diary_recent(count);
+        struct json_object *o = json_object_new_object();
+        json_object_object_add(o, "content", json_object_new_string(
+            entries ? entries : "Diary entries unavailable."));
+        respond_json(fd, 200, "OK", o);
+        json_object_put(o);
+        free(entries);
+    } else if (strcmp(method, "GET") == 0 &&
+               (strncmp(path, "/api/life-log", 13) == 0)) {
+        char count_text[16];
+        int count = 30;
+        if (query_value(path, "limit", count_text, sizeof(count_text))) {
+            int v = atoi(count_text);
+            if (v > 0 && v <= 100) count = v;
+        }
+        char *entries = r2_log_recent(count);
+        struct json_object *o = json_object_new_object();
+        json_object_object_add(o, "content", json_object_new_string(
+            entries ? entries : "Life Log unavailable."));
+        respond_json(fd, 200, "OK", o);
+        json_object_put(o);
+        free(entries);
+    } else if (strcmp(method, "GET") == 0 &&
+               (strncmp(path, "/api/memories", 13) == 0)) {
+        char query[1024];
+        if (!query_value(path, "query", query, sizeof(query)) || !*query) {
+            respond_error(fd, 400, "Bad Request", "provide ?query=search+terms");
+        } else {
+            char *memories = r2_retrieve_memories(query);
+            struct json_object *o = json_object_new_object();
+            json_object_object_add(o, "content", json_object_new_string(
+                memories ? memories : "No matching memories returned."));
+            respond_json(fd, 200, "OK", o);
+            json_object_put(o);
+            free(memories);
+        }
+    } else if (strcmp(method, "POST") == 0 &&
+               strcmp(path, "/api/chat") == 0) {
+        struct json_object *request = body
+            ? json_tokener_parse(body) : NULL;
+        struct json_object *message_obj = NULL;
+        const char *message = NULL;
+        if (request && json_object_object_get_ex(request, "message", &message_obj) &&
+            json_object_is_type(message_obj, json_type_string))
+            message = json_object_get_string(message_obj);
+
+        if (!message || !*message || strlen(message) > REMOTE_TEXT_MAX) {
+            respond_error(fd, 400, "Bad Request",
+                          "message must be non-empty and at most 65536 bytes");
+        } else {
+            char *reply = r2_talk(message);
+            if (!reply) {
+                respond_error(fd, 503, "Service Unavailable",
+                              "R2 could not complete the conversation request");
+            } else {
+                struct json_object *o = json_object_new_object();
+                json_object_object_add(o, "reply", json_object_new_string(reply));
+                respond_json(fd, 200, "OK", o);
+                json_object_put(o);
+                free(reply);
+            }
+        }
+        if (request) json_object_put(request);
+    } else {
+        respond_error(fd, 404, "Not Found", "unknown endpoint");
+    }
+
+    free(body);
+    free(buffer);
+}
+
+static void *remote_server_thread(void *unused)
+{
+    (void)unused;
+    for (;;) {
+        pthread_mutex_lock(&remote_state_lock);
+        int listener = remote_listener;
+        int running = remote_running;
+        pthread_mutex_unlock(&remote_state_lock);
+        if (!running || listener < 0) break;
+
+        struct sockaddr_in client_addr;
+        socklen_t client_len = sizeof(client_addr);
+        int client = accept(listener, (struct sockaddr *)&client_addr, &client_len);
+        if (client < 0) {
+            if (errno == EINTR) continue;
+            pthread_mutex_lock(&remote_state_lock);
+            running = remote_running;
+            pthread_mutex_unlock(&remote_state_lock);
+            if (!running || errno == EBADF || errno == EINVAL) break;
+            continue;
+        }
+        struct timeval timeout = { .tv_sec = 15, .tv_usec = 0 };
+        setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+        setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+        handle_request(client);
+        close(client);
+    }
+    return NULL;
+}
+
+int r2_remote_start(void)
+{
+    const char *token = getenv("R2_REMOTE_TOKEN");
+    if (!token || strlen(token) < 24 || strlen(token) >= sizeof(remote_token)) {
+        fprintf(stderr, "[R2 Remote] Disabled: set R2_REMOTE_TOKEN to a random secret of at least 24 characters.\n");
+        return -1;
+    }
+    snprintf(remote_token, sizeof(remote_token), "%s", token);
+
+    int port = REMOTE_DEFAULT_PORT;
+    const char *port_text = getenv("R2_REMOTE_PORT");
+    if (port_text && *port_text) {
+        char *end = NULL;
+        long v = strtol(port_text, &end, 10);
+        if (!end || *end || v < 1024 || v > 65535) {
+            fprintf(stderr, "[R2 Remote] Invalid R2_REMOTE_PORT.\n");
+            return -1;
+        }
+        port = (int)v;
+    }
+
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+    int yes = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
+
+    struct sockaddr_in address;
+    memset(&address, 0, sizeof(address));
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_ANY);
+    address.sin_port = htons((uint16_t)port);
+
+    if (bind(fd, (struct sockaddr *)&address, sizeof(address)) != 0 ||
+        listen(fd, 16) != 0) {
+        fprintf(stderr, "[R2 Remote] Could not bind port %d: %s\n", port, strerror(errno));
+        close(fd);
+        return -1;
+    }
+
+    pthread_mutex_lock(&remote_state_lock);
+    remote_listener = fd;
+    remote_running = 1;
+    pthread_mutex_unlock(&remote_state_lock);
+
+    if (pthread_create(&remote_thread, NULL, remote_server_thread, NULL) != 0) {
+        pthread_mutex_lock(&remote_state_lock);
+        remote_running = 0;
+        remote_listener = -1;
+        pthread_mutex_unlock(&remote_state_lock);
+        close(fd);
+        return -1;
+    }
+    fprintf(stderr, "[R2 Remote] Authenticated API listening on port %d. Use private-network ACLs; do not expose this port publicly.\n", port);
+    return 0;
+}
+
+void r2_remote_stop(void)
+{
+    pthread_mutex_lock(&remote_state_lock);
+    int was_running = remote_running;
+    int fd = remote_listener;
+    remote_running = 0;
+    remote_listener = -1;
+    pthread_mutex_unlock(&remote_state_lock);
+
+    if (fd >= 0) {
+        shutdown(fd, SHUT_RDWR);
+        close(fd);
+    }
+    if (was_running)
+        pthread_join(remote_thread, NULL);
+    memset(remote_token, 0, sizeof(remote_token));
+}
+
+int r2_remote_is_running(void)
+{
+    pthread_mutex_lock(&remote_state_lock);
+    int result = remote_running;
+    pthread_mutex_unlock(&remote_state_lock);
+    return result;
+}
