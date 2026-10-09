@@ -1145,14 +1145,34 @@ int r2_reality_move_item(const char *name,const char *container)
         food_attributes(name, ingredients, sizeof(ingredients), taste, sizeof(taste));
         double fullness = 100.0, energy = 10.0;
         (void)food_metric(name, &fullness, &energy);
+        int prior_fridge_quantity = 0;
+        pthread_mutex_lock(&fridge_lock);
+        sqlite3_stmt *prior_fridge = NULL;
+        if (sqlite3_prepare_v2(fridge_db, "SELECT quantity FROM r2_fridge_items WHERE name=? COLLATE NOCASE", -1, &prior_fridge, NULL) == SQLITE_OK) {
+            bind_text(prior_fridge, 1, name);
+            if (sqlite3_step(prior_fridge) == SQLITE_ROW) prior_fridge_quantity = sqlite3_column_int(prior_fridge, 0);
+        }
+        if (prior_fridge) sqlite3_finalize(prior_fridge);
+        pthread_mutex_unlock(&fridge_lock);
         if (r2_fridge_add_item(name, description, quantity, fullness, energy, ingredients, taste) != 0) return -1;
         if (r2_reality_remove_item(name) != 0) {
             pthread_mutex_lock(&fridge_lock);
             sqlite3_stmt *rollback = NULL;
-            if (sqlite3_prepare_v2(fridge_db, "DELETE FROM r2_fridge_items WHERE name=? COLLATE NOCASE", -1, &rollback, NULL) == SQLITE_OK) {
-                bind_text(rollback, 1, name); (void)sqlite3_step(rollback);
+            const char *rollback_sql = prior_fridge_quantity > 0
+                ? "UPDATE r2_fridge_items SET quantity=?,updated_at=CURRENT_TIMESTAMP WHERE name=? COLLATE NOCASE"
+                : "DELETE FROM r2_fridge_items WHERE name=? COLLATE NOCASE";
+            if (sqlite3_prepare_v2(fridge_db, rollback_sql, -1, &rollback, NULL) == SQLITE_OK) {
+                if (prior_fridge_quantity > 0) {
+                    sqlite3_bind_int(rollback, 1, prior_fridge_quantity);
+                    bind_text(rollback, 2, name);
+                } else bind_text(rollback, 1, name);
+                (void)sqlite3_step(rollback);
             }
             if (rollback) sqlite3_finalize(rollback);
+            if (prior_fridge_quantity > 0)
+                fridge_mirror_write(name, description, prior_fridge_quantity, fullness, energy);
+            else fridge_mirror_remove(name);
+            (void)fridge_seed_if_empty_locked();
             pthread_mutex_unlock(&fridge_lock);
             return -1;
         }
