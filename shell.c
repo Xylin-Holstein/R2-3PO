@@ -211,6 +211,12 @@ static void shell_help(void)
         "      Put an existing object into R2's pockets.\n"
         "  pockets wallet <name>\n"
         "      Put an existing object into R2's wallet.\n"
+        "  fridge [look]\n"
+        "      Inspect stock in the separate persistent fridge database.\n"
+        "  fridge take <food>\n"
+        "      Move one fridge item into R2's pockets; an empty fridge refills with a burger.\n"
+        "  fridge eat <food>\n"
+        "      Eat directly from fridge stock without carrying the food.\n"
         "  world status\n"
         "      Show persistent needs and self-continuity state.\n"
         "\n"        "  eat <food> [| <fullness 0-100>]\n"
@@ -1199,6 +1205,32 @@ static int shell_pockets(const char *argument)
 
 
 
+static int shell_fridge(const char *argument)
+{
+    if (!argument || !*argument || !strcasecmp(argument, "look")) {
+        char *items = r2_fridge_context();
+        printf("%s\n", items ? items : "[R2 Fridge] Database unavailable.");
+        free(items);
+        return 1;
+    }
+    if (shell_starts_with(argument, "take ")) {
+        const char *food = reality_trim((char *)argument + 5);
+        int rc = r2_fridge_take(food);
+        printf(rc == 0 ? "[R2 Fridge] Moved one %s into pockets.\n" :
+                         "[R2 Fridge] Could not take that item.\n", food);
+        return 1;
+    }
+    if (shell_starts_with(argument, "eat ")) {
+        const char *food = reality_trim((char *)argument + 4);
+        int rc = r2_eat_fridge_and_learn(food, -1.0);
+        printf(rc == 0 ? "[R2 Fridge] Ate %s from fridge stock; hunger updated.\n" :
+                         "[R2 Fridge] Could not eat that item from the fridge.\n", food);
+        return 1;
+    }
+    printf("Usage: fridge [look|take <food>|eat <food>]\n");
+    return 1;
+}
+
 static int shell_needs(const char *command)
 {
     if (shell_starts_with(command, "eat ")) {
@@ -1377,6 +1409,10 @@ static int shell_dispatch(char *input)
     }
     if (!strcasecmp(command, "pockets") || shell_starts_with(command, "pockets ")) {
         shell_pockets(shell_starts_with(command, "pockets ") ? shell_trim(command + 8) : NULL);
+        return 1;
+    }
+    if (!strcasecmp(command, "fridge") || shell_starts_with(command, "fridge ")) {
+        shell_fridge(shell_starts_with(command, "fridge ") ? shell_trim(command + 7) : NULL);
         return 1;
     }
     if (!strcasecmp(command, "world status")) {
