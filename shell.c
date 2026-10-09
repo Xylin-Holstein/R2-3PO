@@ -179,6 +179,10 @@ static void shell_help(void)
         "  talk <message>\n"
         "      Send a message to R2.\n"
         "\n"
+        "  new-session\n"
+        "      Begin a separate conversation while keeping R2 running.\n"
+        "      Earlier conversations remain in the Life Log and memory.\n"
+        "\n"
         "  think\n"
         "      Trigger one autonomous thinking cycle.\n"
         "\n"
@@ -1236,6 +1240,19 @@ static int shell_dispatch(char *input)
         shell_watch(
             shell_trim(command + 6)
         );
+        return 1;
+    }
+
+
+    /* --------------------------------------------------------
+       CONVERSATION SESSION
+       -------------------------------------------------------- */
+
+    if (!strcasecmp(command, "new-session")) {
+        if (r2_conversation_session_begin("interactive_shell_command") == 0)
+            printf("[R2 Shell] New conversation session started. Earlier history remains saved.\\n");
+        else
+            fprintf(stderr, "[R2 Shell] Could not start a new conversation session.\\n");
         return 1;
     }
 
