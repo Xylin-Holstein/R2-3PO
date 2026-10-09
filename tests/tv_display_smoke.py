@@ -92,7 +92,7 @@ class TVDisplaySmoke(unittest.TestCase):
         self.assertEqual(TV.send_control_command("input 2"), "OK input selected")
         worker.join(timeout=2)
         self.assertFalse(worker.is_alive())
-        self.assertEqual(received, ["input 2\\n"])
+        self.assertEqual(received, ["input 2\n"])
 
     def test_control_client_rejects_unsupported_commands(self) -> None:
         with self.assertRaises(ValueError):
