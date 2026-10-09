@@ -122,3 +122,10 @@ current inventory quantities and object locations remain exact. For example, R2
 can forget how many rocks he collected while still knowing he currently has 20 rocks
 in `room/pockets/`. Dream entries remain simulated reports, not waking events or
 independently verified facts.
+
+
+## Desktop observer and future activity sessions
+
+The launcher opens a small read-only **R2-3PO — Observer Log** window before R2 starts. It polls the Life Log and shows only an explicit allowlist of factual world events (for example, adding or moving an object, taking food, or a purchase). It does not display conversation transcripts, thoughts, diary entries, beliefs, or private notifications. The observer runs as Linux user `r2` so the private database does not need wider read permissions; the observer itself opens SQLite in read-only/query-only mode. Install `python3-tk` if the desktop Python installation does not include Tkinter.
+
+The observer already accepts generic `activity_started`, `activity_progress`, `activity_ended`, `departure`, `arrival`, and `location_changed` Life Log events, regardless of device name. Future game/device integrations can record the activity identifier, game, elapsed duration, last verified in-game state, and an evidence-based stop reason in those events. The observer does not invent sessions or assume that R2 owns a device: **no Game Boy is created or logged until it is actually added and its play integration exists**. Actual location transitions and the private return-home notification still need to be connected to world-movement actions; the observer deliberately does not infer travel from conversation text.
