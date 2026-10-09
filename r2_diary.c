@@ -1459,7 +1459,7 @@ char *r2_workspace_list(
             16;
 
         if (required + 1 > R2_MAX_TOOL_OUTPUT - length) {
-            const char *marker = "[listing truncated at 1 MiB]\\n";
+            const char *marker = "[listing truncated at 1 MiB]\n";
             size_t marker_length = strlen(marker);
             if (marker_length + 1 <= R2_MAX_TOOL_OUTPUT - length) {
                 if (length + marker_length + 1 > capacity) {
@@ -1908,7 +1908,7 @@ char *r2_workspace_search(
         size_t required = strlen(line) + 64;
 
         if (required + 1 > R2_MAX_TOOL_OUTPUT - length) {
-            const char *marker = "[search results truncated at 1 MiB]\\n";
+            const char *marker = "[search results truncated at 1 MiB]\n";
             size_t marker_length = strlen(marker);
             if (marker_length + 1 <= R2_MAX_TOOL_OUTPUT - length) {
                 if (length + marker_length + 1 > capacity) {
