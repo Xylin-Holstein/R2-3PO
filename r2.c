@@ -80,6 +80,7 @@
 #include "r2_diary.h"
 #include "Eyes.h"
 #include "Ears.h"
+#include "Log.h"
 
 
 /* ============================================================
@@ -4525,6 +4526,11 @@ static void *autonomous_thinking(
 
     while (!shutting_down) {
 
+        uint64_t cycle_started_ms = r2_log_elapsed_ms();
+        r2_log_thinking("cycle_started",
+                        "Autonomous reflection cycle started.",
+                        "This records cycle boundaries and results, not hidden model reasoning.");
+
         for (
             int i = 0;
             i < THINK_INTERVAL &&
@@ -4542,6 +4548,9 @@ static void *autonomous_thinking(
             );
 
         if (!ctx) {
+            r2_log_event(R2_LOG_ERROR, "reflection_context_failed",
+                         "Could not build autonomous reflection context.",
+                         NULL, "autonomous_thinking");
 
             fprintf(
                 stderr,
@@ -4605,14 +4614,26 @@ static void *autonomous_thinking(
 
         free(ctx);
 
-        if (!reflection)
+        if (!reflection) {
+            r2_log_event(R2_LOG_ERROR, "reflection_generation_failed",
+                         "Autonomous reflection generation failed.",
+                         NULL, "autonomous_thinking");
             continue;
+        }
 
         if (
             r2_diary_write(
                 reflection
             ) == 0
         ) {
+
+            r2_log_thinking("reflection_completed",
+                            "Autonomous diary reflection was written.",
+                            reflection);
+            r2_log_continuity("r2_private_reflection", "routine",
+                              "Private autonomous reflection",
+                              "R2 periodically reflects on supplied persistent context.",
+                              "completed", NULL, "autonomous_thinking");
 
             printf(
                 "\n[R2 autonomous diary reflection written]\n"
@@ -4623,6 +4644,9 @@ static void *autonomous_thinking(
             fflush(stdout);
 
         } else {
+            r2_log_event(R2_LOG_ERROR, "reflection_write_failed",
+                         "Failed to write autonomous diary reflection.",
+                         NULL, "autonomous_thinking");
 
             fprintf(
                 stderr,
@@ -4632,6 +4656,13 @@ static void *autonomous_thinking(
         }
 
         free(reflection);
+        char cycle_details[128];
+        snprintf(cycle_details, sizeof(cycle_details),
+                 "duration_ms=%llu",
+                 (unsigned long long)(r2_log_elapsed_ms() - cycle_started_ms));
+        r2_log_thinking("cycle_finished",
+                        "Autonomous reflection cycle finished.",
+                        cycle_details);
     }
 
     return NULL;
@@ -5191,6 +5222,11 @@ char *r2_talk(const char *message)
 
     pthread_mutex_unlock(&messages_lock);
 
+    if (r2_log_conversation_turn(message, reply) < 0)
+        r2_log_event(R2_LOG_ERROR, "conversation_log_failed",
+                     "Could not persist a conversation turn in the Life Log.",
+                     NULL, "r2_talk");
+
     char *md = memory_decision(message, reply);
 
     if (md) {
@@ -5317,7 +5353,17 @@ int r2_init(void)
 
     diary_initialized = 1;
 
+    /* Life Log shares the existing DB file but owns separate r2_log_* tables. */
+    if (r2_log_init() != 0) {
+        r2_diary_shutdown();
+        diary_initialized = 0;
+        sqlite3_close(db);
+        db = NULL;
+        die("could not initialize R2 Life Log");
+    }
+
     if (r2_eyes_init(&eyes) != 0) {
+        r2_log_shutdown();
         r2_diary_shutdown();
         sqlite3_close(db);
         db = NULL;
@@ -5329,6 +5375,7 @@ int r2_init(void)
         r2_eyes_shutdown(eyes);
         eyes = NULL;
 
+        r2_log_shutdown();
         r2_diary_shutdown();
         sqlite3_close(db);
         db = NULL;
@@ -5346,6 +5393,7 @@ int r2_init(void)
         ) != CURLE_OK
     ) {
 
+        r2_log_shutdown();
         r2_diary_shutdown();
         sqlite3_close(db);
         db = NULL;
@@ -5380,6 +5428,7 @@ int r2_init(void)
         r2_eyes_shutdown(eyes);
         eyes = NULL;
 
+        r2_log_shutdown();
         r2_diary_shutdown();
         sqlite3_close(db);
         db = NULL;
@@ -5690,6 +5739,23 @@ int r2_init(void)
     core_initialized = 1;
     startup_memory_loaded = 1;
 
+    if (r2_log_session_start() == 0) {
+        r2_log_milestone("r2_first_successful_start",
+                         "R2 completed its first successful core startup.",
+                         "Recorded only when the Life Log can verify this is the first occurrence.");
+        r2_log_system_snapshot("startup");
+        r2_log_event(R2_LOG_LIFECYCLE, "core_online",
+                     "R2 core initialization completed.",
+                     "Core, persistent memory, diary, Eyes, Ears, and background workers initialized.",
+                     "r2_init");
+        r2_log_continuity("r2_life_log_integration", "project",
+                          "R2 Life Log integration",
+                          "Chronology, conversations, system state, reflection cycles, and continuity are logged.",
+                          "in_progress",
+                          "Connect sensory, media, filesystem and structured self-state extraction.",
+                          "r2_init");
+    }
+
     return 0;
 }
 
@@ -5700,6 +5766,12 @@ void r2_shutdown(void)
 
     shutting_down = 1;
     watch_running = 0;
+
+    if (r2_log_is_initialized()) {
+        r2_log_system_snapshot("shutdown_begin");
+        r2_log_event(R2_LOG_LIFECYCLE, "shutdown_begin",
+                     "R2 shutdown requested.", NULL, "r2_shutdown");
+    }
 
     pthread_cond_broadcast(&task_queue_cond);
 
@@ -5721,6 +5793,11 @@ void r2_shutdown(void)
     if (eyes) {
         r2_eyes_shutdown(eyes);
         eyes = NULL;
+    }
+
+    if (r2_log_is_initialized()) {
+        r2_log_session_end("normal shutdown");
+        r2_log_shutdown();
     }
 
     if (diary_initialized) {
