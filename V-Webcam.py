@@ -25,6 +25,7 @@ class VWebcam:
   tk.Label(row,text="Display only • no camera • no control of Eyes",bg=PANEL,fg=MUTED,font=("DejaVu Sans",8)).pack(side="right")
   root.bind("<space>",lambda _e:self.toggle_pause()); root.bind("f",lambda _e:self.toggle_focus()); root.bind("<Escape>",lambda _e:root.iconify())
   self.canvas.bind("<Configure>",lambda _e:self.fit_image())
+  root.withdraw(); self.visible=False
   root.after(100,self.tick); self.refresh()
  def toggle_pause(self):
   self.paused=not self.paused; self.pause_btn.configure(text="Resume display" if self.paused else "Pause display")
@@ -61,7 +62,13 @@ class VWebcam:
   self.canvas.itemconfigure(self.image,image=self.photo); self.canvas.tag_lower(self.image); self.canvas.coords(self.image,0,0)
   self.draw_focus()
  def draw_focus(self):
-  s,f=self.status(),self.focus(); self.live.configure(text="● EYES ACTIVE" if s["active"] else "● WAITING FOR EYES",fg=GREEN if s["active"] else "#ffbd59")
+  s,f=self.status(),self.focus()
+  eligible=s["active"] and s["source"].strip().lower() not in ("", "no source")
+  if eligible and not self.visible:
+   self.root.deiconify(); self.root.lift(); self.visible=True
+  elif not eligible and self.visible:
+   self.root.withdraw(); self.visible=False
+  self.live.configure(text="● EYES ACTIVE" if eligible else "● WAITING FOR VLC / WEBCAM",fg=GREEN if eligible else "#ffbd59")
   self.source.configure(text=f"Source: {s['source']}")
   self.details.configure(text=(f"Native input: {s['width']}×{s['height']}  •  Frame: {s['frames']}  •  Display: {self.w}×{self.h}  •  Focus: {f['label'] if f else 'No focus region reported yet'}") if self.w else "Waiting for a frame from R2's existing Eyes subsystem.")
   if not self.show_focus or not f or not self.w or not self.h:
