@@ -360,6 +360,53 @@ def mgba_environment() -> dict[str, str]:
     return env
 
 
+
+def verify_console(db: sqlite3.Connection) -> dict[str, Any]:
+    """Verify the installed device, current cartridge slot, and emulator path.
+
+    This does not change power state or replace the cartridge. Power-on
+    performs the actual launch using the single ROM stored in the slot.
+    """
+    row = reconcile(db)
+    emulator = Path(EMULATOR).expanduser()
+    if not emulator.is_absolute():
+        emulator = emulator.resolve()
+    checks = {
+        "device_root_exists": ROOT.is_dir(),
+        "cartridges_directory_exists": CARTRIDGES.is_dir(),
+        "saves_directory_writable": SAVES.is_dir() and os.access(SAVES, os.W_OK),
+        "state_directory_writable": STATE.is_dir() and os.access(STATE, os.W_OK),
+        "emulator_exists": emulator.is_file(),
+        "emulator_executable": emulator.is_file() and os.access(emulator, os.X_OK),
+    }
+    rom_path = row["cartridge_path"]
+    if rom_path:
+        rom = Path(rom_path).resolve()
+        checks["slot_rom_exists"] = rom.is_file() and rom.parent == CARTRIDGES.resolve()
+        checks["slot_rom_format_supported"] = rom.suffix.lower() in ROM_EXTENSIONS
+    else:
+        checks["slot_rom_exists"] = False
+        checks["slot_rom_format_supported"] = False
+    ok = all(checks[key] for key in (
+        "device_root_exists", "cartridges_directory_exists",
+        "saves_directory_writable", "state_directory_writable",
+        "emulator_exists", "emulator_executable",
+    )) and (not rom_path or (checks["slot_rom_exists"] and checks["slot_rom_format_supported"]))
+    if not rom_path:
+        message = "Console installation and emulator checked; cartridge slot is empty, so power on will not launch a game."
+    elif not checks["slot_rom_exists"] or not checks["slot_rom_format_supported"]:
+        message = "Console check failed: the recorded cartridge path is missing, outside Cartridges, or unsupported."
+        ok = False
+    elif not checks["emulator_executable"]:
+        message = f"Console check failed: mGBA is missing or not executable at {emulator}."
+        ok = False
+    else:
+        message = f"Console verified. Power on will launch {row['cartridge_title'] or Path(rom_path).stem} from the current cartridge slot."
+    return {
+        "ok": ok, "message": message, "checks": checks,
+        "emulator_path": str(emulator), **status_data(db),
+    }
+
 def power_on(db: sqlite3.Connection) -> dict[str, Any]:
     row = reconcile(db)
     if row["power_state"] == "on":
@@ -381,11 +428,11 @@ def power_on(db: sqlite3.Connection) -> dict[str, Any]:
             raise ValueError("The inserted cartridge file is missing or outside Cartridges.")
         if rom.suffix.lower() not in ROM_EXTENSIONS:
             raise ValueError("The inserted cartridge format is unsupported.")
-        emulator = Path(EMULATOR)
+        emulator = Path(EMULATOR).expanduser().resolve()
         if not emulator.is_file() or not os.access(emulator, os.X_OK):
             raise ValueError(
-                f"mGBA executable not found or not executable at {EMULATOR}. "
-                "Set R2_MGBA_EXECUTABLE to its actual path."
+                f"mGBA executable not found or not executable at {emulator}. "
+                "Set R2_MGBA_EXECUTABLE to its actual executable path."
             )
         title = row["cartridge_title"] or read_rom_title(rom)
         session_id = f"gba-{int(time.time())}-{os.getpid()}"
@@ -600,6 +647,10 @@ def print_result(value: Any, as_json: bool) -> None:
             print(f"Cartridge: {value.get('cartridge_title') or '(empty)'}")
             print(f"Game running: {'yes' if value.get('game_running') else 'no'}")
             print(f"Database: {value.get('database')}")
+            if "checks" in value:
+                for check, passed in value["checks"].items():
+                    print(f"Check {check}: {'OK' if passed else 'FAILED'}")
+                print(f"mGBA: {value.get('emulator_path')}")
     elif isinstance(value, list):
         if not value:
             print("No cartridges or pending verified game events.")
@@ -616,6 +667,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("status", help="inspect console and cartridge state")
+    sub.add_parser("verify", help="verify install, emulator, and currently inserted ROM before power-on")
     sub.add_parser("list", help="list known cartridges and their physical locations")
     move = sub.add_parser("move", help="move a loose cartridge to pockets, shelf, box, or room")
     move.add_argument("filename")
@@ -638,6 +690,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if command == "status":
             result = status_data(db)
+        elif command == "verify":
+            result = verify_console(db)
         elif command == "list":
             result = list_cartridges(db)
         elif command == "move":
