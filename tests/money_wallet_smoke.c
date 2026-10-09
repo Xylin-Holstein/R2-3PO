@@ -56,6 +56,12 @@ int main(void) {
     assert(bill_count(wallet)==3 && change_cents(wallet)==0);
     assert(bill_count(bank)==1 && change_cents(bank)==0);
     assert(r2_reality_buy_item("soda","A purchased drink",3.50,"fridge")==0);
+    /* Pockets travel with R2; room storage and the fixed fridge do not. */
+    assert(r2_reality_set_location(0)==0);
+    assert(r2_reality_add_item("travel toy","Portable toy","pockets",1)==0);
+    assert(r2_reality_add_item("room-only toy","Toy left at home","room",1)!=0);
+    assert(r2_fridge_take("soda")!=0);
+    assert(r2_reality_set_location(1)==0);
     assert(bill_count(wallet)==0 && change_cents(wallet)==0);
     assert(bill_count(bank)==0 && change_cents(bank)==50);
     assert(r2_reality_buy_item("expensive item","Not affordable",1.00,"pockets")!=0);
