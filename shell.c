@@ -1338,7 +1338,8 @@ static int shell_give(const char *arg)
         for (int i = 1; i <= (int)amount; ++i) {
             char item_name[64];
             char item_description[512];
-            snprintf(item_name, sizeof(item_name), "money %d", i);
+            snprintf(item_name, sizeof(item_name), "money gift %ld %ld %d",
+                     (long)time(NULL), (long)getpid(), i);
             snprintf(item_description, sizeof(item_description),
                      "Individual physical money item created by the user; denomination unspecified. Gift batch quantity=%d.",
                      (int)amount);
