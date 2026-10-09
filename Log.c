@@ -39,6 +39,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <sys/statvfs.h>
+#include <sys/stat.h>
 #include <sys/utsname.h>
 #include <sys/types.h>
 
@@ -59,6 +60,88 @@ static int log_initialized = 0;
 static int64_t current_session_id = 0;
 static struct timespec process_start_time;
 static int process_clock_ready = 0;
+
+static pthread_mutex_t text_log_lock = PTHREAD_MUTEX_INITIALIZER;
+static int text_log_warning_emitted = 0;
+
+/*
+ * Append every structured Life Log event to a daily human-readable
+ * mirror as well as SQLite. The database remains canonical; the text
+ * mirror is deliberately best-effort so disk permission issues never
+ * cause a successfully recorded event to be reported as failed.
+ *
+ * File format: /home/x/R2_Home/R2_Log/Log[YYYY-MM-DD].txt
+ */
+static void append_daily_text_log(const char *local_time,
+                                  int64_t event_id,
+                                  R2LogCategory category,
+                                  const char *event_type,
+                                  const char *summary,
+                                  const char *details,
+                                  const char *source)
+{
+    char directory[512];
+    char filename[640];
+    char date[11];
+    int written;
+
+    if (!local_time || strlen(local_time) < 10)
+        return;
+
+    memcpy(date, local_time, 10);
+    date[10] = '\\0';
+
+    written = snprintf(directory, sizeof(directory), "%s/R2_Log", R2_ROOT);
+    if (written < 0 || (size_t)written >= sizeof(directory))
+        return;
+
+    if (mkdir(directory, 0750) != 0 && errno != EEXIST)
+        goto warning;
+
+    written = snprintf(filename, sizeof(filename),
+                       "%s/Log[%s].txt", directory, date);
+    if (written < 0 || (size_t)written >= sizeof(filename))
+        return;
+
+    pthread_mutex_lock(&text_log_lock);
+    FILE *file = fopen(filename, "a");
+    if (!file) {
+        pthread_mutex_unlock(&text_log_lock);
+        goto warning;
+    }
+
+    fprintf(file,
+            "[%s] [#%lld] [%s/%s] %s\\n",
+            local_time, (long long)event_id, category_name(category),
+            event_type ? event_type : "event",
+            summary ? summary : "");
+    if (source && *source)
+        fprintf(file, "Source: %s\\n", source);
+    if (details && *details)
+        fprintf(file, "%s%s", details,
+                details[strlen(details) - 1] == '\\n' ? "" : "\\n");
+    fputc('\\n', file);
+
+    if (fflush(file) != 0 || ferror(file)) {
+        fclose(file);
+        pthread_mutex_unlock(&text_log_lock);
+        goto warning;
+    }
+    fclose(file);
+    pthread_mutex_unlock(&text_log_lock);
+    return;
+
+warning:
+    pthread_mutex_lock(&text_log_lock);
+    if (!text_log_warning_emitted) {
+        text_log_warning_emitted = 1;
+        fprintf(stderr,
+                "[R2 Life Log] Warning: daily text mirror could not be "
+                "written under %s (check directory permissions).\\n",
+                R2_ROOT);
+    }
+    pthread_mutex_unlock(&text_log_lock);
+}
 
 /* ------------------------------------------------------------
  * SMALL INTERNAL HELPERS
@@ -552,6 +635,10 @@ int64_t r2_log_event(
 
     sqlite3_finalize(statement);
     pthread_mutex_unlock(&log_lock);
+
+    if (inserted_id > 0)
+        append_daily_text_log(local, inserted_id, category, event_type,
+                              summary, details, source);
 
     return inserted_id;
 }
