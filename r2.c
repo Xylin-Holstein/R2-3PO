@@ -2803,11 +2803,13 @@ static char *ollama_chat_with_limit(
         const char *why = curl_error[0] ? curl_error : curl_easy_strerror(cc);
         char details[768];
         snprintf(details, sizeof(details),
-                 "model=%s; transport=%s; HTTP=%ld; response_bytes=%zu",
-                 MODEL, why, http_status, b.size);
+                 "model=%s; transport=%s; HTTP=%ld; response_bytes=%zu; timeout_seconds=%ld",
+                 MODEL, why, http_status, b.size,
+                 timeout_seconds > 0 ? timeout_seconds : 180L);
         fprintf(stderr,
-                "[R2 Ollama] transport failure: %s (HTTP %ld, %zu response bytes)\n",
-                why, http_status, b.size);
+                "[R2 Ollama] transport failure: %s (HTTP %ld, %zu response bytes; configured timeout %ld seconds)\n",
+                why, http_status, b.size,
+                timeout_seconds > 0 ? timeout_seconds : 180L);
         if (r2_log_is_initialized())
             r2_log_event(R2_LOG_ERROR, "ollama_transport_failure",
                          "R2's text-model request failed at the transport layer.",
@@ -6855,6 +6857,39 @@ static void log_structured_self_report(const char *reply, int64_t parent_event_i
 }
 
 
+/* Refresh the live Reality snapshot rather than accumulating stale copies.
+   The bounded Ollama prompt keeps system messages in insertion order, so old
+   snapshots could otherwise crowd out the current hunger/world state. */
+static int refresh_reality_context_message(void)
+{
+    if (!r2_reality_is_initialized()) return 0;
+    (void)r2_reality_tick();
+    char *context = r2_reality_context();
+    if (!context) return -1;
+
+    pthread_mutex_lock(&messages_lock);
+    for (size_t i = 0; i < messages.count; ) {
+        Message *m = &messages.items[i];
+        if (m->role && !strcmp(m->role, "system") && m->content &&
+            !strncmp(m->content, "PERSISTENT REALITY CONTEXT",
+                     strlen("PERSISTENT REALITY CONTEXT"))) {
+            free(m->role);
+            free(m->content);
+            if (i + 1 < messages.count)
+                memmove(&messages.items[i], &messages.items[i + 1],
+                        (messages.count - i - 1) * sizeof(messages.items[0]));
+            messages.count--;
+            continue;
+        }
+        ++i;
+    }
+    int rc = message_add("system", context);
+    pthread_mutex_unlock(&messages_lock);
+    free(context);
+    return rc;
+}
+
+
 static char *r2_talk_impl(const char *message)
 {
     if (!core_initialized || shutting_down || !message)
@@ -6862,20 +6897,9 @@ static char *r2_talk_impl(const char *message)
 
     handle_completed_messages();
 
-    /* Give every turn the latest canonical self/world state. This is a view
-       over Reality.c, not a second copy of the world database. */
-    if (r2_reality_is_initialized()) {
-        r2_reality_tick();
-        char *reality_context = r2_reality_context();
-        if (reality_context) {
-            pthread_mutex_lock(&messages_lock);
-            int context_rc = message_add("system", reality_context);
-            pthread_mutex_unlock(&messages_lock);
-            free(reality_context);
-            if (context_rc != 0)
-                fprintf(stderr, "[R2 Reality] Could not add current reality context.\n");
-        }
-    }
+    /* Replace the previous snapshot so every turn sees current Reality state. */
+    if (refresh_reality_context_message() != 0)
+        fprintf(stderr, "[R2 Reality] Could not refresh current reality context.\n");
 
     pthread_mutex_lock(&messages_lock);
 
@@ -6889,10 +6913,20 @@ static char *r2_talk_impl(const char *message)
     char *intent_summary = ollama_intent_summary(message);
     char *reply = chat_with_relevant_memories(message, intent_summary);
     if (!reply) {
+        /* First generation failed. Refresh live Reality context and rebuild the
+           memory/history-augmented prompt once before giving up on this turn. */
+        r2_log_event(R2_LOG_WARN, "conversation_generation_retry",
+                     "R2's first contextual response attempt failed; refreshing context and retrying once.",
+                     "The original user turn remains in memory; the temporary intent summary is reused if available.",
+                     "r2_talk");
+        (void)refresh_reality_context_message();
+        reply = chat_with_relevant_memories(message, intent_summary);
+    }
+    if (!reply) {
         message_rollback_turn(message);
         free(intent_summary);
         fprintf(stderr,
-                "[R2] Conversation generation failed; the incomplete turn was removed from live context.\n");
+                "[R2] Conversation generation failed after one refreshed retry; the incomplete turn was removed from live context.\n");
         return NULL;
     }
 
