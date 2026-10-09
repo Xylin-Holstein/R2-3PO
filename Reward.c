@@ -69,6 +69,7 @@ static int ensure_db_locked(void)
     if (column_rc != SQLITE_OK) {
         fprintf(stderr, "[R2 Reward] Could not inspect reward schema: %s\n",
                 sqlite3_errmsg(reward_db));
+        if (columns) sqlite3_finalize(columns);
         sqlite3_close(reward_db);
         reward_db = NULL;
         return -1;
