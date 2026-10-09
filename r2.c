@@ -2792,7 +2792,8 @@ static char *ollama_chat(
     size_t count,
     const char *system_override)
 {
-    return ollama_chat_with_limit(msgs, count, system_override, 0, 2700L);
+    /* Long waits belong only to the user's primary answer, not every helper call. */
+    return ollama_chat_with_limit(msgs, count, system_override, 0, 600L);
 }
 
 /*
@@ -2950,6 +2951,8 @@ static char *chat_with_relevant_memories(
 
     if (!memory_context)
         memory_context = xstrdup("");
+    if (!memory_context)
+        return NULL;
 
     /*
        Conversation continuity: the Life Log retains complete historical
@@ -3101,6 +3104,7 @@ static char *chat_with_relevant_memories(
         return NULL;
     }
 
+    int copy_failed = 0;
     for (
         size_t i = 0;
         i < base_count;
@@ -3119,6 +3123,20 @@ static char *chat_with_relevant_memories(
 
         copy[i].pinned =
             messages.items[i].pinned;
+
+        if (!copy[i].role || !copy[i].content)
+            copy_failed = 1;
+    }
+
+    if (copy_failed) {
+        for (size_t i = 0; i < base_count; ++i) {
+            free(copy[i].role);
+            free(copy[i].content);
+        }
+        free(copy);
+        pthread_mutex_unlock(&messages_lock);
+        free(memory_context);
+        return NULL;
     }
 
     /*
@@ -3289,10 +3307,12 @@ static char *chat_with_relevant_memories(
     free(memory_context);
 
     char *reply =
-        ollama_chat(
+        ollama_chat_with_limit(
             copy,
             base_count,
-            NULL
+            NULL,
+            0,
+            2700L
         );
 
     for (
