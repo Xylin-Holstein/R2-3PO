@@ -4819,10 +4819,18 @@ static char *process_tools(
                    rc == 0 ? "was removed from the tracked world" : "could not be removed (item may not exist)");
         } else if (nf >= 3 && !strcasecmp(fields[0], "eat")) {
             double fullness = !strcasecmp(fields[2], "auto") ? -1.0 : atof(fields[2]);
-            int rc = r2_reality_eat(fields[1], fullness);
+            int rc = r2_eat_and_learn(fields[1], fullness);
             APPEND("REAL NEEDS %s: eating '%s' %s.\n",
                    rc == 0 ? "RESULT" : "ERROR", fields[1],
                    rc == 0 ? "updated persistent hunger and energy" : "could not update hunger");
+        } else if (nf >= 4 && !strcasecmp(fields[0], "ratefood")) {
+            char *end = NULL;
+            long score = strtol(fields[2], &end, 10);
+            int rc = (end != fields[2] && !*end && score >= -2 && score <= 2)
+                ? r2_reality_rate_food(fields[1], (int)score, fields[3]) : -1;
+            APPEND("FOOD PREFERENCE %s: rating for '%s' %s.\n",
+                   rc == 0 ? "RESULT" : "ERROR", fields[1],
+                   rc == 0 ? "was saved as a subjective score" : "could not be saved; score must be -2..2 and an unrated meal must exist");
         } else if (nf >= 2 && !strcasecmp(fields[0], "sleep")) {
             int rc = r2_sleep_and_dream(atof(fields[1]));
             APPEND("REAL NEEDS %s: sleep transition %s.\n",
@@ -5492,6 +5500,43 @@ int r2_write_diary(void)
     return rc;
 }
 
+
+
+static void learn_food_reaction(const char *food)
+{
+    char *context = r2_reality_food_context(food);
+    if (!context) return;
+    const char *system =
+        "You are recording R2-3PO's modeled subjective reaction to a food he has just eaten. "
+        "Use only the supplied food ingredients, optional sensory description, and his own previously learned food/ingredient preferences. "
+        "Do not hard-code likes or dislikes, and do not assume fullness means enjoyment. A filling food can be disliked; a delicious food can be un filling. "
+        "If evidence is weak, choose neutral score 0 and say why. Return exactly two lines: SCORE: integer from -2 to 2; REASON: brief first-person explanation. "
+        "This is a simulated preference estimate, not a claim of externally measured taste or actual human sensation.";
+    Message m = { "user", context, 0 };
+    char *reply = ollama_chat(&m, 1, system);
+    free(context);
+    if (!reply) return;
+    char *score_line = strcasestr(reply, "SCORE:");
+    char *reason_line = strcasestr(reply, "REASON:");
+    if (score_line) {
+        score_line += 6;
+        while (*score_line && isspace((unsigned char)*score_line)) score_line++;
+        char *end = NULL;
+        long score = strtol(score_line, &end, 10);
+        if (end != score_line && score >= -2 && score <= 2) {
+            char *reason = reason_line ? trim(reason_line + 7) : "No reason supplied";
+            (void)r2_reality_rate_food(food, (int)score, reason);
+        }
+    }
+    free(reply);
+}
+
+int r2_eat_and_learn(const char *food, double fullness)
+{
+    int rc = r2_reality_eat(food, fullness);
+    if (rc == 0) learn_food_reaction(food);
+    return rc;
+}
 
 int r2_sleep_and_dream(double hours)
 {
