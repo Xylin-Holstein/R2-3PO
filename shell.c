@@ -213,7 +213,14 @@ static void shell_help(void)
         "      Put an existing object into R2's wallet.\n"
         "  world status\n"
         "      Show persistent needs and self-continuity state.\n"
+        "\n"        "  eat <food> | <fullness 0-100>\n"
+        "      Apply a modeled food value to hunger and energy.\n"
+        "  sleep <hours>\n"
+        "      Advance sleep recovery; elapsed time still affects needs.\n"
+        "  dream <description>\n"
+        "      Record a reported dream as a report, not a verified event.\n"
         "\n"
+
 
         "  log\n"
         "      Show the latest Life Log events.\n"
@@ -1187,6 +1194,42 @@ static int shell_pockets(const char *argument)
 
 
 
+
+static int shell_needs(const char *command)
+{
+    if (shell_starts_with(command, "eat ")) {
+        char *copy = strdup(command + 4);
+        if (!copy) return 1;
+        char *sep = strchr(copy, '|');
+        if (!sep) {
+            printf("Usage: eat <food> | <fullness 0-100>\n");
+        } else {
+            *sep = '\0';
+            char *food = reality_trim(copy);
+            double fullness = atof(reality_trim(sep + 1));
+            int rc = r2_reality_eat(food, fullness);
+            printf(rc == 0 ? "[R2 Reality] Food and hunger state updated.\n" :
+                             "[R2 Reality] Eating update failed.\n");
+        }
+        free(copy);
+        return 1;
+    }
+    if (shell_starts_with(command, "sleep ")) {
+        double hours = atof(command + 6);
+        int rc = r2_reality_sleep(hours);
+        printf(rc == 0 ? "[R2 Reality] Sleep recovery persisted.\n" :
+                         "[R2 Reality] Sleep update failed; use a duration from 0 to 48 hours.\n");
+        return 1;
+    }
+    if (shell_starts_with(command, "dream ")) {
+        int rc = r2_reality_record_dream(command + 6);
+        printf(rc == 0 ? "[R2 Reality] Dream report recorded.\n" :
+                         "[R2 Reality] Dream report could not be recorded.\n");
+        return 1;
+    }
+    return 0;
+}
+
 static int shell_dispatch(char *input)
 {
     char *command =
@@ -1309,6 +1352,13 @@ static int shell_dispatch(char *input)
     }
 
 
+
+    if (shell_starts_with(command, "eat ") ||
+        shell_starts_with(command, "sleep ") ||
+        shell_starts_with(command, "dream ")) {
+        shell_needs(command);
+        return 1;
+    }
 
     /* --------------------------------------------------------
        PERSISTENT REALITY / WORLD
