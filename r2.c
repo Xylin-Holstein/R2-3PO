@@ -6345,7 +6345,6 @@ int r2_init(void)
         "----- BEGIN PRIVATE BACKGROUND CONTEXT -----\n"
         "%s"
         "----- END PRIVATE BACKGROUND CONTEXT -----",
-        MAX_STARTUP_MEMORIES,
         startup_memories
     );
 
