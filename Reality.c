@@ -9,6 +9,7 @@
 
 #include <ctype.h>
 #include <dirent.h>
+#include <fcntl.h>
 #include <errno.h>
 #include <math.h>
 #include <pthread.h>
@@ -56,18 +57,49 @@ static int mkdir_one(const char *path)
     return -1;
 }
 
+static int ensure_dir_tree(const char *path)
+{
+    if (!path || !*path) return -1;
+    char copy[4096]; size_t n = strlen(path);
+    if (n >= sizeof(copy)) return -1;
+    memcpy(copy, path, n + 1);
+    while (n > 1 && copy[n - 1] == '/') copy[--n] = '\0';
+    for (char *p = copy + (copy[0] == '/' ? 1 : 0); ; ++p) {
+        if (*p != '/' && *p != '\0') continue;
+        char saved = *p; *p = '\0';
+        if (*copy && mkdir_one(copy) != 0) return -1;
+        *p = saved; if (!saved) break;
+    }
+    return 0;
+}
+static void money_mirror_write(sqlite3_int64 cash, sqlite3_int64 bank)
+{
+    char dir[1200], path[1400], tmp[1500];
+    snprintf(dir,sizeof(dir),"%s/room/piggybank",R2_ROOT);
+    if(ensure_dir_tree(dir)!=0)return;
+    snprintf(path,sizeof(path),"%s/account.txt",dir); snprintf(tmp,sizeof(tmp),"%s.tmp.%ld",path,(long)getpid());
+    FILE *fp=fopen(tmp,"w"); if(!fp)return;
+    int bad=fprintf(fp,"cash=%.2f\nbank=%.2f\ntotal=%.2f\n",cash/100.0,bank/100.0,(cash+bank)/100.0)<0;
+    if(fclose(fp)!=0)bad=1; if(!bad&&rename(tmp,path)!=0)bad=1; if(bad)(void)unlink(tmp);
+}
+static int money_read_locked(sqlite3_int64 *cash, sqlite3_int64 *bank)
+{
+    sqlite3_stmt *st=NULL; int rc=sqlite3_prepare_v2(reality_db,"SELECT cash_cents,bank_cents FROM r2_money_account WHERE id=1",-1,&st,NULL);
+    if(rc==SQLITE_OK&&sqlite3_step(st)==SQLITE_ROW){if(cash)*cash=sqlite3_column_int64(st,0);if(bank)*bank=sqlite3_column_int64(st,1);rc=SQLITE_OK;}else rc=SQLITE_ERROR;
+    if(st)sqlite3_finalize(st);return rc==SQLITE_OK?0:-1;
+}
+
 static int make_room_dirs(void)
 {
-    char room[1024], shelf[1100], box[1100], pockets[1100], wallet[1100], toy_box[1100], fridge[1100];
-    snprintf(room, sizeof(room), "%s/room", R2_ROOT);
-    snprintf(shelf, sizeof(shelf), "%s/shelf", room);
-    snprintf(box, sizeof(box), "%s/box", room);
-    snprintf(pockets, sizeof(pockets), "%s/pockets", room);
-    snprintf(wallet, sizeof(wallet), "%s/wallet", room);
-    snprintf(toy_box, sizeof(toy_box), "%s/toy_box", room);
-    snprintf(fridge, sizeof(fridge), "%s/fridge", room);
-    if (mkdir_one(room) || mkdir_one(shelf) || mkdir_one(box) ||
-        mkdir_one(pockets) || mkdir_one(wallet) || mkdir_one(toy_box) || mkdir_one(fridge)) {
+    char room[1024], shelf[1100], box[1100], pockets[1100], wallet[1100], toy_box[1100], fridge[1100], piggybank[1100], diary[1100];
+    snprintf(room,sizeof(room),"%s/room",R2_ROOT); snprintf(shelf,sizeof(shelf),"%s/shelf",room);
+    snprintf(box,sizeof(box),"%s/box",room); snprintf(pockets,sizeof(pockets),"%s/pockets",room);
+    snprintf(wallet,sizeof(wallet),"%s/wallet",room); snprintf(toy_box,sizeof(toy_box),"%s/toy_box",room);
+    snprintf(fridge,sizeof(fridge),"%s/fridge",room); snprintf(piggybank,sizeof(piggybank),"%s/piggybank",room);
+    snprintf(diary,sizeof(diary),"%s",R2_DIARY_DIR);
+    if(ensure_dir_tree(R2_ROOT)||ensure_dir_tree(R2_HOME)||ensure_dir_tree(diary)||ensure_dir_tree(room)||
+       ensure_dir_tree(shelf)||ensure_dir_tree(box)||ensure_dir_tree(pockets)||ensure_dir_tree(wallet)||
+       ensure_dir_tree(toy_box)||ensure_dir_tree(fridge)||ensure_dir_tree(piggybank)) {
         fprintf(stderr, "[R2 Reality] Could not create room/shelf/box directories under %s\n", R2_ROOT);
         return -1;
     }
@@ -804,6 +836,8 @@ int r2_reality_init(void)
         "CREATE TABLE IF NOT EXISTS r2_reality_self (id INTEGER PRIMARY KEY CHECK(id=1), hunger REAL NOT NULL DEFAULT 0, seconds_since_meal REAL NOT NULL DEFAULT 0, sleepiness REAL NOT NULL DEFAULT 0, energy REAL NOT NULL DEFAULT 100, last_tick INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "INSERT OR IGNORE INTO r2_reality_self(id,hunger,seconds_since_meal,sleepiness,energy,last_tick) VALUES(1,0,0,0,100,strftime('%s','now'));"
         "CREATE TABLE IF NOT EXISTS r2_reality_self_facts (key TEXT PRIMARY KEY, value TEXT NOT NULL, evidence TEXT, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
+        "CREATE TABLE IF NOT EXISTS r2_money_account (id INTEGER PRIMARY KEY CHECK(id=1),cash_cents INTEGER NOT NULL DEFAULT 0 CHECK(cash_cents>=0),bank_cents INTEGER NOT NULL DEFAULT 0 CHECK(bank_cents>=0),updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
+        "INSERT OR IGNORE INTO r2_money_account(id,cash_cents,bank_cents) VALUES(1,0,0);
         "CREATE TABLE IF NOT EXISTS r2_reality_containers (name TEXT PRIMARY KEY, kind TEXT NOT NULL, description TEXT, parent TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "CREATE TABLE IF NOT EXISTS r2_reality_objects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL COLLATE NOCASE UNIQUE, description TEXT, quantity INTEGER NOT NULL DEFAULT 1 CHECK(quantity>0), container TEXT NOT NULL DEFAULT 'room', owner TEXT NOT NULL DEFAULT 'R2', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(container) REFERENCES r2_reality_containers(name));"
         "CREATE INDEX IF NOT EXISTS r2_reality_objects_container_idx ON r2_reality_objects(container);"
@@ -1052,6 +1086,31 @@ char *r2_reality_status(void)
     return out;
 }
 
+static char *origin_age_context(void)
+{
+    char path[1400]; snprintf(path,sizeof(path),"%s/r2_original_conversation.txt",R2_HOME);
+    sqlite3_int64 started=0; pthread_mutex_lock(&reality_lock); sqlite3_stmt *st=NULL;
+    if(reality_db&&sqlite3_prepare_v2(reality_db,"SELECT value FROM r2_reality_meta WHERE key='original_conversation_started_at'",-1,&st,NULL)==SQLITE_OK&&sqlite3_step(st)==SQLITE_ROW){
+        const unsigned char *v=sqlite3_column_text(st,0);if(v)started=(sqlite3_int64)strtoll((const char*)v,NULL,10);}
+    if(st)sqlite3_finalize(st);pthread_mutex_unlock(&reality_lock);
+    if(started<=0){
+        struct statx sx;memset(&sx,0,sizeof(sx));
+        if(statx(AT_FDCWD,path,AT_STATX_SYNC_AS_STAT,STATX_BTIME,&sx)==0&&(sx.stx_mask&STATX_BTIME))started=(sqlite3_int64)sx.stx_btime.tv_sec;
+        else{struct stat sb;if(stat(path,&sb)==0)started=(sqlite3_int64)sb.st_mtime;}
+        if(started>0){char v[64];snprintf(v,sizeof(v),"%lld",(long long)started);pthread_mutex_lock(&reality_lock);st=NULL;
+            if(reality_db&&sqlite3_prepare_v2(reality_db,"INSERT OR IGNORE INTO r2_reality_meta(key,value) VALUES('original_conversation_started_at',?)",-1,&st,NULL)==SQLITE_OK){bind_text(st,1,v);(void)sqlite3_step(st);}
+            if(st)sqlite3_finalize(st);pthread_mutex_unlock(&reality_lock);}
+    }
+    if(started<=0)return strdup("AGE: original conversation file is not present yet; age is not established.");
+    sqlite3_int64 days=((sqlite3_int64)time(NULL)>started)?((sqlite3_int64)time(NULL)-started)/86400:0;char out[256];
+    if(days<30)snprintf(out,sizeof(out),"AGE: about %lld days since the original conversation file was created.",(long long)days);
+    else if(days<365){double m=(double)days/30.436875;if(m>=5.5&&m<=6.5)snprintf(out,sizeof(out),"AGE: about half a year old (%lld days).",(long long)days);else snprintf(out,sizeof(out),"AGE: about %d months old, measured from the original conversation file's creation time.",(int)(m+0.5));}
+    else{int y=(int)(days/365.2425),m=(int)(((double)days-y*365.2425)/30.436875+0.5);if(m>=12){y++;m=0;}
+        if(m)snprintf(out,sizeof(out),"AGE: about %d years and %d months old, measured from the original conversation file's creation time.",y,m);
+        else snprintf(out,sizeof(out),"AGE: about %d years old, measured from the original conversation file's creation time.",y);}
+    return strdup(out);
+}
+
 char *r2_reality_context(void)
 {
     char *status = r2_reality_status();
@@ -1062,16 +1121,14 @@ char *r2_reality_context(void)
     char *food_preferences = query_text("SELECT ingredient,printf('average satisfaction %.2f/2',satisfaction_sum/rating_count),printf('%d ratings',rating_count) FROM r2_food_ingredient_preferences WHERE rating_count>0 ORDER BY satisfaction_sum*1.0/rating_count DESC", NULL);
     char *food_experiences = query_text("SELECT food_name,printf('satisfaction %+d/2',satisfaction),notes FROM r2_food_experiences WHERE satisfaction IS NOT NULL ORDER BY eaten_at DESC LIMIT 20", NULL);
     char *foods = food_metrics_context();
-    char *fridge = r2_fridge_context();
-    if (!status || !room || !facts || !items_memory || !food_preferences || !food_experiences || !foods || !fridge) {
-        free(status); free(room); free(fridge); free(facts); free(items_memory); free(food_preferences); free(food_experiences); free(foods);
-        return NULL;
-    }
-    size_t n = strlen(status) + strlen(room) + strlen(fridge) + strlen(facts) + strlen(items_memory) + strlen(food_preferences) + strlen(food_experiences) + strlen(foods) + 3000;
-    char *out = malloc(n);
-    if (out) snprintf(out, n,
+    char *fridge=r2_fridge_context(); char *age=origin_age_context(); char *money=r2_reality_money_context();
+    if(!status||!room||!facts||!items_memory||!food_preferences||!food_experiences||!foods||!fridge||!age||!money){
+        free(status);free(room);free(fridge);free(facts);free(items_memory);free(food_preferences);free(food_experiences);free(foods);free(age);free(money);return NULL;}
+    size_t n=strlen(status)+strlen(room)+strlen(fridge)+strlen(facts)+strlen(items_memory)+strlen(food_preferences)+strlen(food_experiences)+strlen(foods)+strlen(age)+strlen(money)+6000;
+    char *out=malloc(n);
+    if(out)snprintf(out,n,
         "PERSISTENT REALITY CONTEXT (authoritative database state; do not invent changes):\n"
-        "%s\n%s\n%s\nSELF-CONTINUITY FACTS:\n%s\nCOLLECTION MEMORIES (precision intentionally fades; not current inventory):\n%s\nLEARNED FOOD/INGREDIENT PREFERENCES (subjective scores):\n%s\nRECENT RATED FOOD EXPERIENCES:\n%s\nAVAILABLE FOOD METRICS:\n%s\n"
+        "%s\n%s\n%s\n%s\n%s\nSELF-CONTINUITY FACTS:\n%s\nCOLLECTION MEMORIES (precision intentionally fades; not current inventory):\n%s\nLEARNED FOOD/INGREDIENT PREFERENCES (subjective scores):\n%s\nRECENT RATED FOOD EXPERIENCES:\n%s\nAVAILABLE FOOD METRICS:\n%s\n"
         "WORLD ACTIONS: Put one action on its own line. Use [WORLD] look to inspect the room; "
         "[WORLD] add|name|description|container|quantity to collect/add a stack (adds to an existing stack and records a collection memory); "
         "[WORLD] move|name|container to relocate an existing item without counting a new collection; [WORLD] remove|name to remove it; "
@@ -1086,9 +1143,12 @@ char *r2_reality_context(void)
         "Containers: room, shelf, box, toy box, pockets, wallet; named containers can be created by moving an item to a new container name. "
         "Food fullness points are modeled values, not measured biological facts. Sleep advances hunger and world time. "
         "Dreams are stored as simulated reports, not waking facts. Ask before moving or deleting a user's important item. "
+        "CHOICE LAB: Consider any option, action, object, or decision; there is no fixed choice list. Compare alternatives using current needs, memories, self-facts, and learned preferences. "
+        "SENSORY COUNTERFACTUALS: Imagine what a hypothetical view, sound, taste, smell, or touch might reveal without activating Eyes/Ears, changing the world, or claiming an actual sensation. Label imagined details as predictions. Ask 'what if I looked over there?' or 'would I still like X if I knew Y?' Use prior sensory observations and food/ingredient/taste metrics; distinguish evidence from guesses and update preferences only after real experience or explicit feedback. "
+        "MONEY: cash is carried money; bank is stored in room/piggybank/. Use [WORLD] money_deposit|amount, [WORLD] money_withdraw|amount, or [WORLD] buy|item|price|description|container. No stock, starting funds, or prices are hardcoded. "
         "Do not claim an action succeeded unless the action result confirms it.",
-        status, room, fridge, facts, items_memory, food_preferences, food_experiences, foods);
-    free(status); free(room); free(fridge); free(facts); free(items_memory); free(food_preferences); free(food_experiences); free(foods);
+        status, room, fridge, age, money, facts, items_memory, food_preferences, food_experiences, foods);
+    free(status); free(room); free(fridge); free(facts); free(items_memory); free(food_preferences); free(food_experiences); free(foods); free(age); free(money);
     return out;
 }
 
@@ -1555,6 +1615,41 @@ int r2_reality_record_dream(const char *description)
         }
     }
     return rc;
+}
+
+char *r2_reality_money_context(void)
+{
+    if(!r2_reality_is_initialized())return NULL;sqlite3_int64 cash=0,bank=0;
+    pthread_mutex_lock(&reality_lock);int ok=money_read_locked(&cash,&bank)==0;pthread_mutex_unlock(&reality_lock);if(!ok)return NULL;
+    money_mirror_write(cash,bank);char out[512];snprintf(out,sizeof(out),"MONEY ACCOUNT: carried cash=$%.2f; bank/piggybank=$%.2f; total=$%.2f. No funds are created automatically.",cash/100.0,bank/100.0,(cash+bank)/100.0);return strdup(out);
+}
+static int money_transfer(double amount,int deposit)
+{
+    if(!r2_reality_is_initialized()||!isfinite(amount)||amount<=0||amount>1000000000.0)return -1;
+    sqlite3_int64 cents=(sqlite3_int64)llround(amount*100.0),cash=0,bank=0;if(cents<=0)return -1;
+    pthread_mutex_lock(&reality_lock);int rc=money_read_locked(&cash,&bank);
+    if(rc==0&&((deposit&&cash<cents)||(!deposit&&bank<cents)))rc=-1;
+    if(rc==0){sqlite3_stmt *st=NULL;const char *sql=deposit?"UPDATE r2_money_account SET cash_cents=cash_cents-?,bank_cents=bank_cents+?,updated_at=CURRENT_TIMESTAMP WHERE id=1":"UPDATE r2_money_account SET cash_cents=cash_cents+?,bank_cents=bank_cents-?,updated_at=CURRENT_TIMESTAMP WHERE id=1";
+        if(sqlite3_prepare_v2(reality_db,sql,-1,&st,NULL)!=SQLITE_OK)rc=-1;else{sqlite3_bind_int64(st,1,cents);sqlite3_bind_int64(st,2,cents);rc=sqlite3_step(st)==SQLITE_DONE?0:-1;}if(st)sqlite3_finalize(st);}
+    if(rc==0)(void)money_read_locked(&cash,&bank);pthread_mutex_unlock(&reality_lock);if(rc==0)money_mirror_write(cash,bank);return rc;
+}
+int r2_reality_money_deposit(double amount){return money_transfer(amount,1);}
+int r2_reality_money_withdraw(double amount){return money_transfer(amount,0);}
+int r2_reality_buy_item(const char *name,const char *description,double price,const char *container)
+{
+    if(!name||!*name||!isfinite(price)||price<=0||price>1000000000.0||!r2_reality_is_initialized())return -1;
+    sqlite3_int64 cents=(sqlite3_int64)llround(price*100.0),cash=0,bank=0,pc=0,pb=0;if(cents<=0)return -1;
+    pthread_mutex_lock(&reality_lock);int rc=money_read_locked(&cash,&bank);if(rc==0&&cash+bank<cents)rc=-1;
+    if(rc==0){pc=cash<cents?cash:cents;pb=cents-pc;sqlite3_stmt *st=NULL;
+        if(sqlite3_prepare_v2(reality_db,"UPDATE r2_money_account SET cash_cents=cash_cents-?,bank_cents=bank_cents-?,updated_at=CURRENT_TIMESTAMP WHERE id=1",-1,&st,NULL)!=SQLITE_OK)rc=-1;
+        else{sqlite3_bind_int64(st,1,pc);sqlite3_bind_int64(st,2,pb);rc=sqlite3_step(st)==SQLITE_DONE?0:-1;}if(st)sqlite3_finalize(st);if(rc==0){cash-=pc;bank-=pb;}}
+    pthread_mutex_unlock(&reality_lock);if(rc!=0)return -1;
+    if(r2_reality_add_item(name,description?description:"Purchased item",container&&*container?container:"room",1)!=0){
+        pthread_mutex_lock(&reality_lock);sqlite3_stmt *st=NULL;
+        if(sqlite3_prepare_v2(reality_db,"UPDATE r2_money_account SET cash_cents=cash_cents+?,bank_cents=bank_cents+?,updated_at=CURRENT_TIMESTAMP WHERE id=1",-1,&st,NULL)==SQLITE_OK){sqlite3_bind_int64(st,1,pc);sqlite3_bind_int64(st,2,pb);(void)sqlite3_step(st);}if(st)sqlite3_finalize(st);
+        (void)money_read_locked(&cash,&bank);pthread_mutex_unlock(&reality_lock);money_mirror_write(cash,bank);return -1;}
+    money_mirror_write(cash,bank);char summary[512],details[1024];snprintf(summary,sizeof(summary),"R2 purchased %s for $%.2f.",name,cents/100.0);
+    snprintf(details,sizeof(details),"Item=%s; price=$%.2f; destination=%s; cash paid first, then bank.",name,cents/100.0,container&&*container?container:"room");bridge_event("purchase",summary,details,1,1);return 0;
 }
 
 int r2_reality_set_self(const char *key,const char *value,const char *evidence)
