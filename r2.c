@@ -2571,6 +2571,21 @@ static size_t curl_write(
 }
 
 
+/* Abort in-flight local model requests promptly during shutdown. */
+static int ollama_progress(void *userdata,
+                           curl_off_t download_total,
+                           curl_off_t download_now,
+                           curl_off_t upload_total,
+                           curl_off_t upload_now)
+{
+    (void)userdata;
+    (void)download_total;
+    (void)download_now;
+    (void)upload_total;
+    (void)upload_now;
+    return shutting_down ? 1 : 0;
+}
+
 static char *ollama_chat_with_limit(
     Message *msgs,
     size_t count,
@@ -2715,6 +2730,8 @@ static char *ollama_chat_with_limit(
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout_seconds > 0 ? timeout_seconds : 180L);
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, ollama_progress);
     curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
 
     pthread_mutex_lock(&ollama_request_lock);
