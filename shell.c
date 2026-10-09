@@ -1224,8 +1224,8 @@ static int shell_needs(const char *command)
     }
     if (shell_starts_with(command, "sleep ")) {
         double hours = atof(command + 6);
-        int rc = r2_reality_sleep(hours);
-        printf(rc == 0 ? "[R2 Reality] Sleep recovery persisted.\n" :
+        int rc = r2_sleep_and_dream(hours);
+        printf(rc == 0 ? "[R2 Reality] Sleep transition persisted; dream simulation was attempted.\n" :
                          "[R2 Reality] Sleep update failed; use a duration from 0 to 48 hours.\n");
         return 1;
     }
