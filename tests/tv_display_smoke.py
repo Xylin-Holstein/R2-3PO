@@ -120,7 +120,7 @@ class TVDisplaySmoke(unittest.TestCase):
                          (media, "pause", 42.75))
 
     def test_vcr_client_accepts_transport_and_media_commands(self) -> None:
-        for command in ("vcr play", "vcr pause", "vcr stop", "vcr eject",
+        for command in ("display opened", "display closed", "vcr play", "vcr pause", "vcr stop", "vcr eject",
                         "vcr insert /tmp/example-film.mp4", "vcr position 42.750"):
             received = []
             TV.SOCKET_PATH.unlink(missing_ok=True)
