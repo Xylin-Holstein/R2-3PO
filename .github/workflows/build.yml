@@ -26,5 +26,13 @@ jobs:
       - name: Check launcher syntax
         run: bash -n R2_Launch_Code.sh
 
+      - name: Exercise Alternate-Self Lab persistence
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -O2 -I. \
+            -DR2_DIARY_DATABASE='"/tmp/r2-altself-smoke/r2_memory.db"' \
+            tests/alternate_self_smoke.c AlternateSelf.c -lsqlite3 -lpthread \
+            -o /tmp/r2-altself-smoke-test
+          /tmp/r2-altself-smoke-test
+
       - name: Compile R2 with the same sources and flags as the launcher
         run: make clean all CFLAGS="-std=c11 -Wall -Wextra -Werror -O2"
