@@ -94,6 +94,11 @@ int64_t r2_log_event_with_memory(
 int r2_log_session_start(void);
 int r2_log_session_end(const char *reason);
 
+/* Persist an explicit location transition. Welcome Home is private and only
+ * created on a previously-away to home transition.
+ */
+int r2_log_location_transition(const char *location, int is_home);
+
 /* Record the first verified occurrence of a named milestone. */
 int64_t r2_log_milestone(
     const char *milestone_key,
