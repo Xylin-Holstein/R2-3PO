@@ -77,5 +77,14 @@ world status
 ```
 
 R2 can use the `[WORLD]` tool marker to inspect the room, record or move
-objects, and persist explicitly evidenced self-state facts. These operations
-return a result to the model; R2 must not claim success when a write fails.
+objects, update hunger by eating, advance sleep recovery, and save reported
+dreams and explicitly evidenced self-state facts. Food fullness values are
+modeled inputs rather than biological measurements. These operations return a
+result to the model; R2 must not claim success when a write fails.
+
+Need model: hunger and sleepiness increase as modeled time advances; energy
+falls over time. Eating reduces hunger by the configured fullness points, and
+sleep advances needs before restoring energy and reducing sleepiness. The current
+shell accepts explicit modeled values with `eat <food> | <fullness 0-100>` and
+`sleep <hours>`. Dream entries are stored as reports, not independently verified
+facts.
