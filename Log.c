@@ -254,6 +254,13 @@ static int ensure_tables(void)
         "ON r2_log_events(id);"
         "CREATE INDEX IF NOT EXISTS r2_log_events_category_idx "
         "ON r2_log_events(category, id);"
+        "CREATE TABLE IF NOT EXISTS r2_log_location_state ("
+        " id INTEGER PRIMARY KEY CHECK(id=1),"
+        " current_location TEXT NOT NULL,"
+        " is_home INTEGER NOT NULL DEFAULT 1,"
+        " was_away INTEGER NOT NULL DEFAULT 0,"
+        " updated_utc TEXT NOT NULL"
+        ");"
         "CREATE TABLE IF NOT EXISTS r2_log_milestones ("
         " id INTEGER PRIMARY KEY AUTOINCREMENT,"
         " milestone_key TEXT NOT NULL UNIQUE,"
@@ -404,6 +411,13 @@ int r2_log_init(void)
         pthread_mutex_unlock(&log_lock);
         return -1;
     }
+
+    /* Quiet initial baseline: startup at home is not a return-home event. */
+    sqlite3_exec(log_db,
+        "INSERT OR IGNORE INTO r2_log_location_state "
+        "(id,current_location,is_home,was_away,updated_utc) "
+        "VALUES (1,'home',1,0,strftime('%Y-%m-%dT%H:%M:%SZ','now'));",
+        NULL, NULL, NULL);
 
     log_initialized = 1;
     pthread_mutex_unlock(&log_lock);
@@ -929,6 +943,73 @@ int64_t r2_log_world_event(const char *object_or_device,
 
     return r2_log_event(R2_LOG_WORLD, event, summary,
                         details, "world");
+}
+
+
+/* ------------------------------------------------------------
+ * PERSISTENT LOCATION TRANSITIONS
+ * ------------------------------------------------------------ */
+int r2_log_location_transition(const char *location, int is_home)
+{
+    sqlite3_stmt *statement = NULL;
+    char previous[257] = "home";
+    int previous_home = 1, was_away = 0, should_welcome = 0, rc;
+    char summary[640], details[1200];
+    if (!valid_text(location) || strlen(location) > 256) return -1;
+    pthread_mutex_lock(&log_lock);
+    if (!log_initialized || !log_db) {
+        pthread_mutex_unlock(&log_lock);
+        return -1;
+    }
+    rc = sqlite3_prepare_v2(log_db,
+        "SELECT current_location,is_home,was_away FROM r2_log_location_state WHERE id=1",
+        -1, &statement, NULL);
+    if (rc == SQLITE_OK && sqlite3_step(statement) == SQLITE_ROW) {
+        const unsigned char *old = sqlite3_column_text(statement, 0);
+        if (old) snprintf(previous, sizeof(previous), "%s", (const char *)old);
+        previous_home = sqlite3_column_int(statement, 1);
+        was_away = sqlite3_column_int(statement, 2);
+    } else {
+        if (statement) sqlite3_finalize(statement);
+        pthread_mutex_unlock(&log_lock);
+        return -1;
+    }
+    sqlite3_finalize(statement);
+    statement = NULL;
+    if (!strcasecmp(previous, location)) {
+        pthread_mutex_unlock(&log_lock);
+        return 0;
+    }
+    should_welcome = is_home && !previous_home && was_away;
+    rc = sqlite3_prepare_v2(log_db,
+        "UPDATE r2_log_location_state SET current_location=?,is_home=?,"
+        "was_away=?,updated_utc=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=1",
+        -1, &statement, NULL);
+    if (rc == SQLITE_OK) {
+        sqlite3_bind_text(statement, 1, location, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(statement, 2, is_home ? 1 : 0);
+        sqlite3_bind_int(statement, 3, is_home ? 0 : 1);
+        rc = sqlite3_step(statement) == SQLITE_DONE ? SQLITE_OK : SQLITE_ERROR;
+    }
+    if (statement) sqlite3_finalize(statement);
+    pthread_mutex_unlock(&log_lock);
+    if (rc != SQLITE_OK) return -1;
+    snprintf(summary, sizeof(summary), "R2 moved to %s.", location);
+    snprintf(details, sizeof(details),
+             "Previous location=%s; destination=%s; destination classified as %s.",
+             previous, location, is_home ? "home" : "away");
+    if (r2_log_event(R2_LOG_WORLD, "location_changed", summary, details,
+                     "world_location") < 0) return -1;
+    if (should_welcome) {
+        (void)r2_log_event(R2_LOG_CONTINUITY, "internal_notification",
+                           "Private notification delivered to R2: Welcome Home.",
+                           "Triggered only by a persisted away-to-home transition.",
+                           "world_location");
+        (void)r2_save_memory(
+            "Welcome Home. You have returned home after being away.",
+            "private_notification");
+    }
+    return 0;
 }
 
 
