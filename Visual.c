@@ -454,9 +454,23 @@ char *r2_visual_analyze_frame(const R2VisionFrame *frame,
     free(model_text);
     if (!description) { free(jpeg); return NULL; }
 
-    char image_path[PATH_MAX];
-    snprintf(image_path, sizeof(image_path), "%s/visual_%llu_%llu.jpg",
-             visual_directory,
+    int image_path_length = snprintf(
+        NULL, 0, "%s/visual_%llu_%llu.jpg", visual_directory,
+        (unsigned long long)frame->timestamp,
+        (unsigned long long)frame->frame_number);
+    if (image_path_length < 0) {
+        free(jpeg);
+        free(description);
+        return NULL;
+    }
+    char *image_path = malloc((size_t)image_path_length + 1);
+    if (!image_path) {
+        free(jpeg);
+        free(description);
+        return NULL;
+    }
+    snprintf(image_path, (size_t)image_path_length + 1,
+             "%s/visual_%llu_%llu.jpg", visual_directory,
              (unsigned long long)frame->timestamp,
              (unsigned long long)frame->frame_number);
     int image_fd = open(image_path, O_WRONLY | O_CREAT | O_EXCL, 0640);
@@ -468,6 +482,7 @@ char *r2_visual_analyze_frame(const R2VisionFrame *frame,
                        strerror(errno), image_path);
         free(jpeg);
         free(description);
+        free(image_path);
         return NULL;
     }
     close(image_fd);
@@ -513,9 +528,11 @@ char *r2_visual_analyze_frame(const R2VisionFrame *frame,
         r2_log_sensory("visual_experience_store_failed",
                        "R2 analyzed a frame but failed to save the library record.",
                        sqlite3_errmsg(visual_db), image_path);
+        free(image_path);
         free(description);
         return NULL;
     }
+    free(image_path);
     return description;
 }
 
