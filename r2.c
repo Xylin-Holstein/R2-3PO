@@ -2852,22 +2852,38 @@ static char *chat_with_relevant_memories(
      * a camera silently from an ordinary conversation turn.
      */
     char *visual_context = NULL;
-    if (query_requests_visual_context(query) && eyes &&
-        r2_eyes_is_open(eyes) && r2_visual_is_initialized()) {
-        visual_context = vision_analyze_current_frame(
-            "Describe the current frame for R2's active conversation. "
-            "Separate visible facts from inference and uncertainty.", 0);
+    if (query_requests_visual_context(query) && r2_visual_is_initialized()) {
+        char *prior_visual = r2_visual_recent(3);
+        if (prior_visual && *prior_visual) {
+            size_t old_n = strlen(memory_context);
+            size_t visual_n = strlen(prior_visual);
+            char *joined = malloc(old_n + visual_n + 160);
+            if (joined) {
+                snprintf(joined, old_n + visual_n + 160,
+                         "%s%sPRIOR VISUAL EXPERIENCES (historical; may not describe the current scene):\\n%s\\n",
+                         memory_context, old_n ? "\\n\\n" : "", prior_visual);
+                free(memory_context);
+                memory_context = joined;
+            }
+        }
+        free(prior_visual);
+
+        if (eyes && r2_eyes_is_open(eyes)) {
+            visual_context = vision_analyze_current_frame(
+                "Describe the current frame for R2's active conversation. "
+                "Separate visible facts from inference and uncertainty.", 0);
+        }
     }
 
     if (visual_context && *visual_context) {
         size_t old_n = strlen(memory_context);
         size_t visual_n = strlen(visual_context);
-        char *joined = malloc(old_n + visual_n + 128);
+        char *joined = malloc(old_n + visual_n + 160);
         if (joined) {
-            snprintf(joined, old_n + visual_n + 128,
-                     "%s%sRECENT LIVE VISUAL OBSERVATION (newly analyzed frame; "
-                     "use as evidence, but acknowledge uncertainty):\n%s\n",
-                     memory_context, old_n ? "\n\n" : "", visual_context);
+            snprintf(joined, old_n + visual_n + 160,
+                     "%s%sCURRENT LIVE VISUAL OBSERVATION (newly analyzed frame; "
+                     "use as evidence, but acknowledge uncertainty):\\n%s\\n",
+                     memory_context, old_n ? "\\n\\n" : "", visual_context);
             free(memory_context);
             memory_context = joined;
         }
@@ -5187,6 +5203,11 @@ char *r2_vision_recent(int limit)
 char *r2_vision_search(const char *query, int limit)
 {
     return r2_visual_search(query, limit);
+}
+
+int r2_vision_available(void)
+{
+    return r2_visual_is_initialized();
 }
 
 int r2_vision_set_model(const char *model)
