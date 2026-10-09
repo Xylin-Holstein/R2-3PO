@@ -61,7 +61,7 @@ On startup, R2 creates these workspace directories if missing:
 - `room/shelf/` — physical shelf location
 - `room/box/` — physical storage-box location
 
-The database also provides `pockets` and `wallet` inventory containers. On startup, R2 creates `room/food_metrics.xml` if it is missing. Put one XML entry per line inside the `<foods>` root, for example `<food name="burger" fullness="100" energy="10" />`. `fullness` is the hunger reduction (0–100); `energy` is an optional energy bonus. If `eat <food>` has no explicit value, R2 looks up the food by name in this file and reports an error rather than guessing when no metric exists.
+The dedicated reality database stores current objects, needs, collection-memory events, food experiences, and learned preferences. The physical folders `room/pockets/`, `room/wallet/`, and `room/toy_box/` mirror tracked items in those containers. If an object is in R2's pockets, its `.r2item` file is placed in `room/pockets/`; moving it elsewhere updates its mirror location. Current inventory stays exact even when the collection-memory record loses precision. On startup, R2 creates `room/food_metrics.xml` if it is missing. Put one XML entry per line inside the `<foods>` root, for example `<food name="burger" fullness="100" energy="10" ingredients="bread,beef,cheese" taste="savory, warm, salty" />`. `fullness` is the hunger reduction (0–100); `energy` is an optional energy bonus; `ingredients` is a comma-separated ingredient list; `taste` is an optional sensory description. These fields describe food, not a hard-coded like/dislike. If `eat <food>` has no explicit value, R2 looks up the food by name in this file and reports an error rather than guessing when no metric exists.
 
 Shell examples:
 
