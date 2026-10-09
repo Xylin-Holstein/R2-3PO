@@ -258,7 +258,7 @@ static void shell_help(void)
         "  give <item> <quantity> [| description | container]\n"
         "      Creator command: create item stacks from nothing; give money <dollars> adds cash.\n"
         "\n"
-        "  gameboy [status|list|insert <rom>|eject|power on|power off|press <button>]\n"
+        "  gameboy [status|verify|list|insert <rom>|eject|power on|power off|press <button>]\n"
         "      Operate the virtual console; power on launches mGBA with the inserted ROM.\n"
         "\n"
         "  addictions\n"
