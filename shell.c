@@ -76,7 +76,6 @@ static int watch_running = 0;
 
 /* The GUI talks to this local socket; all writes still pass through Reality APIs. */
 static pthread_t tv_control_thread;
-static pthread_mutex_t tv_control_lock = PTHREAD_MUTEX_INITIALIZER;
 static int tv_control_started = 0;
 static int tv_control_fd = -1;
 static volatile sig_atomic_t tv_control_stop = 0;
@@ -94,8 +93,8 @@ static void *tv_control_server(void *unused)
 
         char command[256] = {0};
         ssize_t got = recv(client, command, sizeof(command) - 1, 0);
-        while (got > 0 && (command[got - 1] == '\\n' || command[got - 1] == '\\r'))
-            command[--got] = '\\0';
+        while (got > 0 && (command[got - 1] == '\n' || command[got - 1] == '\r'))
+            command[--got] = '\0';
 
         const char *reply = "ERROR invalid command";
         char *status = NULL;
@@ -109,13 +108,13 @@ static void *tv_control_server(void *unused)
         } else if (!strncmp(command, "input ", 6)) {
             char *end = NULL;
             long n = strtol(command + 6, &end, 10);
-            if (end != command + 6 && *end == '\\0' && n >= 1 && n <= 4)
+            if (end != command + 6 && *end == '\0' && n >= 1 && n <= 4)
                 reply = r2_reality_tv_select_input((int)n) == 0 ? "OK input selected" : "ERROR input selection failed";
             else reply = "ERROR input must be 1..4";
         } else if (!strncmp(command, "tune ", 5)) {
             char *end = NULL;
             long n = strtol(command + 5, &end, 10);
-            if (end != command + 5 && *end == '\\0' && n >= 2 && n <= 13)
+            if (end != command + 5 && *end == '\0' && n >= 2 && n <= 13)
                 reply = r2_reality_tv_tune_rf((int)n) == 0 ? "OK RF channel tuned" : "ERROR RF tuning failed";
             else reply = "ERROR RF channel must be 2..13";
         }
