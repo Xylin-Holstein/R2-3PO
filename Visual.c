@@ -121,22 +121,16 @@ static char *base64_encode(const unsigned char *data, size_t length)
     if (!out) return NULL;
     size_t i = 0, j = 0;
     while (i < length) {
+        size_t remaining = length - i;
         uint32_t a = data[i++];
-        uint32_t b = i < length ? data[i++] : 0;
-        uint32_t c = i < length ? data[i++] : 0;
+        uint32_t b = remaining > 1 ? data[i++] : 0;
+        uint32_t c = remaining > 2 ? data[i++] : 0;
         uint32_t triple = (a << 16) | (b << 8) | c;
         out[j++] = alphabet[(triple >> 18) & 63];
         out[j++] = alphabet[(triple >> 12) & 63];
-        out[j++] = (i - 1 > length) ? '=' : alphabet[(triple >> 6) & 63];
-        out[j++] = (i > length) ? '=' : alphabet[triple & 63];
-        /* Correct padding using the number of source bytes in this block. */
-        size_t consumed = (j / 4) * 3;
-        (void)consumed;
+        out[j++] = remaining > 1 ? alphabet[(triple >> 6) & 63] : '=';
+        out[j++] = remaining > 2 ? alphabet[triple & 63] : '=';
     }
-    /* Replace the final one or two output characters as required. */
-    size_t rem = length % 3;
-    if (rem == 1) { out[outlen - 1] = '='; out[outlen - 2] = '='; }
-    else if (rem == 2) out[outlen - 1] = '=';
     out[outlen] = '\0';
     return out;
 }
@@ -504,6 +498,7 @@ static char *visual_query(const char *sql, const char *query, int limit)
                 desc ? (const char *)desc : "(no description)");
             if (n > 0) {
                 size_t add = (size_t)n;
+                if (add >= sizeof(line)) add = sizeof(line) - 1;
                 char *next = realloc(b.data, b.length + add + 1);
                 if (!next) break;
                 b.data = next;
