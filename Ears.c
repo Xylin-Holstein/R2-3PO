@@ -656,7 +656,10 @@ int r2_ears_open_source(
             stderr,
             "R2 Ears: no default audio source available.\n"
         );
-
+        r2_log_sensory("audio_source_open_failed",
+                       "R2 Ears could not resolve the requested audio source.",
+                       "No explicit source was supplied and no default source was available.",
+                       "Ears.c");
         return -1;
     }
 
@@ -703,6 +706,9 @@ int r2_ears_open_source(
             pa_strerror(error)
         );
 
+        r2_log_sensory("audio_source_open_failed",
+                       "R2 Ears could not open the live audio source.",
+                       pa_strerror(error), actual_source);
         free(resolved_source);
 
         return -1;
@@ -887,7 +893,10 @@ int r2_ears_open_file(
             "R2 Ears: could not open audio file: %s\n",
             path
         );
-
+        r2_log_sensory("audio_file_open_failed",
+                       "R2 Ears could not decode the requested audio file.",
+                       "FFmpeg did not provide a readable PCM stream.",
+                       path);
         return -1;
     }
 
@@ -1026,6 +1035,10 @@ ssize_t r2_ears_read(
 
         if (ferror(ears->file_stream))
         {
+            r2_log_sensory("audio_read_failed",
+                           "R2 Ears encountered an error reading audio-file samples.",
+                           "The decoded PCM stream reported a read error.",
+                           ears->event.source_name);
             r2_ears_close(ears);
 
             return -1;
@@ -1055,7 +1068,9 @@ ssize_t r2_ears_read(
                 "R2 Ears: audio read failed: %s\n",
                 pa_strerror(error)
             );
-
+            r2_log_sensory("audio_read_failed",
+                           "R2 Ears encountered a live audio capture error.",
+                           pa_strerror(error), ears->event.source_name);
             return -1;
         }
 
