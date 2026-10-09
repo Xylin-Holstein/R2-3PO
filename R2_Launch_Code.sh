@@ -295,7 +295,7 @@ echo
 # START R2 WITH ITS PRIVATE CLOCK
 # ------------------------------------------------------------
 
-sudo -u r2 \
+sudo -u r2 --preserve-env=R2_REMOTE_TOKEN,R2_REMOTE_PORT \
     env \
     DISPLAY="${DISPLAY:-}" \
     XAUTHORITY="${XAUTHORITY:-}" \
@@ -303,8 +303,6 @@ sudo -u r2 \
     FAKETIME="${FAKETIME_OFFSET}" \
     FAKETIME_DONT_RESET=1 \
     R2_VISION_MODEL="${R2_VISION_MODEL:-qwen2.5vl:3b}" \
-    R2_REMOTE_TOKEN="${R2_REMOTE_TOKEN:-}" \
-    R2_REMOTE_PORT="${R2_REMOTE_PORT:-8765}" \
     "$R2_EXEC"
 
 status=$?
