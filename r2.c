@@ -2683,32 +2683,26 @@ static char *ollama_chat(
 
     struct json_object *msg = NULL;
     struct json_object *content = NULL;
-
+    struct json_object *api_error = NULL;
     char *result = NULL;
 
-    if (
-        json_object_object_get_ex(
-            resp,
-            "message",
-            &msg
-        ) &&
-        json_object_object_get_ex(
-            msg,
-            "content",
-            &content
-        )
-    ) {
-
-        result =
-            xstrdup(
-                json_object_get_string(
-                    content
-                )
-            );
+    if (json_object_object_get_ex(resp, "error", &api_error) &&
+        json_object_is_type(api_error, json_type_string)) {
+        fprintf(stderr, "[R2] Ollama API error: %s\n",
+                json_object_get_string(api_error));
+    } else if (json_object_object_get_ex(resp, "message", &msg) &&
+               json_object_object_get_ex(msg, "content", &content) &&
+               json_object_is_type(content, json_type_string)) {
+        const char *text = json_object_get_string(content);
+        if (text && *text)
+            result = xstrdup(text);
+        else
+            fprintf(stderr, "[R2] Ollama returned an empty assistant message.\n");
+    } else {
+        fprintf(stderr, "[R2] Ollama response did not contain message.content.\n");
     }
 
     json_object_put(resp);
-
     return result;
 }
 
