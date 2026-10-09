@@ -4874,7 +4874,7 @@ static char *build_learning_reflection_context(int diary_limit)
     char *diary = r2_diary_build_reflection_context(diary_limit);
     char *memories = r2_memories_recent(30);
     char *log = r2_log_recent(25);
-    char *belief_history = r2_log_search("belief_updated", 12);
+    char *belief_history = r2_log_search("belief", 12);
 
     if (!diary) diary = xstrdup("Previous diary context unavailable.\n");
     if (!memories) memories = xstrdup("Persistent memory context unavailable.\n");
@@ -5160,7 +5160,7 @@ static char *memory_decision(
     snprintf(query, query_size, "%s %s", user, reply);
 
     char *prior_memories = get_relevant_memories(query, 12);
-    char *prior_beliefs = r2_log_search("belief_updated", 8);
+    char *prior_beliefs = r2_log_search("belief", 8);
     char *prior_diary = r2_diary_build_reflection_context(5);
     if (!prior_memories) prior_memories = xstrdup("No related persistent memories retrieved.");
     if (!prior_beliefs) prior_beliefs = xstrdup("No belief-history records retrieved.");
