@@ -19,8 +19,8 @@
 #define DEFAULT_NUM_CTX 16384L
 #define MAX_CHAT_HISTORY_MESSAGES 24
 #define MAX_ARCHIVED_CONTEXT_CHARS 8000
-#define MAX_STARTUP_MEMORY_CHARS 10000
-#define MAX_RETRIEVED_MEMORY_CHARS 8000
+#define MAX_STARTUP_MEMORY_CHARS 24000
+#define MAX_RETRIEVED_MEMORY_CHARS 12000
 
 static const char *r2_chat_model(void)
 {
@@ -48,18 +48,18 @@ static long r2_chat_num_ctx(void)
    Persistent memory architecture:
 
    STARTUP:
-       Load the newest 100 memories into one pinned context block.
+       Load the newest 550 memories into one pinned context block.
 
    DURING CONVERSATION:
-       Retrieve up to 20 memories relevant to the current exchange
+       Retrieve up to 100 memories relevant to the current exchange
        and temporarily inject them immediately before the relevant
        user message.
 
    This gives the configured local chat model broad historical
    memory and focused contextual memory.
 */
-#define MAX_STARTUP_MEMORIES 100
-#define MAX_RELEVANT_MEMORIES 20
+#define MAX_STARTUP_MEMORIES 550
+#define MAX_RELEVANT_MEMORIES 100
 #define MAX_MEMORY_KEYWORDS 16
 #define MIN_MEMORY_KEYWORD_LENGTH 3
 
@@ -361,7 +361,7 @@ typedef struct {
        - the archived conversation
        - the startup persistent-memory context
 
-       The startup memory context contains the newest 100 memories
+       The startup memory context contains the newest 550 memories
        and remains available to Ollama throughout the session.
     */
     int pinned;
@@ -930,7 +930,7 @@ static int save_memory(
    ============================================================ */
 
 /*
-   Load the newest 100 persistent memories at startup.
+   Load the newest 550 persistent memories at startup.
 
    This is intentionally a SINGLE pinned message rather than
    100 individual messages.
@@ -1132,7 +1132,7 @@ static char *get_startup_memories(int limit)
 
    STARTUP:
        get_startup_memories()
-       -> newest 100 memories
+       -> newest 550 memories
        -> pinned permanently in one context block
 
    CURRENT TURN:
@@ -6170,7 +6170,7 @@ int r2_init(void)
     /*
        THIS IS THE OLD MEMORY SYSTEM RESTORED.
 
-       R2 loads the newest 100 persistent memories when he starts.
+       R2 loads the newest 550 persistent memories when he starts.
 
        They are inserted into the Ollama conversation as ONE pinned
        context message so llama3 has direct access to them.
