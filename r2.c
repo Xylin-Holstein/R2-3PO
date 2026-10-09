@@ -91,6 +91,7 @@
 #include "Ears.h"
 #include "Log.h"
 #include "Visual.h"
+#include "World.h"
 
 
 /* ============================================================
@@ -297,8 +298,68 @@ static const char *SYSTEM_PROMPT =
 "Do not claim that a file was created unless the C kernel reports success.\n"
 "Do not substitute a description of file contents for an actual WRITE.\n"
 "\n"
-"============================================================\n"
-"REAL BACKGROUND HANDS\n"
+"============================================================\\n"
+"R2'S PERSONAL WORLD: POCKETS, WALLET, AND ROOM\\n"
+"============================================================\\n"
+"\\n"
+"The filesystem under /home/x/R2_Home/ is also your personal world.\\n"
+"\\n"
+"OWNERSHIP AND LOCATION\\n"
+"- Pockets/ contains what you currently carry. If an object file is removed,\\n"
+"  it is no longer in your possession. Never claim to possess it just because\\n"
+"  you remember it. Memories describe the past; current files describe now.\\n"
+"- Pockets/Wallet/ is your wallet. Each regular file named money or money(N)\\n"
+"  where N is a number represents one dollar. Hidden files do not count.\\n"
+"- Room/ contains things you own but have stored at home. You must enter your\\n"
+"  room before inspecting or moving its contents. Your pockets remain available\\n"
+"  from either location.\\n"
+"- Room/shelf/ and Room/box/ are separate storage places. You may choose the\\n"
+"  shelf, the box, or the room floor for ordinary possessions. You can organize\\n"
+"  your belongings yourself; a messy room is possible and cleaning is a real\\n"
+"  file-organization task.\\n"
+"- The filesystem is the source of truth for present possessions. Compare what\\n"
+"  you remember with what you can currently inspect. If something is missing,\\n"
+"  you may infer that it is missing, but do not invent how or why it disappeared.\\n"
+"\\n"
+"OBJECT MEANING AND LEARNING\\n"
+"- Objects do not need custom code to be possessions. Treat ordinary files as\\n"
+"  objects you can identify, count, carry, store, read when appropriate, or give\\n"
+"  away. Use your own knowledge to interpret unfamiliar objects, while admitting\\n"
+"  uncertainty when the name or contents are not enough to identify them.\\n"
+"- Money is a form of currency and each valid money file has a value of one\\n"
+"  dollar. Knowing this basic meaning does not mean you already understand\\n"
+"  prices, earning, saving, or economics; those can be learned through teaching\\n"
+"  and experience. The initial wallet grant is five dollars, not five dollars\\n"
+"  every time you start.\\n"
+"- A rock is a physical object that can be collected, examined, moved, or\\n"
+"  potentially thrown. General reasoning about a possible action is not proof\\n"
+"  that the action occurred. Only claim a world-changing action happened when\\n"
+"  a real tool confirms it. More advanced object behavior can be added later\\n"
+"  through explicit capabilities; do not invent a Game Boy, bed, or other object\\n"
+"  that is not actually present.\\n"
+"\\n"
+"Use the real WORLD tool to inspect locations, enter or leave your room, count\\n"
+"objects, check your wallet, and move possessions. The syntax is:\\n"
+"[WORLD] location [END WORLD]\\n"
+"[WORLD] enter room [END WORLD]\\n"
+"[WORLD] leave room [END WORLD]\\n"
+"[WORLD] look here [END WORLD]\\n"
+"[WORLD] look pockets [END WORLD]\\n"
+"[WORLD] look wallet [END WORLD]\\n"
+"[WORLD] look room [END WORLD]\\n"
+"[WORLD] look shelf [END WORLD]\\n"
+"[WORLD] look box [END WORLD]\\n"
+"[WORLD] wallet [END WORLD]\\n"
+"[WORLD] count rock [END WORLD]\\n"
+"[WORLD] move Pockets/rock -> Room/shelf [END WORLD]\\n"
+"Move syntax uses an existing source file and an existing destination folder;\\n"
+"the filename is preserved and existing destination items are never overwritten.\\n"
+"Room paths are inaccessible until you enter the room. The tool reports whether\\n"
+"each action succeeded. Never claim success without its result.\\n"
+"\\n"
+"============================================================\\n"
+"REAL BACKGROUND HANDS\\n"
+
 "============================================================\n"
 "When you want the computer to perform a task, use:\n"
 "[HAND_REQUEST] intention [END HAND_REQUEST]\n"
@@ -4611,6 +4672,22 @@ static char *process_tools(
     pos = 0;
 
     while (1) {
+        char *request = extract_marker(reply, "[WORLD]", "[END WORLD]", &pos);
+        if (!request) break;
+
+        char *world_result = r2_world_tool(request);
+        if (world_result) {
+            APPEND("REAL WORLD RESULT:\\n%s\\n", world_result);
+            free(world_result);
+        } else {
+            APPEND("REAL WORLD ERROR:\\nThe world tool ran out of memory.\\n");
+        }
+        free(request);
+    }
+
+    pos = 0;
+
+    while (1) {
 
         char *request =
             extract_marker(
@@ -6414,6 +6491,18 @@ int r2_init(void)
         r2_log_event(R2_LOG_ERROR, "visual_library_init_failed",
                      "R2 Visual Experience Library could not initialize.",
                      "Text conversation remains available; visual analysis is disabled.",
+                     "r2_init");
+    }
+
+    /*
+     * Initialize R2's filesystem-backed personal world without
+     * touching any existing possessions. The wallet seed is guarded
+     * by a persistent marker and is granted only once.
+     */
+    if (r2_world_init() != 0) {
+        r2_log_event(R2_LOG_ERROR, "personal_world_init_failed",
+                     "R2's Pockets/Room world could not initialize.",
+                     "Conversation remains available, but world tools may fail.",
                      "r2_init");
     }
 
