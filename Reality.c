@@ -2103,15 +2103,23 @@ char *r2_reality_tv_status(void)
         power ? "ON" : "OFF",
         !strcmp(kind, "vcr") ? "built-in VCR/input" :
         !strcmp(kind, "rf") ? "RF channel" : (value == 1 ? "built-in VCR/input" : "AV input"), value);
-    int signal = !strcmp(kind, "vcr") || (!strcmp(kind, "input") && value == 1);
-    if (sqlite3_prepare_v2(reality_db,
-        "SELECT name FROM r2_tv_devices WHERE connected=1 AND connection_kind=? AND port=? LIMIT 1",
-        -1, &st, NULL) == SQLITE_OK) {
-        bind_text(st, 1, !strcmp(kind, "rf") ? "rf" : "input");
-        sqlite3_bind_int(st, 2, value);
-        if (sqlite3_step(st) == SQLITE_ROW) signal = 1;
+    int signal = 0;
+    if (!strcmp(kind, "rf") || (!strcmp(kind, "input") && value > 1)) {
+        if (sqlite3_prepare_v2(reality_db,
+            "SELECT name FROM r2_tv_devices WHERE connected=1 AND connection_kind=? AND port=? LIMIT 1",
+            -1, &st, NULL) == SQLITE_OK) {
+            bind_text(st, 1, !strcmp(kind, "rf") ? "rf" : "input");
+            sqlite3_bind_int(st, 2, value);
+            if (sqlite3_step(st) == SQLITE_ROW) signal = 1;
+        }
+        if (st) sqlite3_finalize(st);
+    } else if (!strcmp(kind, "vcr") || (!strcmp(kind, "input") && value == 1)) {
+        if (sqlite3_prepare_v2(reality_db,
+            "SELECT cassette_path FROM r2_tv_vcr_state WHERE id=1",
+            -1, &st, NULL) == SQLITE_OK && sqlite3_step(st) == SQLITE_ROW)
+            signal = sqlite3_column_type(st, 0) != SQLITE_NULL;
+        if (st) sqlite3_finalize(st);
     }
-    if (st) sqlite3_finalize(st);
     len += (size_t)snprintf(out + len, 8192 - len, "Selected source signal: %s\n",
                             signal ? "available" : "NO SIGNAL (nothing is connected/transmitting)");
     if (sqlite3_prepare_v2(reality_db,
@@ -2130,6 +2138,22 @@ char *r2_reality_tv_status(void)
             count++;
         }
         if (!count) len += (size_t)snprintf(out + len, 8192 - len, "Detected external devices: none\n");
+    }
+    if (st) sqlite3_finalize(st);
+    if (sqlite3_prepare_v2(reality_db,
+        "SELECT s.cassette_path,s.transport,t.position_seconds "
+        "FROM r2_tv_vcr_state s LEFT JOIN r2_tv_vcr_tapes t ON t.media_path=s.cassette_path WHERE s.id=1",
+        -1, &st, NULL) == SQLITE_OK && sqlite3_step(st) == SQLITE_ROW) {
+        const char *tape = (const char *)sqlite3_column_text(st, 0);
+        const char *transport = (const char *)sqlite3_column_text(st, 1);
+        if (tape) {
+            len += (size_t)snprintf(out + len, 8192 - len,
+                "Built-in VCR: tape inserted (%s), saved position %.1f seconds\n",
+                transport ? transport : "stop", sqlite3_column_double(st, 2));
+            len += (size_t)snprintf(out + len, 8192 - len, "Tape path: %s\n", tape);
+        } else {
+            len += (size_t)snprintf(out + len, 8192 - len, "Built-in VCR: empty\n");
+        }
     }
     if (st) sqlite3_finalize(st);
     pthread_mutex_unlock(&reality_lock);
@@ -2301,7 +2325,7 @@ int r2_reality_tv_vcr_transport(const char *action)
         rc = sqlite3_prepare_v2(reality_db,
             "UPDATE r2_tv_vcr_state SET transport=?,updated_at=CURRENT_TIMESTAMP WHERE id=1 AND cassette_path IS NOT NULL",
             -1, &st, NULL);
-        if (rc == SQLITE_OK) bind_text(st, 1, action);
+        if (rc == SQLITE_OK) bind_text(st, 1, !strcasecmp(action, "pause") ? "pause" : "stop");
     }
     if (rc == SQLITE_OK) rc = sqlite3_step(st);
     int changed = rc == SQLITE_DONE ? sqlite3_changes(reality_db) : 0;
