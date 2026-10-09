@@ -769,6 +769,10 @@ static int r2_eyes_open_internal(
             &width,
             &height) != 0)
     {
+        r2_log_sensory("vision_source_open_failed",
+                       "R2 Eyes could not determine the input dimensions.",
+                       "The source could not be probed or had unsupported dimensions.",
+                       source);
         return -1;
     }
 
@@ -777,6 +781,10 @@ static int r2_eyes_open_internal(
             width,
             height) != 0)
     {
+        r2_log_sensory("vision_buffer_allocation_failed",
+                       "R2 Eyes could not allocate a native frame buffer.",
+                       "The source could not be opened because frame memory allocation failed.",
+                       source);
         return -1;
     }
 
@@ -792,8 +800,13 @@ static int r2_eyes_open_internal(
             live_device
         );
 
-    if (!stream)
+    if (!stream) {
+        r2_log_sensory("vision_stream_open_failed",
+                       "R2 Eyes could not start the FFmpeg capture stream.",
+                       "FFmpeg did not provide a readable visual stream.",
+                       source);
         return -1;
+    }
 
     eyes->stream = stream;
     eyes->open = 1;
@@ -920,6 +933,10 @@ int r2_eyes_open_vlc(
     if (r2_eyes_find_vlc_window(
             &window_id) != 0)
     {
+        r2_log_sensory("vlc_window_not_found",
+                       "R2 Eyes could not find a visible VLC window.",
+                       "VLC window capture requires a visible X11 VLC window and xdotool.",
+                       "VLC");
         return -1;
     }
 
@@ -1021,6 +1038,10 @@ int r2_eyes_capture(
 
     if (result < 0)
     {
+        r2_log_sensory("visual_frame_read_failed",
+                       "R2 Eyes encountered an error reading a visual frame.",
+                       "The capture stream reported a read error.",
+                       eyes->source_name);
         r2_eyes_close(eyes);
         return -1;
     }
