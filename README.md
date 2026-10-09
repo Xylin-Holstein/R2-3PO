@@ -23,7 +23,7 @@ You can also compile directly with the same source list and libraries:
 
 ```sh
 gcc -std=c11 -Wall -Wextra -O2 \
-  r2.c shell.c r2_diary.c Log.c Reality.c Addiction.c AlternateSelf.c Visual.c Ears.c Eyes.c \
+  r2.c shell.c r2_diary.c Log.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c \
   -o r2 \
   -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
 ```
