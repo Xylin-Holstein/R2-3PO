@@ -43,6 +43,8 @@ REQUIRED_FILES=(
     "$R2_SOURCE/AlternateSelf.c"
     "$R2_SOURCE/AlternateSelf.h"
 
+    "$R2_SOURCE/Observer.py"
+
     "$R2_SOURCE/shell.c"
     "$R2_SOURCE/shell.h"
 )
@@ -291,6 +293,15 @@ echo
 echo "[4/4] Transitioning to Linux user: r2..."
 echo
 
+echo "Launching the read-only observer window..."
+echo
+
+# Run the observer as r2 to preserve private database permissions.
+# Do not pass R2's virtual-clock environment to the observer.
+sudo -u r2 env DISPLAY="${DISPLAY:-}" XAUTHORITY="${XAUTHORITY:-}" \
+    python3 "$R2_SOURCE/Observer.py" &
+OBSERVER_PID=$!
+
 echo "Launching R2..."
 echo
 
@@ -309,6 +320,11 @@ sudo -u r2 \
     "$R2_EXEC"
 
 status=$?
+
+# Avoid leaving a stale observer window after R2 exits.
+if [ -n "${OBSERVER_PID:-}" ]; then
+    kill "$OBSERVER_PID" 2>/dev/null || true
+fi
 
 echo
 echo "========================================"
