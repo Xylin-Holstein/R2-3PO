@@ -359,10 +359,10 @@ static void handle_request(int fd)
                                 !strcmp(media_type, "image")
                                     ? "Describe the uploaded image carefully. State visible details and uncertainty."
                                     : "Describe the current frame of the uploaded video. State that this is a sampled frame, not a complete video summary.");
+                            /* A still image should not remain in the continuous video watcher. */
+                            if (!strcmp(media_type, "image"))
+                                r2_vision_close();
                             if (vision) {
-                                /* A still image should not remain in the continuous video watcher. */
-                                if (!strcmp(media_type, "image"))
-                                    r2_vision_close();
                                 char prompt[REMOTE_TEXT_MAX + 1];
                                 snprintf(prompt, sizeof(prompt),
                                     "I uploaded a %s through the remote app. The file is available at %s. "
