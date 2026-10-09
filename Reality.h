@@ -29,6 +29,11 @@ char *r2_reality_status(void);
 char *r2_reality_room_look(void);
 char *r2_reality_list(const char *container);
 char *r2_reality_context(void);
+char *r2_fridge_list(void);
+char *r2_fridge_context(void);
+void r2_fridge_shutdown(void);
+int r2_fridge_take(const char *food);
+int r2_reality_fridge_eat(const char *food, double fullness);
 
 /* Persistent object/container operations. */
 int r2_reality_add_item(const char *name, const char *description,
