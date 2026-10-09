@@ -393,6 +393,10 @@ static int migrate_legacy_reality(void)
                  tables[i], tables[i]);
         if (exec_sql(sql) != 0) { result = -1; break; }
     }
+    if (result == 0 && legacy_table_exists("r2_reality_self"))
+        result = exec_sql("UPDATE main.r2_reality_self SET hunger=(SELECT hunger FROM legacy.r2_reality_self WHERE id=1), seconds_since_meal=(SELECT seconds_since_meal FROM legacy.r2_reality_self WHERE id=1), sleepiness=(SELECT sleepiness FROM legacy.r2_reality_self WHERE id=1), energy=(SELECT energy FROM legacy.r2_reality_self WHERE id=1), last_tick=(SELECT last_tick FROM legacy.r2_reality_self WHERE id=1), updated_at=(SELECT updated_at FROM legacy.r2_reality_self WHERE id=1) WHERE id=1 AND EXISTS(SELECT 1 FROM legacy.r2_reality_self WHERE id=1)");
+    if (result == 0 && legacy_table_exists("r2_reality_meta"))
+        result = exec_sql("UPDATE main.r2_reality_meta SET value=(SELECT value FROM legacy.r2_reality_meta WHERE legacy.r2_reality_meta.key=main.r2_reality_meta.key) WHERE key IN (SELECT key FROM legacy.r2_reality_meta)");
     if (result == 0)
         result = exec_sql("INSERT INTO r2_reality_meta(key,value) VALUES('legacy_reality_migrated','yes') ON CONFLICT(key) DO UPDATE SET value='yes'");
     (void)sqlite3_exec(reality_db, "DETACH DATABASE legacy", NULL, NULL, NULL);
@@ -720,15 +724,16 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
     if(quantity<1) quantity=1;
     if(!r2_reality_is_initialized()) return -1;
     char old_container[REALITY_MAX_TEXT + 1] = {0};
-    int existed_before = 0;
+    int existed_before = 0, old_quantity = 0;
     pthread_mutex_lock(&reality_lock);
     sqlite3_stmt *prior = NULL;
-    if (sqlite3_prepare_v2(reality_db, "SELECT container FROM r2_reality_objects WHERE name=? COLLATE NOCASE", -1, &prior, NULL) == SQLITE_OK) {
+    if (sqlite3_prepare_v2(reality_db, "SELECT container,quantity FROM r2_reality_objects WHERE name=? COLLATE NOCASE", -1, &prior, NULL) == SQLITE_OK) {
         bind_text(prior, 1, name);
         if (sqlite3_step(prior) == SQLITE_ROW) {
             existed_before = 1;
             const unsigned char *oc = sqlite3_column_text(prior, 0);
             if (oc) snprintf(old_container, sizeof(old_container), "%s", (const char *)oc);
+            old_quantity = sqlite3_column_int(prior, 1);
         }
     }
     if (prior) sqlite3_finalize(prior);
@@ -737,10 +742,10 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
     if(rc==SQLITE_OK){bind_text(st,1,container);bind_text(st,2,(!strcmp(container,"pockets")||!strcmp(container,"wallet"))?"inventory":"container");bind_text(st,3,"Persistent object container");bind_text(st,4,(!strcmp(container,"pockets")||!strcmp(container,"wallet"))?"self":"room");rc=sqlite3_step(st);}
     if(st)sqlite3_finalize(st);
     st=NULL;
-    if(rc==SQLITE_DONE) rc=sqlite3_prepare_v2(reality_db,"INSERT INTO r2_reality_objects(name,description,quantity,container,owner) VALUES(?,?,?,?, 'R2') ON CONFLICT(name) DO UPDATE SET description=excluded.description,quantity=excluded.quantity,container=excluded.container,updated_at=CURRENT_TIMESTAMP",-1,&st,NULL);
+    if(rc==SQLITE_DONE) rc=sqlite3_prepare_v2(reality_db,"INSERT INTO r2_reality_objects(name,description,quantity,container,owner) VALUES(?,?,?,?, 'R2') ON CONFLICT(name) DO UPDATE SET description=excluded.description,quantity=CASE WHEN r2_reality_objects.quantity>1 OR excluded.quantity>1 THEN r2_reality_objects.quantity+excluded.quantity ELSE excluded.quantity END,container=excluded.container,updated_at=CURRENT_TIMESTAMP",-1,&st,NULL);
     if(rc==SQLITE_OK){bind_text(st,1,name);bind_text(st,2,description);sqlite3_bind_int(st,3,quantity);bind_text(st,4,container);rc=sqlite3_step(st);}
     if(st)sqlite3_finalize(st);
-    if (rc == SQLITE_DONE && !existed_before) {
+    if (rc == SQLITE_DONE && (!existed_before || old_quantity > 1 || quantity > 1)) {
         st = NULL;
         if (sqlite3_prepare_v2(reality_db,
             "INSERT INTO r2_reality_item_memory(item_name,description,exact_quantity,precision,collected_at,last_decay_at) VALUES(?,?,?,'exact',?,?)",
