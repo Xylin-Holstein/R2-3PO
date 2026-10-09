@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import org.json.JSONObject
+import org.json.JSONArray
 import java.util.Locale
 import java.util.concurrent.Executors
 
@@ -128,6 +129,24 @@ private fun R2RemoteScreen(
         }
     }
 
+    LaunchedEffect(serverUrl, token) {
+        if (serverUrl.isNotBlank() && token.isNotBlank()) {
+            runRequest({ api -> api.conversation().toString() }) { raw ->
+                val arr = JSONArray(raw)
+                val restored = mutableListOf<Pair<String, String>>()
+                for (i in 0 until arr.length()) {
+                    val turn = arr.optJSONObject(i) ?: continue
+                    val user = turn.optString("user")
+                    val assistant = turn.optString("assistant")
+                    if (user.isNotBlank()) restored.add("You" to user)
+                    if (assistant.isNotBlank()) restored.add("R2-3PO" to assistant)
+                }
+                chat = restored
+                output = if (restored.isEmpty()) "No saved conversation turns found yet." else ""
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -161,6 +180,19 @@ private fun R2RemoteScreen(
                                 Section.DIARY -> runRequest({ it.diary() })
                                 Section.LIFE_LOG -> runRequest({ it.lifeLog() })
                                 Section.MEMORIES -> { output = "Search R2's persistent memories below." }
+                                Section.CHAT -> runRequest({ api -> api.conversation().toString() }) { raw ->
+                                    val arr = JSONArray(raw)
+                                    val restored = mutableListOf<Pair<String, String>>()
+                                    for (i in 0 until arr.length()) {
+                                        val turn = arr.optJSONObject(i) ?: continue
+                                        val user = turn.optString("user")
+                                        val assistant = turn.optString("assistant")
+                                        if (user.isNotBlank()) restored.add("You" to user)
+                                        if (assistant.isNotBlank()) restored.add("R2-3PO" to assistant)
+                                    }
+                                    chat = restored
+                                    output = if (restored.isEmpty()) "No saved conversation turns found yet." else ""
+                                }
                                 else -> Unit
                             }
                         },
