@@ -687,6 +687,24 @@ static int legacy_table_exists(const char *name)
 
 /* One-time, non-destructive migration from older releases where Reality
  * tables lived inside r2_memory.db. Life Log and memory stay in that file. */
+static int legacy_column_exists(const char *table, const char *column)
+{
+    if (!table || !column) return 0;
+    char sql[256];
+    int n = snprintf(sql, sizeof(sql), "PRAGMA legacy.table_info(%s)", table);
+    if (n <= 0 || (size_t)n >= sizeof(sql)) return 0;
+    sqlite3_stmt *st = NULL;
+    int found = 0;
+    if (sqlite3_prepare_v2(reality_db, sql, -1, &st, NULL) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            const unsigned char *name = sqlite3_column_text(st, 1);
+            if (name && !strcasecmp((const char *)name, column)) { found = 1; break; }
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    return found;
+}
+
 static int migrate_legacy_reality(void)
 {
     if (access(R2_DIARY_DATABASE, F_OK) != 0) return 0;
@@ -707,20 +725,32 @@ static int migrate_legacy_reality(void)
     if (st) sqlite3_finalize(st);
     if (rc != SQLITE_DONE) return -1;
 
-    const char *tables[] = {
-        "r2_reality_containers", "r2_reality_meta", "r2_reality_self",
-        "r2_reality_self_facts", "r2_reality_ticks", "r2_reality_objects"
-    };
     int result = 0;
-    for (size_t i = 0; i < sizeof(tables)/sizeof(tables[0]); ++i) {
-        if (!legacy_table_exists(tables[i])) continue;
-        char sql[512];
-        snprintf(sql, sizeof(sql), "INSERT OR IGNORE INTO main.%s SELECT * FROM legacy.%s",
-                 tables[i], tables[i]);
-        if (exec_sql(sql) != 0) { result = -1; break; }
+    /* Copy stable columns explicitly: old self-state schemas predate
+       seconds_since_meal, so SELECT * would fail on those databases. */
+    const struct { const char *table, *sql; } copies[] = {
+        {"r2_reality_containers", "INSERT OR IGNORE INTO main.r2_reality_containers(name,kind,description,parent) SELECT name,kind,description,parent FROM legacy.r2_reality_containers"},
+        {"r2_reality_meta", "INSERT OR IGNORE INTO main.r2_reality_meta(key,value) SELECT key,value FROM legacy.r2_reality_meta"},
+        {"r2_reality_self_facts", "INSERT OR IGNORE INTO main.r2_reality_self_facts(key,value,evidence) SELECT key,value,evidence FROM legacy.r2_reality_self_facts"},
+        {"r2_reality_ticks", "INSERT OR IGNORE INTO main.r2_reality_ticks(previous_tick,current_tick,elapsed_seconds) SELECT previous_tick,current_tick,elapsed_seconds FROM legacy.r2_reality_ticks"},
+        {"r2_reality_objects", "INSERT OR IGNORE INTO main.r2_reality_objects(name,description,quantity,container,owner) SELECT name,description,quantity,container,owner FROM legacy.r2_reality_objects"}
+    };
+    for (size_t i = 0; i < sizeof(copies)/sizeof(copies[0]); ++i) {
+        if (!legacy_table_exists(copies[i].table)) continue;
+        if (exec_sql(copies[i].sql) != 0) { result = -1; break; }
     }
-    if (result == 0 && legacy_table_exists("r2_reality_self"))
-        result = exec_sql("UPDATE main.r2_reality_self SET hunger=(SELECT hunger FROM legacy.r2_reality_self WHERE id=1), seconds_since_meal=(SELECT seconds_since_meal FROM legacy.r2_reality_self WHERE id=1), sleepiness=(SELECT sleepiness FROM legacy.r2_reality_self WHERE id=1), energy=(SELECT energy FROM legacy.r2_reality_self WHERE id=1), last_tick=(SELECT last_tick FROM legacy.r2_reality_self WHERE id=1), updated_at=(SELECT updated_at FROM legacy.r2_reality_self WHERE id=1) WHERE id=1 AND EXISTS(SELECT 1 FROM legacy.r2_reality_self WHERE id=1)");
+    if (result == 0 && legacy_table_exists("r2_reality_self")) {
+        const char *since = legacy_column_exists("r2_reality_self", "seconds_since_meal") ? "seconds_since_meal" : "0";
+        const char *sleep = legacy_column_exists("r2_reality_self", "sleepiness") ? "sleepiness" : "0";
+        const char *energy = legacy_column_exists("r2_reality_self", "energy") ? "energy" : "100";
+        const char *last = legacy_column_exists("r2_reality_self", "last_tick") ? "last_tick" : "0";
+        char sql[1024];
+        snprintf(sql, sizeof(sql),
+            "INSERT OR REPLACE INTO main.r2_reality_self(id,hunger,seconds_since_meal,sleepiness,energy,last_tick) "
+            "SELECT id,hunger,%s,%s,%s,%s FROM legacy.r2_reality_self",
+            since, sleep, energy, last);
+        result = exec_sql(sql);
+    }
     if (result == 0 && legacy_table_exists("r2_reality_meta"))
         result = exec_sql("UPDATE main.r2_reality_meta SET value=(SELECT value FROM legacy.r2_reality_meta WHERE legacy.r2_reality_meta.key=main.r2_reality_meta.key) WHERE key IN (SELECT key FROM legacy.r2_reality_meta)");
     if (result == 0)
