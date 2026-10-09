@@ -411,10 +411,11 @@ static FILE *r2_eyes_start_ffmpeg(
         return NULL;
 
     char command[4096];
+    int command_length;
 
     if (live_device)
     {
-        snprintf(
+        command_length = snprintf(
             command,
             sizeof(command),
             "ffmpeg "
@@ -437,7 +438,7 @@ static FILE *r2_eyes_start_ffmpeg(
     }
     else
     {
-        snprintf(
+        command_length = snprintf(
             command,
             sizeof(command),
             "ffmpeg "
@@ -457,6 +458,9 @@ static FILE *r2_eyes_start_ffmpeg(
     }
 
     free(quoted_input);
+
+    if (command_length < 0 || (size_t)command_length >= sizeof(command))
+        return NULL;
 
     return popen(command, "r");
 }
