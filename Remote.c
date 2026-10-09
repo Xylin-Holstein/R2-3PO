@@ -203,6 +203,32 @@ static const char *query_value(const char *path, const char *key,
     return NULL;
 }
 
+static int build_upload_path(char *destination, size_t destination_size,
+                             const char *directory, time_t timestamp,
+                             unsigned long sequence, const char *extension)
+{
+    if (!destination || destination_size == 0 || !directory || !extension)
+        return -1;
+
+    char filename[128];
+    int filename_length = snprintf(filename, sizeof(filename),
+                                   "upload-%ld-%lu%s",
+                                   (long)timestamp, sequence, extension);
+    if (filename_length < 0 ||
+        (size_t)filename_length >= sizeof(filename))
+        return -1;
+
+    size_t directory_length = strlen(directory);
+    if (directory_length + 1 + (size_t)filename_length >= destination_size)
+        return -1;
+
+    memcpy(destination, directory, directory_length);
+    destination[directory_length] = '/';
+    memcpy(destination + directory_length + 1, filename,
+           (size_t)filename_length + 1);
+    return 0;
+}
+
 static void handle_request(int fd)
 {
     char *buffer = calloc(1, REMOTE_HEADER_MAX + 1);
@@ -327,8 +353,12 @@ static void handle_request(int fd)
             } else {
                 static unsigned long upload_sequence = 0;
                 ++upload_sequence;
-                snprintf(upload_path, sizeof(upload_path), "%s/upload-%ld-%lu%s",
-                         upload_dir, (long)time(NULL), upload_sequence, extension);
+                if (build_upload_path(upload_path, sizeof(upload_path),
+                                       upload_dir, time(NULL), upload_sequence,
+                                       extension) != 0) {
+                    respond_error(fd, 500, "Internal Server Error",
+                                  "generated upload path exceeds the supported path length");
+                } else {
                 int out_fd = open(upload_path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
                 if (out_fd < 0) {
                     respond_error(fd, 500, "Internal Server Error", "could not create upload file");
@@ -389,6 +419,7 @@ static void handle_request(int fd)
                         free(vision);
                         free(reply);
                     }
+                }
                 }
             }
         }
