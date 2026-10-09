@@ -58,6 +58,15 @@ int r2_sj_init(void)
         ");"
         "CREATE INDEX IF NOT EXISTS r2_sensory_journal_kind_idx "
         "ON r2_sensory_journal(journal_kind,event_id);"
+        "CREATE TABLE IF NOT EXISTS r2_sensory_journal_diary_links ("
+        " event_id INTEGER PRIMARY KEY,"
+        " diary_entry_id INTEGER NOT NULL,"
+        " linked_utc TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        " FOREIGN KEY(event_id) REFERENCES r2_log_events(id),"
+        " FOREIGN KEY(diary_entry_id) REFERENCES diary_entries(id)"
+        ");"
+        "CREATE INDEX IF NOT EXISTS r2_sensory_journal_diary_entry_idx "
+        "ON r2_sensory_journal_diary_links(diary_entry_id);"
         "INSERT OR IGNORE INTO r2_sensory_journal(event_id,journal_kind) "
         "SELECT id,category FROM r2_log_events "
         "WHERE category IN ('sensory','thinking','conversation');";
@@ -107,6 +116,29 @@ void r2_sj_index_event(int64_t event_id, const char *category,
             fprintf(stderr, "[R2 Sensory Journal] Index failed: %s\n", sqlite3_errmsg(sj_db));
     }
     sqlite3_finalize(st);
+
+    /* Link diary-writing events to the original diary row without copying it. */
+    if (!strcmp(category, "thinking") &&
+        (!strcmp(event_type, "diary_entry_written") ||
+         !strcmp(event_type, "reflection_completed"))) {
+        sqlite3_stmt *link = NULL;
+        int link_rc = sqlite3_prepare_v2(sj_db,
+            "INSERT OR REPLACE INTO r2_sensory_journal_diary_links(event_id,diary_entry_id) "
+            "SELECT e.id,d.id FROM r2_log_events e "
+            "JOIN diary_entries d ON d.entry=e.details "
+            "WHERE e.id=? ORDER BY d.id DESC LIMIT 1;",
+            -1, &link, NULL);
+        if (link_rc == SQLITE_OK) {
+            sqlite3_bind_int64(link, 1, event_id);
+            if (sqlite3_step(link) != SQLITE_DONE)
+                fprintf(stderr, "[R2 Sensory Journal] Diary link failed: %s\\n",
+                        sqlite3_errmsg(sj_db));
+        } else {
+            fprintf(stderr, "[R2 Sensory Journal] Diary link query failed: %s\\n",
+                    sqlite3_errmsg(sj_db));
+        }
+        sqlite3_finalize(link);
+    }
     pthread_mutex_unlock(&sj_lock);
     (void)source;
 }
@@ -130,12 +162,15 @@ static char *sj_query(const char *query, int limit)
 
     const char *sql_recent =
         "SELECT e.id,e.utc_time,e.local_time,j.journal_kind,e.event_type,e.summary,"
-        "e.details,e.source FROM r2_sensory_journal j "
-        "JOIN r2_log_events e ON e.id=j.event_id ORDER BY e.id DESC LIMIT ?;";
+        "e.details,e.source,d.diary_entry_id FROM r2_sensory_journal j "
+        "JOIN r2_log_events e ON e.id=j.event_id "
+        "LEFT JOIN r2_sensory_journal_diary_links d ON d.event_id=e.id "
+        "ORDER BY e.id DESC LIMIT ?;";
     const char *sql_search =
         "SELECT e.id,e.utc_time,e.local_time,j.journal_kind,e.event_type,e.summary,"
-        "e.details,e.source FROM r2_sensory_journal j "
+        "e.details,e.source,d.diary_entry_id FROM r2_sensory_journal j "
         "JOIN r2_log_events e ON e.id=j.event_id "
+        "LEFT JOIN r2_sensory_journal_diary_links d ON d.event_id=e.id "
         "WHERE e.summary LIKE ? OR e.details LIKE ? OR e.event_type LIKE ? "
         "OR j.journal_kind LIKE ? OR e.source LIKE ? ORDER BY e.id DESC LIMIT ?;";
     sqlite3_stmt *st = NULL;
@@ -167,8 +202,9 @@ static char *sj_query(const char *query, int limit)
         const unsigned char *summary = sqlite3_column_text(st, 5);
         const unsigned char *details = sqlite3_column_text(st, 6);
         const unsigned char *source = sqlite3_column_text(st, 7);
+        const unsigned char *diary_id = sqlite3_column_text(st, 8);
         int needed = snprintf(NULL, 0,
-            "[%lld] %s | %s | %s/%s\n  %s\n  Source: %s\n  %s\n\n",
+            "[%lld] %s | %s | %s/%s\n  %s\n  Source: %s\n  Diary link: %s\n  %s\n\n",
             (long long)sqlite3_column_int64(st, 0),
             utc ? (const char *)utc : "unknown UTC",
             local ? (const char *)local : "unknown local",
@@ -176,6 +212,7 @@ static char *sj_query(const char *query, int limit)
             type ? (const char *)type : "unknown",
             summary ? (const char *)summary : "",
             source ? (const char *)source : "unspecified",
+            diary_id ? (const char *)diary_id : "none",
             details ? (const char *)details : "");
         if (needed < 0 || len + (size_t)needed + 1 > 2 * 1024 * 1024) break;
         if (len + (size_t)needed + 1 > cap) {
@@ -186,7 +223,7 @@ static char *sj_query(const char *query, int limit)
             out = grown; cap = next;
         }
         snprintf(out + len, cap - len,
-            "[%lld] %s | %s | %s/%s\n  %s\n  Source: %s\n  %s\n\n",
+            "[%lld] %s | %s | %s/%s\n  %s\n  Source: %s\n  Diary link: %s\n  %s\n\n",
             (long long)sqlite3_column_int64(st, 0),
             utc ? (const char *)utc : "unknown UTC",
             local ? (const char *)local : "unknown local",
@@ -194,6 +231,7 @@ static char *sj_query(const char *query, int limit)
             type ? (const char *)type : "unknown",
             summary ? (const char *)summary : "",
             source ? (const char *)source : "unspecified",
+            diary_id ? (const char *)diary_id : "none",
             details ? (const char *)details : "");
         len += (size_t)needed;
     }
