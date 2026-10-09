@@ -100,7 +100,7 @@ class CRTDisplay:
         try:
             response = send_control_command(command)
             self.feedback.configure(text=response, fg="#a6b99c")
-            self.refresh()
+            self.refresh(schedule=False)
         except (OSError, RuntimeError, ValueError) as exc:
             self.feedback.configure(text=f"Control unavailable: {exc}", fg="#e0b0a0")
 
@@ -138,7 +138,7 @@ class CRTDisplay:
                 device = str(match[0]) if match else None
             return power, kind, value, device
 
-    def refresh(self) -> None:
+    def refresh(self, schedule: bool = True) -> None:
         try:
             power, kind, value, device = self.read_state()
             if not power:
@@ -167,7 +167,8 @@ class CRTDisplay:
         except (sqlite3.Error, OSError, RuntimeError) as exc:
             self.picture.configure(text="TV STATE UNAVAILABLE", fg="#b8c0b2")
             self.status.configure(text=f"Database: {DB_PATH}   |   {exc}")
-        self.root.after(POLL_MS, self.refresh)
+        if schedule:
+            self.root.after(POLL_MS, self.refresh)
 
 
 def main() -> None:
