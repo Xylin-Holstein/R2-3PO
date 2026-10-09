@@ -1309,6 +1309,97 @@ static int normalize_limit(int limit)
     return limit;
 }
 
+char *r2_log_status_report(void)
+{
+    char *output = NULL;
+    size_t length = 0, capacity = 0;
+    sqlite3_stmt *st = NULL;
+    int rc;
+
+    pthread_mutex_lock(&log_lock);
+    if (!log_initialized || !log_db) {
+        pthread_mutex_unlock(&log_lock);
+        return strdup("The Life Log is not initialized.\n");
+    }
+
+    if (append_text(&output, &length, &capacity,
+                    "================ LIFE LOG STATUS ================\n"
+                    "State: READY\n"
+                    "Current session ID: %" PRId64 "\n"
+                    "Process elapsed time: %" PRIu64 " ms\n",
+                    current_session_id, r2_log_elapsed_ms()) != 0) {
+        free(output);
+        pthread_mutex_unlock(&log_lock);
+        return NULL;
+    }
+
+    rc = sqlite3_prepare_v2(log_db,
+        "SELECT COUNT(*), MIN(utc_time), MAX(utc_time) FROM r2_log_events;",
+        -1, &st, NULL);
+    if (rc == SQLITE_OK && sqlite3_step(st) == SQLITE_ROW) {
+        sqlite3_int64 count = sqlite3_column_int64(st, 0);
+        const unsigned char *first = sqlite3_column_text(st, 1);
+        const unsigned char *last = sqlite3_column_text(st, 2);
+        if (append_text(&output, &length, &capacity,
+                        "Recorded events: %" PRId64 "\n"
+                        "First event UTC: %s\n"
+                        "Latest event UTC: %s\n",
+                        (int64_t)count,
+                        first ? (const char *)first : "(none)",
+                        last ? (const char *)last : "(none)") != 0) {
+            free(output);
+            output = NULL;
+        }
+    } else {
+        if (append_text(&output, &length, &capacity,
+                        "Recorded events: unavailable (%s)\n",
+                        sqlite3_errmsg(log_db)) != 0) {
+            free(output);
+            output = NULL;
+        }
+    }
+    sqlite3_finalize(st);
+    st = NULL;
+
+    if (output) {
+        rc = sqlite3_prepare_v2(log_db,
+            "SELECT started_utc, started_local, process_id FROM r2_log_sessions WHERE id=?;",
+            -1, &st, NULL);
+        if (rc == SQLITE_OK) {
+            sqlite3_bind_int64(st, 1, current_session_id);
+            rc = sqlite3_step(st);
+        }
+        if (rc == SQLITE_ROW) {
+            const unsigned char *utc = sqlite3_column_text(st, 0);
+            const unsigned char *local = sqlite3_column_text(st, 1);
+            sqlite3_int64 pid = sqlite3_column_int64(st, 2);
+            if (append_text(&output, &length, &capacity,
+                            "Session started UTC: %s\n"
+                            "Session started local: %s\n"
+                            "Process ID: %" PRId64 "\n",
+                            utc ? (const char *)utc : "(unknown)",
+                            local ? (const char *)local : "(unknown)",
+                            (int64_t)pid) != 0) {
+                free(output);
+                output = NULL;
+            }
+        } else if (append_text(&output, &length, &capacity,
+                               "Current session details: unavailable\n") != 0) {
+            free(output);
+            output = NULL;
+        }
+        sqlite3_finalize(st);
+    }
+
+    if (output && append_text(&output, &length, &capacity,
+                              "=================================================\n") != 0) {
+        free(output);
+        output = NULL;
+    }
+    pthread_mutex_unlock(&log_lock);
+    return output;
+}
+
 static char *query_events(const char *query, int limit)
 {
     sqlite3_stmt *statement = NULL;
