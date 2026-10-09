@@ -387,19 +387,26 @@ def verify_console(db: sqlite3.Connection) -> dict[str, Any]:
     else:
         checks["slot_rom_exists"] = False
         checks["slot_rom_format_supported"] = False
-    ok = all(checks[key] for key in (
-        "device_root_exists", "cartridges_directory_exists",
-        "saves_directory_writable", "state_directory_writable",
-        "emulator_exists", "emulator_executable",
-    )) and (not rom_path or (checks["slot_rom_exists"] and checks["slot_rom_format_supported"]))
-    if not rom_path:
-        message = "Console installation and emulator checked; cartridge slot is empty, so power on will not launch a game."
-    elif not checks["slot_rom_exists"] or not checks["slot_rom_format_supported"]:
-        message = "Console check failed: the recorded cartridge path is missing, outside Cartridges, or unsupported."
-        ok = False
-    elif not checks["emulator_executable"]:
-        message = f"Console check failed: mGBA is missing or not executable at {emulator}."
-        ok = False
+    failures = []
+    for key, description in (
+        ("device_root_exists", "device root is missing"),
+        ("cartridges_directory_exists", "Cartridges directory is missing"),
+        ("saves_directory_writable", "Saves directory is not writable"),
+        ("state_directory_writable", "State directory is not writable"),
+        ("emulator_executable", f"mGBA is missing or not executable at {emulator}"),
+    ):
+        if not checks[key]:
+            failures.append(description)
+    if rom_path:
+        if not checks["slot_rom_exists"]:
+            failures.append("the recorded cartridge path is missing or outside Cartridges")
+        if not checks["slot_rom_format_supported"]:
+            failures.append("the inserted cartridge format is unsupported")
+    ok = not failures
+    if failures:
+        message = "Console verification failed: " + "; ".join(failures) + "."
+    elif not rom_path:
+        message = "Console verified; cartridge slot is empty, so power on will not launch a game."
     else:
         message = f"Console verified. Power on will launch {row['cartridge_title'] or Path(rom_path).stem} from the current cartridge slot."
     return {
