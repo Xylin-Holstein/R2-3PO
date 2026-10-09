@@ -4235,6 +4235,10 @@ static char *extract_marker(
             end
         );
 
+    /* Line-based action markers such as [WORLD] may be the final
+       output with no trailing newline. Treat end-of-reply as the line end. */
+    if (!q && strcmp(end, "\n") == 0)
+        q = reply + strlen(reply);
     if (!q)
         return NULL;
 
