@@ -5414,11 +5414,6 @@ int r2_vision_open_vlc(void)
     if (rc == 0) {
         r2_log_media_event("opened_for_observation", "video", "VLC window",
                            "R2 began sampling the visible VLC playback window.");
-        pthread_mutex_lock(&continuity_lock);
-        continuity_announced_source[0] = '\0';
-        continuity_attempt_source[0] = '\0';
-        continuity_last_attempt = 0;
-        pthread_mutex_unlock(&continuity_lock);
         r2_vision_watch_start();
     }
     return rc;
