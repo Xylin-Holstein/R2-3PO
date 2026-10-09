@@ -477,6 +477,11 @@ static void handle_request(int fd)
             ? json_tokener_parse(body) : NULL;
         struct json_object *message_obj = NULL;
         const char *message = NULL;
+        struct json_object *new_session_obj = NULL;
+        int new_session = request &&
+            json_object_object_get_ex(request, "new_session", &new_session_obj) &&
+            json_object_is_type(new_session_obj, json_type_boolean) &&
+            json_object_get_boolean(new_session_obj);
         if (request && json_object_object_get_ex(request, "message", &message_obj) &&
             json_object_is_type(message_obj, json_type_string))
             message = json_object_get_string(message_obj);
@@ -485,6 +490,14 @@ static void handle_request(int fd)
             respond_error(fd, 400, "Bad Request",
                           "message must be non-empty and at most 65536 bytes");
         } else {
+            if (new_session && r2_conversation_session_begin("remote_api") != 0) {
+                respond_error(fd, 503, "Service Unavailable",
+                              "R2 could not begin a new conversation session");
+                if (request) json_object_put(request);
+                free(body);
+                free(buffer);
+                return;
+            }
             char *reply = r2_talk(message);
             if (!reply) {
                 respond_error(fd, 503, "Service Unavailable",
