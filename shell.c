@@ -216,7 +216,7 @@ static void shell_help(void)
         "\n"        "  eat <food> [| <fullness 0-100>]\n"
         "      Use room/food_metrics.xml automatically unless a fullness value is supplied.\n"
         "  sleep <hours>\n"
-        "      Advance sleep recovery; elapsed time still affects needs.\n"
+        "      Advance sleep recovery, then generate and save a private simulated dream.\n"
         "  dream <description>\n"
         "      Record a reported dream as a report, not a verified event.\n"
         "\n"
