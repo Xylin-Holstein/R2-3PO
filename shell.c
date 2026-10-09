@@ -1281,14 +1281,14 @@ static int shell_parse_amount(const char *text, double *value);
 static int shell_give(const char *arg)
 {
     if (!arg || !*arg) {
-        printf("Usage: give <item> <quantity> [| description | container]\\n");
-        printf("       give money <quantity> creates individual physical money items.\\n");
+        printf("Usage: give <item> <quantity> [| description | container]\n");
+        printf("       give money <quantity> creates individual physical money items.\n");
         return 1;
     }
 
     char *copy = strdup(arg);
     if (!copy) {
-        printf("[Creator] Memory allocation failed.\\n");
+        printf("[Creator] Memory allocation failed.\n");
         return 1;
     }
 
@@ -1304,17 +1304,17 @@ static int shell_give(const char *arg)
     char *head = fields[0] ? fields[0] : copy;
     char *space = strrchr(head, ' ');
     if (!space || space == head || !space[1]) {
-        printf("Usage: give <item> <quantity> [| description | container]\\n");
+        printf("Usage: give <item> <quantity> [| description | container]\n");
         free(copy);
         return 1;
     }
-    *space++ = '\\0';
+    *space++ = '\0';
     char *name = shell_trim(head);
     char *amount_text = shell_trim(space);
     double amount = 0.0;
     if (!*name || !shell_parse_amount(amount_text, &amount) ||
         amount <= 0.0 || amount > 1000000.0 || floor(amount) != amount) {
-        printf("[Give] Quantity must be a positive whole number (maximum 1000000).\\n");
+        printf("[Give] Quantity must be a positive whole number (maximum 1000000).\n");
         free(copy);
         return 1;
     }
@@ -1328,7 +1328,7 @@ static int shell_give(const char *arg)
 
     if (money) {
         if (amount > 1000.0) {
-            printf("[Creator] A single money gift is limited to 1000 separate objects.\\n");
+            printf("[Creator] A single money gift is limited to 1000 separate objects.\n");
             free(copy);
             return 1;
         }
@@ -1343,21 +1343,21 @@ static int shell_give(const char *arg)
                      "Individual physical money item created by the user; denomination unspecified. Gift batch quantity=%d.",
                      (int)amount);
             if (r2_reality_add_item(item_name, item_description, destination, 1) != 0) {
-                fprintf(stderr, "[Creator] Could not create %s in %s; stopping after %d of %.0f items.\\n",
+                fprintf(stderr, "[Creator] Could not create %s in %s; stopping after %d of %.0f items.\n",
                         item_name, destination, i - 1, amount);
                 rc = -1;
                 break;
             }
         }
         if (rc == 0)
-            printf("[Creator] Created %.0f separate money items in %s; no cash balance or denomination was assumed.\\n",
+            printf("[Creator] Created %.0f separate money items in %s; no cash balance or denomination was assumed.\n",
                    amount, destination);
     } else {
         rc = r2_reality_add_item(name, description, destination, (int)amount);
         if (rc == 0)
-            printf("[Creator] Created %d x %s in %s.\\n", (int)amount, name, destination);
+            printf("[Creator] Created %d x %s in %s.\n", (int)amount, name, destination);
         else
-            printf("[Creator] Could not create %s in %s; check location and container access.\\n",
+            printf("[Creator] Could not create %s in %s; check location and container access.\n",
                    name, destination);
     }
 
@@ -1386,7 +1386,7 @@ static int shell_gameboy(const char *arg)
     const char *sub = (arg && *arg) ? arg : "power on";
     char *copy = strdup(sub);
     if (!copy) {
-        printf("[Game Boy Advance] Could not allocate command arguments.\\n");
+        printf("[Game Boy Advance] Could not allocate command arguments.\n");
         return 1;
     }
 
@@ -1395,9 +1395,9 @@ static int shell_gameboy(const char *arg)
     char *argv[10] = {0};
     int argc = 0;
     char *save = NULL;
-    for (char *part = strtok_r(copy, " \\t", &save);
+    for (char *part = strtok_r(copy, " \t", &save);
          part && argc < 8;
-         part = strtok_r(NULL, " \\t", &save)) {
+         part = strtok_r(NULL, " \t", &save)) {
         argv[++argc] = part;
     }
     if (argc == 0) {
@@ -1430,7 +1430,7 @@ static int shell_gameboy(const char *arg)
         return 1;
     }
     if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
-        printf("[Game Boy Advance] Command failed. Check installation, inserted ROM, and mGBA path.\\n");
+        printf("[Game Boy Advance] Command failed. Check installation, inserted ROM, and mGBA path.\n");
     free(copy);
     return 1;
 }
