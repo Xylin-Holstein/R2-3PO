@@ -28,6 +28,9 @@ REQUIRED_FILES=(
     "$R2_SOURCE/Log.c"
     "$R2_SOURCE/Log.h"
 
+    "$R2_SOURCE/Visual.c"
+    "$R2_SOURCE/Visual.h"
+
     "$R2_SOURCE/Ears.c"
     "$R2_SOURCE/Ears.h"
 
@@ -231,6 +234,7 @@ gcc -std=c11 -Wall -Wextra -O2 \
     "$R2_SOURCE/shell.c" \
     "$R2_SOURCE/r2_diary.c" \
     "$R2_SOURCE/Log.c" \
+    "$R2_SOURCE/Visual.c" \
     "$R2_SOURCE/Ears.c" \
     "$R2_SOURCE/Eyes.c" \
     -o "$R2_EXEC" \
@@ -265,6 +269,7 @@ echo "    r2.c"
 echo "    shell.c"
 echo "    r2_diary.c"
 echo "    Log.c"
+echo "    Visual.c"
 echo "    Ears.c"
 echo "    Eyes.c"
 echo
