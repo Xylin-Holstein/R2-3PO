@@ -12,7 +12,7 @@
    FEATURE CONFIGURATION
    ============================================================ */
 
-#define MODEL "gemma3:4b"
+#define MODEL R2_OLLAMA_MODEL
 
 #define THINK_INTERVAL 900
 
