@@ -3464,10 +3464,12 @@ static char *plan_hand_request(
     };
 
     char *cmd =
-        ollama_chat(
+        ollama_chat_with_limit(
             &m,
             1,
-            NULL
+            NULL,
+            256,
+            180L
         );
 
     free(prompt);
@@ -4885,10 +4887,12 @@ static void *autonomous_thinking(
         };
 
         char *reflection =
-            ollama_chat(
+            ollama_chat_with_limit(
                 &m,
                 1,
-                prompt
+                prompt,
+                1024,
+                180L
             );
 
         free(ctx);
@@ -5042,10 +5046,12 @@ static char *memory_decision(
     };
 
     char *res =
-        ollama_chat(
+        ollama_chat_with_limit(
             &m,
             1,
-            sys
+            sys,
+            128,
+            90L
         );
 
     free(u);
@@ -5800,8 +5806,9 @@ static void log_structured_self_report(const char *reply, int64_t parent_event_i
     snprintf(input, n, "%s%s", prefix, reply);
 
     Message m = { "user", input, 0 };
-    char *json_text = ollama_chat(&m, 1,
-        "You are a strict structured data extractor. Output only valid JSON.");
+    char *json_text = ollama_chat_with_limit(&m, 1,
+        "You are a strict structured data extractor. Output only valid JSON.",
+        768, 180L);
     free(input);
     if (!json_text) {
         r2_log_event(R2_LOG_ERROR, "self_state_extraction_failed",
