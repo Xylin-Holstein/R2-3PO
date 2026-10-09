@@ -419,6 +419,7 @@ static FILE *r2_eyes_start_ffmpeg(
             "-nostdin "
             "-hide_banner "
             "-loglevel error "
+            "-re "
             "-i %s "
             "-vf "
             "\"fps=%d,format=rgb24\" "
