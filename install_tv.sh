@@ -20,7 +20,20 @@ set -euo pipefail
 export R2_REALITY_DB="${R2_REALITY_DB:-$R2_HOME/R2/r2_reality.db}"
 export R2_TV_SOCKET="${R2_TV_SOCKET:-$R2_HOME/R2/tv-control.sock}"
 export R2_VCR_MEDIA_DIR="${R2_VCR_MEDIA_DIR:-$MEDIA_DIR}"
-exec /usr/bin/env python3 "$TV_DIR/TV.py"
+# The R2 shell owns the private Reality database and mode-0600 control socket.
+# Run the GUI as that same account; R2_Launch_Code.sh grants r2 access to the
+# current X display while R2 is running. Keep the terminal attached so sudo
+# can request authentication if its credential cache has expired.
+if ! id r2 >/dev/null 2>&1; then
+    echo "Linux user 'r2' does not exist; start R2's normal setup first." >&2
+    exit 1
+fi
+exec sudo -u r2 env -u XAUTHORITY \
+    DISPLAY="${DISPLAY:-}" \
+    R2_REALITY_DB="$R2_REALITY_DB" \
+    R2_TV_SOCKET="$R2_TV_SOCKET" \
+    R2_VCR_MEDIA_DIR="$R2_VCR_MEDIA_DIR" \
+    /usr/bin/env python3 "$TV_DIR/TV.py"
 EOF
 chmod 0755 "$TV_DIR/run_tv.sh"
 
@@ -31,7 +44,7 @@ Name=R2's CRT Television
 Comment=Operate the CRT television and built-in VCR in R2's room
 Exec=/bin/bash "$TV_DIR/run_tv.sh"
 Path=$TV_DIR
-Terminal=false
+Terminal=true
 Categories=AudioVideo;Video;
 EOF
 chmod 0755 "$TV_DIR/TV.desktop"
