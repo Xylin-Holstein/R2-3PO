@@ -518,6 +518,26 @@ int r2_reality_tick(void)
         }
         if (st) sqlite3_finalize(st);
     }
+    /* Collection memory loses precision with age; the physical object table
+       is never changed by this memory-decay operation. */
+    st = NULL;
+    if (sqlite3_prepare_v2(reality_db,
+        "UPDATE r2_reality_item_memory SET precision='vague', exact_quantity=NULL, approximate_quantity=NULL, last_decay_at=? WHERE precision!='vague' AND collected_at<=?",
+        -1, &st, NULL) == SQLITE_OK) {
+        sqlite3_bind_int64(st, 1, now);
+        sqlite3_bind_int64(st, 2, now - 30 * 86400);
+        sqlite3_step(st);
+    }
+    if (st) sqlite3_finalize(st);
+    st = NULL;
+    if (sqlite3_prepare_v2(reality_db,
+        "UPDATE r2_reality_item_memory SET precision='approximate', approximate_quantity=MAX(1,CAST((exact_quantity+2)/5 AS INTEGER)*5), exact_quantity=NULL, last_decay_at=? WHERE precision='exact' AND collected_at<=?",
+        -1, &st, NULL) == SQLITE_OK) {
+        sqlite3_bind_int64(st, 1, now);
+        sqlite3_bind_int64(st, 2, now - 7 * 86400);
+        sqlite3_step(st);
+    }
+    if (st) sqlite3_finalize(st);
     st = NULL;
     int ok = sqlite3_prepare_v2(reality_db, "UPDATE r2_reality_self SET last_tick=?, updated_at=CURRENT_TIMESTAMP WHERE id=1", -1, &st, NULL) == SQLITE_OK;
     if (ok) { sqlite3_bind_int64(st, 1, now); ok = sqlite3_step(st) == SQLITE_DONE; }
@@ -630,16 +650,18 @@ char *r2_reality_context(void)
     char *status = r2_reality_status();
     char *room = r2_reality_room_look();
     char *facts = query_text("SELECT key,value,evidence FROM r2_reality_self_facts ORDER BY updated_at DESC", NULL);
+    char *items_memory = query_text(
+        "SELECT item_name,CASE precision WHEN 'exact' THEN printf('remembers collecting exactly %d',exact_quantity) WHEN 'approximate' THEN printf('remembers collecting about %d',approximate_quantity) ELSE 'remembers collecting some; exact quantity and timing have faded' END,CASE precision WHEN 'exact' THEN printf('%d days ago',MAX(0,(strftime('%s','now')-collected_at)/86400)) WHEN 'approximate' THEN 'older collection memory; approximate quantity' ELSE 'older vague memory' END FROM r2_reality_item_memory ORDER BY collected_at DESC LIMIT 80", NULL);
     char *foods = food_metrics_context();
-    if (!status || !room || !facts || !foods) {
-        free(status); free(room); free(facts); free(foods);
+    if (!status || !room || !facts || !items_memory || !foods) {
+        free(status); free(room); free(facts); free(items_memory); free(foods);
         return NULL;
     }
-    size_t n = strlen(status) + strlen(room) + strlen(facts) + strlen(foods) + 1800;
+    size_t n = strlen(status) + strlen(room) + strlen(facts) + strlen(items_memory) + strlen(foods) + 2100;
     char *out = malloc(n);
     if (out) snprintf(out, n,
         "PERSISTENT REALITY CONTEXT (authoritative database state; do not invent changes):\n"
-        "%s\n%s\nSELF-CONTINUITY FACTS:\n%s\nAVAILABLE FOOD METRICS:\n%s\n"
+        "%s\n%s\nSELF-CONTINUITY FACTS:\n%s\nCOLLECTION MEMORIES (precision intentionally fades; not current inventory):\n%s\nAVAILABLE FOOD METRICS:\n%s\n"
         "WORLD ACTIONS: Put one action on its own line. Use [WORLD] look to inspect the room; "
         "[WORLD] add|name|description|container|quantity to create an item; "
         "[WORLD] move|name|container to move it; [WORLD] remove|name to remove it; "
@@ -652,8 +674,8 @@ char *r2_reality_context(void)
         "Food fullness points are modeled values, not measured biological facts. Sleep advances hunger and world time. "
         "Dreams are stored as simulated reports, not waking facts. Ask before moving or deleting a user's important item. "
         "Do not claim an action succeeded unless the action result confirms it.",
-        status, room, facts, foods);
-    free(status); free(room); free(facts); free(foods);
+        status, room, facts, items_memory, foods);
+    free(status); free(room); free(facts); free(items_memory); free(foods);
     return out;
 }
 
@@ -664,11 +686,13 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
     if(quantity<1) quantity=1;
     if(!r2_reality_is_initialized()) return -1;
     char old_container[REALITY_MAX_TEXT + 1] = {0};
+    int existed_before = 0;
     pthread_mutex_lock(&reality_lock);
     sqlite3_stmt *prior = NULL;
     if (sqlite3_prepare_v2(reality_db, "SELECT container FROM r2_reality_objects WHERE name=? COLLATE NOCASE", -1, &prior, NULL) == SQLITE_OK) {
         bind_text(prior, 1, name);
         if (sqlite3_step(prior) == SQLITE_ROW) {
+            existed_before = 1;
             const unsigned char *oc = sqlite3_column_text(prior, 0);
             if (oc) snprintf(old_container, sizeof(old_container), "%s", (const char *)oc);
         }
@@ -682,6 +706,21 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
     if(rc==SQLITE_DONE) rc=sqlite3_prepare_v2(reality_db,"INSERT INTO r2_reality_objects(name,description,quantity,container,owner) VALUES(?,?,?,?, 'R2') ON CONFLICT(name) DO UPDATE SET description=excluded.description,quantity=excluded.quantity,container=excluded.container,updated_at=CURRENT_TIMESTAMP",-1,&st,NULL);
     if(rc==SQLITE_OK){bind_text(st,1,name);bind_text(st,2,description);sqlite3_bind_int(st,3,quantity);bind_text(st,4,container);rc=sqlite3_step(st);}
     if(st)sqlite3_finalize(st);
+    if (rc == SQLITE_DONE && !existed_before) {
+        st = NULL;
+        if (sqlite3_prepare_v2(reality_db,
+            "INSERT INTO r2_reality_item_memory(item_name,description,exact_quantity,precision,collected_at,last_decay_at) VALUES(?,?,?,'exact',?,?)",
+            -1, &st, NULL) == SQLITE_OK) {
+            sqlite3_int64 collected = (sqlite3_int64)time(NULL);
+            bind_text(st, 1, name);
+            bind_text(st, 2, description);
+            sqlite3_bind_int(st, 3, quantity);
+            sqlite3_bind_int64(st, 4, collected);
+            sqlite3_bind_int64(st, 5, collected);
+            if (sqlite3_step(st) != SQLITE_DONE) rc = SQLITE_ERROR;
+        } else rc = SQLITE_ERROR;
+        if (st) sqlite3_finalize(st);
+    }
     pthread_mutex_unlock(&reality_lock);
     if(rc!=SQLITE_DONE) return -1;
     if (*old_container) mirror_remove(name, old_container);
