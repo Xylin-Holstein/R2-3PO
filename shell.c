@@ -221,6 +221,8 @@ static void shell_help(void)
         "      Move a tracked item from R2's inventory into the separate fridge database.\n"
         "  money\n"
         "      Show carried cash, bank balance, and total funds.\n"
+        "  money receive <amount>\n"
+        "      Record an explicit payment or gift as carried cash; it does not create a store.\n"
         "  money deposit <amount>\n"
         "      Move carried cash into room/piggybank/.\n"
         "  money withdraw <amount>\n"
@@ -1251,6 +1253,7 @@ static int shell_fridge(const char *argument)
 static int shell_money(const char *arg)
 {
     if(!arg||!*arg||!strcasecmp(arg,"status")){char *s=r2_reality_money_context();printf("%s\n",s?s:"[R2 Money] Unavailable.");free(s);return 1;}
+    if(shell_starts_with(arg,"receive ")){double a=atof(arg+8);int rc=r2_reality_money_receive(a);printf(rc==0?"Recorded $%.2f received as cash.\n":"Could not record money received.\n",a);return 1;}
     if(shell_starts_with(arg,"deposit ")){double a=atof(arg+8);int rc=r2_reality_money_deposit(a);printf(rc==0?"Deposited $%.2f into piggybank.\n":"Deposit failed; check cash.\n",a);return 1;}
     if(shell_starts_with(arg,"withdraw ")){double a=atof(arg+9);int rc=r2_reality_money_withdraw(a);printf(rc==0?"Withdrew $%.2f into cash.\n":"Withdrawal failed; check bank balance.\n",a);return 1;}
     if(shell_starts_with(arg,"buy ")){char *copy=strdup(arg+4);if(!copy)return 1;char *p[4]={0};int n=0;char *save=NULL;
