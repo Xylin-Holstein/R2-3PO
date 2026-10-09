@@ -189,7 +189,7 @@ private fun R2RemoteScreen(
 
     LaunchedEffect(serverUrl, token) {
         if (serverUrl.isNotBlank() && token.isNotBlank()) {
-            runRequest({ api -> api.conversation().toString() }, ::restoreChat)
+            runRequest({ api -> api.conversation().toString() }) { raw -> restoreChat(raw) }
         }
     }
 
