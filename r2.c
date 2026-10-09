@@ -4677,10 +4677,10 @@ static char *process_tools(
 
         char *world_result = r2_world_tool(request);
         if (world_result) {
-            APPEND("REAL WORLD RESULT:\\n%s\\n", world_result);
+            APPEND("REAL WORLD RESULT:\n%s\n", world_result);
             free(world_result);
         } else {
-            APPEND("REAL WORLD ERROR:\\nThe world tool ran out of memory.\\n");
+            APPEND("REAL WORLD ERROR:\nThe world tool ran out of memory.\n");
         }
         free(request);
     }
