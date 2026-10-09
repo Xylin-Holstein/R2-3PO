@@ -710,9 +710,29 @@ static void shell_vision(const char *argument)
         return;
     }
 
+    if (!strcasecmp(argument, "watch start")) {
+        if (r2_vision_watch_start() == 0)
+            printf("[Visual observation is running; R2 will analyze a frame about every 15 seconds.]\\n");
+        else
+            printf("[Could not start visual observation. Check the vision model and R2 status.]\\n");
+        return;
+    }
+
+    if (!strcasecmp(argument, "watch stop")) {
+        r2_vision_watch_stop();
+        printf("[Visual observation stopped.]\\n");
+        return;
+    }
+
+    if (!strcasecmp(argument, "watch status")) {
+        printf("Visual observation: %s\\n",
+               r2_vision_watch_active() ? "ACTIVE" : "STOPPED");
+        return;
+    }
+
     if (!strcasecmp(argument, "vlc")) {
         if (r2_vision_open_vlc() == 0)
-            printf("[Eyes connected to the visible VLC window. Use 'vision see' or 'vision watch' after it opens.]\n");
+            printf("[Eyes connected to the visible VLC window. Use 'vision see' or 'vision watch start' after it opens.]\n");
         else
             printf("[Could not open VLC capture. Ensure VLC is visible in the graphical desktop session.]\n");
         return;
