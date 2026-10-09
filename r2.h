@@ -31,6 +31,9 @@
 extern "C" {
 #endif
 
+/* Single source of truth for every local Ollama inference in R2. */
+#define R2_OLLAMA_MODEL "gemma3:4b"
+
 
 /* ============================================================
    CORE LIFECYCLE
