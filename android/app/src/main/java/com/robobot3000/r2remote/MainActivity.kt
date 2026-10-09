@@ -208,7 +208,7 @@ private fun R2RemoteScreen(
                     }
                     IconButton(enabled = !busy, onClick = {
                         if (section == Section.CHAT) {
-                            runRequest({ api -> api.conversation().toString() }, ::restoreChat)
+                            runRequest({ api -> api.conversation().toString() }) { raw -> restoreChat(raw) }
                         } else {
                             runRequest({ api ->
                                 val s = api.status()
