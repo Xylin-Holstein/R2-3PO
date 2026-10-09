@@ -4817,6 +4817,18 @@ static char *process_tools(
             APPEND("REAL WORLD %s: item '%s' %s.\n",
                    rc == 0 ? "RESULT" : "ERROR", fields[1],
                    rc == 0 ? "was removed from the tracked world" : "could not be removed (item may not exist)");
+        } else if (nf >= 2 && !strcasecmp(fields[0], "fridge")) {
+            char *view = r2_fridge_context();
+            APPEND("FRIDGE RESULT:\n%s\n", view ? view : "Fridge database unavailable.");
+            free(view);
+        } else if (nf >= 2 && !strcasecmp(fields[0], "fridge_take")) {
+            int rc = r2_fridge_take(fields[1]);
+            APPEND("FRIDGE %s: '%s' %s.\n", rc == 0 ? "RESULT" : "ERROR", fields[1],
+                   rc == 0 ? "was moved into R2's pockets" : "could not be taken from the fridge");
+        } else if (nf >= 2 && !strcasecmp(fields[0], "fridge_eat")) {
+            int rc = r2_eat_fridge_and_learn(fields[1], -1.0);
+            APPEND("FRIDGE %s: eating '%s' %s.\n", rc == 0 ? "RESULT" : "ERROR", fields[1],
+                   rc == 0 ? "reduced hunger and consumed fridge stock" : "failed; item may not be in the fridge");
         } else if (nf >= 3 && !strcasecmp(fields[0], "eat")) {
             double fullness = !strcasecmp(fields[2], "auto") ? -1.0 : atof(fields[2]);
             int rc = r2_eat_and_learn(fields[1], fullness);
@@ -5534,6 +5546,13 @@ static void learn_food_reaction(const char *food)
 int r2_eat_and_learn(const char *food, double fullness)
 {
     int rc = r2_reality_eat(food, fullness);
+    if (rc == 0) learn_food_reaction(food);
+    return rc;
+}
+
+int r2_eat_fridge_and_learn(const char *food, double fullness)
+{
+    int rc = r2_reality_fridge_eat(food, fullness);
     if (rc == 0) learn_food_reaction(food);
     return rc;
 }
