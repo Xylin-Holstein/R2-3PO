@@ -75,6 +75,10 @@ int64_t r2_log_event(
     const char *source
 );
 
+/* Idempotency check for replayable event outboxes such as verified virtual
+ * game events. The source identifier must be stable across retries. */
+int r2_log_event_exists(const char *event_type, const char *source);
+
 /*
  * Record an event and, if save_as_memory is non-zero, attempt to
  * save a concise pointer/summary through the existing R2 memory
