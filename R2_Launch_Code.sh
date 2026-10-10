@@ -127,7 +127,13 @@ echo
 # account now, so a /home permission mismatch is reported before conversation
 # markers silently fail. An absent collection is non-fatal to R2 itself.
 R2_FX_DIR="${R2_FX_DIR:-$R2_ROOT/R2_sounds/FX}"
-if sudo -u r2 bash -c 'test -d "$1" && test -r "$1" && find "$1" -maxdepth 1 -type f -iname "*.mp3" -print -quit | grep -q .' _ "$R2_FX_DIR"; then
+SOUND_AUDIT="$R2_SOURCE/tools/audit_r2_sound_assets.py"
+if [ -f "$SOUND_AUDIT" ]; then
+    if ! sudo -u r2 python3 "$SOUND_AUDIT" --root "$R2_FX_DIR"; then
+        echo "WARNING: r2 could not complete the sound asset inventory."
+        echo "R2 will still start; beep/whistle markers may have no matching audio."
+    fi
+elif sudo -u r2 bash -c 'test -d "$1" && test -r "$1" && find "$1" -maxdepth 1 -type f -iname "*.mp3" -print -quit | grep -q .' _ "$R2_FX_DIR"; then
     echo "State-aware sound assets are readable by r2: $R2_FX_DIR"
 else
     echo "WARNING: r2 cannot find readable MP3 effects in: $R2_FX_DIR"
