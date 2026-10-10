@@ -7047,6 +7047,7 @@ void r2_diagnostics(void)
         "Hands worker     : %s\n"
         "Diary worker     : %s\n"
         "Diary subsystem  : %s\n"
+        "Imagination      : %s\n"
         "Eyes object      : %s\n"
         "Ears object      : %s\n"
         "Watch state      : %s\n"
@@ -7060,6 +7061,7 @@ void r2_diagnostics(void)
         hands_thread_started ? "RUNNING" : "STOPPED",
         diary_thread_started ? "RUNNING" : "STOPPED",
         diary_initialized ? "READY" : "OFFLINE",
+        r2_imagination_is_initialized() ? "READY" : "OFFLINE",
         eyes ? "PRESENT" : "NULL",
         ears ? "PRESENT" : "NULL",
         watch_running ? "ACTIVE" : "STOPPED",
