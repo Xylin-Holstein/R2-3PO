@@ -176,7 +176,10 @@ require(
     and "Context sources consulted before generation" in imagination
     and "Raw retrieved records are not copied into this branch" in imagination
     and "Retrieved records and prior transcript text are" in imagination
-    and "without activating Eyes or Ears" in imagination,
+    and "without activating Eyes or Ears" in imagination
+    and "r2_save_memory(" not in imagination
+    and "r2_eyes_" not in imagination
+    and "r2_ears_" not in imagination,
     "imagination is generated from prior context and retained with its provenance in the existing Choice Lab",
 )
 require(
