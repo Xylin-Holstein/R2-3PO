@@ -3393,6 +3393,23 @@ static char *chat_with_relevant_memories(
         free(world_context);
     }
 
+    /* Search the separate visual-experience database for relevant past
+       observations even when Eyes is not currently open. Historical visual
+       descriptions must never be presented as proof of what is visible now. */
+    if (query && *query && r2_visual_is_initialized()) {
+        char *visual_hits = r2_visual_search(query, 3);
+        if (visual_hits && *visual_hits &&
+            !strcasestr(visual_hits, "no visual experiences matched") &&
+            !strcasestr(visual_hits, "no matching visual experiences") &&
+            !strcasestr(visual_hits, "no visual records found")) {
+            append_reply_context(
+                &memory_context,
+                "RELATED VISUAL EXPERIENCES (historical descriptions; not proof of the current scene):\n",
+                visual_hits, 4500);
+        }
+        free(visual_hits);
+    }
+
     if (query && *query && addiction_initialized &&
         (strcasestr(query, "habit") || strcasestr(query, "addiction") ||
          strcasestr(query, "craving") || strcasestr(query, "substance") ||
