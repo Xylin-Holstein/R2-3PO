@@ -105,6 +105,17 @@ int main(void)
         NULL, NULL, NULL) != SQLITE_OK) fail("could not seed non-nutritive fridge stock");
     sqlite3_close(fridge);
 
+    if (r2_reality_fridge_eat("aaa_empty", -1.0) == 0)
+        fail("zero-fullness fridge stock must not count as a meal");
+    if (sqlite3_open(fridge_path, &fridge) != SQLITE_OK)
+        fail("could not reopen fridge after zero-fullness eat attempt");
+    if (sqlite3_prepare_v2(fridge, "SELECT quantity FROM r2_fridge_items WHERE name='aaa_empty'",
+        -1, &st, NULL) != SQLITE_OK) fail("could not query zero-fullness stock after eat attempt");
+    if (sqlite3_step(st) != SQLITE_ROW || sqlite3_column_int(st, 0) != 2)
+        fail("failed non-nutritive meal attempt must restore the original fridge quantity");
+    sqlite3_finalize(st);
+    sqlite3_close(fridge);
+
     /* Simulate the autonomous cycle with no model-selected action: hunger
        reaches 60, verified food is consumed, stock decrements, and needs reset. */
     if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality database");
