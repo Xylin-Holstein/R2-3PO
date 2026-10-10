@@ -339,6 +339,24 @@ static int valid_marker_value(const char *value, size_t max_len)
     return 1;
 }
 
+/* Unknown model-invented labels must not trigger even a generic sound. */
+static int valid_marker_state(const char *value)
+{
+    char normalized[R2_SOUND_MARKER_MAX];
+    size_t n = value ? strlen(value) : 0;
+    if (!n || n >= sizeof(normalized)) return 0;
+    for (size_t i = 0; i < n; ++i) {
+        unsigned char ch = (unsigned char)value[i];
+        if (ch == '_' || ch == '-') normalized[i] = ' ';
+        else if (isalnum(ch)) normalized[i] = (char)tolower(ch);
+        else return 0;
+    }
+    normalized[n] = '\0';
+    char tokens[2][R2_SOUND_TOKEN_MAX];
+    int count = tokenize_filename(normalized, tokens, 2);
+    return count == 1 && token_is_state(tokens[0]);
+}
+
 char *r2_sounds_process_reply(const char *reply)
 {
     if (!reply) return NULL;
@@ -375,7 +393,7 @@ char *r2_sounds_process_reply(const char *reply)
         if (sep) {
             *sep++ = '\0';
             if (!played_or_attempted && valid_marker_value(inside, 16) &&
-                valid_marker_value(sep, 48) &&
+                valid_marker_state(sep) &&
                 (!strcasecmp(inside, "beep") || !strcasecmp(inside, "whistle"))) {
                 (void)r2_sounds_play(inside, sep);
                 played_or_attempted = 1;
