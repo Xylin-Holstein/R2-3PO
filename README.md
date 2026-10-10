@@ -46,27 +46,29 @@ You can also compile directly with the same source list and libraries:
 
 ```sh
 gcc -std=c11 -Wall -Wextra -O2 \
-  r2.c shell.c r2_diary.c Log.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c \
+  r2.c shell.c r2_diary.c Log.c Reality.c Addiction.c Reward.c AlternateSelf.c Imagination.c Visual.c Ears.c Eyes.c \
   -o r2 \
   -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
 ```
 
 ## Compilation source inventory
 
-The build requires these ten C translation units:
+The build requires these twelve C translation units:
 
-- `r2.c` — core
+- `r2.c` — core, conversation, shared Ollama interface, and memory retrieval
 - `shell.c` — command shell
-- `r2_diary.c` — diary subsystem
-- `Log.c` — factual Life Log chronology
+- `r2_diary.c` — private diary and historical reconnection
+- `Log.c` — factual Life Log chronology and event links
 - `Reality.c` — persistent self-continuity, world state, room objects, needs, and inventory containers
 - `Addiction.c` — persistent enjoyment history and behavior-derived repeated-interest/addiction labels
+- `Reward.c` — durable learning/reinforcement ledger
 - `AlternateSelf.c` — persistent, explicitly hypothetical Choice Lab branches
-- `Visual.c` — vision-model integration
-- `Ears.c` — audio input
+- `Imagination.c` — context-grounded hypothetical experiences, persisted through the Choice Lab rather than a parallel database
+- `Visual.c` — vision-model integration and visual experience library
+- `Ears.c` — raw audio input and source metadata
 - `Eyes.c` — visual input
 
-Their matching headers are included in the repository: `r2.h`, `shell.h`, `r2_diary.h`, `Log.h`, `Reality.h`, `Addiction.h`, `AlternateSelf.h`, `Visual.h`, `Ears.h`, and `Eyes.h`.
+Their matching headers are included in the repository: `r2.h`, `shell.h`, `r2_diary.h`, `Log.h`, `Reality.h`, `Addiction.h`, `Reward.h`, `AlternateSelf.h`, `Imagination.h`, `Visual.h`, `Ears.h`, and `Eyes.h`.
 
 GitHub Actions checks shell-script syntax and compiles this source set on pushes to the audit and combined integration branches and the configured main branches. It also runs isolated smoke tests for file-authoritative money (seed, deletion, restart, deposit/withdrawal, purchase rollback, and cents) and the GBA launcher/lifecycle. These tests do not exercise Ollama, live audio/video devices, or the user's actual graphical desktop.
 
