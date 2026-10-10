@@ -127,6 +127,7 @@ require(
     "r2_ears_listen_and_interpret" in ears
     and "r2_model_generate_audio" in ears
     and "audio_interpreted" in ears
+    and "model-generated; verify uncertain details" in ears
     and "r2_save_memory(memory, \"audio_transcript\")" in ears,
     "Ears supports explicit local audio interpretation and reconnects the result to memory and Life Log",
 )
