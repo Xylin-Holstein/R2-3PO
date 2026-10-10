@@ -4,6 +4,16 @@ R2_ROOT="/home/x/R2_Home"
 R2_SOURCE="$R2_ROOT/R2"
 R2_EXEC="$R2_ROOT/r2"
 
+# The interactive launcher and the overnight service share persistent databases.
+# Never start a second core against those same files.
+if command -v systemctl >/dev/null 2>&1 &&
+   systemctl is-active --quiet r2-3po.service 2>/dev/null; then
+    echo "ERROR: R2's overnight service is already running."
+    echo "Stop it with: sudo systemctl stop r2-3po.service"
+    echo "This prevents two R2 cores from writing the same databases concurrently."
+    exit 1
+fi
+
 echo "========================================"
 echo "        R2-3PO LAUNCH SEQUENCE"
 echo "========================================"
