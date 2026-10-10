@@ -505,12 +505,15 @@ static int food_metric(const char *food, double *fullness, double *energy)
             continue;
         char *end = NULL;
         double f = strtod(full, &end);
-        if (end == full || *end || f < 0.0 || f > 100.0) continue;
+        /* Reject NaN/infinity explicitly: comparisons alone do not reject NaN,
+           which could otherwise poison persistent need values during eating. */
+        if (end == full || *end || !isfinite(f) || f < 0.0 || f > 100.0) continue;
         double e = f * 0.1;
         if (xml_attribute(line, "energy", en, sizeof(en)) == 0) {
             end = NULL;
             double parsed = strtod(en, &end);
-            if (end != en && !*end && parsed >= 0.0 && parsed <= 100.0) e = parsed;
+            if (end != en && !*end && isfinite(parsed) &&
+                parsed >= 0.0 && parsed <= 100.0) e = parsed;
         }
         if (fullness) *fullness = f;
         if (energy) *energy = e;
@@ -2091,7 +2094,11 @@ int r2_reality_autonomous_feed_if_needed(void)
             const unsigned char *container = sqlite3_column_text(st, 1);
             if (!name || !container || !container_accessible((const char *)container))
                 continue;
-            if (food_metric((const char *)name, NULL, NULL) == 0) {
+            double candidate_fullness = 0.0;
+            if (food_metric((const char *)name, &candidate_fullness, NULL) == 0 &&
+                isfinite(candidate_fullness) && candidate_fullness > 0.0) {
+                /* A known but zero-fullness metric is not a useful meal and
+                   must not consume stock or prevent trying another food. */
                 snprintf(food, sizeof(food), "%s", (const char *)name);
                 break;
             }
