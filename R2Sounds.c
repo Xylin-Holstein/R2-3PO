@@ -117,19 +117,9 @@ static int state_score(char tokens[][R2_SOUND_TOKEN_MAX], int count,
             if (token_is_state(requested)) {
                 for (int i = 0; i < count; ++i)
                     if (!strcmp(tokens[i], requested)) return 100;
-                /* Common aliases allow the caller's state to match a named
-                   variation without making arbitrary substring matches. */
-                if ((!strcmp(requested, "curious") && token_in(tokens, count, "curiosity")) ||
-                    (!strcmp(requested, "happy") && (token_in(tokens, count, "joy") || token_in(tokens, count, "cheerful"))) ||
-                    (!strcmp(requested, "confused") && token_in(tokens, count, "puzzled")) ||
-                    (!strcmp(requested, "sleepy") && (token_in(tokens, count, "tired") || token_in(tokens, count, "drowsy"))) ||
-                    (!strcmp(requested, "thinking") && (token_in(tokens, count, "pondering") || token_in(tokens, count, "processing"))) ||
-                    (!strcmp(requested, "greeting") && (token_in(tokens, count, "hello") || token_in(tokens, count, "welcome"))) ||
-                    (!strcmp(requested, "tired") && (token_in(tokens, count, "sleepy") || token_in(tokens, count, "drowsy"))) ||
-                    (!strcmp(requested, "drowsy") && (token_in(tokens, count, "sleepy") || token_in(tokens, count, "tired"))) ||
-                    (!strcmp(requested, "joy") && (token_in(tokens, count, "happy") || token_in(tokens, count, "cheerful"))) ||
-                    (!strcmp(requested, "puzzled") && token_in(tokens, count, "confused")))
-                    return 90;
+                /* Match documented synonym families symmetrically. This keeps
+                   filename selection aligned with the read-only asset audit. */
+                if (state_alias_match(requested, tokens, count)) return 90;
             }
             n = 0;
         }
@@ -143,6 +133,40 @@ static int token_in(char tokens[][R2_SOUND_TOKEN_MAX], int count,
 {
     for (int i = 0; i < count; ++i)
         if (!strcmp(tokens[i], wanted)) return 1;
+    return 0;
+}
+
+static int token_in_group(const char *token, const char *const *group)
+{
+    for (size_t i = 0; group[i]; ++i)
+        if (!strcmp(token, group[i])) return 1;
+    return 0;
+}
+
+static int state_alias_match(const char *requested,
+                            char tokens[][R2_SOUND_TOKEN_MAX], int count)
+{
+    static const char *const *const groups[] = {
+        (const char *const[]){"curious", "curiosity", NULL},
+        (const char *const[]){"happy", "happiness", "joy", "cheerful", "pleased", NULL},
+        (const char *const[]){"confused", "confusion", "uncertain", "puzzled", NULL},
+        (const char *const[]){"alert", "attention", "warning", "alarm", NULL},
+        (const char *const[]){"sad", "sadness", "disappointed", NULL},
+        (const char *const[]){"sleepy", "tired", "exhausted", "drowsy", NULL},
+        (const char *const[]){"hungry", "hunger", NULL},
+        (const char *const[]){"excited", "excitement", "enthusiastic", NULL},
+        (const char *const[]){"thinking", "think", "processing", "pondering", NULL},
+        (const char *const[]){"greeting", "greet", "hello", "welcome", "acknowledge", "acknowledgement", NULL},
+        (const char *const[]){"confirm", "affirmative", "yes", NULL},
+        (const char *const[]){"neutral", "default", "idle", "normal", "generic", NULL},
+        (const char *const[]){"sleep", "resting", NULL},
+        NULL
+    };
+    for (size_t g = 0; groups[g]; ++g) {
+        if (!token_in_group(requested, groups[g])) continue;
+        for (int i = 0; i < count; ++i)
+            if (token_in_group(tokens[i], groups[g])) return 1;
+    }
     return 0;
 }
 
