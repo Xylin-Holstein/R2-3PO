@@ -121,7 +121,11 @@ static int state_score(char tokens[][R2_SOUND_TOKEN_MAX], int count,
                     (!strcmp(requested, "confused") && token_in(tokens, count, "puzzled")) ||
                     (!strcmp(requested, "sleepy") && (token_in(tokens, count, "tired") || token_in(tokens, count, "drowsy"))) ||
                     (!strcmp(requested, "thinking") && (token_in(tokens, count, "pondering") || token_in(tokens, count, "processing"))) ||
-                    (!strcmp(requested, "greeting") && (token_in(tokens, count, "hello") || token_in(tokens, count, "welcome"))))
+                    (!strcmp(requested, "greeting") && (token_in(tokens, count, "hello") || token_in(tokens, count, "welcome"))) ||
+                    (!strcmp(requested, "tired") && (token_in(tokens, count, "sleepy") || token_in(tokens, count, "drowsy"))) ||
+                    (!strcmp(requested, "drowsy") && (token_in(tokens, count, "sleepy") || token_in(tokens, count, "tired"))) ||
+                    (!strcmp(requested, "joy") && (token_in(tokens, count, "happy") || token_in(tokens, count, "cheerful"))) ||
+                    (!strcmp(requested, "puzzled") && token_in(tokens, count, "confused")))
                     return 90;
             }
             n = 0;
@@ -292,8 +296,11 @@ char *r2_sounds_process_reply(const char *reply)
         memcpy(clean + dst, reply + src, prefix_len);
         dst += prefix_len;
         const char *end = strchr(marker, ']');
-        if (!end || (size_t)(end - marker) >= R2_SOUND_MARKER_MAX) {
-            /* Malformed marker: remove only the control prefix, not the prose. */
+        if (!end) {
+            /* An unterminated control marker is never exposed to the user. */
+            break;
+        }
+        if ((size_t)(end - marker) >= R2_SOUND_MARKER_MAX) {
             src = (size_t)(marker - reply) + strlen("[R2_SOUND:");
             continue;
         }
