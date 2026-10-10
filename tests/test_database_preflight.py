@@ -110,6 +110,29 @@ class DatabasePreflightTests(unittest.TestCase):
             self.assertFalse((root / "r2_fridge.db").exists())
             self.assertFalse((root / "r2_memory.db").exists())
 
+    def test_database_symlinks_are_rejected_without_following_or_copying(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "source"
+            root.mkdir()
+            outside = Path(directory) / "outside.db"
+            db = sqlite3.connect(outside)
+            db.execute("CREATE TABLE private_data (value TEXT)")
+            db.execute("INSERT INTO private_data VALUES ('must not be copied')")
+            db.commit()
+            db.close()
+
+            linked = root / "r2_memory.db"
+            linked.symlink_to(outside)
+            report = audit.audit_database(linked)
+            self.assertTrue(report["exists"])
+            self.assertIn("symlink", report["error"])
+
+            snapshots = Path(directory) / "snapshots"
+            with self.assertRaises(OSError):
+                audit.create_snapshot_set(root, snapshots)
+            self.assertFalse((snapshots / "r2_memory.db").exists())
+            self.assertEqual(outside.stat().st_size, outside.stat().st_size)
+
     def test_corrupt_or_non_sqlite_file_is_reported_as_error(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "r2_memory.db"
