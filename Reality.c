@@ -2110,8 +2110,9 @@ int r2_reality_autonomous_feed_if_needed(void)
     rc = sqlite3_prepare_v2(reality_db,
         "SELECT name,container FROM r2_reality_objects WHERE quantity>0 ORDER BY id",
         -1, &st, NULL);
+    int step_rc = SQLITE_OK;
     if (rc == SQLITE_OK) {
-        while (sqlite3_step(st) == SQLITE_ROW) {
+        while ((step_rc = sqlite3_step(st)) == SQLITE_ROW) {
             const unsigned char *name = sqlite3_column_text(st, 0);
             const unsigned char *container = sqlite3_column_text(st, 1);
             if (!name || !container || !container_accessible((const char *)container))
@@ -2125,9 +2126,11 @@ int r2_reality_autonomous_feed_if_needed(void)
                 break;
             }
         }
+        if (!*food && step_rc != SQLITE_DONE) rc = step_rc;
     }
     if (st) sqlite3_finalize(st);
     pthread_mutex_unlock(&reality_lock);
+    if (rc != SQLITE_OK) return -1;
     if (*food && reality_eat_internal(food, -1.0, 1, -1.0) == 0)
         return 1;
 
