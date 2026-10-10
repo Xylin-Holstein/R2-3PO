@@ -4772,6 +4772,40 @@ static int sync_gameboy_verified_events(void)
     return synced;
 }
 
+static int latest_user_explicitly_requested_hearing(void)
+{
+    char *latest = NULL;
+    pthread_mutex_lock(&messages_lock);
+    for (size_t i = messages.count; i > 0; --i) {
+        Message *m = &messages.items[i - 1];
+        if (m->role && !strcmp(m->role, "user")) {
+            latest = xstrdup(m->content ? m->content : "");
+            break;
+        }
+    }
+    pthread_mutex_unlock(&messages_lock);
+    if (!latest) return 0;
+
+    static const char *const phrases[] = {
+        "listen to", "listen for", "listen now", "can you listen",
+        "please listen", "hear this", "what do you hear", "what can you hear",
+        "do you hear", "can you hear me", "transcribe", "audio clip",
+        "current audio", "analyze this sound", "analyze the sound",
+        "what was that sound", "what was that noise", "what is that sound",
+        "what's that sound", "what is that noise", "what's that noise",
+        "describe the sound", "identify the sound", "listen to my microphone"
+    };
+    int requested = 0;
+    for (size_t i = 0; i < sizeof(phrases) / sizeof(phrases[0]); ++i) {
+        if (strcasestr(latest, phrases[i])) {
+            requested = 1;
+            break;
+        }
+    }
+    free(latest);
+    return requested;
+}
+
 static char *process_tools(
     const char *reply)
 {
@@ -4878,33 +4912,40 @@ static char *process_tools(
         free(request);
     }
 
-    /* Hearing is an explicit sensory action, never an autonomous background capture. */
+    /* The model may request only one short clip, and only after direct user intent. */
     size_t hear_pos = 0;
-    while (1) {
-        char *duration_text = extract_marker(reply, "[HEAR]", "[END HEAR]", &hear_pos);
-        if (!duration_text) break;
-        char *value = trim(duration_text);
-        unsigned seconds = 5;
-        if (*value) {
-            char *end = NULL;
-            errno = 0;
-            unsigned long parsed = strtoul(value, &end, 10);
-            while (end && (*end == ' ' || *end == '\t' || *end == '\r' || *end == '\n')) ++end;
-            if (errno || !end || end == value || *end || parsed < 1 || parsed > 30) {
-                APPEND("HEARING ERROR: expected an optional duration from 1 to 30 seconds. No audio was captured.\n");
-                free(duration_text);
-                continue;
-            }
-            seconds = (unsigned)parsed;
-        }
-        char *heard = r2_ears_listen(seconds);
-        if (heard) {
-            APPEND("AUDIO INTERPRETATION (explicitly requested local capture; model-generated and uncertain):\n%.3500s\n", heard);
-            free(heard);
+    char *duration_text = extract_marker(reply, "[HEAR]", "[END HEAR]", &hear_pos);
+    if (duration_text) {
+        if (!latest_user_explicitly_requested_hearing()) {
+            APPEND("HEARING BLOCKED: the latest user message did not explicitly request audio listening or transcription; no audio was captured.\n");
+            free(duration_text);
         } else {
-            APPEND("HEARING ERROR: audio capture or local interpretation failed. No transcript was added to the conversation.\n");
+            char *value = trim(duration_text);
+            unsigned seconds = 5;
+            int valid = 1;
+            if (*value) {
+                char *end = NULL;
+                errno = 0;
+                unsigned long parsed = strtoul(value, &end, 10);
+                while (end && (*end == ' ' || *end == '\t' || *end == '\r' || *end == '\n')) ++end;
+                if (errno || !end || end == value || *end || parsed < 1 || parsed > 30) {
+                    valid = 0;
+                    APPEND("HEARING ERROR: expected an optional duration from 1 to 30 seconds. No audio was captured.\n");
+                } else {
+                    seconds = (unsigned)parsed;
+                }
+            }
+            if (valid) {
+                char *heard = r2_ears_listen(seconds);
+                if (heard) {
+                    APPEND("AUDIO INTERPRETATION (explicitly requested local capture; model-generated and uncertain):\n%.3500s\n", heard);
+                    free(heard);
+                } else {
+                    APPEND("HEARING ERROR: audio capture or local interpretation failed. No transcript was added to the conversation.\n");
+                }
+            }
+            free(duration_text);
         }
-        free(duration_text);
     }
 
     /* Alternate-Self Lab queries read, create, or compare hypothetical branches only. */
