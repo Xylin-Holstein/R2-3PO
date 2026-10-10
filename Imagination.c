@@ -282,14 +282,19 @@ static char *collect_context(const char *request)
 
 int r2_imagination_init(void)
 {
+    /* Choice Lab and Life Log are required for safe persistence. Do not claim
+       the capability is ready if it can generate scenes but cannot save/link them. */
+    if (!r2_altself_is_initialized() || !r2_log_is_initialized())
+        return -1;
+
     pthread_mutex_lock(&imagination_lock);
     imagination_ready = 1;
     pthread_mutex_unlock(&imagination_lock);
-    if (r2_log_is_initialized())
-        r2_log_continuity("r2_imagination", "subsystem", "Imagination",
-            "Constructs and explores hypothetical experiences from relevant persistent memory, Life Log, diary, modeled reality, sensory history, preferences, and Choice Lab; imagined content remains distinct from fact.",
-            "active", "Generate, retain, and later review hypothetical scenarios without changing the real world or penalizing incorrect imagination.",
-            "Imagination.c");
+
+    r2_log_continuity("r2_imagination", "subsystem", "Imagination",
+        "Constructs and explores hypothetical experiences from relevant persistent memory, Life Log, diary, modeled reality, sensory history, preferences, and Choice Lab; imagined content remains distinct from fact.",
+        "active", "Generate, retain, and later review hypothetical scenarios without changing the real world or penalizing incorrect imagination.",
+        "Imagination.c");
     return 0;
 }
 
@@ -308,7 +313,7 @@ char *r2_imagination_create(const char *request)
     pthread_mutex_lock(&imagination_lock);
     int ready = imagination_ready;
     pthread_mutex_unlock(&imagination_lock);
-    if (!ready) return NULL;
+    if (!ready || !r2_altself_is_initialized() || !r2_log_is_initialized()) return NULL;
 
     char *context = collect_context(request);
     if (!context) return NULL;
