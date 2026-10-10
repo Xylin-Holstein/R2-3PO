@@ -76,6 +76,14 @@ int r2_altself_init(void)
     return 0;
 }
 
+int r2_altself_is_initialized(void)
+{
+    pthread_mutex_lock(&as_lock);
+    int ready = as_ready && as_db != NULL;
+    pthread_mutex_unlock(&as_lock);
+    return ready;
+}
+
 void r2_altself_shutdown(void)
 {
     pthread_mutex_lock(&as_lock);
