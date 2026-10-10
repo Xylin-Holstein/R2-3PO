@@ -35,6 +35,9 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn("TimeoutStopSec=60", source)
         self.assertIn("WantedBy=multi-user.target", source)
         self.assertIn("R2_SERVICE_MODE=1", source)
+        launcher = (ROOT / "R2_Launch_Code.sh").read_text(encoding="utf-8")
+        self.assertIn("systemctl is-active --quiet r2-3po.service", launcher)
+        self.assertIn("two R2 cores", launcher)
 
     def test_installer_is_non_destructive_and_does_not_update_apt(self):
         source = (ROOT / "tools/install_r2_overnight.sh").read_text(encoding="utf-8")
