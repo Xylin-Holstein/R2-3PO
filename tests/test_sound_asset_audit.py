@@ -38,7 +38,7 @@ class SoundAssetAuditTests(unittest.TestCase):
             self.assertIn("Beep candidates: 2", report)
             self.assertIn("Whistle candidates: 1", report)
             self.assertIn("State curious: beep", report)
-            self.assertIn("State happy: whistle", report)
+            self.assertIn("State happy: beep, whistle", report)
             self.assertIn("does not decode MP3s", report)
             after = {p.name: (p.is_dir(), p.read_bytes() if p.is_file() else None)
                      for p in root.iterdir()}
