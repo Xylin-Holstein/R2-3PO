@@ -217,8 +217,8 @@ char *r2_imagination_create(const char *request)
         "inventory-related request. Full context was supplied to the imagination "
         "model but is intentionally not duplicated into this record.\n"
         "Learning rule: inaccurate imagination is not punished; accuracy feedback "
-        "must be evidence-based.",
-        request);
+        "must be evidence-based.\nRelevant retrieved context snapshot (abbreviated): %.2300s",
+        request, context);
 
     int64_t branch = r2_altself_create(
         "Imagination: scenario",
@@ -263,7 +263,8 @@ int r2_imagination_feedback(long long branch_id, const char *assessment,
     if (!accurate && !partial && !incorrect && !unresolved) return -1;
 
     char *branch = r2_altself_show((int64_t)branch_id);
-    if (!branch || strstr(branch, "No Alternate-Self branches found")) {
+    if (!branch || strstr(branch, "No Alternate-Self branches found") ||
+        !strstr(branch, "Imagination: scenario")) {
         free(branch);
         return -1;
     }
