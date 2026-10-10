@@ -1029,6 +1029,9 @@ int r2_fridge_take(const char *food)
 }
 int r2_reality_fridge_eat(const char *food, double fullness)
 {
+    /* Keep the legacy parameter for ABI compatibility; stock metrics are
+       authoritative and must not be overridden by an action's guess. */
+    (void)fullness;
     if (!food || !*food || !fridge_db || !r2_reality_is_initialized() || !reality_is_home()) return -1;
     char desc[REALITY_MAX_TEXT + 1] = {0}, ingredients[1024] = {0}, taste[1024] = {0};
     int qty = 0; double stored_fullness = 100.0, energy = 10.0;
@@ -1048,7 +1051,7 @@ int r2_reality_fridge_eat(const char *food, double fullness)
     }
     pthread_mutex_unlock(&fridge_lock);
     if (rc != 0) return -1;
-    if (fullness < 0.0) fullness = stored_fullness;
+    fullness = stored_fullness;
     rc = reality_eat_internal(food, fullness, 0, energy);
     if (rc != 0) {
         pthread_mutex_lock(&fridge_lock); fridge_restore_one(food, desc, stored_fullness, energy, ingredients, taste);
