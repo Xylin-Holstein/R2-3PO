@@ -55,6 +55,8 @@ int main(void)
           "\n  <food name=\"nan_energy\" fullness=\"20\" energy=\"nan\" />\n",
           metrics);
     if (fclose(metrics) != 0) fail("could not close temporary food metrics fixture");
+    if (r2_reality_eat("nan_fullness", -1.0) == 0)
+        fail("non-finite fullness metric must be rejected instead of corrupting needs");
 
     char path[1024];
     snprintf(path, sizeof(path), "%s/r2_reality.db", R2_HOME);
