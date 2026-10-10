@@ -111,6 +111,8 @@ jobs:
         run: |
           cc -std=c11 -Wall -Wextra -Werror -O2 -I. tests/r2_sounds_smoke.c R2Sounds.c -lpthread -o /tmp/r2-sounds-smoke
           /tmp/r2-sounds-smoke
+          python3 -m py_compile tests/r2_sound_wiring_smoke.py
+          python3 tests/r2_sound_wiring_smoke.py
 
       - name: Compile R2 with the same sources and flags as the launcher
         run: make clean all CFLAGS="-std=c11 -Wall -Wextra -Werror -O2"
