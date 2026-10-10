@@ -4,6 +4,7 @@
 
 #include "Reality.h"
 #include "Addiction.h"
+#include "Reward.h"
 #include "r2_diary.h"
 #include "Log.h"
 #include "Visual.h"
@@ -74,35 +75,183 @@ static int ensure_dir_tree(const char *path)
     }
     return 0;
 }
+/* Physical money files are authoritative. Each money/money(N) file is $1;
+ * change.txt stores cents below $1. SQLite/account.txt are derived summaries.
+ * Reads never create missing money files, so deleted/spent cash stays gone. */
+static int money_name_is_bill(const char *name)
+{
+    if (!name) return 0;
+    if (!strcmp(name, "money")) return 1;
+    size_t n = strlen(name);
+    if (n < 8 || strncmp(name, "money(", 6) || name[n-1] != ')') return 0;
+    for (size_t i=6; i+1<n; ++i)
+        if (!isdigit((unsigned char)name[i])) return 0;
+    return 1;
+}
+static void money_dir_path(int bank, char *out, size_t cap)
+{
+    if (bank) snprintf(out, cap, "%s/room/piggybank", R2_ROOT);
+    else snprintf(out, cap, "%s/Pockets/Wallet", R2_ROOT);
+}
+static int money_bill_count(const char *dir)
+{
+    DIR *dp=opendir(dir);
+    if (!dp) return -1;
+    int count=0; struct dirent *entry;
+    while ((entry=readdir(dp)) != NULL) {
+        if (!money_name_is_bill(entry->d_name)) continue;
+        char path[2048]; struct stat st;
+        int n=snprintf(path,sizeof(path),"%s/%s",dir,entry->d_name);
+        if (n>0 && (size_t)n<sizeof(path) && lstat(path,&st)==0 && S_ISREG(st.st_mode)) ++count;
+    }
+    closedir(dp);
+    return count;
+}
+static int money_change_cents(const char *dir)
+{
+    char path[2048]; struct stat st;
+    int n=snprintf(path,sizeof(path),"%s/change.txt",dir);
+    if (n<=0 || (size_t)n>=sizeof(path)) return -1;
+    if (lstat(path,&st)!=0) return errno==ENOENT ? 0 : -1;
+    if (!S_ISREG(st.st_mode)) return -1;
+    FILE *fp=fopen(path,"r");
+    if (!fp) return -1;
+    long cents=-1; int ok=fscanf(fp,"cents=%ld",&cents)==1; fclose(fp);
+    return ok && cents>=0 && cents<100 ? (int)cents : -1;
+}
+static int money_create_bill(const char *dir)
+{
+    char path[2048], name[64];
+    for (unsigned long suffix=0; suffix<1000000UL; ++suffix) {
+        if (!suffix) snprintf(name,sizeof(name),"money");
+        else snprintf(name,sizeof(name),"money(%lu)",suffix);
+        int n=snprintf(path,sizeof(path),"%s/%s",dir,name);
+        if (n<=0 || (size_t)n>=sizeof(path)) return -1;
+        int fd=open(path,O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC,0644);
+        if (fd>=0) {
+            static const char note[]="denomination=1.00\n";
+            ssize_t wrote=write(fd,note,sizeof(note)-1);
+            int closed=close(fd);
+            if (wrote!=(ssize_t)(sizeof(note)-1) || closed!=0) { (void)unlink(path); return -1; }
+            return 0;
+        }
+        if (errno!=EEXIST) return -1;
+    }
+    return -1;
+}
+static int money_set_dir_balance(const char *dir, sqlite3_int64 cents)
+{
+    if (cents<0 || cents>100000000LL || ensure_dir_tree(dir)!=0) return -1;
+    DIR *dp=opendir(dir);
+    if (!dp) return -1;
+    struct dirent *entry; int result=0;
+    while ((entry=readdir(dp)) != NULL) {
+        if (!money_name_is_bill(entry->d_name) && strcmp(entry->d_name,"change.txt")) continue;
+        char path[2048]; struct stat st;
+        int n=snprintf(path,sizeof(path),"%s/%s",dir,entry->d_name);
+        if (n<=0 || (size_t)n>=sizeof(path)) { result=-1; continue; }
+        if (lstat(path,&st)!=0) { if (errno!=ENOENT) result=-1; continue; }
+        if (!S_ISREG(st.st_mode) || unlink(path)!=0) result=-1;
+    }
+    closedir(dp);
+    if (result!=0) return -1;
+    for (sqlite3_int64 i=0; i<cents/100; ++i)
+        if (money_create_bill(dir)!=0) return -1;
+    int change=(int)(cents%100);
+    if (change) {
+        char path[2048], tmp[2100];
+        snprintf(path,sizeof(path),"%s/change.txt",dir);
+        snprintf(tmp,sizeof(tmp),"%s.tmp.%ld",path,(long)getpid());
+        FILE *fp=fopen(tmp,"w"); if (!fp) return -1;
+        int bad=fprintf(fp,"cents=%d\n",change)<0;
+        if (fclose(fp)!=0) bad=1;
+        if (!bad && rename(tmp,path)!=0) bad=1;
+        if (bad) { (void)unlink(tmp); return -1; }
+    }
+    return 0;
+}
+static int money_dir_balance(const char *dir, sqlite3_int64 *balance)
+{
+    int bills=money_bill_count(dir), change=money_change_cents(dir);
+    if (bills<0 || change<0) return -1;
+    if (balance) *balance=(sqlite3_int64)bills*100+change;
+    return 0;
+}
 static void money_mirror_write(sqlite3_int64 cash, sqlite3_int64 bank)
 {
-    char dir[1200], path[1400], tmp[1500];
-    snprintf(dir,sizeof(dir),"%s/room/piggybank",R2_ROOT);
-    if(ensure_dir_tree(dir)!=0)return;
-    snprintf(path,sizeof(path),"%s/account.txt",dir); snprintf(tmp,sizeof(tmp),"%s.tmp.%ld",path,(long)getpid());
-    FILE *fp=fopen(tmp,"w"); if(!fp)return;
-    int bad=fprintf(fp,"cash=%.2f\nbank=%.2f\ntotal=%.2f\n",cash/100.0,bank/100.0,(cash+bank)/100.0)<0;
-    if (fclose(fp) != 0) bad = 1;
-    if (!bad && rename(tmp, path) != 0) bad = 1;
+    char dir[1200], path[1400], tmp[1500], legacy_cash[1500];
+    money_dir_path(1,dir,sizeof(dir));
+    if (ensure_dir_tree(dir)!=0) return;
+    snprintf(path,sizeof(path),"%s/account.txt",dir);
+    snprintf(tmp,sizeof(tmp),"%s.tmp.%ld",path,(long)getpid());
+    FILE *fp=fopen(tmp,"w"); if (!fp) return;
+    int bad=fprintf(fp,"cash=%.2f\nbank=%.2f\ntotal=%.2f\nDerived summary only; physical money files are authoritative.\n",
+        cash/100.0,bank/100.0,(cash+bank)/100.0)<0;
+    if (fclose(fp)!=0) bad=1;
+    if (!bad && rename(tmp,path)!=0) bad=1;
     if (bad) (void)unlink(tmp);
-    char wallet[1200], cash_path[1400], cash_tmp[1500];
-    snprintf(wallet, sizeof(wallet), "%s/pockets/wallet", R2_ROOT);
-    if (ensure_dir_tree(wallet) != 0) return;
-    snprintf(cash_path, sizeof(cash_path), "%s/cash.txt", wallet);
-    snprintf(cash_tmp, sizeof(cash_tmp), "%s.tmp.%ld", cash_path, (long)getpid());
-    fp = fopen(cash_tmp, "w");
-    if (!fp) return;
-    bad = fprintf(fp, "carried_cash=$%.2f\nThis file mirrors the persistent money account; it is not additional money.\n", cash / 100.0) < 0;
-    if (fclose(fp) != 0) bad = 1;
-    if (!bad && rename(cash_tmp, cash_path) != 0) bad = 1;
-    if (bad) (void)unlink(cash_tmp);
+    char wallet[1200], old_cash[1400];
+    money_dir_path(0,wallet,sizeof(wallet));
+    snprintf(old_cash,sizeof(old_cash),"%s/cash.txt",wallet);
+    (void)unlink(old_cash);
+    snprintf(legacy_cash,sizeof(legacy_cash),"%s/pockets/wallet/cash.txt",R2_ROOT);
+    (void)unlink(legacy_cash);
+    snprintf(legacy_cash,sizeof(legacy_cash),"%s/pockets/wallet",R2_ROOT);
+    (void)rmdir(legacy_cash);
+    snprintf(legacy_cash,sizeof(legacy_cash),"%s/pockets",R2_ROOT);
+    (void)rmdir(legacy_cash);
 }
 static int money_read_locked(sqlite3_int64 *cash, sqlite3_int64 *bank)
 {
-    sqlite3_stmt *st=NULL; int rc=sqlite3_prepare_v2(reality_db,"SELECT cash_cents,bank_cents FROM r2_money_account WHERE id=1",-1,&st,NULL);
-    if(rc==SQLITE_OK&&sqlite3_step(st)==SQLITE_ROW){if(cash)*cash=sqlite3_column_int64(st,0);if(bank)*bank=sqlite3_column_int64(st,1);rc=SQLITE_OK;}else rc=SQLITE_ERROR;
+    char wallet[1200], piggybank[1200];
+    sqlite3_int64 c=0,b=0;
+    money_dir_path(0,wallet,sizeof(wallet));
+    money_dir_path(1,piggybank,sizeof(piggybank));
+    if (money_dir_balance(wallet,&c)!=0 || money_dir_balance(piggybank,&b)!=0) return -1;
+    sqlite3_stmt *st=NULL;
+    int rc=sqlite3_prepare_v2(reality_db,
+        "UPDATE r2_money_account SET cash_cents=?,bank_cents=?,updated_at=CURRENT_TIMESTAMP WHERE id=1",
+        -1,&st,NULL);
+    if (rc==SQLITE_OK) { sqlite3_bind_int64(st,1,c); sqlite3_bind_int64(st,2,b); rc=sqlite3_step(st); }
     if (st) sqlite3_finalize(st);
-    return rc == SQLITE_OK ? 0 : -1;
+    if (rc!=SQLITE_DONE) return -1;
+    if (cash) *cash=c;
+    if (bank) *bank=b;
+    return 0;
+}
+static int money_initialize_files(int previously_seeded)
+{
+    char wallet[1200], piggybank[1200];
+    money_dir_path(0,wallet,sizeof(wallet));
+    money_dir_path(1,piggybank,sizeof(piggybank));
+    if (ensure_dir_tree(wallet)!=0 || ensure_dir_tree(piggybank)!=0) return -1;
+    int wb=money_bill_count(wallet), bb=money_bill_count(piggybank);
+    int wc=money_change_cents(wallet), bc=money_change_cents(piggybank);
+    if (wb<0 || bb<0 || wc<0 || bc<0) return -1;
+    if (wb==0 && bb==0 && wc==0 && bc==0) {
+        if (!previously_seeded) {
+            if (money_set_dir_balance(wallet,500)!=0) return -1;
+        } else {
+            /* One-time migration preserves the old account's remaining value.
+             * A previous zero balance remains zero; this path never runs again. */
+            sqlite3_stmt *st=NULL;
+            if (sqlite3_prepare_v2(reality_db,
+                "SELECT cash_cents,bank_cents FROM r2_money_account WHERE id=1",
+                -1,&st,NULL)!=SQLITE_OK || sqlite3_step(st)!=SQLITE_ROW) {
+                if (st) sqlite3_finalize(st);
+                return -1;
+            }
+            sqlite3_int64 cash=sqlite3_column_int64(st,0), bank=sqlite3_column_int64(st,1);
+            sqlite3_finalize(st);
+            if (money_set_dir_balance(wallet,cash)!=0 ||
+                money_set_dir_balance(piggybank,bank)!=0) return -1;
+        }
+    }
+    return exec_sql(
+        "INSERT INTO r2_reality_meta(key,value) VALUES('initial_cash_seeded','1') "
+        "ON CONFLICT(key) DO UPDATE SET value='1';"
+        "INSERT INTO r2_reality_meta(key,value) VALUES('money_files_authoritative','1') "
+        "ON CONFLICT(key) DO UPDATE SET value='1';");
 }
 
 /* Move only generated mirror files when upgrading the old room-local layout.
@@ -135,13 +284,16 @@ static int make_room_dirs(void)
 {
     char room[1024], shelf[1100], box[1100], pockets[1100], wallet[1200];
     char fridge[1100], piggybank[1100], diary[1100];
-    char old_pockets[1200], old_wallet[1200], old_fridge[1200], old_toy_box[1200];
+    char old_pockets[1200], old_wallet[1200], old_room_pockets[1200], old_room_wallet[1200];
+    char old_fridge[1200], old_toy_box[1200];
     snprintf(room,sizeof(room),"%s/room",R2_ROOT); snprintf(shelf,sizeof(shelf),"%s/shelf",room);
-    snprintf(box,sizeof(box),"%s/box",room); snprintf(pockets,sizeof(pockets),"%s/pockets",R2_ROOT);
-    snprintf(wallet,sizeof(wallet),"%s/wallet",pockets);
+    snprintf(box,sizeof(box),"%s/box",room); snprintf(pockets,sizeof(pockets),"%s/Pockets",R2_ROOT);
+    snprintf(wallet,sizeof(wallet),"%s/Wallet",pockets);
     snprintf(fridge,sizeof(fridge),"%s/fridge",R2_ROOT); snprintf(piggybank,sizeof(piggybank),"%s/piggybank",room);
-    snprintf(old_pockets,sizeof(old_pockets),"%s/room/pockets",R2_ROOT);
-    snprintf(old_wallet,sizeof(old_wallet),"%s/room/wallet",R2_ROOT);
+    snprintf(old_pockets,sizeof(old_pockets),"%s/pockets",R2_ROOT);
+    snprintf(old_wallet,sizeof(old_wallet),"%s/pockets/wallet",R2_ROOT);
+    snprintf(old_room_pockets,sizeof(old_room_pockets),"%s/room/pockets",R2_ROOT);
+    snprintf(old_room_wallet,sizeof(old_room_wallet),"%s/room/wallet",R2_ROOT);
     snprintf(old_fridge,sizeof(old_fridge),"%s/room/fridge",R2_ROOT);
     snprintf(old_toy_box,sizeof(old_toy_box),"%s/room/toy_box",R2_ROOT);
     snprintf(diary,sizeof(diary),"%s",R2_DIARY_DIR);
@@ -153,11 +305,15 @@ static int make_room_dirs(void)
     }
     if (migrate_mirror_directory(old_pockets, pockets) != 0 ||
         migrate_mirror_directory(old_wallet, wallet) != 0 ||
+        migrate_mirror_directory(old_room_pockets, pockets) != 0 ||
+        migrate_mirror_directory(old_room_wallet, wallet) != 0 ||
         migrate_mirror_directory(old_fridge, fridge) != 0 ||
         migrate_mirror_directory(old_toy_box, box) != 0) {
         fprintf(stderr, "[R2 Reality] Could not migrate one or more old mirror directories.\n");
         return -1;
     }
+    /* Remove the obsolete lowercase parent only if it is now empty. */
+    (void)rmdir(old_pockets);
     char food_xml[1200];
     snprintf(food_xml, sizeof(food_xml), "%s/food_metrics.xml", room);
     if (access(food_xml, F_OK) != 0) {
@@ -246,7 +402,7 @@ static int container_accessible(const char *container)
 
 /* Human-inspectable mirrors follow the real hierarchy: room storage stays
  * under room/, pockets and fridge are siblings of room/, and wallet is inside
- * pockets/. SQLite remains canonical; mirror files are projections. */
+ * Pockets/. SQLite remains canonical for tracked objects; mirror files are projections. */
 static void item_slug(const char *name, char *out, size_t cap)
 {
     size_t j = 0;
@@ -269,8 +425,8 @@ static int mirror_path(const char *name, const char *container, char *path, size
     else if (!strcasecmp(container, "shelf")) snprintf(base, sizeof(base), "%s/room/shelf", R2_ROOT);
     else if (!strcasecmp(container, "box") || !strcasecmp(container, "toy box"))
         snprintf(base, sizeof(base), "%s/room/box", R2_ROOT);
-    else if (!strcasecmp(container, "pockets")) snprintf(base, sizeof(base), "%s/pockets", R2_ROOT);
-    else if (!strcasecmp(container, "wallet")) snprintf(base, sizeof(base), "%s/pockets/wallet", R2_ROOT);
+    else if (!strcasecmp(container, "pockets")) snprintf(base, sizeof(base), "%s/Pockets", R2_ROOT);
+    else if (!strcasecmp(container, "wallet")) snprintf(base, sizeof(base), "%s/Pockets/Wallet", R2_ROOT);
     else return 1; /* Other named containers remain database-only. */
     char slug[256];
     item_slug(name, slug, sizeof(slug));
@@ -952,6 +1108,13 @@ int r2_reality_init(void)
         "CREATE TABLE IF NOT EXISTS r2_reality_self_facts (key TEXT PRIMARY KEY, value TEXT NOT NULL, evidence TEXT, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "CREATE TABLE IF NOT EXISTS r2_money_account (id INTEGER PRIMARY KEY CHECK(id=1),cash_cents INTEGER NOT NULL DEFAULT 0 CHECK(cash_cents>=0),bank_cents INTEGER NOT NULL DEFAULT 0 CHECK(bank_cents>=0),updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "INSERT OR IGNORE INTO r2_money_account(id,cash_cents,bank_cents) VALUES(1,0,0);"
+        "CREATE TABLE IF NOT EXISTS r2_tv_state (id INTEGER PRIMARY KEY CHECK(id=1), power INTEGER NOT NULL DEFAULT 0 CHECK(power IN (0,1)), source_kind TEXT NOT NULL DEFAULT 'input', source_value INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
+        "INSERT OR IGNORE INTO r2_tv_state(id,power,source_kind,source_value) VALUES(1,0,'input',1);"
+        "CREATE TABLE IF NOT EXISTS r2_tv_devices (name TEXT PRIMARY KEY COLLATE NOCASE, connection_kind TEXT NOT NULL CHECK(connection_kind IN ('input','rf')), port INTEGER NOT NULL, connected INTEGER NOT NULL DEFAULT 1 CHECK(connected IN (0,1)), updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, CHECK((connection_kind='input' AND port BETWEEN 2 AND 4) OR (connection_kind='rf' AND port BETWEEN 2 AND 13)));"
+        "CREATE UNIQUE INDEX IF NOT EXISTS r2_tv_one_device_per_port ON r2_tv_devices(connection_kind,port) WHERE connected=1;"
+        "CREATE TABLE IF NOT EXISTS r2_tv_vcr_tapes (media_path TEXT PRIMARY KEY, position_seconds REAL NOT NULL DEFAULT 0 CHECK(position_seconds>=0), updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
+        "CREATE TABLE IF NOT EXISTS r2_tv_vcr_state (id INTEGER PRIMARY KEY CHECK(id=1), cassette_path TEXT, transport TEXT NOT NULL DEFAULT 'stop' CHECK(transport IN ('play','pause','stop')), updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(cassette_path) REFERENCES r2_tv_vcr_tapes(media_path));"
+        "INSERT OR IGNORE INTO r2_tv_vcr_state(id,cassette_path,transport) VALUES(1,NULL,'stop');"
         "CREATE TABLE IF NOT EXISTS r2_reality_containers (name TEXT PRIMARY KEY, kind TEXT NOT NULL, description TEXT, parent TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "CREATE TABLE IF NOT EXISTS r2_reality_objects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL COLLATE NOCASE UNIQUE, description TEXT, quantity INTEGER NOT NULL DEFAULT 1 CHECK(quantity>0), container TEXT NOT NULL DEFAULT 'room', owner TEXT NOT NULL DEFAULT 'R2', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(container) REFERENCES r2_reality_containers(name));"
         "CREATE INDEX IF NOT EXISTS r2_reality_objects_container_idx ON r2_reality_objects(container);"
@@ -966,7 +1129,9 @@ int r2_reality_init(void)
         "('box','container','The general storage box in R2''s room','room'),"
         "('pockets','inventory','R2''s portable pockets','R2'),"
         "('wallet','inventory','R2''s wallet inside his pockets','pockets'),"
-        "('fridge','container','The fridge in R2''s home','home');";
+        "('fridge','container','The fridge in R2''s home','home');"
+        "INSERT OR IGNORE INTO r2_reality_objects(name,description,quantity,container,owner) "
+        "VALUES('TV','CRT television with a built-in VCR and expandable external inputs.',1,'room','R2');";
     if (exec_sql(schema) != 0) {
         sqlite3_close(reality_db); reality_db = NULL;
         pthread_mutex_unlock(&reality_lock); return -1;
@@ -1014,7 +1179,9 @@ int r2_reality_init(void)
         "UPDATE r2_reality_containers SET parent='room' WHERE name IN ('shelf','box');"
         "UPDATE r2_reality_containers SET parent='R2' WHERE name='pockets';"
         "UPDATE r2_reality_containers SET parent='pockets' WHERE name='wallet';"
-        "DELETE FROM r2_reality_containers WHERE lower(name)='toy box';") != 0) {
+        "DELETE FROM r2_reality_containers WHERE lower(name)='toy box';"
+        "INSERT OR IGNORE INTO r2_reality_objects(name,description,quantity,container,owner) "
+        "VALUES('TV','CRT television with a built-in VCR and expandable external inputs.',1,'room','R2');") != 0) {
         fprintf(stderr, "[R2 Reality] Could not normalize persistent container hierarchy.\n");
         sqlite3_close(reality_db); reality_db = NULL;
         pthread_mutex_unlock(&reality_lock); return -1;
@@ -1027,11 +1194,8 @@ int r2_reality_init(void)
         cash_seeded = v && !strcmp((const char *)v, "1");
     }
     if (seed_st) sqlite3_finalize(seed_st);
-    if (!cash_seeded && exec_sql(
-        "UPDATE r2_money_account SET cash_cents=cash_cents+500 WHERE id=1;"
-        "INSERT INTO r2_reality_meta(key,value) VALUES('initial_cash_seeded','1') "
-        "ON CONFLICT(key) DO UPDATE SET value='1';") != 0) {
-        fprintf(stderr, "[R2 Reality] Could not seed initial $5 carried cash.\n");
+    if (money_initialize_files(cash_seeded) != 0) {
+        fprintf(stderr, "[R2 Reality] Could not initialize authoritative wallet files.\n");
         sqlite3_close(reality_db); reality_db = NULL;
         pthread_mutex_unlock(&reality_lock); return -1;
     }
@@ -1311,7 +1475,7 @@ char *r2_reality_status(void)
     if(st) sqlite3_finalize(st);
     pthread_mutex_unlock(&reality_lock);
     const char *hstate = hunger < 25 ? "satisfied" : hunger < 50 ? "getting hungry" : hunger < 75 ? "hungry" : hunger < 100 ? "very hungry" : "starving";
-    snprintf(out,4096,"SELF CONTINUITY\nSatisfaction: %5.1f/100\nHunger: %04.1f/100 (%s)\nTime since meal: %.1f hours\nSleepiness: %.1f/100\nEnergy: %.1f/100\nModeled world time elapsed: %lld days, %lld hours\nObjects tracked in the world: %d\nAfter 72 hours without food, prolonged starvation is recorded; needs do not magically reset on restart.\n",
+    snprintf(out,4096,"SELF CONTINUITY\nSatisfaction: %5.1f/150\nHunger: %04.1f/100 (%s)\nTime since meal: %.1f hours\nSleepiness: %.1f/100\nEnergy: %.1f/100\nModeled world time elapsed: %lld days, %lld hours\nObjects tracked in the world: %d\nHunger rises 0.1 and satiety falls 0.1 every 4.75 seconds of modeled elapsed time; satiety caps at 150/150.\nAfter 72 hours without food, prolonged starvation is recorded; needs do not magically reset on restart.\n",
         satisfaction,hunger,hstate,since/3600.0,sleepiness,energy,
         (long long)(world_elapsed/86400),(long long)((world_elapsed%86400)/3600),count);
     return out;
@@ -1658,6 +1822,32 @@ int r2_reality_remove_item(const char *name)
 }
 
 
+/* Convert the learned -2..+2 subjective food rating into the shared
+ * 0..100 enjoyment scale used by the habit evaluator. Fullness/satiety is
+ * deliberately independent; unrated food starts neutral, not pre-liked. */
+static int food_preference_enjoyment_score(const char *food)
+{
+    if (!food || !*food || !reality_db) return 50;
+    int score = 50;
+    pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_prepare_v2(reality_db,
+        "SELECT satisfaction_sum * 1.0 / rating_count FROM r2_food_preferences "
+        "WHERE food_name=? COLLATE NOCASE AND rating_count>0",
+        -1, &st, NULL) == SQLITE_OK) {
+        bind_text(st, 1, food);
+        if (sqlite3_step(st) == SQLITE_ROW) {
+            double average = sqlite3_column_double(st, 0);
+            score = (int)lround(50.0 + average * 25.0);
+            if (score < 0) score = 0;
+            if (score > 100) score = 100;
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reality_lock);
+    return score;
+}
+
 static int reality_eat_internal(const char *food, double fullness, int consume_tracked_item, double energy_override)
 {
     if (!food || !*food || !r2_reality_is_initialized()) return -1;
@@ -1772,12 +1962,20 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
 
     char summary[512], details[1024];
     snprintf(summary, sizeof(summary), "R2 ate %s; satisfaction increased and hunger decreased by the food's %.1f-point fullness value.", food, fullness);
-    snprintf(details, sizeof(details), "Food=%s; modeled satisfaction increase=%.1f/100; modeled hunger reduction=%.1f/100; tracked object consumed=%s; these are simulated need values, not measured biological quantities.",
+    snprintf(details, sizeof(details), "Food=%s; modeled satiety increase=%.1f points (maximum 150); modeled hunger reduction=%.1f/100; tracked object consumed=%s; these are simulated need values, not measured biological quantities.",
              food, fullness, fullness, consumed_tracked_item ? "yes" : "no");
     bridge_event("food_consumed", summary, details, 1, 0);
-    /* A real eating choice feeds the shared habit evaluator. It reads the
-       target's learned enjoyment instead of resetting it to a fixed value. */
-    (void)r2_addiction_record_choice(food, "food", 50, "eating", details);
+    /* A real eating choice feeds the shared habit evaluator using R2's
+       accumulated subjective ratings for this food; unrated food is neutral. */
+    int learned_enjoyment = food_preference_enjoyment_score(food);
+    char habit_details[1400];
+    snprintf(habit_details, sizeof(habit_details),
+             "%s; learned food enjoyment=%d/100 (0-100 mapping from -2..+2 preference ratings).",
+             details, learned_enjoyment);
+    (void)r2_addiction_record_choice(food, "food", learned_enjoyment,
+                                    "eating", habit_details);
+    (void)r2_reward_apply(food, "food_consumed", 2,
+        "Food consumption completed and modeled hunger/satiety state was updated.", 0);
     return 0;
 }
 
@@ -1890,9 +2088,10 @@ int r2_reality_rate_food(const char *food, int satisfaction, const char *notes)
     snprintf(details,sizeof(details),"Food=%s; ingredients=%s; sensory description=%s; enjoyment_rating=%d/2; reason=%s. This is a learned subjective simulation, not an externally verified reaction.",
         food,*ingredients?ingredients:"not specified",*taste?taste:"not specified",satisfaction,notes?notes:"not supplied");
     bridge_event("food_preference_learned",summary,details,1,0);
-    /* The existing -2..+2 food feedback scale maps onto the shared 0..100
-       enjoyment scale without making fullness and enjoyment the same value. */
-    (void)r2_addiction_rate_enjoyment(food, "food", (satisfaction + 2) * 25,
+    /* Synchronize the habit evaluator with the accumulated average rating,
+       so one rating informs enjoyment but does not erase earlier experience. */
+    int learned_enjoyment = food_preference_enjoyment_score(food);
+    (void)r2_addiction_rate_enjoyment(food, "food", learned_enjoyment,
                                       "food_feedback", notes);
     return 0;
 }
@@ -1946,55 +2145,104 @@ int r2_reality_record_dream(const char *description)
 char *r2_reality_money_context(void)
 {
     if (!r2_reality_is_initialized()) return NULL;
-    sqlite3_int64 cash = 0, bank = 0;
-    pthread_mutex_lock(&reality_lock);int ok=money_read_locked(&cash,&bank)==0;pthread_mutex_unlock(&reality_lock);if(!ok)return NULL;
-    money_mirror_write(cash,bank);char out[512];snprintf(out,sizeof(out),"MONEY ACCOUNT: carried cash=$%.2f; bank/piggybank=$%.2f; total=$%.2f. No funds are created automatically.",cash/100.0,bank/100.0,(cash+bank)/100.0);return strdup(out);
+    sqlite3_int64 cash=0,bank=0;
+    pthread_mutex_lock(&reality_lock);
+    int ok=money_read_locked(&cash,&bank)==0;
+    pthread_mutex_unlock(&reality_lock);
+    if (!ok) return NULL;
+    money_mirror_write(cash,bank);
+    char out[768];
+    snprintf(out,sizeof(out),
+        "MONEY ACCOUNT (derived from physical files): carried cash=$%.2f; piggybank=$%.2f; total=$%.2f. Each money/money(N) file is $1; change.txt stores cents. Deleting a bill removes that dollar permanently; no restart refill occurs.",
+        cash/100.0,bank/100.0,(cash+bank)/100.0);
+    return strdup(out);
 }
 static int money_transfer(double amount,int deposit)
 {
-    if(!r2_reality_is_initialized()||!isfinite(amount)||amount<=0||amount>1000000000.0)return -1;
-    sqlite3_int64 cents=(sqlite3_int64)llround(amount*100.0),cash=0,bank=0;if(cents<=0)return -1;
-    pthread_mutex_lock(&reality_lock);int rc=money_read_locked(&cash,&bank);
+    if(!r2_reality_is_initialized()||!isfinite(amount)||amount<=0.0||amount>1000000.0)return -1;
+    sqlite3_int64 cents=(sqlite3_int64)llround(amount*100.0),cash=0,bank=0;
+    if(cents<=0||fabs(amount*100.0-(double)cents)>0.0001)return -1;
+    char wallet[1200],piggybank[1200];
+    money_dir_path(0,wallet,sizeof(wallet)); money_dir_path(1,piggybank,sizeof(piggybank));
+    pthread_mutex_lock(&reality_lock);
+    int rc=money_read_locked(&cash,&bank);
     if(rc==0&&((deposit&&cash<cents)||(!deposit&&bank<cents)))rc=-1;
-    if(rc==0){sqlite3_stmt *st=NULL;const char *sql=deposit?"UPDATE r2_money_account SET cash_cents=cash_cents-?,bank_cents=bank_cents+?,updated_at=CURRENT_TIMESTAMP WHERE id=1":"UPDATE r2_money_account SET cash_cents=cash_cents+?,bank_cents=bank_cents-?,updated_at=CURRENT_TIMESTAMP WHERE id=1";
-        if(sqlite3_prepare_v2(reality_db,sql,-1,&st,NULL)!=SQLITE_OK)rc=-1;else{sqlite3_bind_int64(st,1,cents);sqlite3_bind_int64(st,2,cents);rc=sqlite3_step(st)==SQLITE_DONE?0:-1;}if(st)sqlite3_finalize(st);}
-    if (rc == 0) (void)money_read_locked(&cash, &bank);
+    if(rc==0){
+        sqlite3_int64 new_cash=deposit?cash-cents:cash+cents;
+        sqlite3_int64 new_bank=deposit?bank+cents:bank-cents;
+        if(money_set_dir_balance(wallet,new_cash)!=0)rc=-1;
+        else if(money_set_dir_balance(piggybank,new_bank)!=0){
+            (void)money_set_dir_balance(wallet,cash);
+            (void)money_set_dir_balance(piggybank,bank);
+            rc=-1;
+        }
+    }
+    if(rc==0)rc=money_read_locked(&cash,&bank);
     pthread_mutex_unlock(&reality_lock);
-    if (rc == 0) money_mirror_write(cash, bank);
+    if(rc==0)money_mirror_write(cash,bank);
     return rc;
 }
 int r2_reality_money_receive(double amount)
 {
-    if (!r2_reality_is_initialized() || !isfinite(amount) || amount <= 0.0 || amount > 1000000000.0) return -1;
-    sqlite3_int64 cents = (sqlite3_int64)llround(amount * 100.0), cash = 0, bank = 0;
-    if (cents <= 0) return -1;
+    if(!r2_reality_is_initialized()||!isfinite(amount)||amount<=0.0||amount>1000000.0)return -1;
+    sqlite3_int64 cents=(sqlite3_int64)llround(amount*100.0),cash=0,bank=0;
+    if(cents<=0||fabs(amount*100.0-(double)cents)>0.0001)return -1;
+    char wallet[1200]; money_dir_path(0,wallet,sizeof(wallet));
     pthread_mutex_lock(&reality_lock);
-    sqlite3_stmt *st = NULL;
-    int rc = sqlite3_prepare_v2(reality_db, "UPDATE r2_money_account SET cash_cents=cash_cents+?,updated_at=CURRENT_TIMESTAMP WHERE id=1", -1, &st, NULL);
-    if (rc == SQLITE_OK) { sqlite3_bind_int64(st, 1, cents); rc = sqlite3_step(st); }
-    if (st) sqlite3_finalize(st);
-    if (rc == SQLITE_DONE) { (void)money_read_locked(&cash, &bank); rc = 0; } else rc = -1;
+    int rc=money_read_locked(&cash,&bank);
+    if(rc==0&&cash<=100000000LL-cents){
+        if(money_set_dir_balance(wallet,cash+cents)!=0){
+            (void)money_set_dir_balance(wallet,cash);
+            rc=-1;
+        }
+    }else rc=-1;
+    if(rc==0)rc=money_read_locked(&cash,&bank);
     pthread_mutex_unlock(&reality_lock);
-    if (rc == 0) money_mirror_write(cash, bank);
+    if(rc==0)money_mirror_write(cash,bank);
     return rc;
 }
 int r2_reality_money_deposit(double amount){return money_transfer(amount,1);}
 int r2_reality_money_withdraw(double amount){return money_transfer(amount,0);}
 int r2_reality_buy_item(const char *name,const char *description,double price,const char *container)
 {
-    if(!name||!*name||!isfinite(price)||price<=0||price>1000000000.0||!r2_reality_is_initialized())return -1;
-    sqlite3_int64 cents=(sqlite3_int64)llround(price*100.0),cash=0,bank=0,pc=0,pb=0;if(cents<=0)return -1;
-    pthread_mutex_lock(&reality_lock);int rc=money_read_locked(&cash,&bank);if(rc==0&&cash+bank<cents)rc=-1;
-    if(rc==0){pc=cash<cents?cash:cents;pb=cents-pc;sqlite3_stmt *st=NULL;
-        if(sqlite3_prepare_v2(reality_db,"UPDATE r2_money_account SET cash_cents=cash_cents-?,bank_cents=bank_cents-?,updated_at=CURRENT_TIMESTAMP WHERE id=1",-1,&st,NULL)!=SQLITE_OK)rc=-1;
-        else{sqlite3_bind_int64(st,1,pc);sqlite3_bind_int64(st,2,pb);rc=sqlite3_step(st)==SQLITE_DONE?0:-1;}if(st)sqlite3_finalize(st);if(rc==0){cash-=pc;bank-=pb;}}
-    pthread_mutex_unlock(&reality_lock);if(rc!=0)return -1;
-    if(r2_reality_add_item(name,description?description:"Purchased item",container&&*container?container:"pockets",1)!=0){
-        pthread_mutex_lock(&reality_lock);sqlite3_stmt *st=NULL;
-        if(sqlite3_prepare_v2(reality_db,"UPDATE r2_money_account SET cash_cents=cash_cents+?,bank_cents=bank_cents+?,updated_at=CURRENT_TIMESTAMP WHERE id=1",-1,&st,NULL)==SQLITE_OK){sqlite3_bind_int64(st,1,pc);sqlite3_bind_int64(st,2,pb);(void)sqlite3_step(st);}if(st)sqlite3_finalize(st);
-        (void)money_read_locked(&cash,&bank);pthread_mutex_unlock(&reality_lock);money_mirror_write(cash,bank);return -1;}
-    money_mirror_write(cash,bank);char summary[512],details[1024];snprintf(summary,sizeof(summary),"R2 purchased %s for $%.2f.",name,cents/100.0);
-    snprintf(details,sizeof(details),"Item=%s; price=$%.2f; destination=%s; cash paid first, then bank.",name,cents/100.0,container&&*container?container:"pockets");bridge_event("purchase",summary,details,1,1);return 0;
+    if(!name||!*name||!isfinite(price)||price<=0.0||price>1000000.0||!r2_reality_is_initialized())return -1;
+    sqlite3_int64 cents=(sqlite3_int64)llround(price*100.0),cash=0,bank=0,old_cash=0,old_bank=0;
+    if(cents<=0||fabs(price*100.0-(double)cents)>0.0001)return -1;
+    char wallet[1200],piggybank[1200];
+    money_dir_path(0,wallet,sizeof(wallet));money_dir_path(1,piggybank,sizeof(piggybank));
+    pthread_mutex_lock(&reality_lock);
+    int rc=money_read_locked(&cash,&bank);
+    old_cash=cash;old_bank=bank;
+    if(rc==0&&cash+bank<cents)rc=-1;
+    if(rc==0){
+        sqlite3_int64 spend_cash=cash<cents?cash:cents;
+        sqlite3_int64 spend_bank=cents-spend_cash;
+        if(money_set_dir_balance(wallet,cash-spend_cash)!=0)rc=-1;
+        else if(money_set_dir_balance(piggybank,bank-spend_bank)!=0){
+            (void)money_set_dir_balance(wallet,old_cash);
+            (void)money_set_dir_balance(piggybank,old_bank);
+            rc=-1;
+        }
+    }
+    if(rc==0)rc=money_read_locked(&cash,&bank);
+    pthread_mutex_unlock(&reality_lock);
+    if(rc!=0)return -1;
+    const char *destination=container&&*container?container:"pockets";
+    if(r2_reality_add_item(name,description?description:"Purchased item",destination,1)!=0){
+        pthread_mutex_lock(&reality_lock);
+        (void)money_set_dir_balance(wallet,old_cash);
+        (void)money_set_dir_balance(piggybank,old_bank);
+        (void)money_read_locked(&cash,&bank);
+        pthread_mutex_unlock(&reality_lock);
+        money_mirror_write(cash,bank);
+        return -1;
+    }
+    money_mirror_write(cash,bank);
+    char summary[512],details[1024];
+    snprintf(summary,sizeof(summary),"R2 purchased %s for $%.2f.",name,cents/100.0);
+    snprintf(details,sizeof(details),"Item=%s; price=$%.2f; destination=%s; wallet cash paid first, then piggybank.",name,cents/100.0,destination);
+    bridge_event("purchase",summary,details,1,1);
+    return 0;
 }
 
 int r2_reality_set_self(const char *key,const char *value,const char *evidence)
@@ -2025,4 +2273,301 @@ char *r2_reality_get_self(const char *key)
     if(st)sqlite3_finalize(st);
     pthread_mutex_unlock(&reality_lock);
     return out;
+}
+
+/* TV is a persistent device model, not the video player itself. Input 1 is
+ * the built-in VCR; external AV inputs and RF signals exist only when a
+ * device has been explicitly connected. An empty tuned channel stays empty:
+ * no snow-show or synthetic signal is generated here. */
+char *r2_reality_tv_status(void)
+{
+    if (!reality_db || !reality_ready) return strdup("TV state is unavailable: Reality is not initialized.\n");
+    char *out = calloc(1, 8192);
+    if (!out) return NULL;
+    size_t len = 0;
+    pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *st = NULL;
+    int power = 0, value = 1;
+    char kind[16] = "input";
+    if (sqlite3_prepare_v2(reality_db, "SELECT power,source_kind,source_value FROM r2_tv_state WHERE id=1", -1, &st, NULL) == SQLITE_OK &&
+        sqlite3_step(st) == SQLITE_ROW) {
+        power = sqlite3_column_int(st, 0);
+        const unsigned char *k = sqlite3_column_text(st, 1);
+        if (k) snprintf(kind, sizeof(kind), "%s", (const char *)k);
+        value = sqlite3_column_int(st, 2);
+    }
+    if (st) sqlite3_finalize(st);
+    len += (size_t)snprintf(out + len, 8192 - len,
+        "CRT TV: %s\nSelected source: %s %d\n",
+        power ? "ON" : "OFF",
+        !strcmp(kind, "vcr") ? "built-in VCR/input" :
+        !strcmp(kind, "rf") ? "RF channel" : (value == 1 ? "built-in VCR/input" : "AV input"), value);
+    int signal = 0;
+    if (!strcmp(kind, "rf") || (!strcmp(kind, "input") && value > 1)) {
+        if (sqlite3_prepare_v2(reality_db,
+            "SELECT name FROM r2_tv_devices WHERE connected=1 AND connection_kind=? AND port=? LIMIT 1",
+            -1, &st, NULL) == SQLITE_OK) {
+            bind_text(st, 1, !strcmp(kind, "rf") ? "rf" : "input");
+            sqlite3_bind_int(st, 2, value);
+            if (sqlite3_step(st) == SQLITE_ROW) signal = 1;
+        }
+        if (st) sqlite3_finalize(st);
+    } else if (!strcmp(kind, "vcr") || (!strcmp(kind, "input") && value == 1)) {
+        if (sqlite3_prepare_v2(reality_db,
+            "SELECT cassette_path FROM r2_tv_vcr_state WHERE id=1",
+            -1, &st, NULL) == SQLITE_OK && sqlite3_step(st) == SQLITE_ROW)
+            signal = sqlite3_column_type(st, 0) != SQLITE_NULL;
+        if (st) sqlite3_finalize(st);
+    }
+    len += (size_t)snprintf(out + len, 8192 - len, "Selected source signal: %s\n",
+                            signal ? "available" : "NO SIGNAL (nothing is connected/transmitting)");
+    if (sqlite3_prepare_v2(reality_db,
+        "SELECT name,connection_kind,port FROM r2_tv_devices WHERE connected=1 ORDER BY connection_kind,port,name",
+        -1, &st, NULL) == SQLITE_OK) {
+        int count = 0;
+        while (sqlite3_step(st) == SQLITE_ROW && len < 7600) {
+            const char *name = (const char *)sqlite3_column_text(st, 0);
+            const char *dkind = (const char *)sqlite3_column_text(st, 1);
+            int port = sqlite3_column_int(st, 2);
+            if (!count) len += (size_t)snprintf(out + len, 8192 - len, "Detected external devices:\n");
+            len += (size_t)snprintf(out + len, 8192 - len, "  %s — %s %d\n",
+                                    name ? name : "unnamed device",
+                                    dkind && !strcmp(dkind, "rf") ? "RF channel" : "AV input",
+                                    port);
+            count++;
+        }
+        if (!count) len += (size_t)snprintf(out + len, 8192 - len, "Detected external devices: none\n");
+    }
+    if (st) sqlite3_finalize(st);
+    if (sqlite3_prepare_v2(reality_db,
+        "SELECT s.cassette_path,s.transport,t.position_seconds "
+        "FROM r2_tv_vcr_state s LEFT JOIN r2_tv_vcr_tapes t ON t.media_path=s.cassette_path WHERE s.id=1",
+        -1, &st, NULL) == SQLITE_OK && sqlite3_step(st) == SQLITE_ROW) {
+        const char *tape = (const char *)sqlite3_column_text(st, 0);
+        const char *transport = (const char *)sqlite3_column_text(st, 1);
+        if (tape) {
+            len += (size_t)snprintf(out + len, 8192 - len,
+                "Built-in VCR: tape inserted (%s), saved position %.1f seconds\n",
+                transport ? transport : "stop", sqlite3_column_double(st, 2));
+            len += (size_t)snprintf(out + len, 8192 - len, "Tape path: %s\n", tape);
+        } else {
+            len += (size_t)snprintf(out + len, 8192 - len, "Built-in VCR: empty\n");
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reality_lock);
+    return out;
+}
+
+int r2_reality_tv_display_event(int opened)
+{
+    if (!reality_db || !reality_ready || (opened != 0 && opened != 1)) return -1;
+    if (opened) {
+        bridge_event("tv_display_opened",
+                     "R2's CRT television window opened, directing his modeled visual attention to the display.",
+                     "The TV interface was launched in R2's environment. This records the forced attention cue requested for the display; it does not claim that Eyes captured or interpreted video frames.",
+                     1, 0);
+    } else {
+        bridge_event("tv_display_closed",
+                     "R2's CRT television window closed.",
+                     "The TV interface closed; this does not imply that the modeled television was powered off or that a tape was ejected.",
+                     0, 0);
+    }
+    return 0;
+}
+
+int r2_reality_tv_power(int on)
+{
+    if (!reality_db || !reality_ready || (on != 0 && on != 1)) return -1;
+    pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "UPDATE r2_tv_state SET power=?,updated_at=CURRENT_TIMESTAMP WHERE id=1", -1, &st, NULL);
+    if (rc == SQLITE_OK) { sqlite3_bind_int(st, 1, on); rc = sqlite3_step(st); }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reality_lock);
+    if (rc != SQLITE_DONE) return -1;
+    bridge_event("tv_power", on ? "R2's CRT television was turned on." : "R2's CRT television was turned off.",
+                 "TV power is independent of whether R2 is paying visual attention; no Eyes state is changed by this operation.",
+                 1, 0);
+    return 0;
+}
+
+int r2_reality_tv_select_input(int input)
+{
+    if (!reality_db || !reality_ready || input < 1 || input > 4) return -1;
+    pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "UPDATE r2_tv_state SET source_kind='input',source_value=?,updated_at=CURRENT_TIMESTAMP WHERE id=1", -1, &st, NULL);
+    if (rc == SQLITE_OK) { sqlite3_bind_int(st, 1, input); rc = sqlite3_step(st); }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reality_lock);
+    if (rc != SQLITE_DONE) return -1;
+    char detail[160];
+    snprintf(detail, sizeof(detail), "Selected AV input %d. Input 1 is the built-in VCR; external inputs have signal only when a device is connected.", input);
+    bridge_event("tv_source_selected", "R2's CRT television selected an AV input.", detail, 1, 0);
+    return 0;
+}
+
+int r2_reality_tv_tune_rf(int channel)
+{
+    if (!reality_db || !reality_ready || channel < 2 || channel > 13) return -1;
+    pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "UPDATE r2_tv_state SET source_kind='rf',source_value=?,updated_at=CURRENT_TIMESTAMP WHERE id=1", -1, &st, NULL);
+    if (rc == SQLITE_OK) { sqlite3_bind_int(st, 1, channel); rc = sqlite3_step(st); }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reality_lock);
+    if (rc != SQLITE_DONE) return -1;
+    char detail[160];
+    snprintf(detail, sizeof(detail), "Tuned RF channel %d. A signal is available only if a connected device is transmitting on that channel; no static or snow-show signal is generated.", channel);
+    bridge_event("tv_rf_tuned", "R2's CRT television was tuned to an RF channel.", detail, 1, 0);
+    return 0;
+}
+
+int r2_reality_tv_connect(const char *name, const char *kind, int port)
+{
+    if (!reality_db || !reality_ready || !name || !*name || strlen(name) > 120 || !kind) return -1;
+    int rf = !strcasecmp(kind, "rf");
+    int input = !strcasecmp(kind, "input") || !strcasecmp(kind, "av");
+    if ((!rf && !input) || (rf && (port < 2 || port > 13)) ||
+        (input && (port < 2 || port > 4))) return -1;
+    pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "INSERT INTO r2_tv_devices(name,connection_kind,port,connected,updated_at) VALUES(?,?,?,1,CURRENT_TIMESTAMP) "
+        "ON CONFLICT(name) DO UPDATE SET connection_kind=excluded.connection_kind,port=excluded.port,connected=1,updated_at=CURRENT_TIMESTAMP",
+        -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        bind_text(st, 1, name); bind_text(st, 2, rf ? "rf" : "input"); sqlite3_bind_int(st, 3, port);
+        rc = sqlite3_step(st);
+    }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reality_lock);
+    if (rc != SQLITE_DONE) return -1;
+    char detail[256];
+    snprintf(detail, sizeof(detail), "%s is connected to %s %d; this is now a detected source. No gameplay is inferred from connection alone.",
+             name, rf ? "RF channel" : "AV input", port);
+    bridge_event("tv_device_connected", "An external device was connected to R2's CRT television.", detail, 1, 0);
+    return 0;
+}
+
+int r2_reality_tv_disconnect(const char *name)
+{
+    if (!reality_db || !reality_ready || !name || !*name) return -1;
+    pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "UPDATE r2_tv_devices SET connected=0,updated_at=CURRENT_TIMESTAMP WHERE name=? COLLATE NOCASE AND connected=1",
+        -1, &st, NULL);
+    if (rc == SQLITE_OK) { bind_text(st, 1, name); rc = sqlite3_step(st); }
+    int changed = rc == SQLITE_DONE ? sqlite3_changes(reality_db) : 0;
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reality_lock);
+    if (rc != SQLITE_DONE || changed == 0) return -1;
+    char detail[192];
+    snprintf(detail, sizeof(detail), "%s was disconnected; any tuned source now has no signal unless another device supplies it.", name);
+    bridge_event("tv_device_disconnected", "An external device was disconnected from R2's CRT television.", detail, 1, 0);
+    return 0;
+}
+
+/* Path-keyed tape identities preserve position through eject/reinsert and restarts.
+ * Reality owns transport state; the GUI is only the video renderer. */
+static int tv_vcr_media_path_valid(const char *path)
+{
+    if (!path || path[0] != '/' || strlen(path) > 1024 ||
+        strchr(path, '\n') || strchr(path, '\r')) return 0;
+    const char *dot = strrchr(path, '.');
+    if (!dot) return 0;
+    static const char *extensions[] = {
+        ".avi", ".mkv", ".mp4", ".m4v", ".mov", ".mpeg", ".mpg",
+        ".wmv", ".webm", ".ogv", ".flv", ".ts", ".vob", ".3gp",
+        ".asf", ".m2ts", ".mts"
+    };
+    int supported = 0;
+    for (size_t i = 0; i < sizeof(extensions) / sizeof(extensions[0]); ++i)
+        if (!strcasecmp(dot, extensions[i])) { supported = 1; break; }
+    if (!supported) return 0;
+    struct stat info;
+    return stat(path, &info) == 0 && S_ISREG(info.st_mode) && access(path, R_OK) == 0;
+}
+
+int r2_reality_tv_vcr_insert(const char *media_path)
+{
+    if (!reality_db || !reality_ready || !tv_vcr_media_path_valid(media_path)) return -1;
+    pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "INSERT OR IGNORE INTO r2_tv_vcr_tapes(media_path,position_seconds) VALUES(?,0)",
+        -1, &st, NULL);
+    if (rc == SQLITE_OK) { bind_text(st, 1, media_path); rc = sqlite3_step(st); }
+    if (st) sqlite3_finalize(st);
+    st = NULL;
+    if (rc == SQLITE_DONE) {
+        rc = sqlite3_prepare_v2(reality_db,
+            "UPDATE r2_tv_vcr_state SET cassette_path=?,transport='stop',updated_at=CURRENT_TIMESTAMP WHERE id=1",
+            -1, &st, NULL);
+        if (rc == SQLITE_OK) { bind_text(st, 1, media_path); rc = sqlite3_step(st); }
+    }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reality_lock);
+    if (rc != SQLITE_DONE) return -1;
+    char detail[1200];
+    snprintf(detail, sizeof(detail), "Inserted VCR tape: %s. Its saved playback position is retained.", media_path);
+    bridge_event("vcr_tape_inserted", "A tape was inserted into R2's built-in VCR.", detail, 1, 0);
+    return 0;
+}
+
+int r2_reality_tv_vcr_transport(const char *action)
+{
+    if (!reality_db || !reality_ready || !action) return -1;
+    int eject = !strcasecmp(action, "eject");
+    if (!eject && strcasecmp(action, "play") && strcasecmp(action, "pause") &&
+        strcasecmp(action, "stop")) return -1;
+    pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *st = NULL;
+    int rc = SQLITE_ERROR;
+    if (eject) {
+        rc = sqlite3_prepare_v2(reality_db,
+            "UPDATE r2_tv_vcr_state SET cassette_path=NULL,transport='stop',updated_at=CURRENT_TIMESTAMP WHERE id=1 AND cassette_path IS NOT NULL",
+            -1, &st, NULL);
+    } else if (!strcasecmp(action, "play")) {
+        rc = sqlite3_prepare_v2(reality_db,
+            "UPDATE r2_tv_vcr_state SET transport='play',updated_at=CURRENT_TIMESTAMP WHERE id=1 AND cassette_path IS NOT NULL",
+            -1, &st, NULL);
+    } else {
+        rc = sqlite3_prepare_v2(reality_db,
+            "UPDATE r2_tv_vcr_state SET transport=?,updated_at=CURRENT_TIMESTAMP WHERE id=1 AND cassette_path IS NOT NULL",
+            -1, &st, NULL);
+        if (rc == SQLITE_OK) bind_text(st, 1, !strcasecmp(action, "pause") ? "pause" : "stop");
+    }
+    if (rc == SQLITE_OK) rc = sqlite3_step(st);
+    int changed = rc == SQLITE_DONE ? sqlite3_changes(reality_db) : 0;
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reality_lock);
+    if (rc != SQLITE_DONE || changed == 0) return -1;
+    char detail[128];
+    snprintf(detail, sizeof(detail), "Built-in VCR transport changed to %s.", eject ? "eject" : action);
+    bridge_event(eject ? "vcr_tape_ejected" : "vcr_transport_changed",
+                 eject ? "The tape was ejected from R2's built-in VCR." : "R2's built-in VCR transport changed.",
+                 detail, 1, 0);
+    return 0;
+}
+
+int r2_reality_tv_vcr_set_position(double seconds)
+{
+    if (!reality_db || !reality_ready || !isfinite(seconds) || seconds < 0.0 || seconds > 604800.0) return -1;
+    pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "UPDATE r2_tv_vcr_tapes SET position_seconds=?,updated_at=CURRENT_TIMESTAMP "
+        "WHERE media_path=(SELECT cassette_path FROM r2_tv_vcr_state WHERE id=1 AND cassette_path IS NOT NULL)",
+        -1, &st, NULL);
+    if (rc == SQLITE_OK) { sqlite3_bind_double(st, 1, seconds); rc = sqlite3_step(st); }
+    int changed = rc == SQLITE_DONE ? sqlite3_changes(reality_db) : 0;
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reality_lock);
+    return rc == SQLITE_DONE && changed > 0 ? 0 : -1;
 }
