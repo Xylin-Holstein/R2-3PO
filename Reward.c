@@ -54,6 +54,9 @@ static int ensure_db_locked(void)
         " source TEXT NOT NULL, points INTEGER NOT NULL CHECK(points BETWEEN -7 AND 5 AND points<>0),"
         " reason TEXT NOT NULL, occurred_at INTEGER NOT NULL, modifier INTEGER NOT NULL,"
         " expires_at INTEGER NOT NULL, log_event_id INTEGER, memory_indexed INTEGER NOT NULL DEFAULT 0);"
+        "CREATE TABLE IF NOT EXISTS reward_once_keys ("
+        " target TEXT NOT NULL, source TEXT NOT NULL, created_at INTEGER NOT NULL,"
+        " PRIMARY KEY(target,source));"
         "CREATE INDEX IF NOT EXISTS reward_events_target_time ON reward_events(target,occurred_at);",
         NULL, NULL, NULL) != SQLITE_OK) {
         fprintf(stderr, "[R2 Reward] Schema error: %s\n", sqlite3_errmsg(reward_db));
