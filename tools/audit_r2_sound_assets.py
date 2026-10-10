@@ -72,12 +72,31 @@ def audit_root(root: Path) -> int:
         if not entries:
             print(f"  WARNING: no filename-token match for {kind}")
 
+    aliases = {
+        "curious": {"curious", "curiosity"},
+        "happy": {"happy", "happiness", "joy", "cheerful", "pleased"},
+        "confused": {"confused", "confusion", "uncertain", "puzzled"},
+        "alert": {"alert", "attention", "warning", "alarm"},
+        "sleepy": {"sleepy", "tired", "exhausted", "drowsy"},
+        "hungry": {"hungry", "hunger"},
+        "excited": {"excited", "excitement", "enthusiastic"},
+        "thinking": {"thinking", "think", "processing", "pondering"},
+        "greeting": {"greeting", "greet", "hello", "welcome"},
+    }
     for state in STATES_TO_REPORT:
-        kinds = []
+        exact: list[str] = []
+        fallback: list[str] = []
         for kind, entries in by_kind.items():
-            if any(state in words or words & GENERIC for _, words in entries):
-                kinds.append(kind)
-        print(f"State {state}: {', '.join(kinds) if kinds else 'no named match'}")
+            if any(words & aliases[state] for _, words in entries):
+                exact.append(kind)
+            elif any(words & GENERIC for _, words in entries):
+                fallback.append(kind)
+        detail = []
+        if exact:
+            detail.append("exact=" + ", ".join(exact))
+        if fallback:
+            detail.append("generic fallback=" + ", ".join(fallback))
+        print(f"State {state}: {'; '.join(detail) if detail else 'no named match'}")
 
     players = [name for name in ("mpg123", "ffplay", "mpv") if shutil.which(name)]
     print("Available players: " + (", ".join(players) if players else "none found"))
