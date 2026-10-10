@@ -130,7 +130,8 @@ require(
     and "Do not silently turn a metaphor into a factual state change" in core,
     "the model distinguishes actual life, game-world events, and later philosophical hypotheticals",
 )
-\ngameboy = read("GameBoyAdvance.py")
+
+gameboy = read("GameBoyAdvance.py")
 require(
     '"session_id": row["session_id"]' in gameboy
     and '"game_started_at": row["game_started_at"]' in gameboy,
