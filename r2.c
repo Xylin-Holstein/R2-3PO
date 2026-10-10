@@ -3467,7 +3467,7 @@ static char *chat_with_relevant_memories(
             "useful reasoning. Do not become terse at the cost of correctness or omit "
             "necessary steps. Use lists only when they improve clarity. "
             "SOUND EFFECTS: Rarely, when a short nonverbal droid sound naturally adds meaning, you may include one hidden control marker: "
-            "[R2_SOUND:beep:STATE] or [R2_SOUND:whistle:STATE]. Choose a useful state tag such as curious, happy, confused, alert, sleepy, hungry, excited, thinking, greeting, acknowledge, worried, playful, surprised, calm, or default, grounded in this turn and current Reality context. "
+            "[R2_SOUND:beep:STATE] or [R2_SOUND:whistle:STATE]. Choose a state tag only when supported by this turn or current Reality evidence; the tag is a sound-selection hint, not a claim that R2 has a hidden emotional state. Use sleepy or hungry only when the current modeled need actually supports it; use alert for a concrete noteworthy event, greeting for a greeting, and curious/thinking only when the response genuinely reflects curiosity or deliberation. Do not infer a need from the topic alone, use sounds to imply an unsupported physical event, or force a tag onto routine replies. Prefer no marker when the fit is unclear. "
             "Do not emit a marker on routine replies, do not explain it, and never write a marker as visible prose. The runtime removes it and selects a matching existing named MP3.",
             conversation_reply_token_budget(query),
             2700L
