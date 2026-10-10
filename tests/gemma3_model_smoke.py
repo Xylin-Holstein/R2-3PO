@@ -119,10 +119,23 @@ require(
 )
 ears = read("Ears.c")
 require(
-    "Ears does NOT interpret the audio." in ears
-    and "- transcribe speech" in ears
-    and "R2_OLLAMA_MODEL" not in ears,
-    "Ears is accurately identified as raw audio capture, not a speech-model client",
+    "r2_ears_listen_and_interpret" in ears
+    and "r2_model_generate_audio" in ears
+    and "audio_interpreted" in ears
+    and "r2_save_memory(memory, \"audio_transcript\")" in ears,
+    "Ears supports explicit local audio interpretation and reconnects the result to memory and Life Log",
+)
+require(
+    'json_object_object_add(m, "images", audio)' in core
+    and "char *r2_model_generate_audio(" in core
+    and "R2_OLLAMA_MODEL" in core,
+    "audio input uses the shared Gemma model and existing Ollama transport",
+)
+require(
+    "r2_ears_listen(seconds)" in shell
+    and "parsed > 30" in shell
+    and "ears listen [seconds]" in shell,
+    "live audio interpretation is explicit and duration-bounded in the shell",
 )
 require(
     "Return a concise visual observation for R2's conversation to use as sensory evidence, not as a user-facing answer."
