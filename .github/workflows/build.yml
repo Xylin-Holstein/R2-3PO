@@ -43,6 +43,9 @@ jobs:
       - name: Check unified Gemma 4 conversation and vision wiring
         run: python3 tests/gemma3_model_smoke.py
 
+      - name: Exercise shared Gemma 4 audio WAV payload through a local Ollama stub
+        run: python3 tests/audio_model_payload_smoke.py
+
       - name: Check Game Boy console syntax and lifecycle
         run: |
           python3 -m py_compile GameBoyAdvance.py tests/gameboy_console_smoke.py
