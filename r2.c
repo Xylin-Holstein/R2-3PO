@@ -1368,6 +1368,9 @@ static size_t extract_memory_keywords(
         {"mother", "mommy"},
         {"mother", "mama"},
         {"mom", "mother"},
+        /* The user's established name-to-relationship fact: Eli is Mother. */
+        {"eli", "mother"},
+        {"mother", "eli"},
         {"father", "dad"},
         {"father", "daddy"},
         {"dad", "father"},
