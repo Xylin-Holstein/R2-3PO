@@ -59,7 +59,7 @@ jobs:
           rm -rf "$ROOT" /tmp/r2-wallet-smoke-r2.o /tmp/r2-wallet-smoke-test
           FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\"$ROOT\" -DR2_HOME=\"$ROOT/R2\" -DR2_WORKSPACE=\"$ROOT\" -DR2_DIARY_DATABASE=\"$ROOT/R2/r2_memory.db\" -DR2_DIARY_DIR=\"$ROOT/R2_Diary\""
           cc $FLAGS -Dmain=r2_program_main -c r2.c -o /tmp/r2-wallet-smoke-r2.o
-          cc $FLAGS tests/money_wallet_smoke.c shell.c r2_diary.c Log.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c /tmp/r2-wallet-smoke-r2.o -o /tmp/r2-wallet-smoke-test -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
+          cc $FLAGS tests/money_wallet_smoke.c shell.c r2_diary.c Log.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c R2Sounds.c /tmp/r2-wallet-smoke-r2.o -o /tmp/r2-wallet-smoke-test -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
           /tmp/r2-wallet-smoke-test
 
       - name: Exercise shared Ollama request-gate serialization
@@ -96,7 +96,7 @@ jobs:
           rm -rf "$ROOT" /tmp/r2-needs-smoke-r2.o /tmp/r2-needs-smoke-test
           FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\"$ROOT\" -DR2_HOME=\"$ROOT/R2\" -DR2_WORKSPACE=\"$ROOT\" -DR2_DIARY_DATABASE=\"$ROOT/R2/r2_memory.db\" -DR2_DIARY_DIR=\"$ROOT/R2_Diary\""
           cc $FLAGS -Dmain=r2_program_main -c r2.c -o /tmp/r2-needs-smoke-r2.o
-          cc $FLAGS tests/reality_needs_smoke.c shell.c r2_diary.c Log.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c /tmp/r2-needs-smoke-r2.o -o /tmp/r2-needs-smoke-test -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
+          cc $FLAGS tests/reality_needs_smoke.c shell.c r2_diary.c Log.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c R2Sounds.c /tmp/r2-needs-smoke-r2.o -o /tmp/r2-needs-smoke-test -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
           /tmp/r2-needs-smoke-test
 
       - name: Check fridge context against real inventory semantics
@@ -106,6 +106,11 @@ jobs:
         run: |
           python3 -m py_compile tools/audit_r2_databases.py tests/test_database_preflight.py
           python3 tests/test_database_preflight.py
+
+      - name: Exercise state-aware R2 sound selection and reply markers
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -O2 -I. tests/r2_sounds_smoke.c R2Sounds.c -lpthread -o /tmp/r2-sounds-smoke
+          /tmp/r2-sounds-smoke
 
       - name: Compile R2 with the same sources and flags as the launcher
         run: make clean all CFLAGS="-std=c11 -Wall -Wextra -Werror -O2"
