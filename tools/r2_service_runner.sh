@@ -11,6 +11,21 @@ OLLAMA_TAGS_URL="http://127.0.0.1:11434/api/tags"
 log() { printf '[R2 service] %s\n' "$*"; }
 fail() { log "ERROR: $*"; exit 1; }
 
+# Acquire the sleep inhibitor before waiting for Ollama or doing any preflight.
+# Re-enter this script under the inhibitor with real time; faketime is applied
+# only to the final R2 process, never to systemd-inhibit or its checks.
+if [[ "${R2_INHIBIT_ACTIVE:-0}" != "1" ]]; then
+    if command -v systemd-inhibit >/dev/null 2>&1 &&
+       systemd-inhibit --what=sleep --mode=block --who=R2-3PO \
+           --why="Check R2-3PO sleep inhibitor support" /usr/bin/true >/dev/null 2>&1; then
+        exec systemd-inhibit --what=sleep --mode=block --who=R2-3PO \
+            --why="Keep R2-3PO running for its overnight session" \
+            /usr/bin/env R2_INHIBIT_ACTIVE=1 "$0" "$@"
+    else
+        export R2_INHIBIT_UNAVAILABLE=1
+    fi
+fi
+
 [[ "$(id -un)" == "r2" ]] || fail "must run as the dedicated Linux account 'r2' (systemd unit configures this)."
 [[ -x "$R2_EXEC" ]] || fail "executable missing or not executable: $R2_EXEC; run tools/install_r2_overnight.sh first."
 [[ -d "$R2_SOURCE" && -r "$R2_SOURCE" && -x "$R2_SOURCE" ]] || fail "source/runtime directory is not readable: $R2_SOURCE"
@@ -80,13 +95,9 @@ R2_ENV=(/usr/bin/env
     "R2_VISION_MODEL=gemma3:4b"
     "$R2_EXEC")
 
-# systemd-inhibit blocks suspend while R2 is alive, so an overnight session can continue.
+# The inhibitor, when available, already wraps this entire runner and its child.
 # The service still shuts down normally on systemctl stop or SIGTERM.
-if command -v systemd-inhibit >/dev/null 2>&1 &&
-   systemd-inhibit --what=sleep --mode=block --who=R2-3PO \
-       --why="Check R2-3PO sleep inhibitor support" /usr/bin/true >/dev/null 2>&1; then
-    exec systemd-inhibit --what=sleep --mode=block --who=R2-3PO --why="Keep R2-3PO running for its overnight session" "${R2_ENV[@]}"
-else
+if [[ "${R2_INHIBIT_UNAVAILABLE:-0}" == "1" ]]; then
     log "WARNING: system sleep inhibition is unavailable; host suspend may pause the overnight session."
-    exec "${R2_ENV[@]}"
 fi
+exec "${R2_ENV[@]}"
