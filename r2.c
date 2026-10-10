@@ -6288,14 +6288,24 @@ char *r2_recent_conversation_context(const char *exclude_latest, size_t max_char
 
         size_t room = max_chars - used;
         size_t content_length = strlen(content);
-        size_t n = content_length > 650 ? 650 : content_length;
-        if (n > room) n = room;
-        if (n) {
-            memcpy(out + used, content, n);
-            used += n;
-            if (n == 650 && content_length > n && used + 3 < max_chars) {
-                memcpy(out + used, "...", 3);
-                used += 3;
+        if (content_length > 650 && room >= 650) {
+            /* Preserve the beginning and ending of long turns; constraints and
+               corrections often appear at the end of a user's message. */
+            const size_t head = 420;
+            const char *omission = " ...[middle omitted]... ";
+            const size_t omission_n = strlen(omission);
+            const size_t tail = 650 - head - omission_n;
+            memcpy(out + used, content, head);
+            used += head;
+            memcpy(out + used, omission, omission_n);
+            used += omission_n;
+            memcpy(out + used, content + content_length - tail, tail);
+            used += tail;
+        } else {
+            size_t n = content_length < room ? content_length : room;
+            if (n) {
+                memcpy(out + used, content, n);
+                used += n;
             }
         }
         if (used < max_chars) out[used++] = '\n';
