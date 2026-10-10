@@ -183,6 +183,13 @@ int main(void)
     if (sqlite3_exec(fridge, "DELETE FROM r2_fridge_items", NULL, NULL, NULL) != SQLITE_OK)
         fail("could not empty fridge for no-invention test");
     sqlite3_close(fridge);
+    char *empty_fridge_context = r2_fridge_context();
+    if (!empty_fridge_context ||
+        strstr(empty_fridge_context, "generated automatically") ||
+        strstr(empty_fridge_context, "automatically generates") ||
+        !strstr(empty_fridge_context, "stays empty"))
+        fail("fridge context must not tell the model that empty stock respawns");
+    free(empty_fridge_context);
     if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality database for empty-fridge test");
     if (sqlite3_prepare_v2(db,
         "UPDATE r2_reality_self SET hunger=60,seconds_since_meal=10000,last_tick=? WHERE id=1",
