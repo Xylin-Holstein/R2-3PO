@@ -950,19 +950,21 @@ static int fridge_change_one(const char *food, char *description, size_t descrip
     sqlite3_finalize(st);
     return rc == SQLITE_DONE ? 0 : -1;
 }
-static void fridge_restore_one(const char *food, const char *description, double fullness, double energy,
-                              const char *ingredients, const char *taste)
+static int fridge_restore_one(const char *food, const char *description, double fullness, double energy,
+                             const char *ingredients, const char *taste)
 {
     sqlite3_stmt *st = NULL;
-    if (sqlite3_prepare_v2(fridge_db,
+    int rc = sqlite3_prepare_v2(fridge_db,
         "INSERT INTO r2_fridge_items(name,description,quantity,fullness,energy,ingredients,taste) VALUES(?,?,1,?,?,?,?) ON CONFLICT(name) DO UPDATE SET quantity=quantity+1,updated_at=CURRENT_TIMESTAMP",
-        -1, &st, NULL) == SQLITE_OK) {
+        -1, &st, NULL);
+    if (rc == SQLITE_OK) {
         bind_text(st, 1, food); bind_text(st, 2, description);
         sqlite3_bind_double(st, 3, fullness); sqlite3_bind_double(st, 4, energy);
         bind_text(st, 5, ingredients ? ingredients : ""); bind_text(st, 6, taste ? taste : "");
-        (void)sqlite3_step(st);
+        rc = sqlite3_step(st);
     }
     if (st) sqlite3_finalize(st);
+    return rc == SQLITE_DONE ? 0 : -1;
 }
 int r2_fridge_add_item(const char *name, const char *description, int quantity,
                        double fullness, double energy, const char *ingredients, const char *taste)
