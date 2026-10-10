@@ -1750,6 +1750,8 @@ static void shell_imagine(const char *argument)
             printf("[Feedback recorded. This branch already received its one positive learning signal; no duplicate reward was applied.]\n");
         } else if (rc == -2) {
             printf("[Accurate feedback needs a note describing the evidence. No reward was applied.]\n");
+        } else if (rc == -3) {
+            printf("[Feedback was saved but could not be linked to its branch. No reward was applied.]\n");
         } else {
             printf("[Feedback could not be recorded. Check the branch ID and assessment.]\n");
         }
