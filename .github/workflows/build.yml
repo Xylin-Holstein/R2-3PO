@@ -11,6 +11,7 @@ on:
   pull_request:
     branches:
       - main
+      - clean-copy-r2-audit-2026-10-09
   workflow_dispatch:
 
 jobs:
