@@ -215,6 +215,15 @@ require(
     "chat and imagination exclude live fridge stock while preserving explicit world-action access",
 )
 require(
+    "static const char *const chat_media_terms[]" in core
+    and "if (chat_media_relevant && r2_reality_is_initialized())" in core
+    and "r2_reality_tv_status()" in core
+    and "static const char *const chat_money_terms[]" in core
+    and "if (chat_money_relevant && r2_reality_is_initialized())" in core
+    and "r2_reality_money_context()" in core,
+    "chat retrieves current TV/VCR and money state only when relevant to the topic",
+)
+require(
     "imagination_branch_saved" in core
     and "if (!skip_hypotheticals &&" in core
     and "schedule_post_turn_processing(message, reply, turn_event_id, imagination_branch_saved)" in core,
