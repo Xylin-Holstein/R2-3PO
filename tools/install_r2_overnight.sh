@@ -2,9 +2,9 @@
 # Build R2 and install/activate its supervised overnight systemd service.
 set -euo pipefail
 
-R2_ROOT="${R2_ROOT:-/home/x/R2_Home}"
-R2_SOURCE="${R2_SOURCE:-$R2_ROOT/R2}"
-R2_EXEC="${R2_EXEC:-$R2_ROOT/r2}"
+R2_ROOT="/home/x/R2_Home"
+R2_SOURCE="$R2_ROOT/R2"
+R2_EXEC="$R2_ROOT/r2"
 UNIT_SOURCE="$R2_SOURCE/deploy/r2-3po.service"
 RUNNER_SOURCE="$R2_SOURCE/tools/r2_service_runner.sh"
 UNIT_DEST="/etc/systemd/system/r2-3po.service"
