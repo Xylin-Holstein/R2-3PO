@@ -90,9 +90,7 @@ char *r2_reply_sanitize(const char *reply)
         const char *final = strcasestr(start, "\nfinal:");
         if (!final) final = strcasestr(start, "\n\nfinal:");
         if (!final) return NULL;
-        final = strchr(final, 'f');
-        if (!final) return NULL;
-        start = final + 6;
+        start = final + strlen("\nfinal:");
     }
 
     char *clean = malloc(strlen(start) + 1);
