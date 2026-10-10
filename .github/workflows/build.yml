@@ -8,9 +8,11 @@ on:
       - r2-audit-fixes-2026-10-09
       - r2-complete-audit-2026-10-09
       - combined-audit-tv-vcr-2026-10-09
+      - ollama-long-response-retries-2026-10-09
   pull_request:
     branches:
       - main
+      - combined-audit-tv-vcr-2026-10-09
   workflow_dispatch:
 
 jobs:
@@ -38,7 +40,7 @@ jobs:
           python3 -m py_compile TV.py tests/tv_display_smoke.py
           python3 tests/tv_display_smoke.py
 
-      - name: Check unified Gemma 3 conversation and vision wiring
+      - name: Check unified Gemma 4 conversation and vision wiring
         run: python3 tests/gemma3_model_smoke.py
 
       - name: Check Game Boy console syntax and lifecycle
