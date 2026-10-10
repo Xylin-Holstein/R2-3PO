@@ -3405,7 +3405,7 @@ static char *chat_with_relevant_memories(
         if (tv_context && *tv_context) {
             append_reply_context(
                 &memory_context,
-                "CURRENT CRT/VCR STATE (Reality DB; modeled device state, not proof of media contents):\\n",
+                "CURRENT CRT/VCR STATE (Reality DB; modeled device state, not proof of media contents):\n",
                 tv_context, 1600);
         }
         free(tv_context);
@@ -3429,7 +3429,7 @@ static char *chat_with_relevant_memories(
         if (money_context && *money_context) {
             append_reply_context(
                 &memory_context,
-                "CURRENT MONEY STATE (Reality DB; modeled balances, not a prediction of future transactions):\\n",
+                "CURRENT MONEY STATE (Reality DB; modeled balances, not a prediction of future transactions):\n",
                 money_context, 700);
         }
         free(money_context);
