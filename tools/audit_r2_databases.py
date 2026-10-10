@@ -234,7 +234,10 @@ def main() -> int:
         if snapshot_created:
             print("Snapshots are per-database; stop R2 first for cross-database consistency.")
 
-    return 2 if report["summary"]["integrity_failures"] or snapshot_errors else 0
+    # Missing expected databases are a failed preflight, not a clean pass.
+    # The report remains read-only and still lists every missing path.
+    return 2 if (report["summary"]["integrity_failures"] or
+                  report["summary"]["missing"] or snapshot_errors) else 0
 
 
 if __name__ == "__main__":
