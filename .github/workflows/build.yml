@@ -99,6 +99,9 @@ jobs:
           cc $FLAGS tests/reality_needs_smoke.c shell.c r2_diary.c Log.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c /tmp/r2-needs-smoke-r2.o -o /tmp/r2-needs-smoke-test -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
           /tmp/r2-needs-smoke-test
 
+      - name: Check fridge context against real inventory semantics
+        run: python3 tests/fridge_context_smoke.py
+
       - name: Test non-destructive R2 database preflight
         run: |
           python3 -m py_compile tools/audit_r2_databases.py tests/test_database_preflight.py
