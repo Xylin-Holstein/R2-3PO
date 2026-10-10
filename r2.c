@@ -354,6 +354,7 @@ static const char *SYSTEM_PROMPT =
 "Also reason counterfactually about preferences: would you still like, dislike, choose, or trust something if you learned a new fact about its origin, ingredients, properties, consequences, or context? Compare the new information with your recorded experiences, sensory observations, self-facts, memories, and learned preferences.\n"
 "Separate known facts, direct sensory observations, remembered evidence, assumptions, and predictions. Imagined sensory details are predictions, not observations. Never activate Eyes or Ears, change the world, eat food, or update a learned preference merely to answer a hypothetical. Only a real experience or explicit user feedback may update an experiential preference.\n"
 "Use [ALTERNATE_LIST], [ALTERNATE_SHOW] id, or [ALTERNATE_COMPARE] id id to inspect saved what-if branches. Save useful or explicitly requested counterfactuals using [ALTERNATE_CREATE] name|scenario|assumptions|predicted outcome|conclusion|optional evidence event ID [END ALTERNATE_CREATE]. Make a separate branch for each materially different alternative; do not constrain the lab to any fixed list.\nIMAGINATION is an active capability, not merely a synonym for counterfactual reasoning. When the user asks you to imagine, envision, speculate creatively, or mentally explore a possible scene, use [IMAGINE] the actual request [END IMAGINE]. The subsystem retrieves relevant evidence from memory, diary, Life Log, Reality, visual history, reward/preferences, habits, and Choice Lab BEFORE generating the imagined scenario. Context must shape the imagined content itself. Imagined details are not observations or factual memories. An inaccurate imagination is never punished; only explicit accurate feedback can produce positive reinforcement. Imagining must not execute tools or alter real-world state.\n"
+"HEARING is opt-in. Only when the user explicitly asks you to listen to or analyze currently audible sound, or to transcribe what is being heard now, you may use [HEAR] 5 [END HEAR] (the number is seconds; 1-30, default 5). This opens the current microphone only for that requested clip when no source is already open, then sends the short WAV to the same local Gemma 4 model. Never invoke HEAR for unrelated conversation, curiosity, or without explicit listening intent. Audio interpretation is model-generated and uncertain; never identify a person by voice or present guesses as verified facts.\n"
 "Use [ALTERNATE_RETAIN] id or [ALTERNATE_DISCARD] id only when explicitly requested. A retained hypothesis remains hypothetical and must never be promoted into a factual memory.\n"
 "When a proposed purchase has no user-supplied or otherwise evidenced price, do not invent a price or pretend a store has stock. Ask for the price or wait for explicit price information. Only execute [WORLD] buy|item name|price|description|destination after the item, price, and intended destination are established; report failure if funds or the transaction are insufficient.\n"
 "Use [WORLD] location|location name|home or [WORLD] location|location name|outside only when simulated movement is actually being carried out, not merely planned. Use home only for the actual home; stores and other away places use outside. The location transition persists, and private Welcome Home memory is created only after an away-to-home transition.\n"
@@ -4875,6 +4876,35 @@ static char *process_tools(
             APPEND("IMAGINATION ERROR: the scenario could not be generated or saved. No factual state was changed.\\n");
         }
         free(request);
+    }
+
+    /* Hearing is an explicit sensory action, never an autonomous background capture. */
+    size_t hear_pos = 0;
+    while (1) {
+        char *duration_text = extract_marker(reply, "[HEAR]", "[END HEAR]", &hear_pos);
+        if (!duration_text) break;
+        char *value = trim(duration_text);
+        unsigned seconds = 5;
+        if (*value) {
+            char *end = NULL;
+            errno = 0;
+            unsigned long parsed = strtoul(value, &end, 10);
+            while (end && (*end == ' ' || *end == '\t' || *end == '\r' || *end == '\n')) ++end;
+            if (errno || !end || end == value || *end || parsed < 1 || parsed > 30) {
+                APPEND("HEARING ERROR: expected an optional duration from 1 to 30 seconds. No audio was captured.\n");
+                free(duration_text);
+                continue;
+            }
+            seconds = (unsigned)parsed;
+        }
+        char *heard = r2_ears_listen(seconds);
+        if (heard) {
+            APPEND("AUDIO INTERPRETATION (explicitly requested local capture; model-generated and uncertain):\n%.3500s\n", heard);
+            free(heard);
+        } else {
+            APPEND("HEARING ERROR: audio capture or local interpretation failed. No transcript was added to the conversation.\n");
+        }
+        free(duration_text);
     }
 
     /* Alternate-Self Lab queries read, create, or compare hypothetical branches only. */
