@@ -18,7 +18,8 @@ static char last_prompt[12000];
 static int branch_creates;
 static int feedback_events;
 static int links;
-static int rewards;
+static int reward_calls;
+static int rewards_applied;
 static int reward_already_applied;
 
 static int check(int ok, const char *message)
@@ -98,9 +99,10 @@ int r2_reward_apply_once(const char *target, const char *source, int points,
                          const char *reason, int voluntary_choice)
 {
     (void)target; (void)source; (void)points; (void)reason; (void)voluntary_choice;
-    ++rewards;
+    ++reward_calls;
     if (reward_already_applied) return 1;
     reward_already_applied = 1;
+    ++rewards_applied;
     return 0;
 }
 char *r2_model_generate(const char *system_prompt, const char *user_prompt, int max_tokens)
@@ -142,16 +144,16 @@ int main(void)
 
     if (!check(r2_imagination_feedback(41, "incorrect", "The later observation contradicted it.") == 0,
                "incorrect imagination can be recorded without punishment")) goto done;
-    if (!check(rewards == 0, "incorrect imagination applies no reward or penalty")) goto done;
+    if (!check(rewards_applied == 0, "incorrect imagination applies no reward or penalty")) goto done;
     if (!check(r2_imagination_feedback(41, "accurate", "") == -2,
                "positive feedback requires evidence notes")) goto done;
-    if (!check(rewards == 0, "missing evidence does not reward")) goto done;
+    if (!check(rewards_applied == 0, "missing evidence does not reward")) goto done;
     if (!check(r2_imagination_feedback(41, "accurate", "Later direct observation matched the prediction.") == 0,
                "evidence-backed accurate feedback is accepted")) goto done;
-    if (!check(rewards == 1 && links == 2,
+    if (!check(rewards_applied == 1 && links == 2,
                "feedback is linked to the hypothetical branch and accurate feedback rewards once")) goto done;
     if (!check(r2_imagination_feedback(41, "accurate", "The same observation still matches.") == 2
-               && rewards == 2,
+               && reward_calls == 2 && rewards_applied == 1,
                "a repeated accurate result cannot apply a second reward")) goto done;
 
     passed = 1;
