@@ -402,6 +402,8 @@ int main(void)
        back rather than persist a half-slept body state. */
     if (r2_reality_tick() != 0) fail("pre-failure tick failed");
     if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not open Reality DB for rollback test");
+    if (sqlite3_exec(db, "UPDATE r2_reality_self SET last_tick=CAST(strftime('%s','now') AS INTEGER)+100 WHERE id=1", NULL, NULL, NULL) != SQLITE_OK)
+        fail("could not isolate rollback test from wall-clock second boundaries");
     double before_hunger = 0.0, before_sleepiness = 0.0, before_energy = 0.0;
     char before_elapsed[64] = {0};
     if (sqlite3_prepare_v2(db,
