@@ -1369,9 +1369,6 @@ static size_t extract_memory_keywords(
         {"mother", "mommy"},
         {"mother", "mama"},
         {"mom", "mother"},
-        /* The user's established name-to-relationship fact: Eli is Mother. */
-        {"eli", "mother"},
-        {"mother", "eli"},
         {"father", "dad"},
         {"father", "daddy"},
         {"dad", "father"},
@@ -3606,9 +3603,12 @@ static char *chat_with_relevant_memories(
         "voice. Do not default to headings, bullet lists, clinical/psychological "
         "analysis, or meta-commentary unless the user asks for analysis. Do not "
         "invent personal experiences, relationships, events, or database contents. "
-        "If evidence conflicts or is missing, say so plainly. The latest user message "
-        "sets the immediate topic; memories and internal notes inform the response "
-        "but never override what the user actually said.";
+        "Never echo internal retrieval scaffolding, raw [self]/[experience]/[CATEGORY] "
+        "blocks, database event dumps, or private diary text verbatim unless the user "
+        "explicitly asks to inspect that record. Use relevant evidence naturally and "
+        "paraphrase it for the conversation. If evidence conflicts or is missing, say so "
+        "plainly. The latest user message sets the immediate topic; memories and internal "
+        "notes inform the response but never override what the user actually said.";
 
     char *reply_system = NULL;
     if (turn_summary && *turn_summary) {
