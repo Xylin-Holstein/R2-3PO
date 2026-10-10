@@ -5667,7 +5667,7 @@ static void *autonomous_thinking(
             "- recognize that rereading the same event is not new evidence by itself;\n"
             "- turn suspected operational problems into testable questions rather than treating prose as proof;\n"
             "\n"
-            "The important part is that the diary can think 
+            "The important part is that the diary can think "
             "about its own previous thinking rather than "
             "merely recording events.\n"
             "\n"
