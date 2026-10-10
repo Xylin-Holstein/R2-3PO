@@ -164,13 +164,13 @@ char *r2_reply_sanitize(const char *reply)
             visible_looks_private = 1;
     }
     if (visible_looks_private) {
-        const char *final = strcasestr(visible, "\\nfinal:");
-        if (!final) final = strcasestr(visible, "\\n\\nfinal:");
+        const char *final = strcasestr(visible, "\nfinal:");
+        if (!final) final = strcasestr(visible, "\n\nfinal:");
         if (!final) {
             free(clean);
             return NULL;
         }
-        const char *final_content = final + strlen("\\nfinal:");
+        const char *final_content = final + strlen("\nfinal:");
         memmove(clean, final_content, strlen(final_content) + 1);
         trim_reply(clean);
     }
