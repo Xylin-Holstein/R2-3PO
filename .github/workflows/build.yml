@@ -82,6 +82,15 @@ jobs:
             -o /tmp/r2-imagination-smoke
           /tmp/r2-imagination-smoke
 
+      - name: Exercise atomic one-time reward behavior
+        run: |
+          ROOT=/tmp/r2-reward-once-smoke
+          rm -rf "$ROOT" /tmp/r2-reward-once-smoke-test
+          mkdir -p "$ROOT/R2"
+          FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\"$ROOT\" -DR2_HOME=\"$ROOT/R2\" -DR2_WORKSPACE=\"$ROOT\" -DR2_DIARY_DATABASE=\"$ROOT/R2/r2_memory.db\" -DR2_DIARY_DIR=\"$ROOT/R2_Diary\""
+          cc $FLAGS tests/reward_once_smoke.c Reward.c -lsqlite3 -lpthread -o /tmp/r2-reward-once-smoke-test
+          /tmp/r2-reward-once-smoke-test
+
       - name: Exercise Alternate-Self Lab persistence
         run: |
           cc -std=c11 -Wall -Wextra -Werror -O2 -I. \
