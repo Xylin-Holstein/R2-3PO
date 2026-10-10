@@ -21,6 +21,8 @@ static void fail(const char *message)
 static void read_needs(double *hunger, double *sleepiness, double *energy,
                        double *satisfaction, double *since_meal)
 {
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/r2_reality.db", R2_HOME);
     sqlite3 *db = NULL;
     sqlite3_stmt *st = NULL;
     if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not open Reality database");
