@@ -2620,7 +2620,8 @@ static char *ollama_chat_with_limit(
     size_t count,
     const char *system_override,
     int num_predict,
-    long timeout_seconds)
+    long timeout_seconds,
+    const char *audio_base64)
 {
     struct json_object *root = json_object_new_object();
     if (!root) return NULL;
@@ -2744,6 +2745,26 @@ static char *ollama_chat_with_limit(
         json_object_object_add(m, "role", json_object_new_string(role));
         json_object_object_add(m, "content",
                                json_object_new_string_len(content, (int)limits[i]));
+        /* Gemma 4 E2B accepts WAV audio through Ollama's images field. Keep
+           the audio attached to the single user message of the explicit
+           audio-analysis request; ordinary chat payloads remain unchanged. */
+        if (audio_base64 && !strcmp(role, "user")) {
+            struct json_object *audio = json_object_new_array();
+            struct json_object *encoded = json_object_new_string(audio_base64);
+            if (!audio || !encoded) {
+                if (audio) json_object_put(audio);
+                if (encoded) json_object_put(encoded);
+                json_object_put(m);
+                free(include);
+                free(limits);
+                json_object_put(arr);
+                json_object_put(root);
+                return NULL;
+            }
+            json_object_array_add(audio, encoded);
+            json_object_object_add(m, "images", audio);
+            audio_base64 = NULL; /* exactly one user message receives the clip */
+        }
         json_object_array_add(arr, m);
     }
     free(include);
@@ -2984,7 +3005,7 @@ static char *ollama_chat(
     /* Generic helper calls are background work; live conversations take priority. */
     int previous_mode = ollama_background_mode;
     ollama_background_mode = 1;
-    char *result = ollama_chat_with_limit(msgs, count, system_override, 0, 600L);
+    char *result = ollama_chat_with_limit(msgs, count, system_override, 0, 600L, NULL);
     ollama_background_mode = previous_mode;
     return result;
 }
@@ -3584,7 +3605,7 @@ static char *chat_with_relevant_memories(
     char *turn_summary = NULL;
     if (needs_turn_summary) {
         turn_summary = ollama_chat_with_limit(
-            copy, base_count, turn_summary_prompt, 384, 600L);
+            copy, base_count, turn_summary_prompt, 384, 600L, NULL);
     }
 
     const char *reply_base_prompt =
@@ -3632,7 +3653,7 @@ static char *chat_with_relevant_memories(
     char *reply = ollama_chat_with_limit(
         copy, base_count,
         reply_system ? reply_system : reply_base_prompt,
-        0, 18000L);
+        0, 18000L, NULL);
 
     free(reply_system);
     free(turn_summary);
@@ -3804,7 +3825,8 @@ static char *plan_hand_request(
             1,
             NULL,
             256,
-            600L
+            600L,
+            NULL
         );
 
     free(prompt);
@@ -5870,7 +5892,8 @@ static void *autonomous_thinking(
                 1,
                 prompt,
                 1024,
-                600L
+                600L,
+                NULL
             );
 
         free(ctx);
@@ -6035,7 +6058,8 @@ static char *memory_decision(
             1,
             sys,
             128,
-            600L
+            600L,
+            NULL
         );
 
     free(u);
@@ -6344,7 +6368,88 @@ char *r2_model_generate(const char *system_prompt, const char *user_prompt,
     if (max_tokens > 1200) max_tokens = 1200;
     Message message = { "user", (char *)user_prompt, 0 };
     return ollama_chat_with_limit(&message, 1, system_prompt,
-                                  max_tokens, 300L);
+                                  max_tokens, 300L, NULL);
+}
+
+/* Encode a bounded WAV file for Gemma 4's audio input. This stays in the
+   core so audio shares the same Ollama transport, model, request gate, retry
+   policy, and response limits as conversation and vision. */
+static char *r2_audio_file_base64(const char *wav_path)
+{
+    if (!wav_path || !*wav_path) return NULL;
+    FILE *fp = fopen(wav_path, "rb");
+    if (!fp) return NULL;
+    if (fseek(fp, 0, SEEK_END) != 0) { fclose(fp); return NULL; }
+    long file_size = ftell(fp);
+    if (file_size < 44 || file_size > 8 * 1024 * 1024 ||
+        fseek(fp, 0, SEEK_SET) != 0) {
+        fclose(fp);
+        return NULL;
+    }
+    unsigned char header[12];
+    if (fread(header, 1, sizeof(header), fp) != sizeof(header) ||
+        memcmp(header, "RIFF", 4) != 0 || memcmp(header + 8, "WAVE", 4) != 0 ||
+        fseek(fp, 0, SEEK_SET) != 0) {
+        fclose(fp);
+        return NULL;
+    }
+    size_t n = (size_t)file_size;
+    unsigned char *bytes = malloc(n);
+    if (!bytes) { fclose(fp); return NULL; }
+    if (fread(bytes, 1, n, fp) != n) {
+        free(bytes);
+        fclose(fp);
+        return NULL;
+    }
+    fclose(fp);
+
+    static const char alphabet[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    if (n > (SIZE_MAX - 4) / 4 * 3) { free(bytes); return NULL; }
+    size_t encoded_len = ((n + 2) / 3) * 4;
+    char *encoded = malloc(encoded_len + 1);
+    if (!encoded) { free(bytes); return NULL; }
+    size_t i = 0, o = 0;
+    while (i < n) {
+        size_t remain = n - i;
+        uint32_t a = bytes[i++];
+        uint32_t b = remain > 1 ? bytes[i++] : 0;
+        uint32_t c = remain > 2 ? bytes[i++] : 0;
+        encoded[o++] = alphabet[(a >> 2) & 0x3f];
+        encoded[o++] = alphabet[((a & 0x03) << 4) | ((b >> 4) & 0x0f)];
+        encoded[o++] = remain > 1 ? alphabet[((b & 0x0f) << 2) | ((c >> 6) & 0x03)] : '=';
+        encoded[o++] = remain > 2 ? alphabet[c & 0x3f] : '=';
+    }
+    encoded[o] = '\\0';
+    free(bytes);
+    return encoded;
+}
+
+char *r2_model_generate_audio(const char *system_prompt, const char *user_prompt,
+                              const char *wav_path, int max_tokens)
+{
+    if (!core_initialized || shutting_down || !user_prompt || !*user_prompt)
+        return NULL;
+    char *audio_base64 = r2_audio_file_base64(wav_path);
+    if (!audio_base64) {
+        r2_log_event(R2_LOG_ERROR, "audio_model_input_invalid",
+                     "R2 could not prepare the supplied WAV for local audio analysis.",
+                     "Expected a readable RIFF/WAVE file no larger than 8 MiB.",
+                     "r2_model_generate_audio");
+        return NULL;
+    }
+    if (max_tokens < 1) max_tokens = 256;
+    if (max_tokens > 800) max_tokens = 800;
+    Message message = { "user", (char *)user_prompt, 0 };
+    /* Audio analysis is opportunistic background work: it must not queue in
+       front of a foreground reply or compete with vision for the one model. */
+    int previous_mode = ollama_background_mode;
+    ollama_background_mode = 1;
+    char *result = ollama_chat_with_limit(&message, 1, system_prompt,
+                                          max_tokens, 180L, audio_base64);
+    ollama_background_mode = previous_mode;
+    free(audio_base64);
+    return result;
 }
 
 int r2_diary_active(void)
@@ -7112,7 +7217,7 @@ static void log_structured_self_report(const char *reply, int64_t parent_event_i
     Message m = { "user", input, 0 };
     char *json_text = ollama_chat_with_limit(&m, 1,
         "You are a strict structured data extractor. Output only valid JSON.",
-        768, 600L);
+        768, 600L, NULL);
     free(input);
     if (!json_text) {
         r2_log_event(R2_LOG_ERROR, "self_state_extraction_failed",
