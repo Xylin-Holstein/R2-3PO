@@ -266,9 +266,10 @@ static char *collect_context(const char *request)
         "fridge", "refrigerator", "fridge stock", "what is in the fridge",
         "what's in the fridge", "what is in my fridge", "what's in my fridge",
         "what food do i have", "what ingredients do i have",
-        "available ingredients", "cook with what i have", "what can i make",
-        "what is available to eat", "what's available to eat",
-        "current food stock", "food inventory"
+        "available ingredients", "cook with what i have", "meal with what i have",
+        "snack with what i have", "what can i cook", "what should i cook",
+        "what can i eat", "what should i eat", "what is available to eat",
+        "what's available to eat", "current food stock", "food inventory"
     };
     if (mentions_any(request, fridge_terms, sizeof(fridge_terms)/sizeof(fridge_terms[0]))) {
         part = r2_fridge_context();
