@@ -731,6 +731,52 @@ static int fridge_seed_if_empty_locked(void)
 {
     return fridge_db ? 0 : -1;
 }
+/* Remove only objects copied from the former automatic phantom-burger
+ * stock. The exact legacy description is provenance; ordinary burgers and
+ * all unrelated user inventory remain untouched. Caller holds reality_lock. */
+static int remove_legacy_phantom_tracked_food(void)
+{
+    for (;;) {
+        char name[512] = {0}, container[512] = {0};
+        sqlite3_stmt *st = NULL;
+        int rc = sqlite3_prepare_v2(reality_db,
+            "SELECT name,container FROM r2_reality_objects "
+            "WHERE description=? LIMIT 1", -1, &st, NULL);
+        if (rc != SQLITE_OK) return -1;
+        bind_text(st, 1,
+            "Guaranteed filling burger generated because the fridge was empty");
+        rc = sqlite3_step(st);
+        if (rc == SQLITE_DONE) {
+            sqlite3_finalize(st);
+            return 0;
+        }
+        if (rc != SQLITE_ROW) {
+            sqlite3_finalize(st);
+            return -1;
+        }
+        const unsigned char *n = sqlite3_column_text(st, 0);
+        const unsigned char *c = sqlite3_column_text(st, 1);
+        if (n) snprintf(name, sizeof(name), "%s", (const char *)n);
+        if (c) snprintf(container, sizeof(container), "%s", (const char *)c);
+        sqlite3_finalize(st);
+        if (!*name || !*container) return -1;
+
+        mirror_remove(name, container);
+        st = NULL;
+        rc = sqlite3_prepare_v2(reality_db,
+            "DELETE FROM r2_reality_objects WHERE name=? COLLATE NOCASE "
+            "AND description=?", -1, &st, NULL);
+        if (rc == SQLITE_OK) {
+            bind_text(st, 1, name);
+            bind_text(st, 2,
+                "Guaranteed filling burger generated because the fridge was empty");
+            rc = sqlite3_step(st);
+        }
+        if (st) sqlite3_finalize(st);
+        if (rc != SQLITE_DONE) return -1;
+    }
+}
+
 static void fridge_sync_mirrors(void)
 {
     if (!fridge_db) return;
