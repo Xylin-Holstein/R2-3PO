@@ -99,6 +99,8 @@ REQUIRED_FILES=(
 
     "$R2_SOURCE/AlternateSelf.c"
     "$R2_SOURCE/AlternateSelf.h"
+    "$R2_SOURCE/Imagination.c"
+    "$R2_SOURCE/Imagination.h"
 
     "$R2_SOURCE/Observer.py"
 
@@ -303,6 +305,7 @@ gcc -std=c11 -Wall -Wextra -O2 \
     "$R2_SOURCE/Addiction.c" \
     "$R2_SOURCE/Reward.c" \
     "$R2_SOURCE/AlternateSelf.c" \
+    "$R2_SOURCE/Imagination.c" \
     "$R2_SOURCE/Visual.c" \
     "$R2_SOURCE/Ears.c" \
     "$R2_SOURCE/Eyes.c" \
@@ -346,6 +349,7 @@ echo "    Reality.c"
 echo "    Addiction.c"
 echo "    Reward.c"
 echo "    AlternateSelf.c"
+echo "    Imagination.c"
 echo "    Visual.c"
 echo "    Ears.c"
 echo "    Eyes.c"
