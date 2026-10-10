@@ -1005,7 +1005,7 @@ static int save_memory(
    This is intentionally a SINGLE pinned message rather than
    100 individual messages.
 
-   That gives llama3 broad access to R2's recent long-term memory
+   That gives Gemma 4 E2B broad access to R2's recent long-term memory
    without consuming 100 separate entries in the conversation
    history.
 
@@ -2494,6 +2494,7 @@ static int validate_command(
 typedef struct {
     char *data;
     size_t size;
+    size_t capacity;
 } Buffer;
 
 
@@ -2513,16 +2514,27 @@ static size_t curl_write(
         add > SIZE_MAX - b->size - 1)
         return 0;
 
-    char *p =
-        realloc(
-            b->data,
-            b->size + add + 1
-        );
+    size_t needed = b->size + add + 1;
+    if (needed > b->capacity) {
+        /* Grow geometrically so streamed Ollama responses do not realloc
+         * and copy the whole accumulated response for every network chunk. */
+        size_t capacity = b->capacity ? b->capacity : 4096;
+        while (capacity < needed) {
+            if (capacity > (OLLAMA_MAX_RESPONSE_BYTES + 1U) / 2U) {
+                capacity = OLLAMA_MAX_RESPONSE_BYTES + 1U;
+                break;
+            }
+            capacity *= 2U;
+        }
+        if (capacity < needed)
+            return 0;
 
-    if (!p)
-        return 0;
-
-    b->data = p;
+        char *grown = realloc(b->data, capacity);
+        if (!grown)
+            return 0;
+        b->data = grown;
+        b->capacity = capacity;
+    }
 
     memcpy(
         b->data + b->size,
@@ -3134,7 +3146,7 @@ static char *chat_with_relevant_memories(
            -> current user message
 
        This avoids creating an artificial consecutive USER message,
-       which can change how llama3 interprets the conversation and
+       which can change how Gemma 4 E2B interprets the conversation and
        can suppress natural conversational behavior.
 
        The permanent conversation is never modified by retrieval.
@@ -7804,7 +7816,7 @@ int r2_init(void)
        R2 loads the newest 100 persistent memories when he starts.
 
        They are inserted into the Ollama conversation as ONE pinned
-       context message so llama3 has direct access to them.
+       context message so Gemma 4 E2B has direct access to them.
 
        This does NOT replace dynamic retrieval.
 
