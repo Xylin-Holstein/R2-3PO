@@ -43,6 +43,7 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn("systemctl enable --now r2-3po.service", source)
         self.assertNotIn("apt-get update", source)
         self.assertIn("pgrep -x r2", source)
+        self.assertIn("FAKETIME_FOUND", source)
 
 
 if __name__ == "__main__":
