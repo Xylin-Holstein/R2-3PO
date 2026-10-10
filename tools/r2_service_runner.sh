@@ -32,6 +32,12 @@ fi
 [[ -w "$R2_ROOT" ]] || fail "R2 runtime root is not writable by r2: $R2_ROOT"
 [[ -w "$R2_SOURCE" ]] || fail "R2 source/database directory is not writable by r2: $R2_SOURCE (SQLite and persistent memory need write access)"
 [[ -d "$R2_ROOT/R2_Diary" && -w "$R2_ROOT/R2_Diary" ]] || fail "R2 diary directory is missing or not writable by r2: $R2_ROOT/R2_Diary"
+for database in "$R2_SOURCE/r2_memory.db" "$R2_SOURCE/r2_reality.db" "$R2_SOURCE/r2_fridge.db"; do
+    [[ ! -L "$database" ]] || fail "refusing symlinked R2 database: $database"
+    if [[ -e "$database" ]]; then
+        [[ -f "$database" && -r "$database" && -w "$database" ]] || fail "existing database is not a readable/writable regular file for r2: $database"
+    fi
+done
 command -v curl >/dev/null 2>&1 || fail "curl is required to check the local Ollama service."
 command -v python3 >/dev/null 2>&1 || fail "python3 is required for the local Ollama model preflight."
 command -v date >/dev/null 2>&1 || fail "date is required for R2's private clock."
