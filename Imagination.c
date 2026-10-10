@@ -289,9 +289,10 @@ int r2_imagination_feedback(long long branch_id, const char *assessment,
         snprintf(target, sizeof(target), "imagination_branch_%lld", branch_id);
         /* Positive-only reinforcement; no negative reward is applied for any
            non-accurate result. Feedback is recorded separately from factual memory. */
-        if (r2_reward_apply(target, "verified_imagination", 1,
-                            details, 0) != 0)
-            return 1; /* Feedback persisted even if reinforcement is unavailable. */
+                int reward_rc = r2_reward_apply_once(target, "verified_imagination", 1,
+                                             details, 0);
+        if (reward_rc < 0) return 1; /* Feedback persisted; reinforcement unavailable. */
+        if (reward_rc > 0) return 2; /* Do not repeatedly reward the same branch. */
     }
     return 0;
 }
