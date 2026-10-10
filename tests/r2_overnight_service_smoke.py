@@ -35,7 +35,7 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn("User=r2", source)
         self.assertIn("Restart=always", source)
         self.assertIn("RestartSec=10", source)
-        self.assertIn("TimeoutStopSec=60", source)
+        self.assertIn("TimeoutStopSec=240", source)
         self.assertIn("WantedBy=multi-user.target", source)
         self.assertIn("R2_SERVICE_MODE=1", source)
         launcher = (ROOT / "R2_Launch_Code.sh").read_text(encoding="utf-8")
