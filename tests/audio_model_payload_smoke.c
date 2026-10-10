@@ -17,6 +17,23 @@ int main(int argc, char **argv)
         return 2;
     }
 
+    pthread_mutex_lock(&messages_lock);
+    int add_rc = message_add("user", "Please transcribe the current audio.");
+    pthread_mutex_unlock(&messages_lock);
+    if (add_rc != 0 || !latest_user_explicitly_requested_hearing()) {
+        fprintf(stderr, "explicit current-turn listening intent was not recognized\n");
+        curl_global_cleanup();
+        return 1;
+    }
+    pthread_mutex_lock(&messages_lock);
+    add_rc = message_add("user", "Now tell me a joke instead.");
+    pthread_mutex_unlock(&messages_lock);
+    if (add_rc != 0 || latest_user_explicitly_requested_hearing()) {
+        fprintf(stderr, "stale listening intent incorrectly authorized capture on an unrelated turn\n");
+        curl_global_cleanup();
+        return 1;
+    }
+
     /* Exercise the public model bridge without starting the robot, touching
        its databases, or requiring an installed Ollama daemon. The Python
        test supplies a local fake /api/chat endpoint and validates the payload. */
