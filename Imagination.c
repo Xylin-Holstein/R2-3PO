@@ -433,7 +433,7 @@ int r2_imagination_feedback(long long branch_id, const char *assessment,
     if (!accurate && !partial && !incorrect && !unresolved) return -1;
     /* Positive reinforcement requires an explicit evidence note. */
     if (accurate && (!notes || !*notes ||
-        strspn(notes, " \\t\\r\\n") == strlen(notes))) return -2;
+        strspn(notes, " \t\r\n") == strlen(notes))) return -2;
 
     char *branch = r2_altself_show((int64_t)branch_id);
     if (!branch || strstr(branch, "No Alternate-Self branches found") ||
