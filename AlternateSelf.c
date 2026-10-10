@@ -357,8 +357,8 @@ char *r2_altself_show(int64_t id)
         int64_t event_id = sqlite3_column_int64(st, 1);
         const unsigned char *summary = sqlite3_column_text(st, 2);
         char line[1400];
-        int n = snprintf(line, sizeof(line), "%s  Related Life Log event [%lld] (%s): %.900s\\n",
-            header_written ? "" : "  Related Life Log links:\\n",
+        int n = snprintf(line, sizeof(line), "%s  Related Life Log event [%lld] (%s): %.900s\n",
+            header_written ? "" : "  Related Life Log links:\n",
             (long long)event_id,
             relationship ? (const char *)relationship : "related",
             summary ? (const char *)summary : "");
@@ -377,8 +377,9 @@ char *r2_altself_show(int64_t id)
         }
         memcpy(out + used, line, add);
         used += add;
-        out[used] = '\\0';
+        out[used] = '\0';
         header_written = 1;
+        rc = SQLITE_OK;
     }
     if (st) sqlite3_finalize(st);
     pthread_mutex_unlock(&as_lock);
