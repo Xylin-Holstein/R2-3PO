@@ -43,6 +43,8 @@ static void read_needs(double *hunger, double *sleepiness, double *energy,
 int main(void)
 {
     if (r2_reality_init() != 0) fail("Reality initialization failed");
+    if (r2_reality_sleep(NAN) == 0)
+        fail("non-finite sleep duration must be rejected");
 
     /* Exercise malformed and zero-fullness XML metrics against the real
        parser. The test root is disposable; append-only fixtures are isolated. */
@@ -93,6 +95,10 @@ int main(void)
     snprintf(fridge_path, sizeof(fridge_path), "%s/r2_fridge.db", R2_HOME);
     sqlite3 *fridge = NULL;
     if (sqlite3_open(fridge_path, &fridge) != SQLITE_OK) fail("could not open fridge database");
+    if (r2_fridge_add_item("nan_fullness_stock", "Invalid metric test", 1, NAN, 10.0, "", "") == 0)
+        fail("fridge must reject NaN fullness before persisting stock");
+    if (r2_fridge_add_item("nan_energy_stock", "Invalid metric test", 1, 20.0, NAN, "", "") == 0)
+        fail("fridge must reject NaN energy before persisting stock");
     if (sqlite3_exec(fridge,
         "INSERT INTO r2_fridge_items(name,description,quantity,fullness,energy,ingredients,taste) "
         "VALUES('apple','Regression-test food stock',3,80,8,'apple','sweet') "
