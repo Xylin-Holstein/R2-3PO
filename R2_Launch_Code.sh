@@ -376,6 +376,7 @@ echo "    Visual.c"
 echo "    Ears.c"
 echo "    Eyes.c"
 echo "    R2Sounds.c"
+echo "    R2Reply.c"
 echo
 
 echo "[4/4] Transitioning to Linux user: r2..."
