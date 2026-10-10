@@ -1437,7 +1437,7 @@ int r2_reality_init(void)
         catchup_rc = sqlite3_exec(reality_db, "COMMIT", NULL, NULL, NULL);
     if (catchup_rc != SQLITE_OK) {
         (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
-        fprintf(stderr, "[R2 Reality] Persistent time catch-up failed; refusing partial startup state.\\n");
+        fprintf(stderr, "[R2 Reality] Persistent time catch-up failed; refusing partial startup state.\n");
         if (fridge_db) { sqlite3_close(fridge_db); fridge_db = NULL; }
         sqlite3_close(reality_db); reality_db = NULL;
         pthread_mutex_unlock(&reality_lock);
@@ -2572,7 +2572,7 @@ static int money_transfer(double amount, int deposit)
         int bank_restore = money_set_dir_balance(piggybank, old_bank);
         int mirror_restore = money_read_locked(&cash, &bank);
         if (wallet_restore != 0 || bank_restore != 0 || mirror_restore != 0)
-            fprintf(stderr, "[R2 Money] CRITICAL: deposit/withdraw failed and balance rollback was incomplete; inspect Wallet and piggybank files.\\n");
+            fprintf(stderr, "[R2 Money] CRITICAL: deposit/withdraw failed and balance rollback was incomplete; inspect Wallet and piggybank files.\n");
     }
     pthread_mutex_unlock(&reality_lock);
     if (rc == 0) money_mirror_write(cash, bank);
@@ -2604,7 +2604,7 @@ int r2_reality_money_receive(double amount)
         int wallet_restore = money_set_dir_balance(wallet, old_cash);
         int mirror_restore = money_read_locked(&cash, &bank);
         if (wallet_restore != 0 || mirror_restore != 0)
-            fprintf(stderr, "[R2 Money] CRITICAL: cash receipt failed and wallet rollback was incomplete; inspect Wallet files.\\n");
+            fprintf(stderr, "[R2 Money] CRITICAL: cash receipt failed and wallet rollback was incomplete; inspect Wallet files.\n");
     }
     pthread_mutex_unlock(&reality_lock);
     if (rc == 0 || mutation_started) money_mirror_write(cash, bank);
@@ -2642,7 +2642,7 @@ int r2_reality_buy_item(const char *name, const char *description,
         int bank_restore = money_set_dir_balance(piggybank, old_bank);
         int mirror_restore = money_read_locked(&cash, &bank);
         if (wallet_restore != 0 || bank_restore != 0 || mirror_restore != 0)
-            fprintf(stderr, "[R2 Money] CRITICAL: purchase failed and balance rollback was incomplete; inspect Wallet and piggybank files.\\n");
+            fprintf(stderr, "[R2 Money] CRITICAL: purchase failed and balance rollback was incomplete; inspect Wallet and piggybank files.\n");
     }
     pthread_mutex_unlock(&reality_lock);
     if (rc != 0) {
@@ -2659,7 +2659,7 @@ int r2_reality_buy_item(const char *name, const char *description,
         int mirror_restore = money_read_locked(&cash, &bank);
         pthread_mutex_unlock(&reality_lock);
         if (wallet_restore != 0 || bank_restore != 0 || mirror_restore != 0)
-            fprintf(stderr, "[R2 Money] CRITICAL: item creation failed and purchase rollback was incomplete; inspect Wallet and piggybank files.\\n");
+            fprintf(stderr, "[R2 Money] CRITICAL: item creation failed and purchase rollback was incomplete; inspect Wallet and piggybank files.\n");
         money_mirror_write(cash, bank);
         return -1;
     }
