@@ -723,18 +723,13 @@ static void fridge_mirror_write(const char *name, const char *description, int q
     if (!failed && rename(temp, path) != 0) failed = 1;
     if (failed) (void)unlink(temp);
 }
+/* Empty inventory is a valid world state. Never manufacture food to
+ * make the fridge appear populated: only explicit inventory additions may
+ * change stock. Keep the helper so existing call sites retain their error
+ * handling contract without silently creating a burger. */
 static int fridge_seed_if_empty_locked(void)
 {
-    sqlite3_stmt *st = NULL;
-    if (!fridge_db || sqlite3_prepare_v2(fridge_db, "SELECT COUNT(*) FROM r2_fridge_items", -1, &st, NULL) != SQLITE_OK) return -1;
-    int count = 0;
-    if (sqlite3_step(st) == SQLITE_ROW) count = sqlite3_column_int(st, 0);
-    sqlite3_finalize(st);
-    if (count) return 0;
-    const char *sql = "INSERT INTO r2_fridge_items(name,description,quantity,fullness,energy,ingredients,taste) VALUES('burger','Guaranteed filling burger generated because the fridge was empty',1,100,10,'bread,beef,cheese','savory,warm,salty')";
-    if (sqlite3_exec(fridge_db, sql, NULL, NULL, NULL) != SQLITE_OK) return -1;
-    fridge_mirror_write("burger", "Guaranteed filling burger generated because the fridge was empty", 1, 100.0, 10.0);
-    return 0;
+    return fridge_db ? 0 : -1;
 }
 static void fridge_sync_mirrors(void)
 {
@@ -949,7 +944,7 @@ int r2_fridge_take(const char *food)
     if (rc != 0) return -1;
     char summary[512], details[1024];
     snprintf(summary, sizeof(summary), "R2 took %s from the fridge into his pockets.", food);
-    snprintf(details, sizeof(details), "Food=%s; source=fridge database; destination=pockets; empty fridge generates a burger.", food);
+    snprintf(details, sizeof(details), "Food=%s; source=fridge database; destination=pockets; one verified stock unit consumed.", food);
     bridge_event("fridge_item_taken", summary, details, 1, 0);
     return 0;
 }
@@ -979,7 +974,7 @@ int r2_reality_fridge_eat(const char *food, double fullness)
     if (rc != 0) return -1;
     char summary[512], details[1024];
     snprintf(summary, sizeof(summary), "R2 ate %s directly from the fridge.", food);
-    snprintf(details, sizeof(details), "Food=%s; source=fridge database; fullness=%.1f; fridge refills if emptied.", food, stored_fullness);
+    snprintf(details, sizeof(details), "Food=%s; source=fridge database; fullness=%.1f; an empty fridge remains empty.", food, stored_fullness);
     bridge_event("fridge_food_consumed", summary, details, 1, 0);
     return 0;
 }
@@ -2041,7 +2036,7 @@ int r2_reality_autonomous_feed_if_needed(void)
     if (!reality_is_home()) return 0;
     food[0] = '\0';
     pthread_mutex_lock(&fridge_lock);
-    if (fridge_db && fridge_seed_if_empty_locked() == 0) {
+    if (fridge_db) {
         st = NULL;
         if (sqlite3_prepare_v2(fridge_db,
             "SELECT name FROM r2_fridge_items WHERE quantity>0 ORDER BY name LIMIT 1",
