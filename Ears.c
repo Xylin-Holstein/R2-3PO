@@ -1338,7 +1338,7 @@ char *r2_ears_listen_and_interpret(R2Ears *ears, unsigned seconds)
        enter R2's existing searchable memory and be reused by later reasoning. */
     char memory[1900];
     snprintf(memory, sizeof(memory),
-             "Explicit audio observation from %.300s: %.1500s",
+             "Explicit audio observation (model-generated; verify uncertain details) from %.200s: %.1450s",
              source_name, interpretation);
     (void)r2_save_memory(memory, "audio_transcript");
     return interpretation;
