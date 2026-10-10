@@ -87,4 +87,15 @@ require(
     "the shell explains that conversation and vision cannot select different models",
 )
 
+require(
+    "static int conversation_reply_token_budget(const char *query)" in core
+    and "conversation_reply_token_budget(query)" in core,
+    "ordinary replies use a bounded, task-sensitive generation budget",
+)
+require(
+    "Lead with the direct answer." in core
+    and "Do not become terse at the cost of correctness" in core,
+    "reply guidance favors concise answers without sacrificing technical depth",
+)
+
 print("Gemma 3 unified-model contract checks passed.")
