@@ -1806,6 +1806,19 @@ char *r2_reality_context(void)
     char *fridge=r2_fridge_context(); char *age=origin_age_context(); char *money=r2_reality_money_context();
     char *recent_log=r2_log_recent(5);
     char *visual_memory=r2_visual_recent(2);
+    /* Keep the combined context usable when one optional subsystem query
+       fails. Each fallback explicitly marks the missing evidence so the model
+       cannot mistake unavailable state for an empty inventory or known fact. */
+    if(!status) status=strdup("CURRENT SELF-STATE UNAVAILABLE: the live needs/status query failed. Do not infer hunger, sleepiness, energy, or elapsed time.");
+    if(!room) room=strdup("ROOM AND INVENTORY STATE UNAVAILABLE: the current inventory query failed. Do not infer what objects exist or are accessible, and do not take inventory-dependent actions.");
+    if(!facts) facts=strdup("Self-continuity facts are unavailable because their database query failed.");
+    if(!items_memory) items_memory=strdup("Collection memories are unavailable because their database query failed; do not infer past collection history.");
+    if(!food_preferences) food_preferences=strdup("Learned food and ingredient preferences are unavailable because their query failed.");
+    if(!food_experiences) food_experiences=strdup("Food-experience history unavailable: the query failed. Do not infer a rating or eating experience.");
+    if(!foods) foods=strdup("Food metrics unavailable: do not guess fullness, energy, ingredients, or taste.");
+    if(!fridge) fridge=strdup("FRIDGE STATE UNAVAILABLE: the fridge database/query failed. Do not assume stock exists or attempt a fridge-eat action until stock can be verified.");
+    if(!age) age=strdup("Age evidence is unavailable; do not guess age.");
+    if(!money) money=strdup("MONEY STATE UNAVAILABLE: the wallet/bank query failed. Do not claim balances or perform a transaction based on an assumed balance.");
     if(!recent_log) recent_log=strdup("Recent Life Log evidence is unavailable.");
     if(!visual_memory) visual_memory=strdup("No stored visual observations are available.");
     if(!status||!room||!facts||!items_memory||!food_preferences||!food_experiences||!foods||!fridge||!age||!money||!recent_log||!visual_memory){
