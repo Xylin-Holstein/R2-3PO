@@ -280,7 +280,10 @@ int r2_sounds_play(const char *kind, const char *state)
     }
     if (sound_child > 0) {
         int status = 0;
-        pid_t result = waitpid(sound_child, &status, WNOHANG);
+        pid_t result;
+        do {
+            result = waitpid(sound_child, &status, WNOHANG);
+        } while (result < 0 && errno == EINTR);
         if (result == 0) {
             pthread_mutex_unlock(&sound_lock);
             return 1; /* Don't overlap an effect already playing. */
@@ -322,11 +325,25 @@ void r2_sounds_shutdown(void)
 
     if (child <= 0) return;
     int status = 0;
-    pid_t result = waitpid(child, &status, WNOHANG);
-    if (result == 0) {
-        (void)kill(child, SIGTERM);
-        while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
+    pid_t result;
+    do {
+        result = waitpid(child, &status, WNOHANG);
+    } while (result < 0 && errno == EINTR);
+    if (result != 0) return;
+
+    (void)kill(child, SIGTERM);
+    /* Never let a broken decoder hang the robot's entire shutdown path. */
+    for (int attempt = 0; attempt < 20; ++attempt) {
+        struct timespec delay = {0, 25000000L};
+        while (nanosleep(&delay, &delay) != 0 && errno == EINTR) {}
+        do {
+            result = waitpid(child, &status, WNOHANG);
+        } while (result < 0 && errno == EINTR);
+        if (result != 0) return;
     }
+
+    (void)kill(child, SIGKILL);
+    while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
 }
 
 static int valid_marker_value(const char *value, size_t max_len)
