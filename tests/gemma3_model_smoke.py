@@ -141,6 +141,7 @@ imagination_header = read("Imagination.h")
 makefile = read("Makefile")
 require(
     "r2_retrieve_memories(request)" in imagination
+    and "r2_recent_conversation_context(request, 1400)" in imagination
     and "r2_diary_search(request" in imagination
     and "r2_log_search(request" in imagination
     and "r2_reality_imagination_context()" in imagination
