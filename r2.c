@@ -7204,26 +7204,33 @@ static char *r2_talk_impl(const char *message)
         return NULL;
     }
 
-    char *sound_clean_reply = r2_sounds_process_reply(reply);
-    if (!sound_clean_reply) {
-        /* Fail closed: never expose a control marker if its safe copy cannot
-           be allocated. The user turn is rolled back so it can be retried. */
+    /* Parse tool instructions before playing any sound: a model response
+       that requests a tool is an intermediate step, not the user's answer. */
+    char *tools = process_tools(reply);
+    if (!tools) {
         free(reply);
         message_rollback_turn(message);
-        fprintf(stderr, "[R2] Could not safely remove sound control markers; discarded this turn.\\n");
+        fprintf(stderr, "[R2] Could not parse tool instructions; discarded this turn.\\n");
         return NULL;
     }
-    free(reply);
-    reply = sound_clean_reply;
 
-    char *tools = process_tools(reply);
+    if (*tools) {
+        /* Strip control markers from internal tool-routing text without
+           playing them or storing them in the conversation history. */
+        char *stripped = r2_sounds_strip_markers(reply);
+        if (!stripped) {
+            free(reply);
+            free(tools);
+            message_rollback_turn(message);
+            fprintf(stderr, "[R2] Could not safely strip sound markers from tool-routing text; discarded this turn.\\n");
+            return NULL;
+        }
+        free(reply);
+        reply = stripped;
 
-    if (tools && *tools) {
         pthread_mutex_lock(&messages_lock);
-
         int assistant_rc = message_add("assistant", reply);
         int tool_rc = message_add("user", tools);
-
         pthread_mutex_unlock(&messages_lock);
 
         free(reply);
@@ -7231,17 +7238,18 @@ static char *r2_talk_impl(const char *message)
 
         if (assistant_rc != 0 || tool_rc != 0) {
             message_rollback_turn(message);
-                return NULL;
+            return NULL;
         }
 
         reply = chat_with_relevant_memories(message);
         if (!reply) {
             message_rollback_turn(message);
-                fprintf(stderr,
-                    "[R2] Follow-up generation failed; the incomplete turn was removed from live context.\n");
+            fprintf(stderr,
+                    "[R2] Follow-up generation failed; the incomplete turn was removed from live context.\\n");
             return NULL;
         }
-        sound_clean_reply = r2_sounds_process_reply(reply);
+
+        char *sound_clean_reply = r2_sounds_process_reply(reply);
         if (!sound_clean_reply) {
             free(reply);
             message_rollback_turn(message);
@@ -7252,8 +7260,17 @@ static char *r2_talk_impl(const char *message)
         reply = sound_clean_reply;
     } else {
         free(tools);
+        /* Only a final, user-facing response may trigger an effect. */
+        char *sound_clean_reply = r2_sounds_process_reply(reply);
+        if (!sound_clean_reply) {
+            free(reply);
+            message_rollback_turn(message);
+            fprintf(stderr, "[R2] Could not safely remove sound control markers; discarded this turn.\\n");
+            return NULL;
+        }
+        free(reply);
+        reply = sound_clean_reply;
     }
-
 
     pthread_mutex_lock(&messages_lock);
 
