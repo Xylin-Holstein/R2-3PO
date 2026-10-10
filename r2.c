@@ -3332,11 +3332,19 @@ static char *chat_with_relevant_memories(
     }
 
     if (r2_reality_is_initialized()) {
-        char *world_context = r2_reality_context();
+        /*
+         * Chat receives modeled self/world context, learned food preferences,
+         * food metrics, and historical collection memory—but not live fridge
+         * stock. The fridge is a separate physical subsystem and should only
+         * be inspected through an explicit relevant world action. Imagination
+         * may infer possibilities from prior context, but must not silently
+         * read the fridge database or mistake an inference for inventory.
+         */
+        char *world_context = r2_reality_imagination_context();
         if (world_context && *world_context) {
             append_reply_context(
                 &memory_context,
-                "CURRENT PERSISTENT WORLD AND SELF STATE (from R2's Reality database; use as current-state evidence):\n",
+                "CURRENT MODELED SELF/WORLD STATE (from Reality; fridge stock intentionally excluded; not a live sensory observation):\n",
                 world_context, 4000);
         }
         free(world_context);
@@ -3366,7 +3374,7 @@ static char *chat_with_relevant_memories(
          strcasestr(query, "nicotine") || strcasestr(query, "alcohol") ||
          strcasestr(query, "enjoyment") || strcasestr(query, "dependence") ||
          strcasestr(query, "food") || strcasestr(query, "burger") ||
-         strcasestr(query, "eat") || strcasestr(query, "eating") ||
+         strcasestr(query, "eating") ||
          strcasestr(query, "hungry") || strcasestr(query, "hunger") ||
          strcasestr(query, "work") || strcasestr(query, "working") ||
          strcasestr(query, "mistake") || strcasestr(query, "motivation") ||
