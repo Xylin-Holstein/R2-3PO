@@ -4,6 +4,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #ifndef R2_HOME
@@ -87,6 +88,21 @@ int main(void)
     read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
     if (hunger > 1.0) fail("verified food should reset high hunger");
     if (since_meal > 5.0) fail("eating should reset time since meal");
+
+    /* At the 72-hour starvation marker, status must not still say only
+       "very hungry" while the prolonged-starvation event is recorded. */
+    if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality database for starvation status");
+    if (sqlite3_prepare_v2(db,
+        "UPDATE r2_reality_self SET hunger=91,seconds_since_meal=259200,last_tick=? WHERE id=1",
+        -1, &st, NULL) != SQLITE_OK) fail("could not prepare prolonged-starvation state");
+    sqlite3_bind_int64(st, 1, (sqlite3_int64)time(NULL));
+    if (sqlite3_step(st) != SQLITE_DONE) fail("could not set prolonged-starvation state");
+    sqlite3_finalize(st);
+    sqlite3_close(db);
+    char *status = r2_reality_status();
+    if (!status || !strstr(status, "(starving)"))
+        fail("hunger at the 72-hour starvation threshold should be labeled starving");
+    free(status);
 
     r2_reality_shutdown();
     puts("reality needs smoke passed");
