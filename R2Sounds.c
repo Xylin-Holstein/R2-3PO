@@ -16,6 +16,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -185,6 +186,13 @@ int r2_sounds_select_file(const char *fx_dir, const char *kind,
     int best_score = -1;
     while ((entry = readdir(dir)) != NULL) {
         if (!is_mp3_name(entry->d_name)) continue;
+        char candidate[R2_SOUND_PATH_MAX];
+        int candidate_len = snprintf(candidate, sizeof(candidate), "%s/%s",
+                                     fx_dir, entry->d_name);
+        struct stat file_info;
+        if (candidate_len < 0 || (size_t)candidate_len >= sizeof(candidate) ||
+            stat(candidate, &file_info) != 0 || !S_ISREG(file_info.st_mode))
+            continue;
         int score = filename_score(entry->d_name, normalized_kind, state);
         if (score < 0) continue;
         if (score > best_score ||
