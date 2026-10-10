@@ -121,6 +121,7 @@ class DatabasePreflightTests(unittest.TestCase):
             db.commit()
             db.close()
 
+            original = outside.read_bytes()
             linked = root / "r2_memory.db"
             linked.symlink_to(outside)
             report = audit.audit_database(linked)
@@ -131,7 +132,7 @@ class DatabasePreflightTests(unittest.TestCase):
             with self.assertRaises(OSError):
                 audit.create_snapshot_set(root, snapshots)
             self.assertFalse((snapshots / "r2_memory.db").exists())
-            self.assertEqual(outside.stat().st_size, outside.stat().st_size)
+            self.assertEqual(outside.read_bytes(), original)
 
     def test_corrupt_or_non_sqlite_file_is_reported_as_error(self):
         with tempfile.TemporaryDirectory() as directory:
