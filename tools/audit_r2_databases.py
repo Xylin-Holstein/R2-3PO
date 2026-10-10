@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
 import sys
 from pathlib import Path
@@ -31,13 +32,16 @@ def _readonly_connection(path: Path) -> sqlite3.Connection:
 
 
 def snapshot_database(source: Path, destination: Path) -> None:
-    """Create a consistent SQLite backup without changing the source file."""
-    if destination.exists():
-        raise FileExistsError(f"refusing to overwrite existing snapshot: {destination}")
+    """Create a private, consistent SQLite backup without changing the source."""
     source_db: sqlite3.Connection | None = None
     target_db: sqlite3.Connection | None = None
+    created = False
     try:
         source_db = _readonly_connection(source)
+        # O_EXCL prevents races and mode 0600 keeps copied memories private.
+        fd = os.open(destination, os.O_CREAT | os.O_EXCL | os.O_RDWR, 0o600)
+        os.close(fd)
+        created = True
         target_db = sqlite3.connect(destination)
         source_db.backup(target_db)
         target_db.commit()
@@ -45,16 +49,45 @@ def snapshot_database(source: Path, destination: Path) -> None:
         if target_db is not None:
             target_db.close()
             target_db = None
-        try:
-            destination.unlink()
-        except OSError:
-            pass
+        if created:
+            try:
+                destination.unlink()
+            except OSError:
+                pass
         raise
     finally:
         if source_db is not None:
             source_db.close()
         if target_db is not None:
             target_db.close()
+
+
+def create_snapshot_set(root: Path, snapshot_dir: Path) -> list[Path]:
+    """Create a snapshot set, refusing all pre-existing target names up front."""
+    snapshot_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    targets = [snapshot_dir / name for name in DATABASES]
+    conflicts = [path for path in targets if path.exists()]
+    if conflicts:
+        joined = ", ".join(path.name for path in conflicts)
+        raise FileExistsError(f"refusing to mix with existing snapshot file(s): {joined}")
+
+    created: list[Path] = []
+    try:
+        for name in DATABASES:
+            source = root / name
+            if not source.is_file():
+                continue
+            destination = snapshot_dir / name
+            snapshot_database(source, destination)
+            created.append(destination)
+    except Exception:
+        for path in created:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+        raise
+    return created
 
 
 def audit_database(path: Path) -> dict[str, Any]:
@@ -148,30 +181,30 @@ def main() -> int:
 
     audit_root_path = args.root
     snapshot_errors: list[str] = []
+    snapshot_created = False
     if args.snapshot_dir is not None:
         try:
-            args.snapshot_dir.mkdir(parents=True, exist_ok=True)
-            for name in DATABASES:
-                source = args.root / name
-                if not source.is_file():
-                    continue
-                try:
-                    snapshot_database(source, args.snapshot_dir / name)
-                except (OSError, sqlite3.Error) as exc:
-                    snapshot_errors.append(f"{name}: {type(exc).__name__}: {exc}")
-            audit_root_path = args.snapshot_dir
-        except OSError as exc:
-            snapshot_errors.append(f"snapshot directory: {type(exc).__name__}: {exc}")
+            created = create_snapshot_set(args.root, args.snapshot_dir)
+            if created:
+                audit_root_path = args.snapshot_dir
+                snapshot_created = True
+        except (OSError, sqlite3.Error) as exc:
+            snapshot_errors.append(f"snapshot set: {type(exc).__name__}: {exc}")
+            # On any snapshot failure, audit the originals read-only instead of
+            # accidentally treating an old/partial snapshot as current data.
+            audit_root_path = args.root
 
     report = audit_root(audit_root_path)
     report["source_root"] = str(args.root.resolve())
     report["snapshot_errors"] = snapshot_errors
+    report["snapshot_created"] = snapshot_created
+    report["snapshot_dir"] = str(args.snapshot_dir.resolve()) if args.snapshot_dir else None
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))
     else:
-        heading = "snapshot audit" if args.snapshot_dir is not None else "read-only audit"
+        heading = "snapshot audit" if snapshot_created else "read-only audit"
         print(f"R2 database preflight ({heading}): {report['root']}")
-        if args.snapshot_dir is not None:
+        if snapshot_created:
             print(f"Source: {args.root.resolve()}")
         for name, item in report["databases"].items():
             if not item["exists"]:
@@ -198,7 +231,7 @@ def main() -> int:
             print("Note: missing files are reported, not created.")
         if summary["legacy_phantom_food_records"]:
             print("Note: suspicious legacy rows are reported only; no rows are changed.")
-        if args.snapshot_dir is not None:
+        if snapshot_created:
             print("Snapshots are per-database; stop R2 first for cross-database consistency.")
 
     return 2 if report["summary"]["integrity_failures"] or snapshot_errors else 0
