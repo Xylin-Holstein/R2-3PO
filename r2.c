@@ -7210,7 +7210,7 @@ static char *r2_talk_impl(const char *message)
     if (!tools) {
         free(reply);
         message_rollback_turn(message);
-        fprintf(stderr, "[R2] Could not parse tool instructions; discarded this turn.\\n");
+        fprintf(stderr, "[R2] Could not parse tool instructions; discarded this turn.\n");
         return NULL;
     }
 
@@ -7222,7 +7222,7 @@ static char *r2_talk_impl(const char *message)
             free(reply);
             free(tools);
             message_rollback_turn(message);
-            fprintf(stderr, "[R2] Could not safely strip sound markers from tool-routing text; discarded this turn.\\n");
+            fprintf(stderr, "[R2] Could not safely strip sound markers from tool-routing text; discarded this turn.\n");
             return NULL;
         }
         free(reply);
@@ -7245,7 +7245,7 @@ static char *r2_talk_impl(const char *message)
         if (!reply) {
             message_rollback_turn(message);
             fprintf(stderr,
-                    "[R2] Follow-up generation failed; the incomplete turn was removed from live context.\\n");
+                    "[R2] Follow-up generation failed; the incomplete turn was removed from live context.\n");
             return NULL;
         }
 
@@ -7253,7 +7253,7 @@ static char *r2_talk_impl(const char *message)
         if (!sound_clean_reply) {
             free(reply);
             message_rollback_turn(message);
-            fprintf(stderr, "[R2] Could not safely remove sound control markers from tool follow-up; discarded this turn.\\n");
+            fprintf(stderr, "[R2] Could not safely remove sound control markers from tool follow-up; discarded this turn.\n");
             return NULL;
         }
         free(reply);
@@ -7265,7 +7265,7 @@ static char *r2_talk_impl(const char *message)
         if (!sound_clean_reply) {
             free(reply);
             message_rollback_turn(message);
-            fprintf(stderr, "[R2] Could not safely remove sound control markers; discarded this turn.\\n");
+            fprintf(stderr, "[R2] Could not safely remove sound control markers; discarded this turn.\n");
             return NULL;
         }
         free(reply);
