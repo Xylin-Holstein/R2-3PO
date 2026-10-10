@@ -1478,7 +1478,7 @@ char *r2_reality_status(void)
     }
     if(st) sqlite3_finalize(st);
     pthread_mutex_unlock(&reality_lock);
-    const char *hstate = hunger < 25 ? "satisfied" : hunger < 50 ? "getting hungry" : hunger < 75 ? "hungry" : hunger < 100 ? "very hungry" : "starving";
+    const char *hstate = hunger < 25 ? "satisfied" : hunger < 50 ? "getting hungry" : hunger < 75 ? "hungry" : hunger < 90 ? "very hungry" : "starving";
     snprintf(out,4096,"SELF CONTINUITY\nSatisfaction: %5.1f/150\nHunger: %04.1f/100 (%s)\nTime since meal: %.1f hours\nSleepiness: %.1f/100\nEnergy: %.1f/100\nModeled world time elapsed: %lld days, %lld hours\nObjects tracked in the world: %d\nHunger rises 0.1 and satiety falls 0.1 every 4.75 minutes of modeled elapsed time; satiety caps at 150/150. Sleepiness rises 12.5/hour and energy falls 10/hour while awake or asleep; sleep then restores energy and reduces sleepiness.\nAfter 72 hours without food, prolonged starvation is recorded; needs persist across restarts.\n",
         satisfaction,hunger,hstate,since/3600.0,sleepiness,energy,
         (long long)(world_elapsed/86400),(long long)((world_elapsed%86400)/3600),count);
