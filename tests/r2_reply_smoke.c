@@ -41,6 +41,14 @@ int main(void)
     assert(reply && !strcmp(reply, "Here is the answer."));
     free(reply);
 
+    /* Private tags at the beginning must not hide a scratch preamble after
+       the tags have been removed. */
+    reply = r2_reply_sanitize("<think>private planning</think>We need answer the user with a concise response.");
+    assert(reply == NULL);
+    reply = r2_reply_sanitize("<think>private planning</think>We need answer the user.\nFinal: Safe answer.");
+    assert(reply && !strcmp(reply, "Safe answer."));
+    free(reply);
+
     reply = r2_reply_sanitize("A normal reply about analysis: the results are useful.");
     assert(reply && !strcmp(reply, "A normal reply about analysis: the results are useful."));
     free(reply);
