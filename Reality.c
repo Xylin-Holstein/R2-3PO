@@ -833,7 +833,12 @@ char *r2_fridge_list(void)
     }
     if (st) sqlite3_finalize(st);
     pthread_mutex_unlock(&fridge_lock);
-    if (!len) snprintf(out, cap, "(fridge inventory unavailable)\n");
+    if (!len) {
+        if (rc == SQLITE_DONE)
+            snprintf(out, cap, "(fridge is empty; no food is stocked)\n");
+        else
+            snprintf(out, cap, "(fridge inventory unavailable because the database query failed)\n");
+    }
     return out;
 }
 char *r2_fridge_context(void)
