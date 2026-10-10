@@ -1036,6 +1036,12 @@ int r2_reality_fridge_eat(const char *food, double fullness)
     int rc = fridge_seed_if_empty_locked();
     if (rc == 0) rc = fridge_change_one(food, desc, sizeof(desc), &qty, &stored_fullness, &energy,
                                          ingredients, sizeof(ingredients), taste, sizeof(taste));
+    /* Fridge stock's authoritative metric wins over a caller-supplied value:
+       non-nutritive stock must never become a meal via a positive override. */
+    if (rc == 0 && (!isfinite(stored_fullness) || stored_fullness <= 0.0)) {
+        fridge_restore_one(food, desc, stored_fullness, energy, ingredients, taste);
+        rc = -1;
+    }
     if (rc == 0) {
         if (qty == 1) fridge_mirror_remove(food);
         else fridge_mirror_write(food, desc, qty - 1, stored_fullness, energy);
