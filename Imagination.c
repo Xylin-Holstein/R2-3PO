@@ -117,8 +117,8 @@ static char *collect_context(const char *request)
     if (part) { append_source(&b, "CHOICE LAB (older hypothetical branches; never factual evidence)", part, 500); free(part); }
 
     /* The fridge is a specialized, conditional source—not the definition of
-       imagination. Include it only when the request makes food/inventory relevant.
-       Current modeled contents and historical food memories remain distinct. */
+       imagination. Include stock only when the request asks about current inventory or
+       ingredient availability. General food preferences and metrics remain part of Reality context. */
     static const char *const fridge_terms[] = {
         "fridge", "refrigerator", "fridge stock", "what is in the fridge",
         "what's in the fridge", "what is in my fridge", "what's in my fridge",
