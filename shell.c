@@ -1680,7 +1680,7 @@ static void shell_gameboy_log_session_end(const ShellGameboyStatus *state)
 {
     char key[256], details[1200], summary[1200];
     const char *title;
-    if (!state || !state->running || !state->session_id[0]) return;
+    if (!state || !state->session_id[0]) return;
     title = state->title[0] ? state->title : "a game";
     snprintf(key, sizeof(key), "gameboy:%s", state->session_id);
     snprintf(details, sizeof(details),
@@ -1753,15 +1753,16 @@ static int shell_gameboy(const char *arg)
     int command_ok = WIFEXITED(status) && WEXITSTATUS(status) == 0;
     if (!command_ok) {
         printf("[Game Boy Advance] Command failed. Check installation, inserted ROM, and mGBA path.\n");
-    } else if (have_before && shell_gameboy_read_status(&after)) {
-        /* Compare the persistent session IDs, not just the command name. This
-           also closes Life Log activities when a later status/verify command
-           discovers that mGBA exited unexpectedly. */
-        if (before.session_id[0] &&
+    } else if (shell_gameboy_read_status(&after)) {
+        /* Compare persistent session IDs, not command names. This also closes
+           Life Log activities when status/verify discovers an unexpected exit.
+           If the database did not exist before first launch, still record start. */
+        if (have_before && before.session_id[0] &&
             (!after.session_id[0] || strcmp(before.session_id, after.session_id) != 0))
             shell_gameboy_log_session_end(&before);
         if (after.session_id[0] &&
-            (!before.session_id[0] || strcmp(before.session_id, after.session_id) != 0))
+            (!have_before || !before.session_id[0] ||
+             strcmp(before.session_id, after.session_id) != 0))
             shell_gameboy_log_session_start(&after);
     }
     free(copy);
