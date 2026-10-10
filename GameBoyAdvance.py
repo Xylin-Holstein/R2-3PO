@@ -327,6 +327,8 @@ def status_data(db: sqlite3.Connection) -> dict[str, Any]:
         "cartridge_path": row["cartridge_path"],
         "cartridge_title": row["cartridge_title"],
         "emulator_pid": row["emulator_pid"],
+        "game_started_at": row["game_started_at"],
+        "session_id": row["session_id"],
         "game_running": bool(row["power_state"] == "on" and row["emulator_pid"]),
         "database": str(DB_PATH),
         "state_database": str(STATE_DB_PATH),
