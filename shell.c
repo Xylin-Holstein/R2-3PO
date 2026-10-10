@@ -1038,6 +1038,35 @@ static void shell_ears(const char *argument)
         return;
     }
 
+    if (shell_starts_with(argument, "listen")) {
+        const char *duration_text = argument + 6;
+        while (*duration_text == ' ' || *duration_text == '\t')
+            ++duration_text;
+        unsigned seconds = 5;
+        if (*duration_text) {
+            char *end = NULL;
+            errno = 0;
+            unsigned long parsed = strtoul(duration_text, &end, 10);
+            while (end && (*end == ' ' || *end == '\t')) ++end;
+            if (errno || !end || end == duration_text || *end ||
+                parsed < 1 || parsed > 30) {
+                printf("Usage: ears listen [1-30 seconds]\n");
+                return;
+            }
+            seconds = (unsigned)parsed;
+        }
+        printf("[Ears] Capturing up to %u second(s). This is an explicit, local audio request.\n",
+               seconds);
+        char *result = r2_ears_listen(seconds);
+        if (result) {
+            printf("%s\n", result);
+            free(result);
+        } else {
+            printf("[Ears] Audio interpretation failed. Check microphone/source access, the local Ollama model, and whether another foreground request is using the model.\n");
+        }
+        return;
+    }
+
     if (!strcasecmp(argument, "start")) {
 
         int result =
