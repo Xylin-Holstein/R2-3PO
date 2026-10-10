@@ -6,6 +6,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
@@ -92,6 +93,9 @@ static int tokenize_filename(const char *name, char tokens[][R2_SOUND_TOKEN_MAX]
     }
     return (int)count;
 }
+
+static int token_in(char tokens[][R2_SOUND_TOKEN_MAX], int count,
+                    const char *wanted);
 
 static int state_score(char tokens[][R2_SOUND_TOKEN_MAX], int count,
                        const char *state)
