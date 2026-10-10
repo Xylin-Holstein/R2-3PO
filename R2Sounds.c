@@ -168,18 +168,22 @@ static int filename_score(const char *name, const char *kind, const char *state)
 {
     char tokens[64][R2_SOUND_TOKEN_MAX];
     int count = tokenize_filename(name, tokens, 64);
-    int has_kind = 0, generic = 0;
+    int has_kind = 0, generic = 0, has_other_state = 0;
     for (int i = 0; i < count; ++i) {
         if (token_is_kind(tokens[i], kind)) has_kind = 1;
         if (!strcmp(tokens[i], "default") || !strcmp(tokens[i], "generic") ||
             !strcmp(tokens[i], "normal") || !strcmp(tokens[i], "idle") ||
             !strcmp(tokens[i], "neutral"))
             generic = 1;
+        if (token_is_state(tokens[i])) has_other_state = 1;
     }
     if (!has_kind) return -1;
     int exact_state = state_score(tokens, count, state);
     if (exact_state) return 1000 + exact_state;
     if (generic) return 200;
+    /* Never play a different explicitly state-labeled effect as a fallback.
+       Only an untagged kind-specific file can serve as the last resort. */
+    if (has_other_state) return -1;
     return 100;
 }
 
