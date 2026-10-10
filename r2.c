@@ -6268,7 +6268,11 @@ char *r2_recent_conversation_context(const char *exclude_latest, size_t max_char
     pthread_mutex_lock(&messages_lock);
     size_t start = messages.count > 12 ? messages.count - 12 : 0;
     size_t used = 0;
-    for (size_t i = start; i < messages.count && used < max_chars; ++i) {
+
+    /* Walk backward so the current exchange is never crowded out by older,
+       long messages. Newest-first order is explicit in the source label. */
+    for (size_t i = messages.count; i > start && used < max_chars; ) {
+        --i;
         const char *role = messages.items[i].role ? messages.items[i].role : "user";
         const char *content = messages.items[i].content ? messages.items[i].content : "";
         if (!strcmp(role, "system") || !*content) continue;
@@ -6283,11 +6287,16 @@ char *r2_recent_conversation_context(const char *exclude_latest, size_t max_char
         used += (size_t)header_n;
 
         size_t room = max_chars - used;
-        size_t n = strlen(content);
+        size_t content_length = strlen(content);
+        size_t n = content_length > 650 ? 650 : content_length;
         if (n > room) n = room;
         if (n) {
             memcpy(out + used, content, n);
             used += n;
+            if (n == 650 && content_length > n && used + 3 < max_chars) {
+                memcpy(out + used, "...", 3);
+                used += 3;
+            }
         }
         if (used < max_chars) out[used++] = '\n';
         out[used] = '\0';
@@ -6295,7 +6304,6 @@ char *r2_recent_conversation_context(const char *exclude_latest, size_t max_char
     pthread_mutex_unlock(&messages_lock);
     return out;
 }
-
 int r2_save_memory(const char *memory, const char *category)
 {
     if (!memory || !*memory) return -1;
