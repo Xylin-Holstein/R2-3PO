@@ -53,6 +53,8 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn("pgrep -x r2", source)
         self.assertIn("FAKETIME_FOUND", source)
         self.assertIn("refusing symlinked R2 database", source)
+        self.assertIn("audit-snapshot-", source)
+        self.assertIn("integrity audit failed", source)
 
 
 if __name__ == "__main__":
