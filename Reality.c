@@ -1599,6 +1599,7 @@ char *r2_reality_imagination_context(void)
 
     char *status = r2_reality_status();
     char *room = r2_reality_room_look();
+    char *age = origin_age_context();
     char *facts = query_text(
         "SELECT key,value,evidence FROM r2_reality_self_facts ORDER BY updated_at DESC LIMIT 30", NULL);
     char *items_memory = query_text(
@@ -1609,28 +1610,29 @@ char *r2_reality_imagination_context(void)
         "SELECT food_name,printf('enjoyment rating %+d/2',satisfaction),notes FROM r2_food_experiences WHERE satisfaction IS NOT NULL ORDER BY eaten_at DESC LIMIT 10", NULL);
     char *foods = food_metrics_context();
 
-    if (!status || !room || !facts || !items_memory ||
+    if (!status || !room || !age || !facts || !items_memory ||
         !food_preferences || !food_experiences || !foods) {
-        free(status); free(room); free(facts); free(items_memory);
+        free(status); free(room); free(age); free(facts); free(items_memory);
         free(food_preferences); free(food_experiences); free(foods);
         return NULL;
     }
 
-    size_t cap = strlen(status) + strlen(room) + strlen(facts) +
+    size_t cap = strlen(status) + strlen(room) + strlen(age) + strlen(facts) +
         strlen(items_memory) + strlen(food_preferences) +
-        strlen(food_experiences) + strlen(foods) + 512;
+        strlen(food_experiences) + strlen(foods) + 640;
     char *out = malloc(cap);
     if (out) snprintf(out, cap,
-        "CURRENT MODELED SELF/WORLD STATE (read-only snapshot; not a sensory observation):\n"
-        "%s\n%s\nSELF-CONTINUITY FACTS:\n%s\n"
+        "CURRENT MODELED SELF/WORLD STATE (current modeled snapshot; not a sensory observation):\n"
+        "%s\n%s\nORIGIN / AGE CONTINUITY (based on the original conversation file; do not overstate certainty):\n%s\n"
+        "SELF-CONTINUITY FACTS:\n%s\n"
         "COLLECTION MEMORIES (historical, not current inventory):\n%s\n"
         "LEARNED FOOD/INGREDIENT PREFERENCES:\n%s\n"
         "RECENT RATED FOOD EXPERIENCES:\n%s\n"
         "AVAILABLE FOOD METRICS:\n%s\n"
         "Fridge stock is intentionally omitted from this general context and must be retrieved separately only when relevant.",
-        status, room, facts, items_memory, food_preferences, food_experiences, foods);
+        status, room, age, facts, items_memory, food_preferences, food_experiences, foods);
 
-    free(status); free(room); free(facts); free(items_memory);
+    free(status); free(room); free(age); free(facts); free(items_memory);
     free(food_preferences); free(food_experiences); free(foods);
     return out;
 }
