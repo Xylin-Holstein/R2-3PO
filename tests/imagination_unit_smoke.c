@@ -154,6 +154,8 @@ char *r2_reality_imagination_context(void)
 {
     return strdup("REALITY_SENTINEL: current modeled room and self-state.");
 }
+char *r2_reality_tv_status(void) { return strdup("TV_SENTINEL: CRT is off; no signal."); }
+char *r2_reality_money_context(void) { return strdup("MONEY_SENTINEL: current modeled balances."); }
 int r2_visual_is_initialized(void) { return 1; }
 char *r2_visual_search(const char *query, int limit)
 {
@@ -227,6 +229,7 @@ int main(void)
                && strstr(last_prompt, "DIARY_SENTINEL")
                && strstr(last_prompt, "LIFELOG_SENTINEL")
                && strstr(last_prompt, "REALITY_SENTINEL")
+               && strstr(last_prompt, "TV_SENTINEL")
                && strstr(last_prompt, "VISUAL_SENTINEL")
                && strstr(last_prompt, "REWARD_SENTINEL")
                && strstr(last_prompt, "HABIT_SENTINEL")
@@ -248,6 +251,11 @@ int main(void)
     result = r2_imagination_create("Imagine what I can make with what I have in the fridge.");
     if (!check(result && strstr(last_prompt, "FRIDGE_SENTINEL"),
                "current fridge inventory is retrieved for explicit inventory imagination")) goto done;
+    free(result); result = NULL;
+
+    result = r2_imagination_create("Imagine buying a new game if I have enough money.");
+    if (!check(result && strstr(last_prompt, "MONEY_SENTINEL"),
+               "current money state is retrieved when a hypothetical depends on affordability")) goto done;
     free(result); result = NULL;
 
     if (!check(r2_imagination_feedback(branch_id, "incorrect", "Later observation contradicted it.") == 0,
