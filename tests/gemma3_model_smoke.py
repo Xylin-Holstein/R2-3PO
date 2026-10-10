@@ -122,4 +122,33 @@ require(
     "action selection respects purpose and authorization boundaries",
 )
 
+
+gameboy = read("GameBoyAdvance.py")
+require(
+    '"session_id": row["session_id"]' in gameboy
+    and '"game_started_at": row["game_started_at"]' in gameboy,
+    "Game Boy status exposes the identity and start time of the active game session",
+)
+require(
+    'record_event(db, "virtual", "game_session_started"' in gameboy
+    and '"This is an in-game context; it is not a claim that game events are physical-world events."' in gameboy,
+    "a game session is explicitly marked as virtual context, separate from physical life",
+)
+require(
+    'r2_log_activity_start(key, name, details)' in shell
+    and 'r2_log_activity_end(key, "Game Boy Advance emulator stopped"' in shell
+    and '"gameboy:%s"' in shell,
+    "starting and stopping gameplay records a duration-bearing real-life activity in the Life Log",
+)
+require(
+    'in-game events are not physical-life events' in shell
+    and 'the game\'s virtual events remain separate from physical Reality' in shell,
+    "game activity records explicitly preserve the life-versus-game boundary",
+)
+require(
+    'r2_reality_' not in gameboy
+    and 'r2_reality_' not in shell[shell.find("typedef struct {\\n    int valid;\\n    int running;\\n    char power_state[16];"):shell.find("static int shell_gameboy(const char *arg)")],
+    "Game Boy session logging does not mutate R2's physical Reality state",
+)
+
 print("Gemma 3 unified-model contract checks passed.")
