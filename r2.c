@@ -96,6 +96,7 @@
 #include "Visual.h"
 #include "Reward.h"
 #include "Addiction.h"
+#include "Imagination.h"
 
 
 /* ============================================================
@@ -352,7 +353,7 @@ static const char *SYSTEM_PROMPT =
 "Integrate the Choice Lab with every available sense and learned preference: ask what you might see by looking somewhere without actually looking, what a sound might reveal without listening, what food might taste or smell like without tasting or smelling it, and what an object might feel like without touching it.\n"
 "Also reason counterfactually about preferences: would you still like, dislike, choose, or trust something if you learned a new fact about its origin, ingredients, properties, consequences, or context? Compare the new information with your recorded experiences, sensory observations, self-facts, memories, and learned preferences.\n"
 "Separate known facts, direct sensory observations, remembered evidence, assumptions, and predictions. Imagined sensory details are predictions, not observations. Never activate Eyes or Ears, change the world, eat food, or update a learned preference merely to answer a hypothetical. Only a real experience or explicit user feedback may update an experiential preference.\n"
-"Use [ALTERNATE_LIST], [ALTERNATE_SHOW] id, or [ALTERNATE_COMPARE] id id to inspect saved what-if branches. Save useful or explicitly requested counterfactuals using [ALTERNATE_CREATE] name|scenario|assumptions|predicted outcome|conclusion|optional evidence event ID [END ALTERNATE_CREATE]. Make a separate branch for each materially different alternative; do not constrain the lab to any fixed list.\n"
+"Use [ALTERNATE_LIST], [ALTERNATE_SHOW] id, or [ALTERNATE_COMPARE] id id to inspect saved what-if branches. Save useful or explicitly requested counterfactuals using [ALTERNATE_CREATE] name|scenario|assumptions|predicted outcome|conclusion|optional evidence event ID [END ALTERNATE_CREATE]. Make a separate branch for each materially different alternative; do not constrain the lab to any fixed list.\nIMAGINATION is an active capability, not merely a synonym for counterfactual reasoning. When the user asks you to imagine, envision, speculate creatively, or mentally explore a possible scene, use [IMAGINE] the actual request [END IMAGINE]. The subsystem retrieves relevant evidence from memory, diary, Life Log, Reality, visual history, reward/preferences, habits, and Choice Lab BEFORE generating the imagined scenario. Context must shape the imagined content itself. Imagined details are not observations or factual memories. An inaccurate imagination is never punished; only explicit accurate feedback can produce positive reinforcement. Imagining must not execute tools or alter real-world state.\n"
 "Use [ALTERNATE_RETAIN] id or [ALTERNATE_DISCARD] id only when explicitly requested. A retained hypothesis remains hypothetical and must never be promoted into a factual memory.\n"
 "When a proposed purchase has no user-supplied or otherwise evidenced price, do not invent a price or pretend a store has stock. Ask for the price or wait for explicit price information. Only execute [WORLD] buy|item name|price|description|destination after the item, price, and intended destination are established; report failure if funds or the transaction are insufficient.\n"
 "Use [WORLD] location|location name|home or [WORLD] location|location name|outside only when simulated movement is actually being carried out, not merely planned. Use home only for the actual home; stores and other away places use outside. The location transition persists, and private Welcome Home memory is created only after an away-to-home transition.\n"
@@ -4838,6 +4839,22 @@ static char *process_tools(
         free(entry);
     }
 
+    /* Imagination is generated from relevant existing-system context and then
+       saved through the existing hypothetical Choice Lab, never as fact. */
+    size_t imagine_pos = 0;
+    while (1) {
+        char *request = extract_marker(reply, "[IMAGINE]", "[END IMAGINE]", &imagine_pos);
+        if (!request) break;
+        char *result = r2_imagination_create(trim(request));
+        if (result) {
+            APPEND("IMAGINATION RESULT (hypothetical only; not a real observation):\\n%.7000s\\n", result);
+            free(result);
+        } else {
+            APPEND("IMAGINATION ERROR: the scenario could not be generated or saved. No factual state was changed.\\n");
+        }
+        free(request);
+    }
+
     /* Alternate-Self Lab queries read, create, or compare hypothetical branches only. */
     if (strstr(reply, "[ALTERNATE_LIST]")) {
         char *branches = r2_altself_list(20);
@@ -6258,6 +6275,20 @@ int r2_load_startup_memories(void)
 char *r2_process_tools(const char *input)
 {
     return input ? process_tools(input) : NULL;
+}
+
+/* Public single-request entry point for subsystems that need the shared local
+   model without creating a fake user/assistant turn in conversation history. */
+char *r2_model_generate(const char *system_prompt, const char *user_prompt,
+                        int max_tokens)
+{
+    if (!core_initialized || shutting_down || !user_prompt || !*user_prompt)
+        return NULL;
+    if (max_tokens < 1) max_tokens = 512;
+    if (max_tokens > 1200) max_tokens = 1200;
+    Message message = { "user", (char *)user_prompt, 0 };
+    return ollama_chat_with_limit(&message, 1, system_prompt,
+                                  max_tokens, 300L);
 }
 
 int r2_diary_active(void)
@@ -7685,6 +7716,14 @@ int r2_init(void)
         addiction_initialized = 1;
     }
 
+    /* Imagination reuses existing stores and the Choice Lab; it creates no
+       parallel database of its own. */
+    if (r2_imagination_init() != 0)
+        r2_log_event(R2_LOG_ERROR, "imagination_init_failed",
+                     "R2 imagination subsystem could not initialize.",
+                     "Conversation remains available; imagined scenarios will not be generated.",
+                     "r2_init");
+
     /* --------------------------------------------------------
        INITIAL SYSTEM MESSAGE
        -------------------------------------------------------- */
@@ -8093,6 +8132,7 @@ void r2_shutdown(void)
 
     r2_visual_shutdown();
     r2_altself_shutdown();
+    r2_imagination_shutdown();
     r2_addiction_shutdown();
     addiction_initialized = 0;
 
