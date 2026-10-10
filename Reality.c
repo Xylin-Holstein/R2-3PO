@@ -851,7 +851,7 @@ static int fridge_init(void)
     if (rc == SQLITE_OK && fridge_seed_if_empty_locked() != 0) rc = SQLITE_ERROR;
     pthread_mutex_unlock(&fridge_lock);
     if (rc != SQLITE_OK) {
-        fprintf(stderr, "[R2 Fridge] Could not initialize fridge schema.\\n");
+        fprintf(stderr, "[R2 Fridge] Could not initialize fridge schema.\n");
         /* A failed init must not leave a live handle behind: Reality init
            may be retried, and shutdown must not inherit a half-open fridge. */
         pthread_mutex_lock(&fridge_lock);
