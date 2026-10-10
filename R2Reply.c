@@ -46,6 +46,33 @@ static int is_hidden_close(const char *p, size_t *length)
     return 0;
 }
 
+/* Handle nested instances of the same private tag. Searching for the first
+   closing tag is insufficient: an inner </think> must not expose the rest of
+   an outer private block. */
+static const char *find_hidden_close_balanced(const char *p,
+                                               const HiddenBlock *block)
+{
+    size_t depth = 1;
+    size_t open_len = strlen(block->open);
+    size_t close_len = strlen(block->close);
+
+    while (*p) {
+        if (!strncasecmp(p, block->open, open_len)) {
+            ++depth;
+            p += open_len;
+            continue;
+        }
+        if (!strncasecmp(p, block->close, close_len)) {
+            --depth;
+            if (depth == 0) return p;
+            p += close_len;
+            continue;
+        }
+        ++p;
+    }
+    return NULL;
+}
+
 static char *trim_reply(char *text)
 {
     char *start = text;
@@ -102,7 +129,7 @@ char *r2_reply_sanitize(const char *reply)
         const HiddenBlock *block = NULL;
         const char *after_open = find_hidden_open(start + src, &block);
         if (after_open) {
-            const char *close = strcasestr(after_open, block->close);
+            const char *close = find_hidden_close_balanced(after_open, block);
             if (!close) {
                 /* An unclosed private block is not safe to display. */
                 break;
