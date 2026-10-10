@@ -208,16 +208,6 @@ int main(void)
         fail("autonomous fallback must not create phantom food in an empty fridge");
     sqlite3_finalize(st);
     sqlite3_close(fridge);
-    if (sqlite3_open(path, &db) != SQLITE_OK)
-        fail("could not reopen Reality database after legacy tracked-food cleanup");
-    if (sqlite3_prepare_v2(db,
-        "SELECT COUNT(*) FROM r2_reality_objects WHERE description='Guaranteed filling burger generated because the fridge was empty'",
-        -1, &st, NULL) != SQLITE_OK)
-        fail("could not query legacy phantom-food copies in tracked inventory");
-    if (sqlite3_step(st) != SQLITE_ROW || sqlite3_column_int(st, 0) != 0)
-        fail("restart must remove legacy phantom-food copies from tracked inventory");
-    sqlite3_finalize(st);
-    sqlite3_close(db);
     read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
     if (hunger < 59.0) fail("empty-fridge fallback must not pretend R2 ate");
 
@@ -258,6 +248,16 @@ int main(void)
         fail("restart must remove only legacy auto-generated phantom food");
     sqlite3_finalize(st);
     sqlite3_close(fridge);
+    if (sqlite3_open(path, &db) != SQLITE_OK)
+        fail("could not reopen Reality database after legacy tracked-food cleanup");
+    if (sqlite3_prepare_v2(db,
+        "SELECT COUNT(*) FROM r2_reality_objects WHERE description='Guaranteed filling burger generated because the fridge was empty'",
+        -1, &st, NULL) != SQLITE_OK)
+        fail("could not query legacy phantom-food copies in tracked inventory");
+    if (sqlite3_step(st) != SQLITE_ROW || sqlite3_column_int(st, 0) != 0)
+        fail("restart must remove legacy phantom-food copies from tracked inventory");
+    sqlite3_finalize(st);
+    sqlite3_close(db);
     read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
     if (hunger < 23.4 || hunger > 23.6) fail("hunger should persist across restart");
     if (satisfaction < 76.9 || satisfaction > 77.1) fail("satisfaction should persist across restart");
