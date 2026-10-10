@@ -8,6 +8,7 @@ extern "C" {
 #endif
 
 int r2_altself_init(void);
+int r2_altself_is_initialized(void);
 void r2_altself_shutdown(void);
 
 /* Each branch is explicitly hypothetical and never saved as factual memory. */
