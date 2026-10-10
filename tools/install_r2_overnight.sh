@@ -31,6 +31,17 @@ command -v systemctl >/dev/null 2>&1 || fail "systemd/systemctl is required."
 command -v curl >/dev/null 2>&1 || fail "curl is required."
 command -v python3 >/dev/null 2>&1 || fail "python3 is required."
 
+FAKETIME_FOUND=0
+for candidate in \
+    /usr/lib/x86_64-linux-gnu/faketime/libfaketime.so.1 \
+    /usr/lib/x86_64-linux-gnu/libfaketime.so.1 \
+    /usr/lib/faketime/libfaketime.so.1 \
+    /usr/local/lib/faketime/libfaketime.so.1 \
+    /usr/local/lib/libfaketime.so.1; do
+    if [[ -r "$candidate" ]]; then FAKETIME_FOUND=1; break; fi
+done
+[[ "$FAKETIME_FOUND" -eq 1 ]] || fail "libfaketime.so.1 is missing. Install the libfaketime package before activation; do not update package indexes from this launcher."
+
 if root_run systemctl is-active --quiet r2-3po.service 2>/dev/null; then
     fail "R2 service is already active. Stop it with 'sudo systemctl stop r2-3po' before rebuilding."
 fi
