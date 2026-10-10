@@ -62,6 +62,13 @@ FAKETIME_OFFSET=$((R2_EPOCH - REAL_EPOCH))
 
 log "Starting R2 with private clock $R2_START; host system time will not change."
 log "Sound assets: $R2_FX_DIR"
+SOUND_AUDIT="$R2_SOURCE/tools/audit_r2_sound_assets.py"
+if [[ -f "$SOUND_AUDIT" ]]; then
+    python3 "$SOUND_AUDIT" --root "$R2_FX_DIR" || log "WARNING: sound inventory failed; R2 core will still start without guaranteed beep/whistle playback."
+else
+    log "WARNING: sound asset audit script is missing: $SOUND_AUDIT"
+fi
+
 # Keep the host clock and service-manager tools on real time. Apply faketime only
 # to R2 itself; otherwise systemd-inhibit would inherit the private 1999 clock.
 R2_ENV=(/usr/bin/env
