@@ -90,7 +90,9 @@ int main(void)
     snprintf(player_path, sizeof(player_path), "%s/mpg123", root);
     FILE *player = fopen(player_path, "w");
     assert(player);
-    fputs("#!/bin/sh\nexec /bin/sleep 30\n", player);
+    /* Ignore SIGTERM deliberately; shutdown must escalate to SIGKILL
+       after a bounded grace period instead of hanging forever. */
+    fputs("#!/bin/sh\ntrap '' TERM\nexec /bin/sleep 30\n", player);
     fclose(player);
     assert(chmod(player_path, 0700) == 0);
     assert(setenv("PATH", root, 1) == 0);
