@@ -1242,7 +1242,7 @@ int r2_reality_init(void)
         pthread_mutex_unlock(&reality_lock); return -1;
     }
     if (remove_legacy_phantom_tracked_food() != 0) {
-        fprintf(stderr, "[R2 Reality] Could not remove legacy phantom-food copies safely.\\n");
+        fprintf(stderr, "[R2 Reality] Could not remove legacy phantom-food copies safely.\n");
         sqlite3_close(reality_db); reality_db = NULL;
         pthread_mutex_unlock(&reality_lock); return -1;
     }
