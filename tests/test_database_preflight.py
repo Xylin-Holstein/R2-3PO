@@ -1,8 +1,11 @@
+import contextlib
 import importlib.util
+import io
 import sqlite3
 import stat
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[1] / "tools" / "audit_r2_databases.py"
@@ -116,6 +119,18 @@ class DatabasePreflightTests(unittest.TestCase):
 
             self.assertTrue(report["exists"])
             self.assertIsNotNone(report["error"])
+
+
+    def test_cli_fails_preflight_when_expected_databases_are_missing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            sqlite3.connect(root / "r2_reality.db").close()
+            output = io.StringIO()
+            with patch("sys.argv", [str(SCRIPT), "--root", str(root)]), \
+                 contextlib.redirect_stdout(output):
+                self.assertEqual(audit.main(), 2)
+            self.assertIn("MISSING  r2_fridge.db", output.getvalue())
+            self.assertIn("MISSING  r2_memory.db", output.getvalue())
 
 
 if __name__ == "__main__":
