@@ -110,8 +110,10 @@ int main(void)
     sqlite3_finalize(st);
     sqlite3_close(fridge);
 
-    /* Away from home, the fridge is not accessible: the fallback must not
-       consume fridge stock or reset hunger. */
+    /* Away from home, room food and the fridge are both inaccessible.
+       The safeguard must preserve both inventories and leave hunger high. */
+    if (r2_reality_add_item("burger", "Room-only regression food", "room", 1) != 0)
+        fail("could not add room-only test food");
     if (r2_reality_set_location(0) != 0) fail("could not move simulated location away from home");
     if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality database for away test");
     if (sqlite3_prepare_v2(db,
@@ -130,8 +132,17 @@ int main(void)
         fail("away fallback must leave fridge stock unchanged");
     sqlite3_finalize(st);
     sqlite3_close(fridge);
+    if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality database for inaccessible-item check");
+    if (sqlite3_prepare_v2(db, "SELECT quantity FROM r2_reality_objects WHERE name='burger'",
+        -1, &st, NULL) != SQLITE_OK) fail("could not query inaccessible room food");
+    if (sqlite3_step(st) != SQLITE_ROW || sqlite3_column_int(st, 0) != 1)
+        fail("away fallback must not consume room-only food");
+    sqlite3_finalize(st);
+    sqlite3_close(db);
     read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
     if (hunger < 59.0) fail("away fallback must not fake eating or reset hunger");
+    if (r2_reality_set_location(1) != 0) fail("could not return home after away test");
+    if (r2_reality_remove_item("burger") != 0) fail("could not remove room-only regression food");
 
     /* Accessible portable food must be consumed from tracked Reality
        inventory, with exactly one unit removed from its real quantity. */
