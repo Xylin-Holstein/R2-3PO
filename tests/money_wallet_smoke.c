@@ -89,6 +89,15 @@ int main(void) {
     snprintf(migrated,sizeof(migrated),"%s/Pockets/Wallet/legacy_room_wallet_item.r2item",R2_ROOT);
     assert(access(migrated,F_OK)==0);
     assert(bill_count(wallet)==5);
+    /* An unexpected non-regular authoritative path must be rejected before
+       any valid cash bills are removed or recreated. */
+    char bad_money_path[1400];
+    snprintf(bad_money_path, sizeof(bad_money_path), "%s/money(999)", wallet);
+    assert(symlink("/dev/null", bad_money_path) == 0);
+    assert(r2_reality_money_receive(1.00) != 0);
+    assert(unlink(bad_money_path) == 0);
+    assert(bill_count(wallet) == 5);
+    ctx=money_context(); assert(strstr(ctx,"carried cash=$5.00")); free(ctx);
     assert(r2_reality_money_receive(1000000.01)!=0); /* Every money operation has the same hard cap. */
     assert(r2_reality_money_receive(1000000.00)!=0); /* A wallet cannot exceed its $1M balance cap. */
     assert(bill_count(wallet)==5);
