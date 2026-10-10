@@ -6320,6 +6320,20 @@ static void autonomous_needs_check(void)
             free(safe_action);
         }
     }
+    /* Model output is advisory, not the sole safeguard for a simulated
+       physical need. If hunger remains high, feed only from verified,
+       accessible Reality inventory; never invent food or bypass location. */
+    int feed_rc = r2_reality_autonomous_feed_if_needed();
+    if (feed_rc > 0)
+        r2_log_event(R2_LOG_WORLD, "autonomous_needs_food_fallback",
+                     "R2's deterministic needs safeguard consumed verified food because hunger remained high.",
+                     "Food was selected from accessible tracked inventory or the authoritative fridge database.",
+                     "autonomous_needs_check");
+    else if (feed_rc < 0)
+        r2_log_event(R2_LOG_ERROR, "autonomous_needs_food_fallback_failed",
+                     "The deterministic food safeguard could not inspect or update Reality state.",
+                     NULL, "autonomous_needs_check");
+
     free(decision);
 }
 
