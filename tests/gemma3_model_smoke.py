@@ -129,4 +129,53 @@ require(
     "the shell explains that conversation and vision cannot select different models",
 )
 
+
+imagination = read("Imagination.c")
+imagination_header = read("Imagination.h")
+makefile = read("Makefile")
+require(
+    "r2_retrieve_memories(request)" in imagination
+    and "r2_diary_search(request" in imagination
+    and "r2_log_search(request" in imagination
+    and "r2_reality_context()" in imagination
+    and "r2_visual_search(request" in imagination
+    and "r2_reward_context()" in imagination
+    and "r2_addiction_report()" in imagination
+    and "r2_altself_list(6)" in imagination,
+    "imagination retrieves from existing memory, diary, Life Log, Reality, visual, reward, habit, and Choice Lab systems",
+)
+require(
+    'r2_fridge_context()' in imagination
+    and "mentions_any(request, food_terms" in imagination
+    and "Fridge state was conditionally retrieved" in imagination,
+    "fridge context is conditional and imagination is not fridge-only",
+)
+require(
+    "r2_model_generate(system, prompt, 700)" in imagination
+    and "r2_altself_create(" in imagination
+    and "hypothetical only" in imagination
+    and "Relevant retrieved context snapshot" in imagination,
+    "imagination is generated from prior context and retained with its provenance in the existing Choice Lab",
+)
+require(
+    "if (accurate)" in imagination
+    and '"verified_imagination", 1' in imagination
+    and "not punished" in imagination
+    and "r2_reward_apply(target, \"verified_imagination\", 1" in imagination,
+    "only accurate feedback earns positive reinforcement; inaccurate imagination is never penalized",
+)
+require(
+    "[IMAGINE]" in core
+    and "r2_imagination_create(trim(request))" in core
+    and "r2_model_generate" in header
+    and "Imagination.c" in launcher
+    and "Imagination.c" in makefile,
+    "natural-language imagination tool, shared model entry point, launcher, and standard build are connected",
+)
+require(
+    "imagine feedback <id>" in shell
+    and "r2_imagination_feedback(id, assessment, notes)" in shell,
+    "the shell exposes explicit, non-punitive imagination feedback",
+)
+
 print("Gemma 4 unified-model contract checks passed.")
