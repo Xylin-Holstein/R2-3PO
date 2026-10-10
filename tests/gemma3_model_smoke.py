@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static contract tests for R2's unified Gemma 3 conversation/vision path."""
+"""Static contract tests for R2's unified Gemma 4 conversation/vision path."""
 
 from pathlib import Path
 import re
@@ -26,8 +26,8 @@ launcher = read("R2_Launch_Code.sh")
 shell = read("shell.c")
 
 require(
-    re.search(r'^#define R2_OLLAMA_MODEL "gemma3:4b"$', header, re.MULTILINE) is not None,
-    "one shared model constant selects gemma3:4b",
+    re.search(r'^#define R2_OLLAMA_MODEL "gemma4:e2b"$', header, re.MULTILINE) is not None,
+    "one shared model constant selects gemma4:e2b",
 )
 require(
     re.search(r'^#define MODEL R2_OLLAMA_MODEL$', core, re.MULTILINE) is not None,
@@ -38,7 +38,7 @@ require(
     "vision uses the exact same shared model constant",
 )
 require(
-    'R2_VISION_MODEL="gemma3:4b"' in launcher,
+    'R2_VISION_MODEL="gemma4:e2b"' in launcher,
     "launcher explicitly selects the unified vision model",
 )
 require(
@@ -77,6 +77,32 @@ require(
     "the current user message remains authoritative over retrieved context",
 )
 require(
+    "R2_OLLAMA_NUM_CTX 8192" in header and "R2_OLLAMA_NUM_BATCH 256" in header,
+    "Ollama context and prompt batch are bounded for memory use",
+)
+require(
+    "json_object_new_int(R2_OLLAMA_NUM_CTX)" in visual
+    and "json_object_new_int(R2_OLLAMA_NUM_BATCH)" in visual,
+    "visual inference uses the same memory settings as conversation",
+)
+require(
+    "if (needs_turn_summary)" in core,
+    "the extra summary inference runs only for synthesis-heavy turns",
+)
+require(
+    "strcasestr(memory, keywords[k])" in core
+    and "calloc((size_t)limit, sizeof(*candidates))" in core
+    and "for (size_t j = i + 1" not in core,
+    "memory retrieval bounds candidate allocation and avoids quadratic sorting",
+)
+ears = read("Ears.c")
+require(
+    "Ears does NOT interpret the audio." in ears
+    and "- transcribe speech" in ears
+    and "R2_OLLAMA_MODEL" not in ears,
+    "Ears is accurately identified as raw audio capture, not a speech-model client",
+)
+require(
     "Return a concise visual observation for R2's conversation to use as sensory evidence, not as a user-facing answer."
     in visual,
     "vision output is framed as sensory evidence for conversation",
@@ -87,4 +113,4 @@ require(
     "the shell explains that conversation and vision cannot select different models",
 )
 
-print("Gemma 3 unified-model contract checks passed.")
+print("Gemma 4 unified-model contract checks passed.")
