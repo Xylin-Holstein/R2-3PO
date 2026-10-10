@@ -16,6 +16,8 @@ int r2_sounds_select_file(const char *fx_dir, const char *kind,
 
 /* Queue one short effect asynchronously. kind is "beep" or "whistle". */
 int r2_sounds_play(const char *kind, const char *state);
+/* Stop/reap any active short effect during orderly core shutdown. */
+void r2_sounds_shutdown(void);
 
 /* Remove private [R2_SOUND:kind:state] markers and play at most one effect.
    Caller frees the returned reply. Unknown/malformed markers are stripped. */
