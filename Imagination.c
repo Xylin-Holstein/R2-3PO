@@ -283,6 +283,46 @@ static char *collect_context(const char *request)
     return b.data;
 }
 
+/* Preserve a navigable relationship between a hypothetical branch and the
+ * real Life Log events that helped inspire it. The link records provenance,
+ * not proof that the imagined outcome happened. Parse only event IDs from the
+ * explicitly labeled Life Log section; never scrape arbitrary memory text. */
+static void link_life_log_context(int64_t branch_id, const char *context)
+{
+    if (branch_id <= 0 || !context) return;
+    const char *section = strstr(context, "--- LIFE LOG (");
+    if (!section) return;
+    const char *line = strchr(section, '\n');
+    if (!line) return;
+    ++line;
+    const char *end = strstr(line, "\n\n--- ");
+    if (!end) end = context + strlen(context);
+
+    int64_t linked_ids[5] = {0};
+    size_t linked_count = 0;
+    while (line < end && linked_count < sizeof(linked_ids) / sizeof(linked_ids[0])) {
+        const char *line_end = memchr(line, '\n', (size_t)(end - line));
+        if (!line_end) line_end = end;
+        if (line < line_end && *line == '[' &&
+            line + 1 < line_end && isdigit((unsigned char)line[1])) {
+            char *number_end = NULL;
+            long long parsed = strtoll(line + 1, &number_end, 10);
+            if (number_end > line + 1 && number_end < line_end &&
+                *number_end == ']' && parsed > 0) {
+                int duplicate = 0;
+                for (size_t i = 0; i < linked_count; ++i)
+                    if (linked_ids[i] == (int64_t)parsed) duplicate = 1;
+                if (!duplicate && r2_altself_link_event(branch_id, (int64_t)parsed,
+                        "context_for_imagination",
+                        "Retrieved Life Log context that helped form this hypothetical; contextual provenance only, not confirmation of the imagined outcome.") == 0) {
+                    linked_ids[linked_count++] = (int64_t)parsed;
+                }
+            }
+        }
+        line = line_end < end ? line_end + 1 : end;
+    }
+}
+
 int r2_imagination_init(void)
 {
     /* Choice Lab and Life Log are required for safe persistence. Do not claim
@@ -390,7 +430,7 @@ char *r2_imagination_create(const char *request)
         "is consulted separately only for explicit current-inventory "
         "questions.\n"
         "Raw retrieved records are not copied into this branch; they remain in their "
-        "authoritative stores and can be retrieved again. The scenario's conclusion records "
+        "authoritative stores and can be retrieved again. Relevant Life Log events are linked to the branch as context_for_imagination when their IDs are available; these links record provenance, not proof of the imagined outcome. The scenario's conclusion records "
         "its own contextual interpretation and uncertainty.\n"
         "Learning rule: inaccurate imagination is not punished; accuracy feedback must be evidence-based.",
         request);
@@ -414,6 +454,10 @@ char *r2_imagination_create(const char *request)
         free(context);
         return NULL;
     }
+
+    /* Connect the saved hypothetical to retrieved Life Log evidence without
+       converting that evidence or the imagined scene into a fact. */
+    link_life_log_context(branch, context);
 
     size_t out_size = strlen(generated) + 160;
     char *out = malloc(out_size);
