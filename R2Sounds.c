@@ -423,7 +423,7 @@ static const char *find_sound_marker(const char *text)
     return NULL;
 }
 
-char *r2_sounds_process_reply(const char *reply)
+static char *process_reply_markers(const char *reply, int play_sound)
 {
     if (!reply) return NULL;
     size_t len = strlen(reply);
@@ -461,7 +461,7 @@ char *r2_sounds_process_reply(const char *reply)
             if (!played_or_attempted && valid_marker_value(inside, 16) &&
                 valid_marker_state(sep) &&
                 (!strcasecmp(inside, "beep") || !strcasecmp(inside, "whistle"))) {
-                (void)r2_sounds_play(inside, sep);
+                if (play_sound) (void)r2_sounds_play(inside, sep);
                 played_or_attempted = 1;
             }
         }
@@ -469,4 +469,14 @@ char *r2_sounds_process_reply(const char *reply)
     }
     clean[dst] = '\0';
     return clean;
+}
+
+char *r2_sounds_strip_markers(const char *reply)
+{
+    return process_reply_markers(reply, 0);
+}
+
+char *r2_sounds_process_reply(const char *reply)
+{
+    return process_reply_markers(reply, 1);
 }
