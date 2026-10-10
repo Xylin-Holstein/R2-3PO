@@ -105,6 +105,12 @@ require(
     and "for (size_t j = i + 1" not in core,
     "memory retrieval bounds candidate allocation and avoids quadratic sorting",
 )
+require(
+    "size_t capacity;" in core
+    and "while (capacity < needed)" in core
+    and "b->capacity = capacity;" in core,
+    "streamed Ollama responses use geometric buffer growth rather than per-chunk realloc",
+)
 ears = read("Ears.c")
 require(
     "Ears does NOT interpret the audio." in ears
