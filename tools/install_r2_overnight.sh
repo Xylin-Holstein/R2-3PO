@@ -77,6 +77,16 @@ for database in "$R2_SOURCE/r2_memory.db" "$R2_SOURCE/r2_reality.db" "$R2_SOURCE
     fi
 done
 
+# No R2 process is running, so take a consistent, private snapshot of all three
+# databases and require a clean integrity audit before installing/starting code.
+AUDIT_SCRIPT="$R2_SOURCE/tools/audit_r2_databases.py"
+[[ -f "$AUDIT_SCRIPT" ]] || fail "database audit tool is missing: $AUDIT_SCRIPT"
+SNAPSHOT_DIR="$R2_ROOT/audit-snapshot-$(date '+%Y%m%d-%H%M%S')"
+log "Creating a private SQLite snapshot and checking database integrity..."
+run_as_r2 python3 "$AUDIT_SCRIPT" --root "$R2_SOURCE" --snapshot-dir "$SNAPSHOT_DIR" ||
+    fail "database snapshot/integrity audit failed. R2 was not activated; inspect the report and preserve the snapshot/source databases."
+log "Database snapshot and integrity audit passed: $SNAPSHOT_DIR"
+
 # Compile to a new path first. A failed build never replaces the last known executable.
 log "Compiling the complete C runtime..."
 make -C "$R2_SOURCE" clean all TARGET="$TEMP_EXEC"
