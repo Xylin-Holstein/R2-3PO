@@ -323,6 +323,33 @@ char *r2_altself_show(int64_t id)
     return as_query("SELECT id,name,scenario,assumptions,predicted_outcome,conclusion,status,evidence_event_id,created_utc "
                     "FROM r2_alternate_self_branches WHERE id=?;",id,0,0);
 }
+int r2_altself_link_event(int64_t branch_id, int64_t event_id,
+                          const char *relationship, const char *notes)
+{
+    if (branch_id <= 0 || event_id <= 0 || !relationship || !*relationship)
+        return -1;
+    pthread_mutex_lock(&as_lock);
+    if (!as_ready || !as_db) {
+        pthread_mutex_unlock(&as_lock);
+        return -1;
+    }
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(as_db,
+        "SELECT log_event_id FROM r2_alternate_self_branches WHERE id=?",
+        -1, &st, NULL);
+    int64_t branch_event_id = -1;
+    if (rc == SQLITE_OK) {
+        sqlite3_bind_int64(st, 1, branch_id);
+        rc = sqlite3_step(st);
+        if (rc == SQLITE_ROW)
+            branch_event_id = sqlite3_column_int64(st, 0);
+    }
+    sqlite3_finalize(st);
+    pthread_mutex_unlock(&as_lock);
+    if (rc != SQLITE_ROW || branch_event_id <= 0) return -1;
+    return r2_log_link(branch_event_id, event_id, relationship, notes);
+}
+
 char *r2_altself_compare(int64_t a, int64_t b)
 {
     return as_query("SELECT id,name,scenario,assumptions,predicted_outcome,conclusion,status,evidence_event_id,created_utc "
