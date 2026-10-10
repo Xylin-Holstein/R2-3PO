@@ -95,6 +95,7 @@
 #include "AlternateSelf.h"
 #include "Visual.h"
 #include "Reward.h"
+#include "Addiction.h"
 
 
 /* ============================================================
@@ -149,6 +150,7 @@ static int core_initialized = 0;
 static int startup_memory_loaded = 0;
 static int watch_running = 0;
 static int diary_initialized = 0;
+static int addiction_initialized = 0;
 
 static void log_structured_self_report(const char *reply, int64_t parent_event_id);
 static char *append_reality_context(char *base);
@@ -3389,6 +3391,22 @@ static char *chat_with_relevant_memories(
                 world_context, 4000);
         }
         free(world_context);
+    }
+
+    if (query && *query && addiction_initialized &&
+        (strcasestr(query, "habit") || strcasestr(query, "addiction") ||
+         strcasestr(query, "craving") || strcasestr(query, "substance") ||
+         strcasestr(query, "marijuana") || strcasestr(query, "cannabis") ||
+         strcasestr(query, "nicotine") || strcasestr(query, "alcohol") ||
+         strcasestr(query, "enjoyment") || strcasestr(query, "dependence"))) {
+        char *addiction_context = r2_addiction_report();
+        if (addiction_context && *addiction_context) {
+            append_reply_context(
+                &memory_context,
+                "ADDICTION / HABIT DATABASE (recorded choices and enjoyment patterns; not a diagnosis):\n",
+                addiction_context, 3000);
+        }
+        free(addiction_context);
     }
 
     if (query && *query &&
@@ -7684,6 +7702,18 @@ int r2_init(void)
                           "Connect hypothetical sensory reasoning and learned preferences without promoting predictions to observations.",
                           "r2_init");
 
+    /* Addiction/habit observations live in their own database. Keep this
+       subsystem optional so its failure cannot disable ordinary conversation. */
+    if (r2_addiction_init() != 0) {
+        addiction_initialized = 0;
+        r2_log_event(R2_LOG_ERROR, "addiction_db_init_failed",
+                     "R2's addiction/habit database could not initialize.",
+                     "Conversation remains available without addiction-database context.",
+                     "r2_init");
+    } else {
+        addiction_initialized = 1;
+    }
+
     /* --------------------------------------------------------
        INITIAL SYSTEM MESSAGE
        -------------------------------------------------------- */
@@ -7939,6 +7969,8 @@ int r2_init(void)
         ) != 0
     ) {
 
+        r2_addiction_shutdown();
+        addiction_initialized = 0;
         r2_diary_shutdown();
         sqlite3_close(db);
         db = NULL;
@@ -8088,6 +8120,8 @@ void r2_shutdown(void)
 
     r2_visual_shutdown();
     r2_altself_shutdown();
+    r2_addiction_shutdown();
+    addiction_initialized = 0;
 
     /* Close independent persistent engines before the shared Life Log/diary/core DB. */
     r2_reality_shutdown();
