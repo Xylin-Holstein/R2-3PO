@@ -21,16 +21,16 @@ The resulting executable is `./r2`. To remove it, run `make clean`.
 
 ## Ollama model: conversation and vision
 
-R2's default conversation model and visual-perception model are both `gemma3:4b`.
+R2's default conversation model and visual-perception model are both `gemma4:e2b`.
 Install the model locally before launching R2:
 
 ```sh
-ollama pull gemma3:4b
-ollama run gemma3:4b
+ollama pull gemma4:e2b
+ollama run gemma4:e2b
 ```
 
 At the Ollama prompt, test a short message and then enter `/bye`. The launch script
-also reports the expected model name. R2 uses the same model for text and image input;
+also reports the expected model name. R2 uses the same model for text and image input. Ears currently captures PCM audio only; it does not yet transcribe or submit audio to Ollama;
 visual inference shares the Ollama request lock with conversation and yields when a
 foreground conversation is waiting. Ordinary conversation does not trigger a new frame
 analysis unless the user asks about visual context; ongoing Eyes/VLC observation can
