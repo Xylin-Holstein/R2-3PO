@@ -97,6 +97,9 @@ REQUIRED_FILES=(
     "$R2_SOURCE/Eyes.c"
     "$R2_SOURCE/Eyes.h"
 
+    "$R2_SOURCE/R2Sounds.c"
+    "$R2_SOURCE/R2Sounds.h"
+
     "$R2_SOURCE/AlternateSelf.c"
     "$R2_SOURCE/AlternateSelf.h"
 
@@ -118,6 +121,24 @@ for FILE in "${REQUIRED_FILES[@]}"; do
 done
 
 echo "All R2 source modules found."
+echo
+
+# Sound assets are read by the separate r2 Linux account. Check access as that
+# account now, so a /home permission mismatch is reported before conversation
+# markers silently fail. An absent collection is non-fatal to R2 itself.
+R2_FX_DIR="${R2_FX_DIR:-$R2_ROOT/R2_sounds/FX}"
+SOUND_AUDIT="$R2_SOURCE/tools/audit_r2_sound_assets.py"
+if [ -f "$SOUND_AUDIT" ]; then
+    if ! sudo -u r2 python3 "$SOUND_AUDIT" --root "$R2_FX_DIR"; then
+        echo "WARNING: r2 could not complete the sound asset inventory."
+        echo "R2 will still start; beep/whistle markers may have no matching audio."
+    fi
+elif sudo -u r2 bash -c 'test -d "$1" && test -r "$1" && find "$1" -maxdepth 1 -type f -iname "*.mp3" -print -quit | grep -q .' _ "$R2_FX_DIR"; then
+    echo "State-aware sound assets are readable by r2: $R2_FX_DIR"
+else
+    echo "WARNING: r2 cannot find readable MP3 effects in: $R2_FX_DIR"
+    echo "R2 will still start; beep/whistle markers may have no matching audio."
+fi
 echo
 
 echo "[2/4] Configuring R2 private clock..."
@@ -306,6 +327,7 @@ gcc -std=c11 -Wall -Wextra -O2 \
     "$R2_SOURCE/Visual.c" \
     "$R2_SOURCE/Ears.c" \
     "$R2_SOURCE/Eyes.c" \
+    "$R2_SOURCE/R2Sounds.c" \
     -o "$R2_EXEC" \
     -lcurl \
     -lsqlite3 \
@@ -349,6 +371,7 @@ echo "    AlternateSelf.c"
 echo "    Visual.c"
 echo "    Ears.c"
 echo "    Eyes.c"
+echo "    R2Sounds.c"
 echo
 
 echo "[4/4] Transitioning to Linux user: r2..."
@@ -388,6 +411,7 @@ sudo -u r2 \
     FAKETIME="${FAKETIME_OFFSET}" \
     FAKETIME_DONT_RESET=1 \
     R2_VISION_MODEL="gemma3:4b" \
+    R2_FX_DIR="$R2_FX_DIR" \
     "$R2_EXEC"
 
 status=$?

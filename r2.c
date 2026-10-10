@@ -82,6 +82,7 @@
 #include <sqlite3.h>
 #include <json-c/json.h>
 #include "r2.h"
+#include "R2Sounds.h"
 
 /* ============================================================
    R2 SUBSYSTEMS
@@ -3464,7 +3465,10 @@ static char *chat_with_relevant_memories(
             "brief; give technical, multi-part, or creative requests the detail they "
             "actually need. Preserve relevant nuance, curiosity, personality, and "
             "useful reasoning. Do not become terse at the cost of correctness or omit "
-            "necessary steps. Use lists only when they improve clarity.",
+            "necessary steps. Use lists only when they improve clarity. "
+            "SOUND EFFECTS: Rarely, when a short nonverbal droid sound naturally adds meaning, you may include one hidden control marker: "
+            "[R2_SOUND:beep:STATE] or [R2_SOUND:whistle:STATE]. Choose a state tag only when supported by this turn or current Reality evidence; the tag is a sound-selection hint, not a claim that R2 has a hidden emotional state. Use sleepy or hungry only when the current modeled need actually supports it; use alert for a concrete noteworthy event, greeting for a greeting, and curious/thinking only when the response genuinely reflects curiosity or deliberation. Do not infer a need from the topic alone, use sounds to imply an unsupported physical event, or force a tag onto routine replies. Prefer no marker when the fit is unclear. "
+            "Do not emit a marker on routine replies, do not explain it, and never write a marker as visible prose. The runtime removes it and selects a matching existing named MP3.",
             conversation_reply_token_budget(query),
             2700L
         );
@@ -5460,11 +5464,16 @@ static char *process_tools(
             APPEND("FRIDGE %s: '%s' %s.\n", rc == 0 ? "RESULT" : "ERROR", fields[1],
                    rc == 0 ? "was moved from inventory into the fridge" : "could not be stored");
         } else if (nf >= 3 && !strcasecmp(fields[0], "eat")) {
-            double fullness = !strcasecmp(fields[2], "auto") ? -1.0 : atof(fields[2]);
-            int rc = r2_eat_and_learn(fields[1], fullness);
+            /* The XML metric is authoritative for tracked food. Do not let
+               model output invent a fullness value with atof() (which also
+               silently turns malformed text into zero). */
+            int valid_metric_request = !strcasecmp(fields[2], "auto");
+            int rc = valid_metric_request ? r2_eat_and_learn(fields[1], -1.0) : -1;
             APPEND("REAL NEEDS %s: eating '%s' %s.\n",
                    rc == 0 ? "RESULT" : "ERROR", fields[1],
-                   rc == 0 ? "updated persistent hunger and energy" : "could not update hunger");
+                   rc == 0 ? "updated persistent hunger and energy" :
+                   (valid_metric_request ? "failed; item or authoritative food metric is unavailable" :
+                                           "failed; use auto so the configured food metric remains authoritative"));
         } else if (nf >= 4 && !strcasecmp(fields[0], "ratefood")) {
             char *end = NULL;
             long score = strtol(fields[2], &end, 10);
@@ -5660,6 +5669,12 @@ static void *autonomous_thinking(
             "- uncertainty;\n"
             "- patterns over time;\n"
             "- thoughts about previous diary thoughts.\n"
+            "- compare earlier conclusions with later events and current authoritative state;\n"
+            "- use stable events and measured state changes as reference points when useful;\n"
+            "- distinguish recorded events, measured variables, interpretations, hypotheses, and unknowns;\n"
+            "- explain what evidence changed an earlier conclusion;\n"
+            "- recognize that rereading the same event is not new evidence by itself;\n"
+            "- turn suspected operational problems into testable questions rather than treating prose as proof;\n"
             "\n"
             "The important part is that the diary can think "
             "about its own previous thinking rather than "
@@ -6134,7 +6149,11 @@ int r2_write_diary(void)
         "Write a private diary reflection based ONLY on the information supplied.\n"
         "Do not merely summarize it. Look for changes in understanding, "
         "connections, unanswered questions, technical discoveries, uncertainty, "
-        "and patterns over time.\n"
+        "and patterns over time. Compare earlier interpretations with later events "
+        "and current authoritative state. Distinguish recorded events, measured "
+        "variables, interpretations, hypotheses, and unknowns. A repeated reading "
+        "of the same evidence is not new evidence by itself. If a reflection suggests "
+        "a system problem, identify what observable state or behavior would test it.\n"
         "Do not invent events, conversations, sensory experiences, or actions.\n"
         "Write naturally in first person as R2.\n"
         "Return ONLY the private diary reflection.";
@@ -6254,13 +6273,32 @@ int r2_sleep_and_dream(double hours)
 }
 
 
+/* Keep the deterministic body-needs safeguard independent of whether the
+ * model, context retrieval, or action parser succeeds. */
+static void autonomous_needs_food_safeguard(void)
+{
+    int feed_rc = r2_reality_autonomous_feed_if_needed();
+    if (feed_rc > 0)
+        r2_log_event(R2_LOG_WORLD, "autonomous_needs_food_fallback",
+                     "R2's deterministic needs safeguard consumed verified food because hunger remained high.",
+                     "Food was selected from accessible tracked inventory or the authoritative fridge database.",
+                     "autonomous_needs_check");
+    else if (feed_rc < 0)
+        r2_log_event(R2_LOG_ERROR, "autonomous_needs_food_fallback_failed",
+                     "The deterministic food safeguard could not inspect or update Reality state.",
+                     NULL, "autonomous_needs_check");
+}
+
 /* Autonomous needs checks are deliberately limited to [WORLD] actions. They
  * cannot run shell commands, delete workspace files, or invoke other tools. */
 static void autonomous_needs_check(void)
 {
     if (shutting_down || !r2_reality_is_initialized()) return;
     char *state = r2_reality_context();
-    if (!state) return;
+    if (!state) {
+        autonomous_needs_food_safeguard();
+        return;
+    }
     const char *prompt =
         "You are R2-3PO's autonomous needs controller. Inspect the authoritative "
         "self/world state supplied below. This is a real persistent simulation, not roleplay. "
@@ -6277,7 +6315,11 @@ static void autonomous_needs_check(void)
         "Return no explanations and no other tool markers.\n\n";
     size_t n = strlen(state) + 2048;
     char *input = malloc(n);
-    if (!input) { free(state); return; }
+    if (!input) {
+        free(state);
+        autonomous_needs_food_safeguard();
+        return;
+    }
     snprintf(input, n, "%s%s", prompt, state);
     free(state);
 
@@ -6289,6 +6331,7 @@ static void autonomous_needs_check(void)
         r2_log_event(R2_LOG_ERROR, "autonomous_needs_check_failed",
                      "The autonomous needs controller could not obtain a model decision.",
                      NULL, "autonomous_needs_check");
+        autonomous_needs_food_safeguard();
         return;
     }
 
@@ -6310,6 +6353,9 @@ static void autonomous_needs_check(void)
             free(safe_action);
         }
     }
+    /* Model output is advisory, not the sole safeguard for a simulated
+       physical need. This also runs when no model decision was available. */
+    autonomous_needs_food_safeguard();
     free(decision);
 }
 
@@ -7148,6 +7194,12 @@ static char *r2_talk_impl(const char *message)
         return NULL;
     }
 
+    char *sound_clean_reply = r2_sounds_process_reply(reply);
+    if (sound_clean_reply) {
+        free(reply);
+        reply = sound_clean_reply;
+    }
+
     char *tools = process_tools(reply);
 
     if (tools && *tools) {
@@ -7172,6 +7224,11 @@ static char *r2_talk_impl(const char *message)
                 fprintf(stderr,
                     "[R2] Follow-up generation failed; the incomplete turn was removed from live context.\n");
             return NULL;
+        }
+        sound_clean_reply = r2_sounds_process_reply(reply);
+        if (sound_clean_reply) {
+            free(reply);
+            reply = sound_clean_reply;
         }
     } else {
         free(tools);
@@ -7878,6 +7935,9 @@ void r2_shutdown(void)
     while (post_turn_active > 0)
         pthread_cond_wait(&post_turn_cond, &post_turn_lock);
     pthread_mutex_unlock(&post_turn_lock);
+
+    /* Reap any short sound player before closing the Life Log. */
+    r2_sounds_shutdown();
 
     if (ears) {
         r2_ears_shutdown(ears);

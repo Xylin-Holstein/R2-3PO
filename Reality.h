@@ -38,6 +38,8 @@ void r2_fridge_shutdown(void);
 int r2_fridge_take(const char *food);
 int r2_fridge_add_item(const char *name, const char *description, int quantity,
                        double fullness, double energy, const char *ingredients, const char *taste);
+/* Fridge stock's stored fullness/energy are authoritative; fullness is
+   retained for API compatibility and cannot override inventory data. */
 int r2_reality_fridge_eat(const char *food, double fullness);
 
 /* Persistent object/container operations. */
@@ -45,7 +47,11 @@ int r2_reality_add_item(const char *name, const char *description,
                         const char *container, int quantity);
 int r2_reality_move_item(const char *name, const char *container);
 int r2_reality_remove_item(const char *name);
+/* Tracked food always uses its configured XML metric; fullness is retained for
+   API compatibility but cannot override the authoritative metric. */
 int r2_reality_eat(const char *food, double fullness);
+/* Deterministic safety fallback: if hunger is high, consume verified accessible food. Returns 1 if fed, 0 if unnecessary/unavailable, -1 on error. */
+int r2_reality_autonomous_feed_if_needed(void);
 char *r2_reality_food_context(const char *food);
 int r2_reality_rate_food(const char *food, int satisfaction, const char *notes);
 int r2_reality_sleep(double hours);

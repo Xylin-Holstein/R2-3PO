@@ -366,7 +366,7 @@ static void shell_help(void)
         "  fridge [look]\n"
         "      Inspect stock in the separate persistent fridge database.\n"
         "  fridge take <food>\n"
-        "      Move one fridge item into R2's pockets; an empty fridge refills with a burger.\n"
+        "      Move one fridge item into R2's pockets; an empty fridge stays empty.\n"
         "  fridge eat <food>\n"
         "      Eat directly from fridge stock without carrying the food.\n"
         "  fridge store <food>\n"
