@@ -83,6 +83,21 @@ int main(void)
            strstr(clean, " after"));
     free(clean);
 
+    /* Use a fake local decoder to verify the asynchronous player can be
+       stopped/reaped without requiring actual MP3 playback or audio hardware. */
+    assert(unsetenv("R2_SOUNDS_DISABLE_PLAYBACK") == 0);
+    char player_path[4096];
+    snprintf(player_path, sizeof(player_path), "%s/mpg123", root);
+    FILE *player = fopen(player_path, "w");
+    assert(player);
+    fputs("#!/bin/sh\\nexec /bin/sleep 30\\n", player);
+    fclose(player);
+    assert(chmod(player_path, 0700) == 0);
+    assert(setenv("PATH", root, 1) == 0);
+    assert(r2_sounds_play("beep", "curious") == 0);
+    r2_sounds_shutdown();
+    unlink(player_path);
+
     const char *const names[] = {
         "R2_Beep_Curious.mp3", "R2_Beep_Sleepy.mp3", "R2_Beep_Default.mp3",
         "R2_Whistle_Happy.mp3", "R2_Whistle_Default.mp3",
