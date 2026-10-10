@@ -1324,12 +1324,12 @@ char *r2_ears_listen_and_interpret(R2Ears *ears, unsigned seconds)
 
     char summary[512];
     snprintf(summary, sizeof(summary),
-             "R2 interpreted an explicitly captured audio clip from %s.",
+             "R2 interpreted an explicitly captured audio clip from %.400s.",
              source_name);
     char details[2400];
     snprintf(details, sizeof(details),
-             "source=%s; captured_seconds_requested=%u; local_model=%s; "
-             "interpretation follows (model-generated, may be uncertain):\n%.1600s",
+             "source=%.400s; captured_seconds_requested=%u; local_model=%s; "
+             "interpretation follows (model-generated, may be uncertain):\n%.1300s",
              source_name, seconds, R2_OLLAMA_MODEL, interpretation);
     (void)r2_log_event(R2_LOG_SENSORY, "audio_interpreted",
                        summary, details, "Ears.c");
@@ -1338,7 +1338,7 @@ char *r2_ears_listen_and_interpret(R2Ears *ears, unsigned seconds)
        enter R2's existing searchable memory and be reused by later reasoning. */
     char memory[1900];
     snprintf(memory, sizeof(memory),
-             "Explicit audio observation from %s: %.1700s",
+             "Explicit audio observation from %.300s: %.1500s",
              source_name, interpretation);
     (void)r2_save_memory(memory, "audio_transcript");
     return interpretation;
