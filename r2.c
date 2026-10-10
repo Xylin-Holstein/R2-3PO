@@ -6381,7 +6381,7 @@ static char *r2_audio_file_base64(const char *wav_path)
     if (!fp) return NULL;
     if (fseek(fp, 0, SEEK_END) != 0) { fclose(fp); return NULL; }
     long file_size = ftell(fp);
-    if (file_size < 44 || file_size > 8 * 1024 * 1024 ||
+    if (file_size < 44 || file_size > 2 * 1024 * 1024 ||
         fseek(fp, 0, SEEK_SET) != 0) {
         fclose(fp);
         return NULL;
@@ -6434,7 +6434,7 @@ char *r2_model_generate_audio(const char *system_prompt, const char *user_prompt
     if (!audio_base64) {
         r2_log_event(R2_LOG_ERROR, "audio_model_input_invalid",
                      "R2 could not prepare the supplied WAV for local audio analysis.",
-                     "Expected a readable RIFF/WAVE file no larger than 8 MiB.",
+                     "Expected a readable RIFF/WAVE file no larger than 2 MiB.",
                      "r2_model_generate_audio");
         return NULL;
     }
