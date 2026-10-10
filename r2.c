@@ -6258,6 +6258,44 @@ char *r2_retrieve_memories(const char *query)
     );
 }
 
+char *r2_recent_conversation_context(const char *exclude_latest, size_t max_chars)
+{
+    if (max_chars < 1) max_chars = 1200;
+    if (max_chars > 3000) max_chars = 3000;
+    char *out = calloc(max_chars + 1, 1);
+    if (!out) return NULL;
+
+    pthread_mutex_lock(&messages_lock);
+    size_t start = messages.count > 12 ? messages.count - 12 : 0;
+    size_t used = 0;
+    for (size_t i = start; i < messages.count && used < max_chars; ++i) {
+        const char *role = messages.items[i].role ? messages.items[i].role : "user";
+        const char *content = messages.items[i].content ? messages.items[i].content : "";
+        if (!strcmp(role, "system") || !*content) continue;
+        if (exclude_latest && i + 1 == messages.count &&
+            !strcmp(role, "user") && !strcmp(content, exclude_latest))
+            continue;
+
+        const char *speaker = !strcmp(role, "assistant") ? "R2" : role;
+        int header_n = snprintf(out + used, max_chars + 1 - used,
+                                "%s: ", speaker);
+        if (header_n < 0 || (size_t)header_n >= max_chars + 1 - used) break;
+        used += (size_t)header_n;
+
+        size_t room = max_chars - used;
+        size_t n = strlen(content);
+        if (n > room) n = room;
+        if (n) {
+            memcpy(out + used, content, n);
+            used += n;
+        }
+        if (used < max_chars) out[used++] = '\n';
+        out[used] = '\0';
+    }
+    pthread_mutex_unlock(&messages_lock);
+    return out;
+}
+
 int r2_save_memory(const char *memory, const char *category)
 {
     if (!memory || !*memory) return -1;
