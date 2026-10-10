@@ -129,6 +129,12 @@ int main(void)
     assert(clean && !strstr(clean, "[R2_SOUND:") && strstr(clean, "Before ") &&
            strstr(clean, " after"));
     free(clean);
+
+    clean = r2_sounds_strip_markers("Before [R2_SOUND:beep:curious] after");
+    assert(clean && !strstr(clean, "[R2_SOUND:") &&
+           strstr(clean, "Before ") && strstr(clean, " after"));
+    free(clean);
+    /* Strip-only processing must not start a player or consume the rate limit. */
     assert(r2_sounds_play("beep", "curious") == 0);
     r2_sounds_shutdown();
     assert(r2_sounds_play("beep", "curious") != 0);
