@@ -347,7 +347,7 @@ char *r2_altself_show(int64_t id)
         "JOIN r2_log_events e ON e.id=l.to_event_id "
         "WHERE b.id=? AND l.relationship IN ('context_for_imagination','feedback_for_imagination') "
         "ORDER BY l.id LIMIT 12;", -1, &st, NULL);
-    if (rc == SQLITE_OK) sqlite3_bind_int64(st, 1, id);
+    if (rc == SQLITE_OK) rc = sqlite3_bind_int64(st, 1, id);
 
     size_t used = strlen(out);
     size_t capacity = used + 1;
