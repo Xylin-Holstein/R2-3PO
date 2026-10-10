@@ -24,6 +24,7 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn("FAKETIME_DONT_RESET=1", source)
         self.assertIn("R2_SERVICE_MODE=1", source)
         self.assertIn("systemd-inhibit --what=sleep", source)
+        self.assertLess(source.index("exec systemd-inhibit"), source.index('log "Waiting for the local Ollama API..."'))
         self.assertNotIn("apt-get update", source)
         self.assertNotIn("ollama pull", source)
 
