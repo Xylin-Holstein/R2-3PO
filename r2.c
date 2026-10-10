@@ -3364,7 +3364,14 @@ static char *chat_with_relevant_memories(
          strcasestr(query, "craving") || strcasestr(query, "substance") ||
          strcasestr(query, "marijuana") || strcasestr(query, "cannabis") ||
          strcasestr(query, "nicotine") || strcasestr(query, "alcohol") ||
-         strcasestr(query, "enjoyment") || strcasestr(query, "dependence"))) {
+         strcasestr(query, "enjoyment") || strcasestr(query, "dependence") ||
+         strcasestr(query, "food") || strcasestr(query, "burger") ||
+         strcasestr(query, "eat") || strcasestr(query, "eating") ||
+         strcasestr(query, "hungry") || strcasestr(query, "hunger") ||
+         strcasestr(query, "work") || strcasestr(query, "working") ||
+         strcasestr(query, "mistake") || strcasestr(query, "motivation") ||
+         strcasestr(query, "preference") || strcasestr(query, "prefer") ||
+         strcasestr(query, "repeatedly") || strcasestr(query, "keeps doing"))) {
         char *addiction_context = r2_addiction_report();
         if (addiction_context && *addiction_context) {
             append_reply_context(
@@ -3377,7 +3384,13 @@ static char *chat_with_relevant_memories(
 
     if (query && *query &&
         (strcasestr(query, "reward") || strcasestr(query, "reinforcement") ||
-         strcasestr(query, "points") || strcasestr(query, "enjoyment modifier"))) {
+         strcasestr(query, "points") || strcasestr(query, "enjoyment modifier") ||
+         strcasestr(query, "mistake") || strcasestr(query, "penalty") ||
+         strcasestr(query, "motivation") || strcasestr(query, "progress") ||
+         strcasestr(query, "work") || strcasestr(query, "working") ||
+         strcasestr(query, "task") || strcasestr(query, "food") ||
+         strcasestr(query, "burger") || strcasestr(query, "eating") ||
+         strcasestr(query, "enjoy") || strcasestr(query, "frustrat"))) {
         char *reward_context = r2_reward_context();
         if (reward_context && *reward_context) {
             append_reply_context(
@@ -3390,7 +3403,10 @@ static char *chat_with_relevant_memories(
 
     if (query && *query &&
         (strcasestr(query, "alternate self") || strcasestr(query, "hypothetical") ||
-         strcasestr(query, "counterfactual") || strcasestr(query, "what if"))) {
+         strcasestr(query, "counterfactual") || strcasestr(query, "what if") ||
+         strcasestr(query, "imagine") || strcasestr(query, "imagination") ||
+         strcasestr(query, "imaginary scenario") || strcasestr(query, "possible outcome") ||
+         strcasestr(query, "what would happen"))) {
         char *hypothesis_context = r2_altself_list(5);
         if (hypothesis_context && *hypothesis_context) {
             append_reply_context(
