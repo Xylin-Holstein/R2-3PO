@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -144,11 +145,17 @@ char *r2_recent_conversation_context(const char *exclude_latest, size_t max_char
 }
 char *r2_diary_search(const char *query, int limit)
 {
-    (void)query; (void)limit; return strdup("DIARY_SENTINEL: past reflection.");
+    (void)limit;
+    if (query && (!strcasecmp(query, "movie") || !strcasecmp(query, "CRT")))
+        return strdup("DIARY_SENTINEL: past reflection about the movie and CRT.");
+    return strdup("");
 }
 char *r2_log_search(const char *query, int limit)
 {
-    (void)query; (void)limit; return strdup("LIFELOG_SENTINEL: an earlier real event.");
+    (void)limit;
+    if (query && (!strcasecmp(query, "movie") || !strcasecmp(query, "CRT")))
+        return strdup("LIFELOG_SENTINEL: an earlier real movie event.");
+    return strdup("");
 }
 char *r2_reality_imagination_context(void)
 {
@@ -159,7 +166,10 @@ char *r2_reality_money_context(void) { return strdup("MONEY_SENTINEL: current mo
 int r2_visual_is_initialized(void) { return 1; }
 char *r2_visual_search(const char *query, int limit)
 {
-    (void)query; (void)limit; return strdup("VISUAL_SENTINEL: stored visual experience.");
+    (void)limit;
+    if (query && (!strcasecmp(query, "movie") || !strcasecmp(query, "CRT")))
+        return strdup("VISUAL_SENTINEL: stored visual experience of a CRT movie.");
+    return strdup("(No visual experiences found.)\n");
 }
 char *r2_visual_recent(int limit)
 {
