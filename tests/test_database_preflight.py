@@ -42,6 +42,28 @@ class DatabasePreflightTests(unittest.TestCase):
             )
             db.close()
 
+    def test_snapshot_is_consistent_and_never_overwrites_existing_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "r2_fridge.db"
+            snapshot = root / "snapshots" / "r2_fridge.db"
+            db = sqlite3.connect(source)
+            db.execute("CREATE TABLE stock (name TEXT, quantity INTEGER)")
+            db.execute("INSERT INTO stock VALUES ('apple', 3)")
+            db.commit()
+            db.close()
+            original = source.read_bytes()
+            snapshot.parent.mkdir()
+
+            audit.snapshot_database(source, snapshot)
+
+            self.assertEqual(source.read_bytes(), original)
+            copied = sqlite3.connect(snapshot)
+            self.assertEqual(copied.execute("SELECT quantity FROM stock").fetchone()[0], 3)
+            copied.close()
+            with self.assertRaises(FileExistsError):
+                audit.snapshot_database(source, snapshot)
+
     def test_empty_database_is_valid_and_missing_files_are_not_created(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
