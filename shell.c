@@ -50,6 +50,7 @@
 #include "Reality.h"
 #include "Addiction.h"
 #include "AlternateSelf.h"
+#include <json-c/json.h>
 
 
 /* ============================================================
@@ -1606,6 +1607,119 @@ static int shell_give(const char *arg)
     return 1;
 }
 
+typedef struct {
+    int valid;
+    int running;
+    char power_state[16];
+    char title[256];
+    char session_id[160];
+} ShellGameboyStatus;
+
+/* Read authoritative device state without showing JSON to the user. */
+static int shell_gameboy_read_status(ShellGameboyStatus *out)
+{
+    const char *device = "/home/x/R2_Home/Devices/GameBoyAdvance/GameBoyAdvance";
+    int pipefd[2];
+    char output[8192];
+    size_t used = 0;
+    pid_t child;
+    int status = 0;
+    if (!out || pipe(pipefd) != 0) return 0;
+    memset(out, 0, sizeof(*out));
+    child = fork();
+    if (child < 0) {
+        close(pipefd[0]); close(pipefd[1]);
+        return 0;
+    }
+    if (child == 0) {
+        int nullfd;
+        close(pipefd[0]);
+        if (dup2(pipefd[1], STDOUT_FILENO) < 0) _exit(126);
+        close(pipefd[1]);
+        nullfd = open("/dev/null", O_WRONLY);
+        if (nullfd >= 0) { (void)dup2(nullfd, STDERR_FILENO); close(nullfd); }
+        execl(device, device, "--json", "status", (char *)NULL);
+        _exit(127);
+    }
+    close(pipefd[1]);
+    while (used + 1 < sizeof(output)) {
+        ssize_t n = read(pipefd[0], output + used, sizeof(output) - used - 1);
+        if (n > 0) used += (size_t)n;
+        else if (n == 0) break;
+        else if (errno != EINTR) break;
+    }
+    close(pipefd[0]);
+    output[used] = '\0';
+    while (waitpid(child, &status, 0) < 0) {
+        if (errno == EINTR) continue;
+        return 0;
+    }
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0 || used == 0) return 0;
+
+    json_object *root = json_tokener_parse(output);
+    if (!root || !json_object_is_type(root, json_type_object)) {
+        if (root) json_object_put(root);
+        return 0;
+    }
+    json_object *value = NULL;
+    if (json_object_object_get_ex(root, "power_state", &value) &&
+        json_object_is_type(value, json_type_string))
+        snprintf(out->power_state, sizeof(out->power_state), "%s",
+                 json_object_get_string(value));
+    value = NULL;
+    if (json_object_object_get_ex(root, "game_running", &value))
+        out->running = json_object_get_boolean(value) ? 1 : 0;
+    value = NULL;
+    if (json_object_object_get_ex(root, "cartridge_title", &value) &&
+        json_object_is_type(value, json_type_string))
+        snprintf(out->title, sizeof(out->title), "%s", json_object_get_string(value));
+    value = NULL;
+    if (json_object_object_get_ex(root, "session_id", &value) &&
+        json_object_is_type(value, json_type_string))
+        snprintf(out->session_id, sizeof(out->session_id), "%s", json_object_get_string(value));
+    out->valid = out->power_state[0] != '\0';
+    json_object_put(root);
+    return out->valid;
+}
+
+static void shell_gameboy_log_session_start(const ShellGameboyStatus *state)
+{
+    char key[256], name[512], details[1200], summary[1200];
+    if (!state || !state->running || !state->session_id[0]) return;
+    snprintf(key, sizeof(key), "gameboy:%s", state->session_id);
+    snprintf(name, sizeof(name), "Playing %s on Game Boy Advance",
+             state->title[0] ? state->title : "a game");
+    snprintf(details, sizeof(details),
+             "Real-life activity: R2 started a game session. session_id=%s; "
+             "the game's virtual events remain separate from physical Reality.",
+             state->session_id);
+    if (r2_log_activity_start(key, name, details) < 0) {
+        snprintf(summary, sizeof(summary), "R2 began playing %s on the Game Boy Advance.",
+                 state->title[0] ? state->title : "a game");
+        (void)r2_log_event(R2_LOG_MEDIA, "game_session_started", summary,
+                           details, "GameBoyAdvance.py");
+    }
+}
+
+static void shell_gameboy_log_session_end(const ShellGameboyStatus *state)
+{
+    char key[256], details[1200], summary[1200];
+    const char *title;
+    if (!state || !state->running || !state->session_id[0]) return;
+    title = state->title[0] ? state->title : "a game";
+    snprintf(key, sizeof(key), "gameboy:%s", state->session_id);
+    snprintf(details, sizeof(details),
+             "Real-life activity ended because the console session stopped. "
+             "session_id=%s; in-game events are not physical-life events.",
+             state->session_id);
+    if (r2_log_activity_end(key, "Game Boy Advance emulator stopped",
+                            "console_powered_off", details) < 0) {
+        snprintf(summary, sizeof(summary), "R2 stopped playing %s on the Game Boy Advance.", title);
+        (void)r2_log_event(R2_LOG_MEDIA, "game_session_ended", summary,
+                           details, "GameBoyAdvance.py");
+    }
+}
+
 static int shell_gameboy(const char *arg)
 {
     const char *device = "/home/x/R2_Home/Devices/GameBoyAdvance/GameBoyAdvance";
@@ -1640,6 +1754,11 @@ static int shell_gameboy(const char *arg)
     }
     argv[argc + 1] = NULL;
 
+    int is_power_on = argc == 2 && !strcmp(argv[1], "power") && !strcmp(argv[2], "on");
+    int is_power_off = argc == 2 && !strcmp(argv[1], "power") && !strcmp(argv[2], "off");
+    ShellGameboyStatus before = {0}, after = {0};
+    int have_before = (is_power_on || is_power_off) && shell_gameboy_read_status(&before);
+
     pid_t child = fork();
     if (child < 0) {
         perror("[Game Boy Advance] fork");
@@ -1658,8 +1777,16 @@ static int shell_gameboy(const char *arg)
         free(copy);
         return 1;
     }
-    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
+    int command_ok = WIFEXITED(status) && WEXITSTATUS(status) == 0;
+    if (!command_ok) {
         printf("[Game Boy Advance] Command failed. Check installation, inserted ROM, and mGBA path.\n");
+    } else if (have_before && shell_gameboy_read_status(&after)) {
+        if (is_power_on && !before.running && after.running) {
+            shell_gameboy_log_session_start(&after);
+        } else if (is_power_off && before.running && !after.running) {
+            shell_gameboy_log_session_end(&before);
+        }
+    }
     free(copy);
     return 1;
 }
