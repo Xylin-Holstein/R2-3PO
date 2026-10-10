@@ -1941,13 +1941,21 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
 {
     if (!food || !*food || !r2_reality_is_initialized()) return -1;
     double energy_bonus = 0.0;
-    if (fullness >= 0.0) {
+    if (consume_tracked_item) {
+        /* Tracked inventory must use the configured authoritative metric.
+           Never let a model-supplied numeric override turn an unknown object
+           or a zero-fullness item into a meal. */
+        if (food_metric(food, &fullness, &energy_bonus) != 0) {
+            fprintf(stderr, "[R2 Reality] No food metric found for '%s' in room/food_metrics.xml.\\n", food);
+            return -1;
+        }
+    } else if (fullness >= 0.0) {
+        if (!isfinite(fullness)) return -1;
         if (fullness > 100.0) fullness = 100.0;
         energy_bonus = fullness * 0.1;
-    }
-    if (fullness < 0.0) {
+    } else {
         if (food_metric(food, &fullness, &energy_bonus) != 0) {
-            fprintf(stderr, "[R2 Reality] No food metric found for '%s' in room/food_metrics.xml.\n", food);
+            fprintf(stderr, "[R2 Reality] No food metric found for '%s' in room/food_metrics.xml.\\n", food);
             return -1;
         }
     }
