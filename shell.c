@@ -1676,19 +1676,21 @@ static void shell_gameboy_log_session_start(const ShellGameboyStatus *state)
     }
 }
 
-static void shell_gameboy_log_session_end(const ShellGameboyStatus *state)
+static void shell_gameboy_log_session_end(const ShellGameboyStatus *state,
+                                          const char *stop_reason)
 {
     char key[256], details[1200], summary[1200];
     const char *title;
+    const char *reason = stop_reason && *stop_reason ? stop_reason : "unknown";
     if (!state || !state->session_id[0]) return;
     title = state->title[0] ? state->title : "a game";
     snprintf(key, sizeof(key), "gameboy:%s", state->session_id);
     snprintf(details, sizeof(details),
              "Real-life activity ended because the console session stopped. "
-             "session_id=%s; in-game events are not physical-life events.",
-             state->session_id);
+             "session_id=%s; stop_reason=%s; in-game events are not physical-life events.",
+             state->session_id, reason);
     if (r2_log_activity_end(key, "Game Boy Advance emulator stopped",
-                            "console_powered_off", details) < 0) {
+                            reason, details) < 0) {
         snprintf(summary, sizeof(summary), "R2 stopped playing %s on the Game Boy Advance.", title);
         (void)r2_log_event(R2_LOG_MEDIA, "game_session_ended", summary,
                            details, "GameBoyAdvance.py");
@@ -1729,6 +1731,7 @@ static int shell_gameboy(const char *arg)
     }
     argv[argc + 1] = NULL;
 
+    int is_power_off = argc == 2 && !strcmp(argv[1], "power") && !strcmp(argv[2], "off");
     ShellGameboyStatus before = {0}, after = {0};
     int have_before = shell_gameboy_read_status(&before);
 
@@ -1759,7 +1762,7 @@ static int shell_gameboy(const char *arg)
            If the database did not exist before first launch, still record start. */
         if (have_before && before.session_id[0] &&
             (!after.session_id[0] || strcmp(before.session_id, after.session_id) != 0))
-            shell_gameboy_log_session_end(&before);
+            shell_gameboy_log_session_end(&before, is_power_off ? "console_powered_off" : "emulator_exited_or_session_reconciled");
         if (after.session_id[0] &&
             (!have_before || !before.session_id[0] ||
              strcmp(before.session_id, after.session_id) != 0))
