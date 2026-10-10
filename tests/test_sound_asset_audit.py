@@ -34,7 +34,7 @@ class SoundAssetAuditTests(unittest.TestCase):
                 self.assertEqual(audit.audit_root(root), 0)
 
             report = output.getvalue()
-            self.assertIn("Readable regular MP3 files: 3", report)
+            self.assertIn("Readable regular MP3 files: 4", report)
             self.assertIn("R2_Beep_Curious.MP3 [curious]", report)
             self.assertIn("Beep candidates: 3", report)
             self.assertIn("Whistle candidates: 1", report)
