@@ -95,7 +95,8 @@ static int context_stopword(const char *word)
         "from", "you", "your", "own", "we", "they", "them", "he", "she",
         "his", "her", "their", "our", "me", "my", "i", "not", "only",
         "instead", "rather", "than", "thing", "something", "anything",
-        "everything", "know", "think", "describe"
+        "everything", "know", "think", "describe", "first", "last", "next", "new", "old",
+        "best", "good", "bad", "very", "really", "more", "most", "less", "many", "much", "enough"
     };
     for (size_t i = 0; i < sizeof(stopwords) / sizeof(stopwords[0]); ++i)
         if (!strcasecmp(word, stopwords[i])) return 1;
