@@ -200,7 +200,40 @@ int main(void)
     sqlite3_bind_int64(st, 1, (sqlite3_int64)time(NULL));
     if (sqlite3_step(st) != SQLITE_DONE) fail("could not set tracked-food hunger state");
     sqlite3_finalize(st);
+    if (sqlite3_exec(db,
+        "CREATE TRIGGER smoke_fail_food_experience BEFORE INSERT ON r2_food_experiences "
+        "BEGIN SELECT RAISE(ABORT,'intentional rollback test'); END",
+        NULL, NULL, NULL) != SQLITE_OK)
+        fail("could not install transaction rollback test trigger");
     sqlite3_close(db);
+
+    /* Force the final meal write to fail after needs and stock were updated.
+       The transaction must roll both changes back together. */
+    if (r2_reality_eat("burger", -1.0) == 0)
+        fail("injected meal persistence failure should be reported");
+    if (sqlite3_open(path, &db) != SQLITE_OK)
+        fail("could not reopen Reality database after rollback test");
+    if (sqlite3_prepare_v2(db,
+        "SELECT hunger,seconds_since_meal FROM r2_reality_self WHERE id=1",
+        -1, &st, NULL) != SQLITE_OK)
+        fail("could not query needs after rollback test");
+    if (sqlite3_step(st) != SQLITE_ROW ||
+        sqlite3_column_double(st, 0) < 59.8 ||
+        sqlite3_column_double(st, 1) < 9990.0)
+        fail("failed meal must roll back hunger and meal-clock changes");
+    sqlite3_finalize(st);
+    if (sqlite3_prepare_v2(db,
+        "SELECT quantity FROM r2_reality_objects WHERE name='burger'",
+        -1, &st, NULL) != SQLITE_OK)
+        fail("could not query tracked stock after rollback test");
+    if (sqlite3_step(st) != SQLITE_ROW || sqlite3_column_int(st, 0) != 2)
+        fail("failed meal must roll back tracked inventory decrement");
+    sqlite3_finalize(st);
+    if (sqlite3_exec(db, "DROP TRIGGER smoke_fail_food_experience",
+                     NULL, NULL, NULL) != SQLITE_OK)
+        fail("could not remove transaction rollback test trigger");
+    sqlite3_close(db);
+
     if (r2_reality_autonomous_feed_if_needed() != 1)
         fail("accessible tracked food should be consumed before fridge stock");
     if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality database to verify tracked stock");
