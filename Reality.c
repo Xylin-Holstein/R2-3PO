@@ -969,7 +969,8 @@ static int fridge_restore_one(const char *food, const char *description, double 
 int r2_fridge_add_item(const char *name, const char *description, int quantity,
                        double fullness, double energy, const char *ingredients, const char *taste)
 {
-    if (!name || !*name || strlen(name) > REALITY_MAX_TEXT || !fridge_db) return -1;
+    if (!name || !*name || strlen(name) > REALITY_MAX_TEXT || !fridge_db ||
+        !isfinite(fullness) || !isfinite(energy)) return -1;
     if (quantity < 1) quantity = 1;
     if (fullness < 0.0 || fullness > 100.0) fullness = 100.0;
     if (energy < 0.0 || energy > 100.0) energy = 10.0;
@@ -2321,7 +2322,8 @@ int r2_reality_rate_food(const char *food, int satisfaction, const char *notes)
 
 int r2_reality_sleep(double hours)
 {
-    if (!r2_reality_is_initialized() || hours <= 0.0 || hours > 48.0) return -1;
+    if (!r2_reality_is_initialized() || !isfinite(hours) ||
+        hours <= 0.0 || hours > 48.0) return -1;
     if (r2_reality_tick() != 0) return -1;
     pthread_mutex_lock(&reality_lock);
     /* Sleeping advances the modeled body clock: needs still accrue during
