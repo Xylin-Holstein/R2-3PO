@@ -338,7 +338,8 @@ char *r2_sounds_process_reply(const char *reply)
             break;
         }
         if ((size_t)(end - marker) >= R2_SOUND_MARKER_MAX) {
-            src = (size_t)(marker - reply) + strlen("[R2_SOUND:");
+            /* Oversized markers are discarded as a unit, never exposed. */
+            src = (size_t)(end - reply) + 1;
             continue;
         }
         char inside[R2_SOUND_MARKER_MAX];
