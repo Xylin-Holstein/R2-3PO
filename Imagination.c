@@ -303,6 +303,14 @@ int r2_imagination_init(void)
     return 0;
 }
 
+int r2_imagination_is_initialized(void)
+{
+    pthread_mutex_lock(&imagination_lock);
+    int ready = imagination_ready;
+    pthread_mutex_unlock(&imagination_lock);
+    return ready && r2_altself_is_initialized() && r2_log_is_initialized();
+}
+
 void r2_imagination_shutdown(void)
 {
     pthread_mutex_lock(&imagination_lock);
