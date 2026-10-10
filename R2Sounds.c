@@ -277,6 +277,19 @@ static pid_t spawn_player(const char *path)
     return rc == 0 ? child : -1;
 }
 
+void r2_sounds_init(void)
+{
+    pthread_mutex_lock(&sound_lock);
+    /* A previous orderly shutdown reaps and clears the child. Do not reset
+       shutdown protection over a live player if initialization is miscalled. */
+    if (sound_child <= 0) {
+        sound_shutting_down = 0;
+        have_last_sound_at = 0;
+        memset(&last_sound_at, 0, sizeof(last_sound_at));
+    }
+    pthread_mutex_unlock(&sound_lock);
+}
+
 int r2_sounds_play(const char *kind, const char *state)
 {
     const char *dir = getenv("R2_FX_DIR");
