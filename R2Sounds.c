@@ -312,6 +312,23 @@ int r2_sounds_play(const char *kind, const char *state)
     return 0;
 }
 
+void r2_sounds_shutdown(void)
+{
+    pthread_mutex_lock(&sound_lock);
+    pid_t child = sound_child;
+    sound_child = -1;
+    have_last_sound_at = 0;
+    pthread_mutex_unlock(&sound_lock);
+
+    if (child <= 0) return;
+    int status = 0;
+    pid_t result = waitpid(child, &status, WNOHANG);
+    if (result == 0) {
+        (void)kill(child, SIGTERM);
+        while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
+    }
+}
+
 static int valid_marker_value(const char *value, size_t max_len)
 {
     size_t n = value ? strlen(value) : 0;
