@@ -154,6 +154,8 @@ require(
     and "r2_visual_recent(2)" in imagination
     and "r2_reward_context()" in imagination
     and "r2_addiction_report()" in imagination
+    and "r2_altself_is_initialized()" in imagination
+    and "r2_altself_is_initialized(void)" in read("AlternateSelf.c")
     and "r2_altself_list(6)" in imagination
     and "extract_context_terms" in imagination
     and "matched keyword" in imagination,
