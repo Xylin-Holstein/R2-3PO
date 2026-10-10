@@ -176,6 +176,12 @@ require(
     "imagination uses a focused Reality snapshot and retrieves fridge stock only for explicit inventory questions",
 )
 require(
+    "imagination_branch_saved" in core
+    and "if (!skip_hypotheticals &&" in core
+    and "schedule_post_turn_processing(message, reply, turn_event_id, imagination_branch_saved)" in core,
+    "post-turn extraction does not duplicate hypotheses already saved by the imagination tool",
+)
+require(
     "r2_model_generate(system, prompt, 700)" in imagination
     and "r2_altself_create(" in imagination
     and "hypothetical only" in imagination
