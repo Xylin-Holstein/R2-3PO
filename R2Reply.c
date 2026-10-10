@@ -149,6 +149,32 @@ char *r2_reply_sanitize(const char *reply)
     clean[dst] = '\0';
     trim_reply(clean);
 
+    /* Removing a tagged private block can reveal an untagged scratch preamble
+       that was not at byte zero of the model output. Check the visible result
+       again so "<think>...</think>We need to answer..." cannot leak. */
+    const char *visible = clean;
+    while (*visible && isspace((unsigned char)*visible)) ++visible;
+    int visible_looks_private =
+        !strncasecmp(visible, "analysis:", 9) ||
+        !strncasecmp(visible, "reasoning:", 10) ||
+        !strncasecmp(visible, "thinking:", 9);
+    for (size_t i = 0; !visible_looks_private && scratch_prefixes[i]; ++i) {
+        size_t n = strlen(scratch_prefixes[i]);
+        if (!strncasecmp(visible, scratch_prefixes[i], n))
+            visible_looks_private = 1;
+    }
+    if (visible_looks_private) {
+        const char *final = strcasestr(visible, "\\nfinal:");
+        if (!final) final = strcasestr(visible, "\\n\\nfinal:");
+        if (!final) {
+            free(clean);
+            return NULL;
+        }
+        const char *final_content = final + strlen("\\nfinal:");
+        memmove(clean, final_content, strlen(final_content) + 1);
+        trim_reply(clean);
+    }
+
     if (!*clean) {
         free(clean);
         return NULL;
