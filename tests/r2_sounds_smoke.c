@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "R2Sounds.h"
+#include "Log.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -7,6 +8,14 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+int r2_log_is_initialized(void) { return 0; }
+int64_t r2_log_event(R2LogCategory category, const char *event_type,
+                     const char *summary, const char *details, const char *source)
+{
+    (void)category; (void)event_type; (void)summary; (void)details; (void)source;
+    return -1;
+}
 
 static void touch(const char *dir, const char *name)
 {
