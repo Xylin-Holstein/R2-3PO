@@ -4618,7 +4618,7 @@ static char *process_tools(
                _b. Clamp to stored bytes and make truncation explicit. */\
             size_t _append_n = (size_t)_n;                            \
             if (_append_n >= sizeof(_b)) {                            \
-                static const char _truncated[] = "\\n[tool output truncated]"; \
+                static const char _truncated[] = "\n[tool output truncated]"; \
                 _append_n = sizeof(_b) - 1 - (sizeof(_truncated) - 1);\
                 memcpy(_b + _append_n, _truncated, sizeof(_truncated) - 1); \
                 _append_n += sizeof(_truncated) - 1;                  \
