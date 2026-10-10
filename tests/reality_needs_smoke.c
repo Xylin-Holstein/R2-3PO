@@ -110,6 +110,55 @@ int main(void)
     sqlite3_finalize(st);
     sqlite3_close(fridge);
 
+    /* Away from home, the fridge is not accessible: the fallback must not
+       consume fridge stock or reset hunger. */
+    if (r2_reality_set_location(0) != 0) fail("could not move simulated location away from home");
+    if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality database for away test");
+    if (sqlite3_prepare_v2(db,
+        "UPDATE r2_reality_self SET hunger=60,seconds_since_meal=10000,last_tick=? WHERE id=1",
+        -1, &st, NULL) != SQLITE_OK) fail("could not prepare away hunger state");
+    sqlite3_bind_int64(st, 1, (sqlite3_int64)time(NULL));
+    if (sqlite3_step(st) != SQLITE_DONE) fail("could not set away hunger state");
+    sqlite3_finalize(st);
+    sqlite3_close(db);
+    if (r2_reality_autonomous_feed_if_needed() != 0)
+        fail("away fallback should not consume home fridge stock");
+    if (sqlite3_open(fridge_path, &fridge) != SQLITE_OK) fail("could not reopen fridge for away check");
+    if (sqlite3_prepare_v2(fridge, "SELECT quantity FROM r2_fridge_items WHERE name='apple'",
+        -1, &st, NULL) != SQLITE_OK) fail("could not query away fridge stock");
+    if (sqlite3_step(st) != SQLITE_ROW || sqlite3_column_int(st, 0) != 2)
+        fail("away fallback must leave fridge stock unchanged");
+    sqlite3_finalize(st);
+    sqlite3_close(fridge);
+    read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
+    if (hunger < 59.0) fail("away fallback must not fake eating or reset hunger");
+
+    /* Empty fridge is a real state, not a cue to spawn a burger. */
+    if (r2_reality_set_location(1) != 0) fail("could not return simulated location home");
+    if (sqlite3_open(fridge_path, &fridge) != SQLITE_OK) fail("could not reopen fridge for empty test");
+    if (sqlite3_exec(fridge, "DELETE FROM r2_fridge_items", NULL, NULL, NULL) != SQLITE_OK)
+        fail("could not empty fridge for no-invention test");
+    sqlite3_close(fridge);
+    if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality database for empty-fridge test");
+    if (sqlite3_prepare_v2(db,
+        "UPDATE r2_reality_self SET hunger=60,seconds_since_meal=10000,last_tick=? WHERE id=1",
+        -1, &st, NULL) != SQLITE_OK) fail("could not prepare empty-fridge hunger state");
+    sqlite3_bind_int64(st, 1, (sqlite3_int64)time(NULL));
+    if (sqlite3_step(st) != SQLITE_DONE) fail("could not set empty-fridge hunger state");
+    sqlite3_finalize(st);
+    sqlite3_close(db);
+    if (r2_reality_autonomous_feed_if_needed() != 0)
+        fail("empty fridge should report no food rather than inventing stock");
+    if (sqlite3_open(fridge_path, &fridge) != SQLITE_OK) fail("could not reopen empty fridge");
+    if (sqlite3_prepare_v2(fridge, "SELECT COUNT(*) FROM r2_fridge_items",
+        -1, &st, NULL) != SQLITE_OK) fail("could not verify empty fridge");
+    if (sqlite3_step(st) != SQLITE_ROW || sqlite3_column_int(st, 0) != 0)
+        fail("autonomous fallback must not create phantom food in an empty fridge");
+    sqlite3_finalize(st);
+    sqlite3_close(fridge);
+    read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
+    if (hunger < 59.0) fail("empty-fridge fallback must not pretend R2 ate");
+
     /* Persistence boundary: needs survive a full Reality shutdown/init cycle. */
     if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality database for restart test");
     if (sqlite3_prepare_v2(db,
