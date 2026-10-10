@@ -385,7 +385,7 @@ static void shell_help(void)
         "  imagine list\n"
         "      Inspect saved hypothetical branches shared with the Choice Lab.\n"
         "  imagine feedback <id> <accurate|partial|incorrect|unresolved> [notes]\n"
-        "      Record feedback; accurate earns a small positive signal, incorrect ideas are never penalized.\n"
+        "      Record feedback; accurate feedback with evidence notes earns a small positive signal; incorrect ideas are never penalized.\n"
         "  alternate [list|show <id>|create <fields>|discard <id>|retain <id>|compare <id> <id>]\n"
         "      Explore hypothetical choices without changing factual memories.\n"
         "      create fields: name|scenario|assumptions|predicted outcome|conclusion|optional evidence event ID\n"
