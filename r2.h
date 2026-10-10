@@ -329,6 +329,9 @@ int r2_vision_close(void);
 int r2_ears_start(void);
 int r2_ears_stop(void);
 int r2_ears_status(void);
+/* Explicitly listen to 1-30 seconds of audio, interpret it locally, and save
+   the user-triggered sensory observation through existing memory/Log systems. */
+char *r2_ears_listen(unsigned seconds);
 
 
 /* ============================================================
