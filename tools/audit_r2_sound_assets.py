@@ -40,12 +40,7 @@ def tokens(filename: str) -> set[str]:
     return result
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=Path, required=True,
-                        help="R2 FX directory (inspected read-only)")
-    args = parser.parse_args()
-    root = args.root
+def audit_root(root: Path) -> int:
     if not root.is_dir() or not os.access(root, os.R_OK | os.X_OK):
         print(f"ERROR: sound directory is missing or unreadable: {root}")
         return 2
@@ -87,6 +82,13 @@ def main() -> int:
     print("Available players: " + (", ".join(players) if players else "none found"))
     print("Note: inventory does not decode MP3s or confirm speaker output.")
     return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", type=Path, required=True,
+                        help="R2 FX directory (inspected read-only)")
+    return audit_root(parser.parse_args().root)
 
 
 if __name__ == "__main__":
