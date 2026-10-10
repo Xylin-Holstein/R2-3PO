@@ -7204,29 +7204,32 @@ static char *r2_talk_impl(const char *message)
         return NULL;
     }
 
-    /* Parse tool instructions before playing any sound: a model response
-       that requests a tool is an intermediate step, not the user's answer. */
-    char *tools = process_tools(reply);
+    /* Strip markers into a temporary copy before executing tools, so a
+       cleanup allocation failure cannot occur after a tool side effect. Keep
+       the original separately in case this is a final reply and should play. */
+    char *stripped_reply = r2_sounds_strip_markers(reply);
+    if (!stripped_reply) {
+        free(reply);
+        message_rollback_turn(message);
+        fprintf(stderr, "[R2] Could not safely strip sound markers; discarded this turn.\n");
+        return NULL;
+    }
+
+    char *tools = process_tools(stripped_reply);
     if (!tools) {
         free(reply);
+        free(stripped_reply);
         message_rollback_turn(message);
         fprintf(stderr, "[R2] Could not parse tool instructions; discarded this turn.\n");
         return NULL;
     }
 
     if (*tools) {
-        /* Strip control markers from internal tool-routing text without
-           playing them or storing them in the conversation history. */
-        char *stripped = r2_sounds_strip_markers(reply);
-        if (!stripped) {
-            free(reply);
-            free(tools);
-            message_rollback_turn(message);
-            fprintf(stderr, "[R2] Could not safely strip sound markers from tool-routing text; discarded this turn.\n");
-            return NULL;
-        }
+        /* Tool-routing replies are internal context only: never play their
+           markers and never retain the raw control syntax in conversation. */
         free(reply);
-        reply = stripped;
+        reply = stripped_reply;
+        stripped_reply = NULL;
 
         pthread_mutex_lock(&messages_lock);
         int assistant_rc = message_add("assistant", reply);
@@ -7260,6 +7263,7 @@ static char *r2_talk_impl(const char *message)
         reply = sound_clean_reply;
     } else {
         free(tools);
+        free(stripped_reply);
         /* Only a final, user-facing response may trigger an effect. */
         char *sound_clean_reply = r2_sounds_process_reply(reply);
         if (!sound_clean_reply) {
