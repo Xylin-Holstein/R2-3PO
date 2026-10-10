@@ -164,6 +164,10 @@ int r2_thinking_active(void);
  */
 char *r2_retrieve_memories(const char *query);
 
+/* Copy a bounded recent active-conversation context, excluding the current user
+ * message when it matches exclude_latest. Caller frees the result. */
+char *r2_recent_conversation_context(const char *exclude_latest, size_t max_chars);
+
 
 /*
  * Save a memory through R2's existing memory system.
