@@ -63,6 +63,20 @@ int main(void)
     assert(strstr(path, "R2_Whistle_Acknowledgement.mp3"));
     assert(r2_sounds_select_file(root, "whistle", "confused", path, sizeof(path)) == 0);
     assert(strstr(path, "R2_Whistle_Default.mp3"));
+
+    /* A mismatched state-labeled clip must not be used when no generic clip
+       exists; otherwise a curious R2 could accidentally sound sleepy. */
+    char mismatch_dir[] = "/tmp/r2-fx-mismatch-XXXXXX";
+    assert(mkdtemp(mismatch_dir));
+    touch(mismatch_dir, "R2_Beep_Sleepy.mp3");
+    assert(r2_sounds_select_file(mismatch_dir, "beep", "curious", path, sizeof(path)) != 0);
+    assert(r2_sounds_select_file(mismatch_dir, "beep", "sleepy", path, sizeof(path)) == 0);
+    assert(strstr(path, "R2_Beep_Sleepy.mp3"));
+    char mismatch_file[4096];
+    snprintf(mismatch_file, sizeof(mismatch_file), "%s/R2_Beep_Sleepy.mp3", mismatch_dir);
+    unlink(mismatch_file);
+    rmdir(mismatch_dir);
+
     assert(r2_sounds_select_file(root, "laugh", "happy", path, sizeof(path)) != 0);
     assert(r2_sounds_select_file(root, "beep", "curious", path, 2) != 0);
 
