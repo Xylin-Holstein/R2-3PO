@@ -162,7 +162,11 @@ require(
     and "r2_reality_imagination_context()" in imagination
     and "FRIDGE STATE (only because the request asks about current food/inventory" in imagination
     and "char *r2_reality_imagination_context(void)" in read("Reality.c")
-    and "Fridge stock is intentionally omitted from this general context" in read("Reality.c"),
+    and "Fridge stock is intentionally omitted from this general context" in read("Reality.c")
+    and "r2_reality_tv_status()" in imagination
+    and "mentions_any(request, media_terms" in imagination
+    and "r2_reality_money_context()" in imagination
+    and "mentions_any(request, money_terms" in imagination,
     "imagination uses a focused Reality snapshot and retrieves fridge stock only for explicit inventory questions",
 )
 require(
