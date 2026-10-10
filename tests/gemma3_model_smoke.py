@@ -179,7 +179,9 @@ require(
     and "without activating Eyes or Ears" in imagination
     and "r2_save_memory(" not in imagination
     and "r2_eyes_" not in imagination
-    and "r2_ears_" not in imagination,
+    and "r2_ears_" not in imagination
+    and "never infer" in imagination
+    and "does not prove what a movie or recording contains" in imagination,
     "imagination is generated from prior context and retained with its provenance in the existing Choice Lab",
 )
 require(
