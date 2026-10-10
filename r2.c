@@ -7218,10 +7218,20 @@ static char *r2_talk_impl(const char *message)
        the original separately in case this is a final reply and should play. */
     char *stripped_reply = r2_sounds_strip_markers(reply);
     if (!stripped_reply) {
+        /* A marker-only or unallocatable result is not a user-facing answer.
+           Retry once before rolling back, without executing any tool action. */
         free(reply);
-        message_rollback_turn(message);
-        fprintf(stderr, "[R2] Could not safely strip sound markers; discarded this turn.\n");
-        return NULL;
+        fprintf(stderr, "[R2] No safe user-facing text after sound-marker cleanup; retrying once.\n");
+        reply = chat_with_relevant_memories(message);
+        if (reply)
+            stripped_reply = r2_sounds_strip_markers(reply);
+        if (!reply || !stripped_reply) {
+            free(reply);
+            free(stripped_reply);
+            message_rollback_turn(message);
+            fprintf(stderr, "[R2] Retry still produced no safe user-facing text; discarded this turn.\n");
+            return NULL;
+        }
     }
 
     char *tools = process_tools(stripped_reply);
