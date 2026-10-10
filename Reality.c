@@ -627,52 +627,55 @@ static char *food_metrics_context(void)
     return out;
 }
 
-static void update_hunger_locked(double elapsed)
+static int update_hunger_locked(double elapsed)
 {
+    if (!reality_db || !isfinite(elapsed)) return -1;
+    if (elapsed < 0.0) elapsed = 0.0;
     sqlite3_stmt *st = NULL;
-    double hunger = 0.0, satisfaction = 0.0, since_meal = 0.0, sleepiness = 0.0, energy = 100.0;
     int rc = sqlite3_prepare_v2(reality_db,
         "SELECT hunger, seconds_since_meal, sleepiness, energy, satisfaction FROM r2_reality_self WHERE id=1",
         -1, &st, NULL);
-    if (rc == SQLITE_OK && sqlite3_step(st) == SQLITE_ROW) {
-        hunger = sqlite3_column_double(st, 0);
-        since_meal = sqlite3_column_double(st, 1);
-        sleepiness = sqlite3_column_double(st, 2);
-        energy = sqlite3_column_double(st, 3);
-        satisfaction = sqlite3_column_double(st, 4);
-    }
-    if (st) sqlite3_finalize(st);
-    if (elapsed < 0.0) elapsed = 0.0;
-    hunger += elapsed * HUNGER_PER_SECOND;
-    satisfaction -= elapsed * HUNGER_PER_SECOND;
-    sleepiness += elapsed * SLEEPINESS_PER_SECOND;
-    energy -= elapsed * ENERGY_DRAIN_PER_SECOND;
+    if (rc != SQLITE_OK) return -1;
+    rc = sqlite3_step(st);
+    if (rc != SQLITE_ROW) { sqlite3_finalize(st); return -1; }
+    double hunger = sqlite3_column_double(st, 0) + elapsed * HUNGER_PER_SECOND;
+    double since_meal = sqlite3_column_double(st, 1) + elapsed;
+    double sleepiness = sqlite3_column_double(st, 2) + elapsed * SLEEPINESS_PER_SECOND;
+    double energy = sqlite3_column_double(st, 3) - elapsed * ENERGY_DRAIN_PER_SECOND;
+    double satisfaction = sqlite3_column_double(st, 4) - elapsed * HUNGER_PER_SECOND;
+    sqlite3_finalize(st);
+    if (!isfinite(hunger) || !isfinite(since_meal) || !isfinite(sleepiness) ||
+        !isfinite(energy) || !isfinite(satisfaction)) return -1;
     if (hunger > 100.0) hunger = 100.0;
     if (satisfaction < 0.0) satisfaction = 0.0;
     if (satisfaction > 150.0) satisfaction = 150.0;
     if (sleepiness > 100.0) sleepiness = 100.0;
     if (energy < 0.0) energy = 0.0;
-    since_meal += elapsed;
     st = NULL;
-    if (sqlite3_prepare_v2(reality_db,
+    rc = sqlite3_prepare_v2(reality_db,
         "UPDATE r2_reality_self SET hunger=?, seconds_since_meal=?, sleepiness=?, energy=?, satisfaction=?, updated_at=CURRENT_TIMESTAMP WHERE id=1",
-        -1, &st, NULL) == SQLITE_OK) {
+        -1, &st, NULL);
+    if (rc == SQLITE_OK) {
         sqlite3_bind_double(st, 1, hunger);
         sqlite3_bind_double(st, 2, since_meal);
         sqlite3_bind_double(st, 3, sleepiness);
         sqlite3_bind_double(st, 4, energy);
         sqlite3_bind_double(st, 5, satisfaction);
-        sqlite3_step(st);
+        rc = sqlite3_step(st);
+        if (rc == SQLITE_DONE && sqlite3_changes(reality_db) != 1) rc = SQLITE_NOTFOUND;
     }
     if (st) sqlite3_finalize(st);
+    if (rc != SQLITE_DONE) return -1;
     st = NULL;
-    if (sqlite3_prepare_v2(reality_db,
+    rc = sqlite3_prepare_v2(reality_db,
         "INSERT INTO r2_reality_meta(key,value) VALUES('world_elapsed_seconds',?) ON CONFLICT(key) DO UPDATE SET value=CAST(CAST(value AS INTEGER)+CAST(excluded.value AS INTEGER) AS TEXT)",
-        -1, &st, NULL) == SQLITE_OK) {
+        -1, &st, NULL);
+    if (rc == SQLITE_OK) {
         sqlite3_bind_int64(st, 1, (sqlite3_int64)llround(elapsed));
-        sqlite3_step(st);
+        rc = sqlite3_step(st);
     }
     if (st) sqlite3_finalize(st);
+    return rc == SQLITE_DONE ? 0 : -1;
 }
 
 
@@ -1476,45 +1479,78 @@ int r2_reality_tick(void)
     if (!r2_reality_is_initialized()) return -1;
     sqlite3_int64 now = (sqlite3_int64)time(NULL), last = 0;
     pthread_mutex_lock(&reality_lock);
+    int rc = sqlite3_exec(reality_db, "BEGIN IMMEDIATE", NULL, NULL, NULL);
     sqlite3_stmt *st = NULL;
-    if (sqlite3_prepare_v2(reality_db, "SELECT last_tick FROM r2_reality_self WHERE id=1", -1, &st, NULL) == SQLITE_OK &&
-        sqlite3_step(st) == SQLITE_ROW) last = sqlite3_column_int64(st, 0);
+    if (rc == SQLITE_OK)
+        rc = sqlite3_prepare_v2(reality_db, "SELECT last_tick FROM r2_reality_self WHERE id=1", -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        int step = sqlite3_step(st);
+        if (step == SQLITE_ROW) last = sqlite3_column_int64(st, 0);
+        else rc = step == SQLITE_DONE ? SQLITE_NOTFOUND : step;
+    }
     if (st) sqlite3_finalize(st);
-    if (last > 0 && now > last && now - last <= 7 * 86400) {
-        update_hunger_locked((double)(now-last));
-        st = NULL;
-        if (sqlite3_prepare_v2(reality_db, "INSERT INTO r2_reality_ticks(previous_tick,current_tick,elapsed_seconds) VALUES(?,?,?)", -1, &st, NULL) == SQLITE_OK) {
-            sqlite3_bind_int64(st, 1, last); sqlite3_bind_int64(st, 2, now); sqlite3_bind_int64(st, 3, now-last); sqlite3_step(st);
+    st = NULL;
+    if (rc == SQLITE_OK && last > 0 && now > last && now - last <= 7 * 86400) {
+        rc = update_hunger_locked((double)(now - last)) == 0 ? SQLITE_OK : SQLITE_ERROR;
+        if (rc == SQLITE_OK) {
+            rc = sqlite3_prepare_v2(reality_db,
+                "INSERT INTO r2_reality_ticks(previous_tick,current_tick,elapsed_seconds) VALUES(?,?,?)",
+                -1, &st, NULL);
+            if (rc == SQLITE_OK) {
+                sqlite3_bind_int64(st, 1, last);
+                sqlite3_bind_int64(st, 2, now);
+                sqlite3_bind_int64(st, 3, now - last);
+                rc = sqlite3_step(st);
+            }
+            if (st) sqlite3_finalize(st);
+            st = NULL;
+        }
+        if (rc == SQLITE_DONE) rc = SQLITE_OK;
+    }
+    if (rc == SQLITE_OK) {
+        rc = sqlite3_prepare_v2(reality_db,
+            "UPDATE r2_reality_item_memory SET precision='vague', exact_quantity=NULL, approximate_quantity=NULL, last_decay_at=? WHERE precision!='vague' AND collected_at<=?",
+            -1, &st, NULL);
+        if (rc == SQLITE_OK) {
+            sqlite3_bind_int64(st, 1, now);
+            sqlite3_bind_int64(st, 2, now - 30 * 86400);
+            rc = sqlite3_step(st);
         }
         if (st) sqlite3_finalize(st);
+        st = NULL;
+        if (rc == SQLITE_DONE) rc = SQLITE_OK;
     }
-    /* Collection memory loses precision with age; the physical object table
-       is never changed by this memory-decay operation. */
-    st = NULL;
-    if (sqlite3_prepare_v2(reality_db,
-        "UPDATE r2_reality_item_memory SET precision='vague', exact_quantity=NULL, approximate_quantity=NULL, last_decay_at=? WHERE precision!='vague' AND collected_at<=?",
-        -1, &st, NULL) == SQLITE_OK) {
-        sqlite3_bind_int64(st, 1, now);
-        sqlite3_bind_int64(st, 2, now - 30 * 86400);
-        sqlite3_step(st);
+    if (rc == SQLITE_OK) {
+        rc = sqlite3_prepare_v2(reality_db,
+            "UPDATE r2_reality_item_memory SET precision='approximate', approximate_quantity=MAX(1,CAST((exact_quantity+2)/5 AS INTEGER)*5), exact_quantity=NULL, last_decay_at=? WHERE precision='exact' AND collected_at<=?",
+            -1, &st, NULL);
+        if (rc == SQLITE_OK) {
+            sqlite3_bind_int64(st, 1, now);
+            sqlite3_bind_int64(st, 2, now - 7 * 86400);
+            rc = sqlite3_step(st);
+        }
+        if (st) sqlite3_finalize(st);
+        st = NULL;
+        if (rc == SQLITE_DONE) rc = SQLITE_OK;
     }
-    if (st) sqlite3_finalize(st);
-    st = NULL;
-    if (sqlite3_prepare_v2(reality_db,
-        "UPDATE r2_reality_item_memory SET precision='approximate', approximate_quantity=MAX(1,CAST((exact_quantity+2)/5 AS INTEGER)*5), exact_quantity=NULL, last_decay_at=? WHERE precision='exact' AND collected_at<=?",
-        -1, &st, NULL) == SQLITE_OK) {
-        sqlite3_bind_int64(st, 1, now);
-        sqlite3_bind_int64(st, 2, now - 7 * 86400);
-        sqlite3_step(st);
+    if (rc == SQLITE_OK) {
+        rc = sqlite3_prepare_v2(reality_db,
+            "UPDATE r2_reality_self SET last_tick=?, updated_at=CURRENT_TIMESTAMP WHERE id=1",
+            -1, &st, NULL);
+        if (rc == SQLITE_OK) {
+            sqlite3_bind_int64(st, 1, now);
+            rc = sqlite3_step(st);
+            if (rc == SQLITE_DONE && sqlite3_changes(reality_db) != 1) rc = SQLITE_NOTFOUND;
+        }
+        if (st) sqlite3_finalize(st);
+        st = NULL;
+        if (rc == SQLITE_DONE) rc = SQLITE_OK;
     }
-    if (st) sqlite3_finalize(st);
-    st = NULL;
-    int ok = sqlite3_prepare_v2(reality_db, "UPDATE r2_reality_self SET last_tick=?, updated_at=CURRENT_TIMESTAMP WHERE id=1", -1, &st, NULL) == SQLITE_OK;
-    if (ok) { sqlite3_bind_int64(st, 1, now); ok = sqlite3_step(st) == SQLITE_DONE; }
-    if (st) sqlite3_finalize(st);
+    if (rc == SQLITE_OK) rc = sqlite3_exec(reality_db, "COMMIT", NULL, NULL, NULL);
+    if (rc != SQLITE_OK) (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
     pthread_mutex_unlock(&reality_lock);
-    if (ok) maybe_record_starvation();
-    return ok ? 0 : -1;
+    if (rc == SQLITE_OK) maybe_record_starvation();
+    return rc == SQLITE_OK ? 0 : -1;
 }
 
 static char *query_text(const char *sql, const char *arg)
@@ -2361,21 +2397,26 @@ int r2_reality_sleep(double hours)
         hours <= 0.0 || hours > 48.0) return -1;
     if (r2_reality_tick() != 0) return -1;
     pthread_mutex_lock(&reality_lock);
-    /* Sleeping advances the modeled body clock: needs still accrue during
-       sleep, then rest restores energy and reduces sleepiness. */
-    update_hunger_locked(hours * 3600.0);
+    int rc = sqlite3_exec(reality_db, "BEGIN IMMEDIATE", NULL, NULL, NULL);
+    if (rc == SQLITE_OK && update_hunger_locked(hours * 3600.0) != 0)
+        rc = SQLITE_ERROR;
     sqlite3_stmt *st = NULL;
-    int rc = sqlite3_prepare_v2(reality_db,
-        "UPDATE r2_reality_self SET sleepiness=MAX(0,sleepiness-?), energy=MIN(100,energy+?), updated_at=CURRENT_TIMESTAMP WHERE id=1",
-        -1, &st, NULL);
+    if (rc == SQLITE_OK)
+        rc = sqlite3_prepare_v2(reality_db,
+            "UPDATE r2_reality_self SET sleepiness=MAX(0,sleepiness-?), energy=MIN(100,energy+?), updated_at=CURRENT_TIMESTAMP WHERE id=1",
+            -1, &st, NULL);
     if (rc == SQLITE_OK) {
         sqlite3_bind_double(st, 1, hours * 12.5);
         sqlite3_bind_double(st, 2, hours * 10.0);
         rc = sqlite3_step(st);
+        if (rc == SQLITE_DONE && sqlite3_changes(reality_db) != 1) rc = SQLITE_NOTFOUND;
     }
     if (st) sqlite3_finalize(st);
+    if (rc == SQLITE_DONE) rc = SQLITE_OK;
+    if (rc == SQLITE_OK) rc = sqlite3_exec(reality_db, "COMMIT", NULL, NULL, NULL);
+    if (rc != SQLITE_OK) (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
     pthread_mutex_unlock(&reality_lock);
-    if (rc != SQLITE_DONE) return -1;
+    if (rc != SQLITE_OK) return -1;
     char summary[512], details[1024];
     snprintf(summary, sizeof(summary), "R2 slept for %.2f modeled hours.", hours);
     snprintf(details, sizeof(details), "Sleep duration=%.2f hours; sleepiness reduced by %.2f points and energy restored by %.2f points, capped at 100.", hours, hours*12.5, hours*10.0);
