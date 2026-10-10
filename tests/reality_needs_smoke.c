@@ -107,6 +107,8 @@ int main(void)
 
     if (r2_reality_fridge_eat("aaa_empty", -1.0) == 0)
         fail("zero-fullness fridge stock must not count as a meal");
+    if (r2_reality_fridge_eat("aaa_empty", 50.0) == 0)
+        fail("caller-supplied fullness must not override authoritative zero-fullness stock");
     if (sqlite3_open(fridge_path, &fridge) != SQLITE_OK)
         fail("could not reopen fridge after zero-fullness eat attempt");
     if (sqlite3_prepare_v2(fridge, "SELECT quantity FROM r2_fridge_items WHERE name='aaa_empty'",
