@@ -153,7 +153,7 @@ static int watch_running = 0;
 static int diary_initialized = 0;
 static int addiction_initialized = 0;
 
-static void log_structured_self_report(const char *reply, int64_t parent_event_id);
+static void log_structured_self_report(const char *reply, int64_t parent_event_id, int skip_hypotheticals);
 static char *append_reality_context(char *base);
 static void autonomous_needs_check(void);
 
@@ -7080,7 +7080,7 @@ void r2_diagnostics(void)
  * visible response: expressed emotion, motivation, uncertainty, beliefs,
  * and continuity items. It does not claim access to hidden model reasoning.
  */
-static void log_structured_self_report(const char *reply, int64_t parent_event_id)
+static void log_structured_self_report(const char *reply, int64_t parent_event_id, int skip_hypotheticals)
 {
     if (!reply || !*reply || !r2_log_is_initialized())
         return;
@@ -7219,7 +7219,8 @@ static void log_structured_self_report(const char *reply, int64_t parent_event_i
     }
 
 
-    if (json_object_object_get_ex(root, "hypotheticals", &arr) &&
+    if (!skip_hypotheticals &&
+        json_object_object_get_ex(root, "hypotheticals", &arr) &&
         json_object_is_type(arr, json_type_array)) {
         size_t count = json_object_array_length(arr);
         if (count > 8) count = 8;
@@ -7262,6 +7263,7 @@ typedef struct {
     char *user;
     char *reply;
     int64_t event_id;
+    int skip_hypotheticals;
 } R2PostTurnJob;
 
 static void *post_turn_worker(void *opaque)
@@ -7270,7 +7272,7 @@ static void *post_turn_worker(void *opaque)
     if (!job) return NULL;
     ollama_background_mode = 1;
 
-    log_structured_self_report(job->reply, job->event_id);
+    log_structured_self_report(job->reply, job->event_id, job->skip_hypotheticals);
     if (!shutting_down) {
         char *decision = memory_decision(job->user, job->reply);
         if (decision) {
@@ -7304,7 +7306,7 @@ static void *post_turn_worker(void *opaque)
 /* These model-assisted bookkeeping tasks must never delay delivery of R2's
    actual answer. They yield to foreground inference and are joined at shutdown. */
 static void schedule_post_turn_processing(const char *user, const char *reply,
-                                          int64_t event_id)
+                                          int64_t event_id, int skip_hypotheticals)
 {
     if (!user || !reply || shutting_down) return;
     R2PostTurnJob *job = calloc(1, sizeof(*job));
@@ -7312,6 +7314,7 @@ static void schedule_post_turn_processing(const char *user, const char *reply,
     job->user = xstrdup(user);
     job->reply = xstrdup(reply);
     job->event_id = event_id;
+    job->skip_hypotheticals = skip_hypotheticals;
     if (!job->user || !job->reply) {
         free(job->user); free(job->reply); free(job); return;
     }
@@ -7405,6 +7408,10 @@ static char *r2_talk_impl(const char *message)
     }
 
     char *tools = process_tools(reply);
+    /* The imagination tool already created and linked this hypothesis. Do not
+       re-import the same response as a second model-extracted Choice Lab branch. */
+    int imagination_branch_saved = tools &&
+        strstr(tools, "Saved as hypothetical imagination / Choice Lab branch") != NULL;
 
     if (tools && *tools) {
         pthread_mutex_lock(&messages_lock);
@@ -7518,7 +7525,7 @@ static char *r2_talk_impl(const char *message)
 
     /* Deliver the generated answer immediately; model-assisted bookkeeping
        continues independently and yields if a new foreground turn arrives. */
-    schedule_post_turn_processing(message, reply, turn_event_id);
+    schedule_post_turn_processing(message, reply, turn_event_id, imagination_branch_saved);
 
     return reply;
 }
