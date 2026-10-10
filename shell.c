@@ -1755,7 +1755,7 @@ static int shell_gameboy_ack_event(int64_t event_id)
     child = fork();
     if (child < 0) return 0;
     if (child == 0) {
-        (void)freopen("/dev/null", "w", stdout);
+        if (!freopen("/dev/null", "w", stdout)) _exit(126);
         execl(device, device, "--json", "ack_event", id, (char *)NULL);
         _exit(127);
     }
