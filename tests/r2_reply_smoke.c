@@ -30,6 +30,12 @@ int main(void)
     reply = r2_reply_sanitize("  \n  <think>only private content</think>  ");
     assert(reply == NULL);
 
+    reply = r2_reply_sanitize("We need answer the user with a concise response.");
+    assert(reply == NULL);
+    reply = r2_reply_sanitize("We need answer the user.\\nFinal: Here is the answer.");
+    assert(reply && !strcmp(reply, "Here is the answer."));
+    free(reply);
+
     reply = r2_reply_sanitize("A normal reply about analysis: the results are useful.");
     assert(reply && !strcmp(reply, "A normal reply about analysis: the results are useful."));
     free(reply);
