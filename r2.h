@@ -215,6 +215,10 @@ char *r2_process_tools(const char *input);
  * adding a fake user/assistant turn to R2's conversation history. Caller frees. */
 char *r2_model_generate(const char *system_prompt, const char *user_prompt,
                         int max_tokens);
+/* Analyze a short RIFF/WAVE audio clip through the shared local Gemma 4 model.
+   Audio is opportunistic and yields to foreground conversation/vision priority. */
+char *r2_model_generate_audio(const char *system_prompt, const char *user_prompt,
+                              const char *wav_path, int max_tokens);
 
 
 /* ============================================================
