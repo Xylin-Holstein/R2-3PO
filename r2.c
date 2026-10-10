@@ -3369,14 +3369,14 @@ static char *chat_with_relevant_memories(
          strcasestr(query, "world state"))) {
         append_reply_context(
             &memory_context,
-            "PHYSICAL WORLD ACTION INTERFACE (capabilities only; no live fridge stock is included):\\n",
+            "PHYSICAL WORLD ACTION INTERFACE (capabilities only; no live fridge stock is included):\n",
             "[WORLD] look inspects the room; [WORLD] fridge|look inspects actual fridge stock only when relevant and R2 is home. "
             "[WORLD] add|name|description|container|quantity; [WORLD] move|name|container; [WORLD] remove|name; "
             "[WORLD] eat|food|fullness_points (or auto); [WORLD] sleep|hours; [WORLD] dream|description; "
             "[WORLD] ratefood|food|-2..2|reason; [WORLD] self|key|value|evidence. "
             "Fridge-specific actions: [WORLD] fridge_take|food; [WORLD] fridge_eat|food; [WORLD] fridge_store|food. "
             "Use these only for a real requested or necessary world action, not for a hypothetical. "
-            "A hypothetical fridge scene must be imagined from prior context, never read live stock.\\n",
+            "A hypothetical fridge scene must be imagined from prior context, never read live stock.\n",
             1400);
     }
 
