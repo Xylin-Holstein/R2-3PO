@@ -32,6 +32,23 @@ static int change_cents(const char *dir) {
 static char *money_context(void) {
     char *s=r2_reality_money_context(); assert(s); return s;
 }
+static void clear_money_files(const char *dir) {
+    DIR *dp=opendir(dir); assert(dp); struct dirent *e;
+    while ((e=readdir(dp))) {
+        size_t n=strlen(e->d_name);
+        int bill=!strcmp(e->d_name,"money");
+        if (!bill && n>=8 && !strncmp(e->d_name,"money(",6) && e->d_name[n-1]==')') {
+            bill=1;
+            for(size_t i=6;i+1<n;++i)
+                if(e->d_name[i]<'0'||e->d_name[i]>'9') bill=0;
+        }
+        if (!bill && strcmp(e->d_name,"change.txt")) continue;
+        char path[1400]; struct stat st;
+        snprintf(path,sizeof(path),"%s/%s",dir,e->d_name);
+        if (lstat(path,&st)==0 && S_ISREG(st.st_mode)) assert(unlink(path)==0);
+    }
+    closedir(dp);
+}
 int main(void) {
     char wallet[1024],bank[1024],bill[1200];
     snprintf(wallet,sizeof(wallet),"%s/Pockets/Wallet",R2_ROOT);
@@ -88,6 +105,7 @@ int main(void) {
     assert(access(migrated,F_OK)==0);
     snprintf(migrated,sizeof(migrated),"%s/Pockets/Wallet/legacy_room_wallet_item.r2item",R2_ROOT);
     assert(access(migrated,F_OK)==0);
+    char *ctx=NULL;
     assert(bill_count(wallet)==5);
     /* An unexpected non-regular authoritative path must be rejected before
        any valid cash bills are removed or recreated. */
@@ -101,7 +119,7 @@ int main(void) {
     assert(r2_reality_money_receive(1000000.01)!=0); /* Every money operation has the same hard cap. */
     assert(r2_reality_money_receive(1000000.00)!=0); /* A wallet cannot exceed its $1M balance cap. */
     assert(bill_count(wallet)==5);
-    char *ctx=money_context(); assert(strstr(ctx,"carried cash=$5.00")); free(ctx);
+    ctx=money_context(); assert(strstr(ctx,"carried cash=$5.00")); free(ctx);
 
     snprintf(bill,sizeof(bill),"%s/money",wallet);
     assert(unlink(bill)==0);
@@ -136,6 +154,17 @@ int main(void) {
     assert(change_cents(bank)==50); /* Fractional change persists without a seed. */
     snprintf(bill,sizeof(bill),"%s/change.txt",bank);
     assert(unlink(bill)==0);
+    ctx=money_context(); assert(strstr(ctx,"total=$0.00")); free(ctx);
+
+    /* If all physical cash files disappear while R2 is stopped, the stale
+       SQLite summary must not repopulate them on the next startup. */
+    assert(r2_reality_money_receive(2.00)==0);
+    r2_reality_shutdown();
+    clear_money_files(wallet);
+    clear_money_files(bank);
+    assert(r2_reality_init()==0);
+    assert(bill_count(wallet)==0 && change_cents(wallet)==0);
+    assert(bill_count(bank)==0 && change_cents(bank)==0);
     ctx=money_context(); assert(strstr(ctx,"total=$0.00")); free(ctx);
     r2_reality_shutdown();
     puts("Physical money wallet and CRT TV Reality smoke tests passed.");
