@@ -30,12 +30,22 @@ ollama run gemma4:e2b
 ```
 
 At the Ollama prompt, test a short message and then enter `/bye`. The launch script
-also reports the expected model name. R2 uses the same model for text and image input. Ears currently captures PCM audio only; it does not yet transcribe or submit audio to Ollama;
-visual inference shares the Ollama request lock with conversation and yields when a
-foreground conversation is waiting. Ordinary conversation does not trigger a new frame
-analysis unless the user asks about visual context; ongoing Eyes/VLC observation can
-continue through its existing watcher. If a vision request cannot run, its incomplete
-result is discarded rather than being treated as a valid observation.
+also reports the expected model name. Conversation, vision, and explicit audio analysis
+use the same local `gemma4:e2b` model. Audio input is sent as a WAV through Ollama's
+multimodal message payload; R2 does not need a separate speech model.
+
+Use `ears listen` to capture up to 5 seconds from the default microphone, or
+`ears listen 1` through `ears listen 30` to choose a duration. Listening is
+user-triggered; R2 does not silently record continuously. The captured audio is
+downsampled to 16 kHz mono, interpreted locally, and the transcript/sound description
+is saved to the existing searchable memory and Life Log. The interpretation can be
+uncertain, so review it before treating it as a verified fact. The model is instructed
+not to identify people by voice. Audio analysis shares the existing Ollama request gate
+and yields rather than competing with a foreground conversation. Vision uses the same
+priority gate. Ordinary conversation does not trigger a new frame analysis unless the
+user asks about visual context; ongoing Eyes/VLC observation can continue through its
+existing watcher. If a vision request cannot run, its incomplete result is discarded
+rather than being treated as a valid observation.
 
 R2 builds a completed conversational response from the current user message and
 relevant memories/perceptions. A separate intent-summary inference is not used as an
@@ -85,7 +95,7 @@ Money is a crude persistent prototype, not a built-in shop. `money` shows carrie
 
 ## Imagination and evidence-based feedback
 
-Imagination is a capability layered over R2's existing systems, not a separate memory database. In conversation, R2 can use the `[IMAGINE] request [END IMAGINE]` tool marker; in the shell, use `imagine <what-if or creative request>`. The shell also supports `imagine list` and `imagine feedback <id> <accurate|partial|incorrect|unresolved> [evidence notes]`.
+Imagination is a capability layered over R2's existing systems, not a separate memory database. In conversation, R2 can use the `[IMAGINE] request [END IMAGINE]` tool marker; in the shell, use `imagine <what-if or creative request>`. The shell also supports `imagine list` and `imagine feedback <id> <accurate|partial|incorrect|unresolved> [evidence notes]`. For explicit audio interpretation, use `ears listen [seconds]` (1–30 seconds; 5 seconds by default).
 
 Before generating a scenario, the subsystem retrieves relevant persistent memory, the newest active-conversation turns, private diary search results, Life Log history, a focused read-only Reality snapshot, visual experience history, reward/learned-feedback state, habit/enjoyment history, and Choice Lab branches. The general Reality snapshot intentionally excludes fridge stock. Current CRT/VCR state and money balances are retrieved from Reality when the request makes those details relevant. The fridge database is queried separately only for explicit questions about current fridge contents, food stock, or available ingredients; general food preferences and food metrics remain available through Reality.
 
