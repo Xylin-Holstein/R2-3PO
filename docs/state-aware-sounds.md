@@ -18,3 +18,7 @@ Set `R2_FX_DIR` to override it for a test or alternate installation. R2 scans on
 Playback is asynchronous and will not overlap another R2 sound effect. The runtime tries existing local players in this order: `mpg123`, `ffplay`, then `mpv`. It does not install packages automatically. If no matching file or player is available, the spoken reply continues normally and no fabricated sound is substituted. A short cooldown prevents repeated sound spam.
 
 For automated tests, `R2_SOUNDS_DISABLE_PLAYBACK=1` disables the player while keeping file selection and marker cleanup testable.
+
+## Validation boundary
+
+CI exercises filename matching and marker removal using temporary fixture filenames; it does not decode audio or verify a real speaker. The MP3 assets need to exist in the runtime FX directory, and playback still needs a quick check on R2's actual machine. The current GitHub tree I could inspect did not expose the MP3 assets, so the real filenames and state coverage have not yet been checked against the user's sound collection.
