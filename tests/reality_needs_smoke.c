@@ -84,6 +84,11 @@ int main(void)
         "VALUES('apple','Regression-test food stock',3,80,8,'apple','sweet') "
         "ON CONFLICT(name) DO UPDATE SET quantity=3,fullness=80,energy=8",
         NULL, NULL, NULL) != SQLITE_OK) fail("could not seed known fridge food stock");
+    if (sqlite3_exec(fridge,
+        "INSERT INTO r2_fridge_items(name,description,quantity,fullness,energy,ingredients,taste) "
+        "VALUES('aaa_empty','Non-nutritive regression stock',2,0,0,'','') "
+        "ON CONFLICT(name) DO UPDATE SET quantity=2,fullness=0,energy=0",
+        NULL, NULL, NULL) != SQLITE_OK) fail("could not seed non-nutritive fridge stock");
     sqlite3_close(fridge);
 
     /* Simulate the autonomous cycle with no model-selected action: hunger
@@ -107,6 +112,11 @@ int main(void)
         -1, &st, NULL) != SQLITE_OK) fail("could not query consumed fridge stock");
     if (sqlite3_step(st) != SQLITE_ROW || sqlite3_column_int(st, 0) != 2)
         fail("autonomous feeding must decrement authoritative fridge quantity by one");
+    sqlite3_finalize(st);
+    if (sqlite3_prepare_v2(fridge, "SELECT quantity FROM r2_fridge_items WHERE name='aaa_empty'",
+        -1, &st, NULL) != SQLITE_OK) fail("could not query non-nutritive fridge stock");
+    if (sqlite3_step(st) != SQLITE_ROW || sqlite3_column_int(st, 0) != 2)
+        fail("autonomous feeding must skip stock with zero fullness");
     sqlite3_finalize(st);
     sqlite3_close(fridge);
 
