@@ -82,6 +82,7 @@
 #include <sqlite3.h>
 #include <json-c/json.h>
 #include "r2.h"
+#include "R2Sounds.h"
 
 /* ============================================================
    R2 SUBSYSTEMS
@@ -3464,7 +3465,10 @@ static char *chat_with_relevant_memories(
             "brief; give technical, multi-part, or creative requests the detail they "
             "actually need. Preserve relevant nuance, curiosity, personality, and "
             "useful reasoning. Do not become terse at the cost of correctness or omit "
-            "necessary steps. Use lists only when they improve clarity.",
+            "necessary steps. Use lists only when they improve clarity. "
+            "SOUND EFFECTS: Rarely, when a short nonverbal droid sound naturally adds meaning, you may include one hidden control marker: "
+            "[R2_SOUND:beep:STATE] or [R2_SOUND:whistle:STATE]. Choose a useful state tag such as curious, happy, confused, alert, sleepy, hungry, excited, thinking, greeting, acknowledge, worried, playful, surprised, calm, or default, grounded in this turn and current Reality context. "
+            "Do not emit a marker on routine replies, do not explain it, and never write a marker as visible prose. The runtime removes it and selects a matching existing named MP3.",
             conversation_reply_token_budget(query),
             2700L
         );
@@ -7185,6 +7189,12 @@ static char *r2_talk_impl(const char *message)
         return NULL;
     }
 
+    char *sound_clean_reply = r2_sounds_process_reply(reply);
+    if (sound_clean_reply) {
+        free(reply);
+        reply = sound_clean_reply;
+    }
+
     char *tools = process_tools(reply);
 
     if (tools && *tools) {
@@ -7209,6 +7219,11 @@ static char *r2_talk_impl(const char *message)
                 fprintf(stderr,
                     "[R2] Follow-up generation failed; the incomplete turn was removed from live context.\n");
             return NULL;
+        }
+        sound_clean_reply = r2_sounds_process_reply(reply);
+        if (sound_clean_reply) {
+            free(reply);
+            reply = sound_clean_reply;
         }
     } else {
         free(tools);
