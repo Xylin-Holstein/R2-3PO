@@ -31,6 +31,15 @@ if pgrep -x r2 >/dev/null 2>&1; then
     fail "an R2 process is already running. Shut it down before rebuilding so its executable and databases are not disturbed."
 fi
 
+# The existing design stores SQLite databases inside R2/ alongside source code.
+# Refuse activation if the dedicated runtime user cannot preserve data there.
+for path in "$R2_ROOT" "$R2_SOURCE" "$R2_ROOT/R2_Diary"; do
+    [[ -d "$path" ]] || fail "required persistent-data directory is missing: $path"
+    root_run -u r2 test -x "$path" || fail "Linux user r2 cannot traverse $path; fix directory permissions before activation."
+    root_run -u r2 test -r "$path" || fail "Linux user r2 cannot read $path; fix permissions before activation."
+    root_run -u r2 test -w "$path" || fail "Linux user r2 cannot write $path; SQLite, memories, and diary need persistent write access."
+done
+
 # Compile to a new path first. A failed build never replaces the last known executable.
 log "Compiling the complete C runtime..."
 make -C "$R2_SOURCE" clean all TARGET="$TEMP_EXEC"
@@ -45,13 +54,6 @@ chmod 0755 "$R2_EXEC"
 chmod 0755 "$RUNNER_SOURCE"
 root_run install -m 0644 "$UNIT_SOURCE" "$UNIT_DEST"
 root_run systemctl daemon-reload
-
-log "Checking that the dedicated runtime account can write to its existing persistent-data locations..."
-for path in "$R2_SOURCE" "$R2_ROOT/R2_Diary" "$R2_ROOT/room" "$R2_ROOT/Pockets" "$R2_ROOT/fridge"; do
-    if [[ -e "$path" ]] && ! root_run -u r2 test -w "$path"; then
-        log "WARNING: r2 cannot write to $path. Fix ownership/permissions for this runtime data path before expecting persistent updates to work."
-    fi
-done
 
 log "Enabling R2 at boot and starting the overnight service..."
 root_run systemctl enable --now r2-3po.service
