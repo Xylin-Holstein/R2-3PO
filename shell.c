@@ -50,7 +50,7 @@
 #include "Reality.h"
 #include "Addiction.h"
 #include "AlternateSelf.h"
-#include <json-c/json.h>
+#include <sqlite3.h>
 
 
 /* ============================================================
@@ -1618,68 +1618,43 @@ typedef struct {
 /* Read authoritative device state without showing JSON to the user. */
 static int shell_gameboy_read_status(ShellGameboyStatus *out)
 {
-    const char *device = "/home/x/R2_Home/Devices/GameBoyAdvance/GameBoyAdvance";
-    int pipefd[2];
-    char output[8192];
-    size_t used = 0;
-    pid_t child;
-    int status = 0;
-    if (!out || pipe(pipefd) != 0) return 0;
+    const char *database = "/home/x/R2_Home/Devices/GameBoyAdvance/State/console_state.db";
+    sqlite3 *db = NULL;
+    sqlite3_stmt *statement = NULL;
+    int ok = 0;
+    if (!out) return 0;
     memset(out, 0, sizeof(*out));
-    child = fork();
-    if (child < 0) {
-        close(pipefd[0]); close(pipefd[1]);
+    if (sqlite3_open_v2(database, &db, SQLITE_OPEN_READONLY, NULL) != SQLITE_OK) {
+        if (db) sqlite3_close(db);
         return 0;
     }
-    if (child == 0) {
-        int nullfd;
-        close(pipefd[0]);
-        if (dup2(pipefd[1], STDOUT_FILENO) < 0) _exit(126);
-        close(pipefd[1]);
-        nullfd = open("/dev/null", O_WRONLY);
-        if (nullfd >= 0) { (void)dup2(nullfd, STDERR_FILENO); close(nullfd); }
-        execl(device, device, "--json", "status", (char *)NULL);
-        _exit(127);
+    sqlite3_busy_timeout(db, 1000);
+    const char *sql =
+        "SELECT s.power_state,s.emulator_pid,s.session_id,"
+        "(SELECT e.game_title FROM console_events e "
+        " WHERE e.session_id=s.session_id AND e.game_title IS NOT NULL "
+        " ORDER BY e.id DESC LIMIT 1) "
+        "FROM console_state s WHERE s.id=1";
+    if (sqlite3_prepare_v2(db, sql, -1, &statement, NULL) == SQLITE_OK &&
+        sqlite3_step(statement) == SQLITE_ROW) {
+        const unsigned char *power = sqlite3_column_text(statement, 0);
+        const unsigned char *session = sqlite3_column_text(statement, 2);
+        const unsigned char *title = sqlite3_column_text(statement, 3);
+        int has_pid = sqlite3_column_type(statement, 1) != SQLITE_NULL &&
+                      sqlite3_column_int(statement, 1) > 1;
+        if (power)
+            snprintf(out->power_state, sizeof(out->power_state), "%s", (const char *)power);
+        if (session)
+            snprintf(out->session_id, sizeof(out->session_id), "%s", (const char *)session);
+        if (title)
+            snprintf(out->title, sizeof(out->title), "%s", (const char *)title);
+        out->running = power && strcmp((const char *)power, "on") == 0 && has_pid;
+        out->valid = out->power_state[0] != '\0';
+        ok = out->valid;
     }
-    close(pipefd[1]);
-    while (used + 1 < sizeof(output)) {
-        ssize_t n = read(pipefd[0], output + used, sizeof(output) - used - 1);
-        if (n > 0) used += (size_t)n;
-        else if (n == 0) break;
-        else if (errno != EINTR) break;
-    }
-    close(pipefd[0]);
-    output[used] = '\0';
-    while (waitpid(child, &status, 0) < 0) {
-        if (errno == EINTR) continue;
-        return 0;
-    }
-    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0 || used == 0) return 0;
-
-    json_object *root = json_tokener_parse(output);
-    if (!root || !json_object_is_type(root, json_type_object)) {
-        if (root) json_object_put(root);
-        return 0;
-    }
-    json_object *value = NULL;
-    if (json_object_object_get_ex(root, "power_state", &value) &&
-        json_object_is_type(value, json_type_string))
-        snprintf(out->power_state, sizeof(out->power_state), "%s",
-                 json_object_get_string(value));
-    value = NULL;
-    if (json_object_object_get_ex(root, "game_running", &value))
-        out->running = json_object_get_boolean(value) ? 1 : 0;
-    value = NULL;
-    if (json_object_object_get_ex(root, "cartridge_title", &value) &&
-        json_object_is_type(value, json_type_string))
-        snprintf(out->title, sizeof(out->title), "%s", json_object_get_string(value));
-    value = NULL;
-    if (json_object_object_get_ex(root, "session_id", &value) &&
-        json_object_is_type(value, json_type_string))
-        snprintf(out->session_id, sizeof(out->session_id), "%s", json_object_get_string(value));
-    out->valid = out->power_state[0] != '\0';
-    json_object_put(root);
-    return out->valid;
+    if (statement) sqlite3_finalize(statement);
+    sqlite3_close(db);
+    return ok;
 }
 
 static void shell_gameboy_log_session_start(const ShellGameboyStatus *state)
@@ -1754,10 +1729,8 @@ static int shell_gameboy(const char *arg)
     }
     argv[argc + 1] = NULL;
 
-    int is_power_on = argc == 2 && !strcmp(argv[1], "power") && !strcmp(argv[2], "on");
-    int is_power_off = argc == 2 && !strcmp(argv[1], "power") && !strcmp(argv[2], "off");
     ShellGameboyStatus before = {0}, after = {0};
-    int have_before = (is_power_on || is_power_off) && shell_gameboy_read_status(&before);
+    int have_before = shell_gameboy_read_status(&before);
 
     pid_t child = fork();
     if (child < 0) {
@@ -1781,11 +1754,15 @@ static int shell_gameboy(const char *arg)
     if (!command_ok) {
         printf("[Game Boy Advance] Command failed. Check installation, inserted ROM, and mGBA path.\n");
     } else if (have_before && shell_gameboy_read_status(&after)) {
-        if (is_power_on && !before.running && after.running) {
-            shell_gameboy_log_session_start(&after);
-        } else if (is_power_off && before.running && !after.running) {
+        /* Compare the persistent session IDs, not just the command name. This
+           also closes Life Log activities when a later status/verify command
+           discovers that mGBA exited unexpectedly. */
+        if (before.session_id[0] &&
+            (!after.session_id[0] || strcmp(before.session_id, after.session_id) != 0))
             shell_gameboy_log_session_end(&before);
-        }
+        if (after.session_id[0] &&
+            (!before.session_id[0] || strcmp(before.session_id, after.session_id) != 0))
+            shell_gameboy_log_session_start(&after);
     }
     free(copy);
     return 1;
