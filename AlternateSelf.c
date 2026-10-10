@@ -328,8 +328,61 @@ char *r2_altself_list(int limit)
 }
 char *r2_altself_show(int64_t id)
 {
-    return as_query("SELECT id,name,scenario,assumptions,predicted_outcome,conclusion,status,evidence_event_id,created_utc "
-                    "FROM r2_alternate_self_branches WHERE id=?;",id,0,0);
+    char *out = as_query("SELECT id,name,scenario,assumptions,predicted_outcome,conclusion,status,evidence_event_id,created_utc "
+                         "FROM r2_alternate_self_branches WHERE id=?;",id,0,0);
+    if (!out || id <= 0) return out;
+
+    /* Keep the graph navigable from the saved branch itself. The relation
+       labels distinguish inspiration/context from later feedback; neither
+       relationship changes the branch into a factual observation. */
+    pthread_mutex_lock(&as_lock);
+    if (!as_ready || !as_db) {
+        pthread_mutex_unlock(&as_lock);
+        return out;
+    }
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(as_db,
+        "SELECT l.relationship,e.id,e.summary FROM r2_alternate_self_branches b "
+        "JOIN r2_log_links l ON l.from_event_id=b.log_event_id "
+        "JOIN r2_log_events e ON e.id=l.to_event_id "
+        "WHERE b.id=? AND l.relationship IN ('context_for_imagination','feedback_for_imagination') "
+        "ORDER BY l.id LIMIT 12;", -1, &st, NULL);
+    if (rc == SQLITE_OK) sqlite3_bind_int64(st, 1, id);
+
+    size_t used = strlen(out);
+    size_t capacity = used + 1;
+    int header_written = 0;
+    while (rc == SQLITE_OK && (rc = sqlite3_step(st)) == SQLITE_ROW) {
+        const unsigned char *relationship = sqlite3_column_text(st, 0);
+        int64_t event_id = sqlite3_column_int64(st, 1);
+        const unsigned char *summary = sqlite3_column_text(st, 2);
+        char line[1400];
+        int n = snprintf(line, sizeof(line), "%s  Related Life Log event [%lld] (%s): %.900s\\n",
+            header_written ? "" : "  Related Life Log links:\\n",
+            (long long)event_id,
+            relationship ? (const char *)relationship : "related",
+            summary ? (const char *)summary : "");
+        if (n <= 0) continue;
+        size_t add = (size_t)n;
+        if (used + add + 1 > capacity) {
+            size_t next = capacity ? capacity : 4096;
+            while (next < used + add + 1) {
+                if (next > SIZE_MAX / 2) { next = used + add + 1; break; }
+                next *= 2;
+            }
+            char *grown = realloc(out, next);
+            if (!grown) break;
+            out = grown;
+            capacity = next;
+        }
+        memcpy(out + used, line, add);
+        used += add;
+        out[used] = '\\0';
+        header_written = 1;
+    }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&as_lock);
+    return out;
 }
 int r2_altself_link_event(int64_t branch_id, int64_t event_id,
                           const char *relationship, const char *notes)
