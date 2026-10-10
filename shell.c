@@ -1114,7 +1114,7 @@ static void shell_ears(const char *argument)
     }
 
     printf(
-        "Usage: ears [start|stop|status]\n"
+        "Usage: ears [start|stop|status|listen [seconds]]\n"
     );
 }
 
