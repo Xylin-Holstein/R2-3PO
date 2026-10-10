@@ -225,6 +225,19 @@ require(
     and "r2_reality_money_context()" in core,
     "chat retrieves current TV/VCR and money state only when relevant to the topic",
 )
+task_context_start = core.find("static char *chat_task_context(void)")
+task_context_end = core.find("static char *chat_with_relevant_memories(", task_context_start)
+task_context_source = core[task_context_start:task_context_end] if task_context_start >= 0 and task_context_end > task_context_start else ""
+require(
+    task_context_source
+    and "task_head" in task_context_source
+    and "running_head" in task_context_source
+    and "completed_head" in task_context_source
+    and "collect_completed()" not in task_context_source
+    and "BACKGROUND TASK STATE" in core
+    and "chat_task_context()" in core,
+    "chat can inspect relevant live task state without draining task results",
+)
 require(
     "imagination_branch_saved" in core
     and "if (!skip_hypotheticals &&" in core
