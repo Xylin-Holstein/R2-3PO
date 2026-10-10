@@ -67,6 +67,17 @@ int main(void)
     assert(clean && !strcmp(clean, "Plain reply with no marker."));
     free(clean);
 
+    char oversized_marker[320];
+    char long_state[220];
+    memset(long_state, 'x', sizeof(long_state) - 1);
+    long_state[sizeof(long_state) - 1] = '\0';
+    snprintf(oversized_marker, sizeof(oversized_marker),
+             "Before [R2_SOUND:beep:%s] after", long_state);
+    clean = r2_sounds_process_reply(oversized_marker);
+    assert(clean && !strstr(clean, "[R2_SOUND:") && strstr(clean, "Before ") &&
+           strstr(clean, " after"));
+    free(clean);
+
     const char *const names[] = {
         "R2_Beep_Curious.mp3", "R2_Beep_Sleepy.mp3", "R2_Beep_Default.mp3",
         "R2_Whistle_Happy.mp3", "R2_Whistle_Default.mp3",
