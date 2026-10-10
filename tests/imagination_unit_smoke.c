@@ -267,7 +267,7 @@ int main(void)
     r2_altself_shutdown();
     if (!check(r2_altself_init() == 0, "reopen Choice Lab after restart")) goto done;
     branch = r2_altself_show(branch_id);
-    if (!check(branch && strstr(branch, "Imagination: scenario") &&
+    if (!check(branch && strstr(branch, "Imagination: Imagine the first movie") &&
                strstr(branch, "Imagine the first movie in the CRT room."),
                "the original imagined branch survives a database restart")) goto done;
 
