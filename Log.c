@@ -594,6 +594,33 @@ int64_t r2_log_event(
     return inserted_id;
 }
 
+
+/* Check a stable source identifier before replaying an outbox event. */
+int r2_log_event_exists(const char *event_type, const char *source)
+{
+    sqlite3_stmt *statement = NULL;
+    int exists = 0;
+    int rc;
+    if (!valid_text(event_type) || !valid_text(source)) return 0;
+
+    pthread_mutex_lock(&log_lock);
+    if (!log_initialized || !log_db) {
+        pthread_mutex_unlock(&log_lock);
+        return 0;
+    }
+    rc = sqlite3_prepare_v2(log_db,
+        "SELECT 1 FROM r2_log_events WHERE event_type=? AND source=? LIMIT 1",
+        -1, &statement, NULL);
+    if (rc == SQLITE_OK) {
+        sqlite3_bind_text(statement, 1, event_type, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(statement, 2, source, -1, SQLITE_TRANSIENT);
+        exists = sqlite3_step(statement) == SQLITE_ROW;
+    }
+    if (statement) sqlite3_finalize(statement);
+    pthread_mutex_unlock(&log_lock);
+    return exists;
+}
+
 int64_t r2_log_event_with_memory(
     R2LogCategory category,
     const char *event_type,
