@@ -288,6 +288,10 @@ int r2_imagination_init(void)
         return -1;
 
     pthread_mutex_lock(&imagination_lock);
+    if (imagination_ready) {
+        pthread_mutex_unlock(&imagination_lock);
+        return 0;
+    }
     imagination_ready = 1;
     pthread_mutex_unlock(&imagination_lock);
 
