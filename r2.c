@@ -6264,13 +6264,32 @@ int r2_sleep_and_dream(double hours)
 }
 
 
+/* Keep the deterministic body-needs safeguard independent of whether the
+ * model, context retrieval, or action parser succeeds. */
+static void autonomous_needs_food_safeguard(void)
+{
+    int feed_rc = r2_reality_autonomous_feed_if_needed();
+    if (feed_rc > 0)
+        r2_log_event(R2_LOG_WORLD, "autonomous_needs_food_fallback",
+                     "R2's deterministic needs safeguard consumed verified food because hunger remained high.",
+                     "Food was selected from accessible tracked inventory or the authoritative fridge database.",
+                     "autonomous_needs_check");
+    else if (feed_rc < 0)
+        r2_log_event(R2_LOG_ERROR, "autonomous_needs_food_fallback_failed",
+                     "The deterministic food safeguard could not inspect or update Reality state.",
+                     NULL, "autonomous_needs_check");
+}
+
 /* Autonomous needs checks are deliberately limited to [WORLD] actions. They
  * cannot run shell commands, delete workspace files, or invoke other tools. */
 static void autonomous_needs_check(void)
 {
     if (shutting_down || !r2_reality_is_initialized()) return;
     char *state = r2_reality_context();
-    if (!state) return;
+    if (!state) {
+        autonomous_needs_food_safeguard();
+        return;
+    }
     const char *prompt =
         "You are R2-3PO's autonomous needs controller. Inspect the authoritative "
         "self/world state supplied below. This is a real persistent simulation, not roleplay. "
@@ -6299,6 +6318,7 @@ static void autonomous_needs_check(void)
         r2_log_event(R2_LOG_ERROR, "autonomous_needs_check_failed",
                      "The autonomous needs controller could not obtain a model decision.",
                      NULL, "autonomous_needs_check");
+        autonomous_needs_food_safeguard();
         return;
     }
 
@@ -6321,19 +6341,8 @@ static void autonomous_needs_check(void)
         }
     }
     /* Model output is advisory, not the sole safeguard for a simulated
-       physical need. If hunger remains high, feed only from verified,
-       accessible Reality inventory; never invent food or bypass location. */
-    int feed_rc = r2_reality_autonomous_feed_if_needed();
-    if (feed_rc > 0)
-        r2_log_event(R2_LOG_WORLD, "autonomous_needs_food_fallback",
-                     "R2's deterministic needs safeguard consumed verified food because hunger remained high.",
-                     "Food was selected from accessible tracked inventory or the authoritative fridge database.",
-                     "autonomous_needs_check");
-    else if (feed_rc < 0)
-        r2_log_event(R2_LOG_ERROR, "autonomous_needs_food_fallback_failed",
-                     "The deterministic food safeguard could not inspect or update Reality state.",
-                     NULL, "autonomous_needs_check");
-
+       physical need. This also runs when no model decision was available. */
+    autonomous_needs_food_safeguard();
     free(decision);
 }
 
