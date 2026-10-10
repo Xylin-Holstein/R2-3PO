@@ -174,6 +174,8 @@ int main(void)
         fail("could not add zero-fullness tracked item to pockets");
     if (r2_reality_add_item("burger", "Explicit regression-test food", "pockets", 2) != 0)
         fail("could not add explicit tracked food to pockets");
+    if (r2_reality_eat("zero_fullness", -1.0) == 0)
+        fail("zero-fullness tracked stock must not count as a meal");
     if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality database for tracked-food test");
     if (sqlite3_prepare_v2(db,
         "UPDATE r2_reality_self SET hunger=60,seconds_since_meal=10000,last_tick=? WHERE id=1",
