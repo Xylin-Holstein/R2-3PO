@@ -133,6 +133,29 @@ int main(void)
     read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
     if (hunger < 59.0) fail("away fallback must not fake eating or reset hunger");
 
+    /* Accessible portable food must be consumed from tracked Reality
+       inventory, with exactly one unit removed from its real quantity. */
+    if (r2_reality_add_item("burger", "Explicit regression-test food", "pockets", 2) != 0)
+        fail("could not add explicit tracked food to pockets");
+    if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality database for tracked-food test");
+    if (sqlite3_prepare_v2(db,
+        "UPDATE r2_reality_self SET hunger=60,seconds_since_meal=10000,last_tick=? WHERE id=1",
+        -1, &st, NULL) != SQLITE_OK) fail("could not prepare tracked-food hunger state");
+    sqlite3_bind_int64(st, 1, (sqlite3_int64)time(NULL));
+    if (sqlite3_step(st) != SQLITE_DONE) fail("could not set tracked-food hunger state");
+    sqlite3_finalize(st);
+    sqlite3_close(db);
+    if (r2_reality_autonomous_feed_if_needed() != 1)
+        fail("accessible tracked food should be consumed before fridge stock");
+    if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality database to verify tracked stock");
+    if (sqlite3_prepare_v2(db, "SELECT quantity FROM r2_reality_objects WHERE name='burger'",
+        -1, &st, NULL) != SQLITE_OK) fail("could not query tracked food quantity");
+    if (sqlite3_step(st) != SQLITE_ROW || sqlite3_column_int(st, 0) != 1)
+        fail("tracked feeding must decrement quantity by exactly one");
+    sqlite3_finalize(st);
+    sqlite3_close(db);
+    if (r2_reality_remove_item("burger") != 0) fail("could not remove remaining regression-test food");
+
     /* Empty fridge is a real state, not a cue to spawn a burger. */
     if (r2_reality_set_location(1) != 0) fail("could not return simulated location home");
     if (sqlite3_open(fridge_path, &fridge) != SQLITE_OK) fail("could not reopen fridge for empty test");
@@ -168,8 +191,25 @@ int main(void)
     if (sqlite3_step(st) != SQLITE_DONE) fail("could not set restart persistence state");
     sqlite3_finalize(st);
     sqlite3_close(db);
+    /* Seed a record matching the exact legacy auto-generated marker.
+       Reinitialization should clean this phantom stock, not real inventory. */
+    if (sqlite3_open(fridge_path, &fridge) != SQLITE_OK) fail("could not open fridge for legacy cleanup test");
+    if (sqlite3_exec(fridge,
+        "INSERT INTO r2_fridge_items(name,description,quantity,fullness,energy,ingredients,taste) "
+        "VALUES('burger','Guaranteed filling burger generated because the fridge was empty',1,100,10,'bread,beef,cheese','savory') "
+        "ON CONFLICT(name) DO UPDATE SET description='Guaranteed filling burger generated because the fridge was empty',quantity=1",
+        NULL, NULL, NULL) != SQLITE_OK) fail("could not seed legacy phantom-food record");
+    sqlite3_close(fridge);
     r2_reality_shutdown();
     if (r2_reality_init() != 0) fail("Reality restart failed");
+    if (sqlite3_open(fridge_path, &fridge) != SQLITE_OK) fail("could not reopen fridge after legacy cleanup");
+    if (sqlite3_prepare_v2(fridge,
+        "SELECT COUNT(*) FROM r2_fridge_items WHERE description='Guaranteed filling burger generated because the fridge was empty'",
+        -1, &st, NULL) != SQLITE_OK) fail("could not query legacy phantom-food records");
+    if (sqlite3_step(st) != SQLITE_ROW || sqlite3_column_int(st, 0) != 0)
+        fail("restart must remove only legacy auto-generated phantom food");
+    sqlite3_finalize(st);
+    sqlite3_close(fridge);
     read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
     if (hunger < 23.4 || hunger > 23.6) fail("hunger should persist across restart");
     if (satisfaction < 76.9 || satisfaction > 77.1) fail("satisfaction should persist across restart");
