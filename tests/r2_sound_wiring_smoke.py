@@ -14,6 +14,7 @@ checks = {
     "launcher checks both sound module files": '"$R2_SOURCE/R2Sounds.h"' in launcher,
     "launcher preflights FX access as the runtime user": 'find "$1" -maxdepth 1 -type f -iname "*.mp3"' in launcher and "WARNING: r2 cannot find readable MP3 effects" in launcher,
     "launcher forwards the selected FX directory into the runtime": 'R2_FX_DIR="$R2_FX_DIR"' in launcher,
+    "launcher runs the read-only sound inventory as r2 when deployed": 'sudo -u r2 python3 "$SOUND_AUDIT" --root "$R2_FX_DIR"' in launcher,
     "Makefile builds and tracks the sound module": "R2Sounds.c" in makefile and "R2Sounds.h" in makefile,
     "sound selection scans the configured FX directory": "R2_SOUNDS_DEFAULT_FX_DIR" in sounds and "opendir(fx_dir)" in sounds,
     "sound scheduling records an event in the existing Life Log": 'r2_log_event(R2_LOG_SENSORY, "sound_effect_scheduled"' in sounds,
