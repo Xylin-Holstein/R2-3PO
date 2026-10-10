@@ -3380,6 +3380,61 @@ static char *chat_with_relevant_memories(
             1400);
     }
 
+    /*
+     * The broad Reality snapshot intentionally excludes the fridge, so retrieve
+     * specialized persistent state only when the topic makes it useful.
+     * This keeps movie invitations grounded in actual CRT/VCR state and
+     * affordability questions grounded in the physical money database without
+     * loading either source indiscriminately on every turn.
+     */
+    static const char *const chat_media_terms[] = {
+        "crt", "tv", "television", "vcr", "tape", "movie", "film",
+        "video", "screen", "watching", "console", "gameboy", "game boy"
+    };
+    int chat_media_relevant = 0;
+    if (query && *query) {
+        for (size_t k = 0; k < sizeof(chat_media_terms) / sizeof(chat_media_terms[0]); ++k) {
+            if (strcasestr(query, chat_media_terms[k])) {
+                chat_media_relevant = 1;
+                break;
+            }
+        }
+    }
+    if (chat_media_relevant && r2_reality_is_initialized()) {
+        char *tv_context = r2_reality_tv_status();
+        if (tv_context && *tv_context) {
+            append_reply_context(
+                &memory_context,
+                "CURRENT CRT/VCR STATE (Reality DB; modeled device state, not proof of media contents):\\n",
+                tv_context, 1600);
+        }
+        free(tv_context);
+    }
+
+    static const char *const chat_money_terms[] = {
+        "money", "cash", "wallet", "piggybank", "bank balance", "price",
+        "cost", "buy", "buying", "purchase", "afford", "spend", "shop", "store"
+    };
+    int chat_money_relevant = 0;
+    if (query && *query) {
+        for (size_t k = 0; k < sizeof(chat_money_terms) / sizeof(chat_money_terms[0]); ++k) {
+            if (strcasestr(query, chat_money_terms[k])) {
+                chat_money_relevant = 1;
+                break;
+            }
+        }
+    }
+    if (chat_money_relevant && r2_reality_is_initialized()) {
+        char *money_context = r2_reality_money_context();
+        if (money_context && *money_context) {
+            append_reply_context(
+                &memory_context,
+                "CURRENT MONEY STATE (Reality DB; modeled balances, not a prediction of future transactions):\\n",
+                money_context, 700);
+        }
+        free(money_context);
+    }
+
     /* Search the separate visual-experience database for relevant past
        observations even when Eyes is not currently open. Historical visual
        descriptions must never be presented as proof of what is visible now. */
