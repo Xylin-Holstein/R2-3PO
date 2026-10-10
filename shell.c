@@ -1878,6 +1878,9 @@ static int shell_gameboy(const char *arg)
     if (!command_ok) {
         printf("[Game Boy Advance] Command failed. Check installation, inserted ROM, and mGBA path.\n");
     } else {
+        /* The event-outbox read may reconcile an exited emulator, so sync it
+           before comparing session IDs for Life Log start/end bookkeeping. */
+        shell_gameboy_sync_verified_events();
         if (shell_gameboy_read_status(&after)) {
             /* Compare persistent session IDs, not command names. This also closes
                Life Log activities when status/verify discovers an unexpected exit.
@@ -1890,7 +1893,6 @@ static int shell_gameboy(const char *arg)
                  strcmp(before.session_id, after.session_id) != 0))
                 shell_gameboy_log_session_start(&after);
         }
-        shell_gameboy_sync_verified_events();
     }
     free(copy);
     return 1;
