@@ -7,6 +7,7 @@ on:
       - fix/text-model-network-and-sensory-continuity
       - r2-audit-fixes-2026-10-09
       - r2-complete-audit-2026-10-09
+      - r2-hunger-reflection-fix-2026-10-10
   pull_request:
     branches:
       - main
@@ -87,6 +88,15 @@ jobs:
             tests/diary_integration_smoke.c r2_diary.c Reward.c -lsqlite3 -lpthread \
             -o /tmp/r2-diary-integration-smoke
           /tmp/r2-diary-integration-smoke
+
+      - name: Exercise Reality hunger, sleepiness, and energy progression
+        run: |
+          ROOT=/tmp/r2-needs-smoke
+          rm -rf "$ROOT" /tmp/r2-needs-smoke-r2.o /tmp/r2-needs-smoke-test
+          FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\"$ROOT\" -DR2_HOME=\"$ROOT/R2\" -DR2_WORKSPACE=\"$ROOT\" -DR2_DIARY_DATABASE=\"$ROOT/R2/r2_memory.db\" -DR2_DIARY_DIR=\"$ROOT/R2_Diary\""
+          cc $FLAGS -Dmain=r2_program_main -c r2.c -o /tmp/r2-needs-smoke-r2.o
+          cc $FLAGS tests/reality_needs_smoke.c shell.c r2_diary.c Log.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c /tmp/r2-needs-smoke-r2.o -o /tmp/r2-needs-smoke-test -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
+          /tmp/r2-needs-smoke-test
 
       - name: Compile R2 with the same sources and flags as the launcher
         run: make clean all CFLAGS="-std=c11 -Wall -Wextra -Werror -O2"
