@@ -72,9 +72,10 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     try:
-        server = ThreadingHTTPServer(("127.0.0.1", 11434), Handler)
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     except OSError as exc:
-        raise SystemExit(f"cannot start local Ollama test stub on port 11434: {exc}")
+        raise SystemExit(f"cannot start local Ollama test stub: {exc}")
+    port = server.server_address[1]
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
 
@@ -98,6 +99,7 @@ def main():
             command = [
                 os.environ.get("CC", "cc"),
                 "-std=c11", "-Wall", "-Wextra", "-Werror", "-O2", "-I.",
+                f'-DOLLAMA_URL="http://127.0.0.1:{port}/api/chat"',
                 *sources, "-o", str(binary),
                 "-lcurl", "-lsqlite3", "-lpthread", "-ljson-c",
                 "-lpulse-simple", "-lpulse", "-lm",
