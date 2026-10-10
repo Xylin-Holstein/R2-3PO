@@ -28,7 +28,7 @@ python3 tools/audit_r2_databases.py \
   --snapshot-dir /home/x/R2_Home/database-preflight-snapshot
 ```
 
-Existing snapshot files are never overwritten. Choose a new or empty destination directory. If a snapshot file already exists, the script reports an error rather than replacing it. Source database files are opened read-only; suspicious rows are reported, not altered.
+Existing snapshot files are never overwritten. Choose a new or empty destination directory. If any expected snapshot filename already exists, the script refuses the whole snapshot set before copying anything, so it cannot silently mix stale and fresh database copies. New snapshot files are created with owner-only permissions (0600). Source database files are opened read-only; suspicious rows are reported, not altered.
 
 Snapshots are consistent individually, but the three independent databases are not captured at one atomic instant. Stop R2 before running the audit when cross-database consistency matters. Keep the snapshot directory private because these databases may contain personal memories and activity records. Do not upload the database files to public issues or logs.
 
