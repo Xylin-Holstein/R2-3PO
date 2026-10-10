@@ -198,17 +198,20 @@ require(
     "imagination retrieves from active conversation, memory, diary, Life Log, Reality, visual, reward, habit, and Choice Lab systems",
 )
 require(
-    'r2_fridge_context()' in imagination
-    and "mentions_any(request, fridge_terms" in imagination
-    and "r2_reality_imagination_context()" in imagination
-    and "FRIDGE STATE (only because the request asks about current food/inventory" in imagination
+    "r2_reality_imagination_context()" in imagination
+    and "r2_fridge_context()" not in imagination
+    and "Live fridge stock is never consulted by imagination" in imagination
     and "char *r2_reality_imagination_context(void)" in read("Reality.c")
     and "Fridge stock is intentionally omitted from this general context" in read("Reality.c")
+    and "char *world_context = r2_reality_imagination_context();" in core
+    and "PHYSICAL WORLD ACTION INTERFACE" in core
+    and "[WORLD] fridge|look" in core
+    and "A hypothetical fridge scene must be imagined from prior context" in core
     and "r2_reality_tv_status()" in imagination
     and "mentions_any(request, media_terms" in imagination
     and "r2_reality_money_context()" in imagination
     and "mentions_any(request, money_terms" in imagination,
-    "imagination uses a focused Reality snapshot and retrieves fridge stock only for explicit inventory questions",
+    "chat and imagination exclude live fridge stock while preserving explicit world-action access",
 )
 require(
     "imagination_branch_saved" in core
