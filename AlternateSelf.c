@@ -357,7 +357,7 @@ char *r2_altself_show(int64_t id)
         int64_t event_id = sqlite3_column_int64(st, 1);
         const unsigned char *summary = sqlite3_column_text(st, 2);
         char line[1400];
-        int n = snprintf(line, sizeof(line), "%s  Related Life Log event [%lld] (%s): %.900s\n",
+        int n = snprintf(line, sizeof(line), "%s  Related Life Log event [%lld] (%.128s): %.900s\n",
             header_written ? "" : "  Related Life Log links:\n",
             (long long)event_id,
             relationship ? (const char *)relationship : "related",
