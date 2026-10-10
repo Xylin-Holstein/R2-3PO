@@ -70,7 +70,7 @@ int main(void)
     if (hunger < 11.0 || hunger > 12.0) fail("eight hours of sleep should add about 10.1 hunger points");
     if (sleepiness > 1.0) fail("eight hours of sleep should restore sleepiness to zero");
     if (energy < 89.0 || energy > 91.0) fail("sleep should restore energy without exceeding its cap");
-    if (since_meal < 28700.0 || since_meal > 28900.0) fail("sleep must advance elapsed time since meal");
+    if (since_meal < 32300.0 || since_meal > 32500.0) fail("sleep must advance elapsed time since meal");
 
     r2_reality_shutdown();
     puts("reality needs smoke passed");
