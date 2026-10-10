@@ -380,7 +380,13 @@ static void shell_help(void)
         "      Move bank funds into carried cash.\n"
         "  money buy <item> | <price> | <description> | <container>\n"
         "      Purchase a user-specified item; no shop inventory or prices are hardcoded.\n"
-        "  imagine <what-if or creative request>\n"\n        "      Imagine from relevant memory, diary, Life Log, Reality, visual history, feedback, habits, and Choice Lab; saves a hypothetical branch.\n"\n        "  imagine list\n"\n        "      Inspect saved hypothetical branches shared with the Choice Lab.\n"\n        "  imagine feedback <id> <accurate|partial|incorrect|unresolved> [notes]\n"\n        "      Record feedback; accurate earns a small positive signal, incorrect ideas are never penalized.\n"\n        "  alternate [list|show <id>|create <fields>|discard <id>|retain <id>|compare <id> <id>]\n"
+        "  imagine <what-if or creative request>\n"
+        "      Imagine from relevant memory, diary, Life Log, Reality, visual history, feedback, habits, and Choice Lab; saves a hypothetical branch.\n"
+        "  imagine list\n"
+        "      Inspect saved hypothetical branches shared with the Choice Lab.\n"
+        "  imagine feedback <id> <accurate|partial|incorrect|unresolved> [notes]\n"
+        "      Record feedback; accurate earns a small positive signal, incorrect ideas are never penalized.\n"
+        "  alternate [list|show <id>|create <fields>|discard <id>|retain <id>|compare <id> <id>]\n"
         "      Explore hypothetical choices without changing factual memories.\n"
         "      create fields: name|scenario|assumptions|predicted outcome|conclusion|optional evidence event ID\n"
         "  world status\n"
@@ -1705,30 +1711,30 @@ static long long shell_parse_id(const char *text)
 static void shell_imagine(const char *argument)
 {
     if (!argument || !*argument) {
-        printf("Usage: imagine <what-if or creative request> | list | feedback <id> <accurate|partial|incorrect|unresolved> [notes]\\n");
+        printf("Usage: imagine <what-if or creative request> | list | feedback <id> <accurate|partial|incorrect|unresolved> [notes]\n");
         return;
     }
     if (!strcasecmp(argument, "list")) {
         char *result = r2_altself_list(25);
         if (result) { printf("%s", result); free(result); }
-        else printf("[Choice Lab history is unavailable.]\\n");
+        else printf("[Choice Lab history is unavailable.]\n");
         return;
     }
     if (shell_starts_with(argument, "feedback ")) {
         char *copy = strdup(argument + 9);
-        if (!copy) { printf("[Out of memory.]\\n"); return; }
+        if (!copy) { printf("[Out of memory.]\n"); return; }
         char *id_text = shell_trim(copy);
         char *space = strchr(id_text, ' ');
         if (!space) {
-            printf("Usage: imagine feedback <id> <accurate|partial|incorrect|unresolved> [notes]\\n");
+            printf("Usage: imagine feedback <id> <accurate|partial|incorrect|unresolved> [notes]\n");
             free(copy);
             return;
         }
-        *space++ = '\\0';
+        *space++ = '\0';
         space = shell_trim(space);
         char *assessment = space;
         char *notes = strchr(assessment, ' ');
-        if (notes) { *notes++ = '\\0'; notes = shell_trim(notes); }
+        if (notes) { *notes++ = '\0'; notes = shell_trim(notes); }
         long long id = shell_parse_id(id_text);
         int rc = id > 0 ? r2_imagination_feedback(id, assessment, notes) : -1;
         if (rc == 0) {
@@ -1736,19 +1742,19 @@ static void shell_imagine(const char *argument)
                            !strcasecmp(assessment, "correct") ||
                            !strcasecmp(assessment, "confirmed");
             printf(accurate
-                ? "[Feedback recorded. A small positive learning signal was applied; no factual memory was overwritten.]\\n"
-                : "[Feedback recorded. No penalty was applied; the imagined branch remains distinct from fact.]\\n");
+                ? "[Feedback recorded. A small positive learning signal was applied; no factual memory was overwritten.]\n"
+                : "[Feedback recorded. No penalty was applied; the imagined branch remains distinct from fact.]\n");
         } else if (rc == 1) {
-            printf("[Feedback saved, but positive reinforcement was unavailable. No penalty was applied.]\\n");
+            printf("[Feedback saved, but positive reinforcement was unavailable. No penalty was applied.]\n");
         } else {
-            printf("[Feedback could not be recorded. Check the branch ID and assessment.]\\n");
+            printf("[Feedback could not be recorded. Check the branch ID and assessment.]\n");
         }
         free(copy);
         return;
     }
     char *result = r2_imagination_create(argument);
-    if (result) { printf("%s\\n", result); free(result); }
-    else printf("[Imagination failed or could not be saved. No factual state was changed.]\\n");
+    if (result) { printf("%s\n", result); free(result); }
+    else printf("[Imagination failed or could not be saved. No factual state was changed.]\n");
 }
 
 static void shell_alternate(const char *argument)
