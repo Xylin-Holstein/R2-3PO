@@ -97,8 +97,8 @@ static int tokenize_filename(const char *name, char tokens[][R2_SOUND_TOKEN_MAX]
     return (int)count;
 }
 
-static int token_in(char tokens[][R2_SOUND_TOKEN_MAX], int count,
-                    const char *wanted);
+static int state_alias_match(const char *requested,
+                            char tokens[][R2_SOUND_TOKEN_MAX], int count);
 
 static int state_score(char tokens[][R2_SOUND_TOKEN_MAX], int count,
                        const char *state)
@@ -125,14 +125,6 @@ static int state_score(char tokens[][R2_SOUND_TOKEN_MAX], int count,
         }
         if (!*p) break;
     }
-    return 0;
-}
-
-static int token_in(char tokens[][R2_SOUND_TOKEN_MAX], int count,
-                    const char *wanted)
-{
-    for (int i = 0; i < count; ++i)
-        if (!strcmp(tokens[i], wanted)) return 1;
     return 0;
 }
 
