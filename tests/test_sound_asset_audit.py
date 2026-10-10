@@ -30,7 +30,7 @@ class SoundAssetAuditTests(unittest.TestCase):
 
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
-                self.assertEqual(audit.main_with_root(root), 0)
+                self.assertEqual(audit.audit_root(root), 0)
 
             report = output.getvalue()
             self.assertIn("Readable regular MP3 files: 3", report)
