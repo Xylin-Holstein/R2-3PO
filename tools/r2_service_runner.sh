@@ -32,7 +32,7 @@ if [[ -z "$FAKETIME_LIB" ]]; then
         if [[ -r "$candidate" ]]; then FAKETIME_LIB="$candidate"; break; fi
     done
 fi
-[[ -n "$FAKETIME_LIB" && -r "$FAKETIME_LIB" ]] || fail "libfaketime.so.1 not found. Install libfaketime outside R2's virtual-time environment; do not run apt-get update from this launcher."
+[[ -n "$FAKETIME_LIB" && -r "$FAKETIME_LIB" ]] || fail "libfaketime.so.1 not found. Install libfaketime outside R2's virtual-time environment; do not update package indexes from this launcher."
 
 # Wait briefly for Ollama after boot/restart. Do not download models or contact the internet.
 log "Waiting for the local Ollama API..."
