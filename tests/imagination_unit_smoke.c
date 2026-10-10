@@ -47,7 +47,7 @@ char *r2_log_search(const char *query, int limit)
 }
 char *r2_reality_imagination_context(void)
 {
-    return strdup("REALITY_SENTINEL: current modeled room and self-state; NO_FRIDGE_SENTINEL.");
+    return strdup("REALITY_SENTINEL: current modeled room and self-state.");
 }
 int r2_visual_is_initialized(void) { return 1; }
 char *r2_visual_search(const char *query, int limit)
