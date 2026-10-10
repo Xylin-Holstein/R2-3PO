@@ -33,9 +33,9 @@ static pthread_mutex_t fridge_lock = PTHREAD_MUTEX_INITIALIZER;
 static int reality_ready = 0;
 static int reality_eat_internal(const char *food, double fullness, int consume_tracked_item, double energy_override);
 
-/* Safe defaults: elapsed world time advances continuously; hunger reaches
- * 100 after 24 hours without a meal, and the 72-hour mark is explicitly
- * described as prolonged starvation rather than silently resetting needs. */
+/* Elapsed world time advances continuously. At +0.1 hunger every 4.75
+ * seconds, hunger reaches 100 from zero in about 79 minutes; the 72-hour
+ * mark is still explicitly described as prolonged starvation. */
 static const double HUNGER_PER_SECOND = 0.1 / 4.75; /* +0.1 hunger and -0.1 satiety per 4.75 seconds */
 
 static int exec_sql(const char *sql)
