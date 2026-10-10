@@ -5,7 +5,7 @@ R2's conversation engine can emit one private control marker when a brief droid 
 - `[R2_SOUND:beep:curious]`
 - `[R2_SOUND:whistle:happy]`
 
-The runtime removes the marker before the reply is saved or shown. The marker's state tag is matched against filename tokens; it does not cause R2 to claim that a physical event happened. Routine replies should not trigger sounds.
+The runtime removes the marker before the reply is saved or shown. The marker's state tag is matched against filename tokens; it does not cause R2 to claim that a physical event happened. Only a recognized single state label is allowed to trigger playback: an unknown model-invented label is stripped but cannot trigger even a generic fallback sound. Routine replies should not trigger sounds. State labels must be grounded in the current turn or current Reality evidence; a sound tag is a selection hint, not proof of a hidden emotional state.
 
 ## Runtime files and playback
 
