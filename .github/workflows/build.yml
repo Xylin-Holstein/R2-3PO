@@ -77,10 +77,12 @@ jobs:
 
       - name: Exercise imagination context grounding and feedback behavior
         run: |
-          cc -std=c11 -Wall -Wextra -Werror -O2 -I. \
-            tests/imagination_unit_smoke.c Imagination.c -lpthread \
-            -o /tmp/r2-imagination-smoke
-          /tmp/r2-imagination-smoke
+          ROOT=/tmp/r2-imagination-smoke
+          rm -rf "$ROOT" /tmp/r2-imagination-smoke-test
+          mkdir -p "$ROOT/R2"
+          FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\"$ROOT\" -DR2_HOME=\"$ROOT/R2\" -DR2_DIARY_DATABASE=\"$ROOT/R2/r2_memory.db\" -DR2_DIARY_DIR=\"$ROOT/R2_Diary\""
+          cc $FLAGS tests/imagination_unit_smoke.c Imagination.c AlternateSelf.c -lsqlite3 -lpthread -o /tmp/r2-imagination-smoke-test
+          /tmp/r2-imagination-smoke-test
 
       - name: Exercise atomic one-time reward behavior
         run: |
