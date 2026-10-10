@@ -333,9 +333,9 @@ echo "Compilation successful."
 echo "Executable updated:"
 echo "    $R2_EXEC"
 echo
-echo "Unified conversation + vision model: gemma3:4b"
+echo "Unified conversation + vision model: gemma4:e2b"
 echo "R2 uses one shared Ollama model for text and image perception."
-echo "If needed, install it with: ollama pull gemma3:4b"
+echo "If needed, install it with: ollama pull gemma4:e2b"
 echo
 echo "Modules compiled:"
 echo "    r2.c"
@@ -387,7 +387,7 @@ sudo -u r2 \
     LD_PRELOAD="$FAKETIME_LIB" \
     FAKETIME="${FAKETIME_OFFSET}" \
     FAKETIME_DONT_RESET=1 \
-    R2_VISION_MODEL="gemma3:4b" \
+    R2_VISION_MODEL="gemma4:e2b" \
     "$R2_EXEC"
 
 status=$?
