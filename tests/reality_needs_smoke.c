@@ -72,6 +72,22 @@ int main(void)
     if (energy < 89.0 || energy > 91.0) fail("sleep should restore energy without exceeding its cap");
     if (since_meal < 32300.0 || since_meal > 32500.0) fail("sleep must advance elapsed time since meal");
 
+    /* Prove the deterministic fallback can recover R2 from high hunger using
+       the authoritative fridge stock, even without a model-selected action. */
+    if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality database");
+    if (sqlite3_prepare_v2(db,
+        "UPDATE r2_reality_self SET hunger=60,seconds_since_meal=10000,last_tick=? WHERE id=1",
+        -1, &st, NULL) != SQLITE_OK) fail("could not prepare hungry fallback state");
+    sqlite3_bind_int64(st, 1, (sqlite3_int64)time(NULL));
+    if (sqlite3_step(st) != SQLITE_DONE) fail("could not set hungry fallback state");
+    sqlite3_finalize(st);
+    sqlite3_close(db);
+    if (r2_reality_autonomous_feed_if_needed() != 1)
+        fail("verified fridge food should be consumed when hunger reaches 60");
+    read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
+    if (hunger > 1.0) fail("verified food should reset high hunger");
+    if (since_meal > 5.0) fail("eating should reset time since meal");
+
     r2_reality_shutdown();
     puts("reality needs smoke passed");
     return 0;
