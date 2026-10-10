@@ -3533,7 +3533,7 @@ static char *chat_with_relevant_memories(
 
     if (!turn_summary)
         fprintf(stderr,
-                "[R2] Per-turn context summary unavailable; continuing with direct reply generation.\\n");
+                "[R2] Per-turn context summary unavailable; continuing with direct reply generation.\n");
 
     char *reply = ollama_chat_with_limit(
         copy, base_count,
