@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <pthread.h>
+#include <spawn.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -208,19 +209,42 @@ static long elapsed_ms(const struct timespec *a, const struct timespec *b)
            (long)(b->tv_nsec - a->tv_nsec) / 1000000L;
 }
 
-static void player_child(const char *path)
+extern char **environ;
+
+/* posix_spawn avoids running non-async-signal-safe libc code after fork in
+   R2's multithreaded process. Try the local decoders without a shell. */
+static pid_t spawn_player(const char *path)
 {
-    int nullfd = open("/dev/null", O_WRONLY);
-    if (nullfd >= 0) {
-        (void)dup2(nullfd, STDOUT_FILENO);
-        (void)dup2(nullfd, STDERR_FILENO);
-        if (nullfd > STDERR_FILENO) close(nullfd);
+    posix_spawn_file_actions_t actions;
+    if (posix_spawn_file_actions_init(&actions) != 0) return -1;
+    if (posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO,
+                                         "/dev/null", O_WRONLY, 0) != 0 ||
+        posix_spawn_file_actions_addopen(&actions, STDERR_FILENO,
+                                         "/dev/null", O_WRONLY, 0) != 0) {
+        posix_spawn_file_actions_destroy(&actions);
+        return -1;
     }
-    execlp("mpg123", "mpg123", "-q", path, (char *)NULL);
-    execlp("ffplay", "ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet",
-           path, (char *)NULL);
-    execlp("mpv", "mpv", "--no-video", "--really-quiet", path, (char *)NULL);
-    _exit(127);
+
+    pid_t child = -1;
+    char *mpg123_argv[] = {"mpg123", "-q", (char *)path, NULL};
+    int rc = posix_spawnp(&child, "mpg123", &actions, NULL, mpg123_argv, environ);
+    if (rc == 0) {
+        posix_spawn_file_actions_destroy(&actions);
+        return child;
+    }
+
+    char *ffplay_argv[] = {"ffplay", "-nodisp", "-autoexit", "-loglevel",
+                           "quiet", (char *)path, NULL};
+    rc = posix_spawnp(&child, "ffplay", &actions, NULL, ffplay_argv, environ);
+    if (rc == 0) {
+        posix_spawn_file_actions_destroy(&actions);
+        return child;
+    }
+
+    char *mpv_argv[] = {"mpv", "--no-video", "--really-quiet", (char *)path, NULL};
+    rc = posix_spawnp(&child, "mpv", &actions, NULL, mpv_argv, environ);
+    posix_spawn_file_actions_destroy(&actions);
+    return rc == 0 ? child : -1;
 }
 
 int r2_sounds_play(const char *kind, const char *state)
@@ -255,12 +279,11 @@ int r2_sounds_play(const char *kind, const char *state)
         }
         sound_child = -1;
     }
-    pid_t child = fork();
+    pid_t child = spawn_player(path);
     if (child < 0) {
         pthread_mutex_unlock(&sound_lock);
         return -1;
     }
-    if (child == 0) player_child(path);
     sound_child = child;
     last_sound_at = now;
     have_last_sound_at = 1;
