@@ -272,7 +272,7 @@ int r2_sounds_play(const char *kind, const char *state)
         const char *filename = strrchr(path, '/');
         filename = filename ? filename + 1 : path;
         char details[512];
-        snprintf(details, sizeof(details), "kind=%s; state=%s; file=%s",
+        snprintf(details, sizeof(details), "kind=%.16s; state=%.64s; file=%.200s",
                  kind, (state && *state) ? state : "unspecified", filename);
         (void)r2_log_event(R2_LOG_SENSORY, "sound_effect_scheduled",
                            "R2 scheduled a named local droid sound effect.",
