@@ -1946,7 +1946,7 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
            Never let a model-supplied numeric override turn an unknown object
            or a zero-fullness item into a meal. */
         if (food_metric(food, &fullness, &energy_bonus) != 0) {
-            fprintf(stderr, "[R2 Reality] No food metric found for '%s' in room/food_metrics.xml.\\n", food);
+            fprintf(stderr, "[R2 Reality] No food metric found for '%s' in room/food_metrics.xml.\n", food);
             return -1;
         }
     } else if (fullness >= 0.0) {
@@ -1955,7 +1955,7 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
         energy_bonus = fullness * 0.1;
     } else {
         if (food_metric(food, &fullness, &energy_bonus) != 0) {
-            fprintf(stderr, "[R2 Reality] No food metric found for '%s' in room/food_metrics.xml.\\n", food);
+            fprintf(stderr, "[R2 Reality] No food metric found for '%s' in room/food_metrics.xml.\n", food);
             return -1;
         }
     }
