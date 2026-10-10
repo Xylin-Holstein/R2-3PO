@@ -39,10 +39,15 @@ int main(void)
     touch(root, "R2_Whistle_Default.mp3");
     touch(root, "not_a_sound.wav");
     touch(root, "R2_Beep_Curious.txt");
+    char fake_dir[4096];
+    snprintf(fake_dir, sizeof(fake_dir), "%s/R2_Beep_Silly.mp3", root);
+    assert(mkdir(fake_dir, 0700) == 0);
 
     char path[4096];
     assert(r2_sounds_select_file(root, "beep", "curious", path, sizeof(path)) == 0);
     assert(strstr(path, "R2_Beep_Curious.mp3"));
+    assert(r2_sounds_select_file(root, "beep", "silly", path, sizeof(path)) == 0);
+    assert(strstr(path, "R2_Beep_Default.mp3"));
     assert(r2_sounds_select_file(root, "beep", "sleepy", path, sizeof(path)) == 0);
     assert(strstr(path, "R2_Beep_Sleepy.mp3"));
     assert(r2_sounds_select_file(root, "beep", "tired", path, sizeof(path)) == 0);
@@ -88,6 +93,7 @@ int main(void)
         snprintf(file, sizeof(file), "%s/%s", root, names[i]);
         unlink(file);
     }
+    rmdir(fake_dir);
     rmdir(root);
     puts("R2 state-aware sound smoke passed");
     return 0;
