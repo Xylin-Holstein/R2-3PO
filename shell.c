@@ -2415,11 +2415,25 @@ int r2_shell_run(void)
 
     shell_banner();
 
+    /*
+     * systemd overnight mode has no interactive stdin. Keep the initialized
+     * core, workers, and local TV-control socket alive until SIGTERM/SIGINT
+     * rather than treating /dev/null as Ctrl-D and shutting R2 down.
+     * Interactive desktop launches retain the normal command shell.
+     */
+    const char *service_mode_value = getenv("R2_SERVICE_MODE");
+    int service_mode = service_mode_value &&
+                       !strcmp(service_mode_value, "1");
+
     while (
         shell_running &&
         !shell_shutdown &&
         !r2_is_shutting_down()
     ) {
+        if (service_mode) {
+            pause();
+            continue;
+        }
 
         shell_prompt();
 
