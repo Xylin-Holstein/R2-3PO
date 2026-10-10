@@ -89,6 +89,12 @@ int main(void)
     assert(strstr(clean, "Hello!") && strstr(clean, "I found the right effect."));
     free(clean);
 
+    /* Model output casing can vary; control syntax must never leak as prose. */
+    clean = r2_sounds_process_reply("Before [r2_sound:beep:curious] after");
+    assert(clean && !strcasestr(clean, "[r2_sound:") &&
+           strstr(clean, "Before ") && strstr(clean, " after"));
+    free(clean);
+
     clean = r2_sounds_process_reply("Plain reply with no marker.");
     assert(clean && !strcmp(clean, "Plain reply with no marker."));
     free(clean);
