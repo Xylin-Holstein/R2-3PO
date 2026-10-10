@@ -32,12 +32,24 @@ if pgrep -x r2 >/dev/null 2>&1; then
 fi
 
 # The existing design stores SQLite databases inside R2/ alongside source code.
-# Refuse activation if the dedicated runtime user cannot preserve data there.
-for path in "$R2_ROOT" "$R2_SOURCE" "$R2_ROOT/R2_Diary"; do
+# The root and source directory must already be writable; create missing data-only
+# folders as r2 so first-run setup does not leave them owned by the desktop account.
+for path in "$R2_ROOT" "$R2_SOURCE"; do
     [[ -d "$path" ]] || fail "required persistent-data directory is missing: $path"
     root_run -u r2 test -x "$path" || fail "Linux user r2 cannot traverse $path; fix directory permissions before activation."
     root_run -u r2 test -r "$path" || fail "Linux user r2 cannot read $path; fix permissions before activation."
     root_run -u r2 test -w "$path" || fail "Linux user r2 cannot write $path; SQLite, memories, and diary need persistent write access."
+done
+root_run -u r2 mkdir -p \
+    "$R2_ROOT/R2_Diary" \
+    "$R2_ROOT/room/shelf" \
+    "$R2_ROOT/room/box" \
+    "$R2_ROOT/room/piggybank" \
+    "$R2_ROOT/Pockets/Wallet" \
+    "$R2_ROOT/fridge" || fail "could not create the runtime data directories as r2."
+for path in "$R2_ROOT/R2_Diary" "$R2_ROOT/room" "$R2_ROOT/Pockets" "$R2_ROOT/fridge"; do
+    root_run -u r2 test -x "$path" && root_run -u r2 test -r "$path" && root_run -u r2 test -w "$path" ||
+        fail "Linux user r2 needs read/write/traverse access to $path before activation."
 done
 
 # Compile to a new path first. A failed build never replaces the last known executable.
