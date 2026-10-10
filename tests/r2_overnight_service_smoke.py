@@ -30,7 +30,7 @@ class OvernightServiceTests(unittest.TestCase):
     def test_unit_restarts_failures_and_runs_as_dedicated_user(self):
         source = (ROOT / "deploy/r2-3po.service").read_text(encoding="utf-8")
         self.assertIn("User=r2", source)
-        self.assertIn("Restart=on-failure", source)
+        self.assertIn("Restart=always", source)
         self.assertIn("RestartSec=10", source)
         self.assertIn("TimeoutStopSec=60", source)
         self.assertIn("WantedBy=multi-user.target", source)
