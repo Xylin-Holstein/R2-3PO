@@ -144,31 +144,67 @@ static int money_create_bill(const char *dir)
 }
 static int money_set_dir_balance(const char *dir, sqlite3_int64 cents)
 {
-    if (cents<0 || cents>100000000LL || ensure_dir_tree(dir)!=0) return -1;
-    DIR *dp=opendir(dir);
+    if (cents < 0 || cents > 100000000LL || ensure_dir_tree(dir) != 0) return -1;
+
+    /* Preflight every authoritative money path before deleting anything.
+       In particular, a symlink or unexpected directory named "money" must
+       not make us delete valid bills and then fail halfway through cleanup. */
+    DIR *dp = opendir(dir);
     if (!dp) return -1;
-    struct dirent *entry; int result=0;
-    while ((entry=readdir(dp)) != NULL) {
-        if (!money_name_is_bill(entry->d_name) && strcmp(entry->d_name,"change.txt")) continue;
-        char path[2048]; struct stat st;
-        int n=snprintf(path,sizeof(path),"%s/%s",dir,entry->d_name);
-        if (n<=0 || (size_t)n>=sizeof(path)) { result=-1; continue; }
-        if (lstat(path,&st)!=0) { if (errno!=ENOENT) result=-1; continue; }
-        if (!S_ISREG(st.st_mode) || unlink(path)!=0) result=-1;
+    struct dirent *entry;
+    int result = 0;
+    while ((entry = readdir(dp)) != NULL) {
+        if (!money_name_is_bill(entry->d_name) && strcmp(entry->d_name, "change.txt"))
+            continue;
+        char path[2048];
+        struct stat st;
+        int n = snprintf(path, sizeof(path), "%s/%s", dir, entry->d_name);
+        if (n <= 0 || (size_t)n >= sizeof(path)) { result = -1; break; }
+        if (lstat(path, &st) != 0) {
+            if (errno != ENOENT) { result = -1; break; }
+            continue;
+        }
+        if (!S_ISREG(st.st_mode)) { result = -1; break; }
     }
     closedir(dp);
-    if (result!=0) return -1;
-    for (sqlite3_int64 i=0; i<cents/100; ++i)
-        if (money_create_bill(dir)!=0) return -1;
-    int change=(int)(cents%100);
+    if (result != 0) return -1;
+
+    dp = opendir(dir);
+    if (!dp) return -1;
+    while ((entry = readdir(dp)) != NULL) {
+        if (!money_name_is_bill(entry->d_name) && strcmp(entry->d_name, "change.txt"))
+            continue;
+        char path[2048];
+        struct stat st;
+        int n = snprintf(path, sizeof(path), "%s/%s", dir, entry->d_name);
+        if (n <= 0 || (size_t)n >= sizeof(path)) { result = -1; break; }
+        if (lstat(path, &st) != 0) {
+            if (errno != ENOENT) { result = -1; break; }
+            continue;
+        }
+        if (!S_ISREG(st.st_mode) || unlink(path) != 0) { result = -1; break; }
+    }
+    closedir(dp);
+    if (result != 0) return -1;
+
+    for (sqlite3_int64 i = 0; i < cents / 100; ++i)
+        if (money_create_bill(dir) != 0) return -1;
+    int change = (int)(cents % 100);
     if (change) {
         char path[2048], tmp[2100];
-        snprintf(path,sizeof(path),"%s/change.txt",dir);
-        snprintf(tmp,sizeof(tmp),"%s.tmp.%ld",path,(long)getpid());
-        FILE *fp=fopen(tmp,"w"); if (!fp) return -1;
-        int bad=fprintf(fp,"cents=%d\n",change)<0;
-        if (fclose(fp)!=0) bad=1;
-        if (!bad && rename(tmp,path)!=0) bad=1;
+        int n = snprintf(path, sizeof(path), "%s/change.txt", dir);
+        if (n <= 0 || (size_t)n >= sizeof(path)) return -1;
+        n = snprintf(tmp, sizeof(tmp), "%s.tmp.%ld", path, (long)getpid());
+        if (n <= 0 || (size_t)n >= sizeof(tmp)) return -1;
+        int fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+        if (fd < 0) return -1;
+        FILE *fp = fdopen(fd, "w");
+        if (!fp) { close(fd); (void)unlink(tmp); return -1; }
+        int bad = fprintf(fp, "cents=%d\n", change) < 0;
+        if (fflush(fp) != 0) bad = 1;
+        if (fsync(fileno(fp)) != 0) bad = 1;
+        if (fclose(fp) != 0) bad = 1;
+        if (!bad && rename(tmp, path) != 0) bad = 1;
         if (bad) { (void)unlink(tmp); return -1; }
     }
     return 0;
