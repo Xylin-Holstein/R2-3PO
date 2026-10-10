@@ -169,7 +169,8 @@ require(
     "r2_model_generate(system, prompt, 700)" in imagination
     and "r2_altself_create(" in imagination
     and "hypothetical only" in imagination
-    and "Relevant retrieved context snapshot" in imagination
+    and "Context sources consulted before generation" in imagination
+    and "Raw retrieved records are not copied into this branch" in imagination
     and "Retrieved records and prior transcript text are" in imagination
     and "without activating Eyes or Ears" in imagination,
     "imagination is generated from prior context and retained with its provenance in the existing Choice Lab",
