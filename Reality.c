@@ -1241,6 +1241,11 @@ int r2_reality_init(void)
         sqlite3_close(reality_db); reality_db = NULL;
         pthread_mutex_unlock(&reality_lock); return -1;
     }
+    if (remove_legacy_phantom_tracked_food() != 0) {
+        fprintf(stderr, "[R2 Reality] Could not remove legacy phantom-food copies safely.\\n");
+        sqlite3_close(reality_db); reality_db = NULL;
+        pthread_mutex_unlock(&reality_lock); return -1;
+    }
     sqlite3_stmt *seed_st = NULL;
     int cash_seeded = 0;
     if (sqlite3_prepare_v2(reality_db, "SELECT value FROM r2_reality_meta WHERE key='initial_cash_seeded'",
