@@ -309,6 +309,7 @@ gcc -std=c11 -Wall -Wextra -O2 \
     "$R2_SOURCE/Visual.c" \
     "$R2_SOURCE/Ears.c" \
     "$R2_SOURCE/Eyes.c" \
+    "$R2_SOURCE/R2Sounds.c" \
     -o "$R2_EXEC" \
     -lcurl \
     -lsqlite3 \
@@ -352,6 +353,7 @@ echo "    AlternateSelf.c"
 echo "    Visual.c"
 echo "    Ears.c"
 echo "    Eyes.c"
+echo "    R2Sounds.c"
 echo
 
 echo "[4/4] Transitioning to Linux user: r2..."
