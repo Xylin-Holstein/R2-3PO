@@ -97,5 +97,17 @@ require(
     and "Do not become terse at the cost of correctness" in core,
     "reply guidance favors concise answers without sacrificing technical depth",
 )
+require(
+    "REALITY CONTEXT: USE IT, DO NOT RECITE IT" in core
+    and "Never copy, dump, or narrate the whole context block" in core
+    and "Let current needs and available resources inform decisions." in core,
+    "Reality context is treated as internal evidence for grounded decisions, not user-facing text",
+)
+require(
+    "[WORLD] eat|EXACT_ITEM_NAME|auto" in core
+    and "[WORLD] fridge_eat|EXACT_FRIDGE_ITEM_NAME" in core
+    and "the final response must still answer the user naturally" in core,
+    "supported need-driven food actions remain connected to a natural follow-up reply",
+)
 
 print("Gemma 3 unified-model contract checks passed.")
