@@ -81,7 +81,7 @@ def audit_root(root: Path) -> int:
         "hungry": {"hungry", "hunger"},
         "excited": {"excited", "excitement", "enthusiastic"},
         "thinking": {"thinking", "think", "processing", "pondering"},
-        "greeting": {"greeting", "greet", "hello", "welcome"},
+        "greeting": {"greeting", "greet", "hello", "welcome", "acknowledge", "acknowledgement"},
     }
     for state in STATES_TO_REPORT:
         exact: list[str] = []
