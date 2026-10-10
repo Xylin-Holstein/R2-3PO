@@ -1989,6 +1989,74 @@ int r2_reality_eat(const char *food, double fullness)
     return reality_eat_internal(food, fullness, 1, -1.0);
 }
 
+/* Model output may fail to choose an obvious meal. Keep the simulated body
+ * safe with a deterministic fallback grounded only in authoritative state:
+ * eat a verified food metric from an accessible tracked container, otherwise
+ * eat a stored fridge item when home. Never invent a food or bypass location. */
+int r2_reality_autonomous_feed_if_needed(void)
+{
+    if (!r2_reality_is_initialized()) return -1;
+    if (r2_reality_tick() != 0) return -1;
+
+    char food[512] = {0};
+    double hunger = 0.0;
+    pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "SELECT hunger FROM r2_reality_self WHERE id=1", -1, &st, NULL);
+    if (rc == SQLITE_OK && sqlite3_step(st) == SQLITE_ROW)
+        hunger = sqlite3_column_double(st, 0);
+    else rc = SQLITE_ERROR;
+    if (st) sqlite3_finalize(st);
+    if (rc != SQLITE_OK) {
+        pthread_mutex_unlock(&reality_lock);
+        return -1;
+    }
+    if (hunger < 50.0) {
+        pthread_mutex_unlock(&reality_lock);
+        return 0;
+    }
+
+    st = NULL;
+    rc = sqlite3_prepare_v2(reality_db,
+        "SELECT name,container FROM r2_reality_objects WHERE quantity>0 ORDER BY id",
+        -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            const unsigned char *name = sqlite3_column_text(st, 0);
+            const unsigned char *container = sqlite3_column_text(st, 1);
+            if (!name || !container || !container_accessible((const char *)container))
+                continue;
+            if (food_metric((const char *)name, NULL, NULL) == 0) {
+                snprintf(food, sizeof(food), "%s", (const char *)name);
+                break;
+            }
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reality_lock);
+    if (*food && reality_eat_internal(food, -1.0, 1, -1.0) == 0)
+        return 1;
+
+    if (!reality_is_home()) return 0;
+    food[0] = '\0';
+    pthread_mutex_lock(&fridge_lock);
+    if (fridge_db && fridge_seed_if_empty_locked() == 0) {
+        st = NULL;
+        if (sqlite3_prepare_v2(fridge_db,
+            "SELECT name FROM r2_fridge_items WHERE quantity>0 ORDER BY name LIMIT 1",
+            -1, &st, NULL) == SQLITE_OK && sqlite3_step(st) == SQLITE_ROW) {
+            const unsigned char *name = sqlite3_column_text(st, 0);
+            if (name) snprintf(food, sizeof(food), "%s", (const char *)name);
+        }
+        if (st) sqlite3_finalize(st);
+    }
+    pthread_mutex_unlock(&fridge_lock);
+    if (*food && r2_reality_fridge_eat(food, -1.0) == 0)
+        return 1;
+    return 0;
+}
+
 char *r2_reality_food_context(const char *food)
 {
     if (!food || !*food || !r2_reality_is_initialized()) return NULL;
