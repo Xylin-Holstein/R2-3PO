@@ -116,7 +116,7 @@ require(
     "actions are checked, verified, interpreted, and connected back to conversation",
 )
 require(
-    "Consequential, destructive, external, or irreversible operations" in core
+    "For consequential, destructive, external, or irreversible operations" in core
     and "require appropriate user authorization" in core
     and "Do not act just to look busy" in core,
     "action selection respects purpose and authorization boundaries",
