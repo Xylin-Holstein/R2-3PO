@@ -14,6 +14,11 @@ int main(void)
     assert(strstr(reply, "Hello there.") && strstr(reply, "How are you?"));
     free(reply);
 
+    /* Nested same-type tags must not expose text after an inner close. */
+    reply = r2_reply_sanitize("<think>outer private <think>nested private</think> still private</think>Public answer.");
+    assert(reply && !strcmp(reply, "Public answer."));
+    free(reply);
+
     reply = r2_reply_sanitize("<analysis>private scratch</analysis>\n<reasoning>another private block</reasoning>\nHere is the actual answer.");
     assert(reply && !strcmp(reply, "Here is the actual answer."));
     free(reply);
