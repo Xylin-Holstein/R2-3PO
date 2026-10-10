@@ -10,6 +10,9 @@ extern "C" {
 /* Uses R2_FX_DIR when set; otherwise the established R2 runtime FX directory. */
 #define R2_SOUNDS_DEFAULT_FX_DIR "/home/x/R2_Home/R2_sounds/FX"
 
+/* Reset lifecycle state when the core is initialized/reinitialized. */
+void r2_sounds_init(void);
+
 /* Select an existing named MP3 using filename tokens; never synthesizes files. */
 int r2_sounds_select_file(const char *fx_dir, const char *kind,
                           const char *state, char *out, size_t out_cap);
