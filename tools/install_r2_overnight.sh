@@ -69,6 +69,13 @@ for path in "$R2_ROOT/R2_Diary" "$R2_ROOT/room" "$R2_ROOT/Pockets" "$R2_ROOT/fri
     run_as_r2 test -x "$path" && run_as_r2 test -r "$path" && run_as_r2 test -w "$path" ||
         fail "Linux user r2 needs read/write/traverse access to $path before activation."
 done
+for database in "$R2_SOURCE/r2_memory.db" "$R2_SOURCE/r2_reality.db" "$R2_SOURCE/r2_fridge.db"; do
+    [[ ! -L "$database" ]] || fail "refusing symlinked R2 database: $database"
+    if [[ -e "$database" ]]; then
+        run_as_r2 test -f "$database" && run_as_r2 test -r "$database" && run_as_r2 test -w "$database" ||
+            fail "existing database is not a readable/writable regular file for r2: $database"
+    fi
+done
 
 # Compile to a new path first. A failed build never replaces the last known executable.
 log "Compiling the complete C runtime..."
