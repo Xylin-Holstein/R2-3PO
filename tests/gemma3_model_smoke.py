@@ -148,6 +148,12 @@ require(
     "live audio interpretation is explicit and duration-bounded in the shell",
 )
 require(
+    '"[HEAR]"' in core
+    and "latest_user_explicitly_requested_hearing" in core
+    and "HEARING BLOCKED" in core,
+    "conversation-triggered hearing is gated by explicit latest-user intent",
+)
+require(
     "Return a concise visual observation for R2's conversation to use as sensory evidence, not as a user-facing answer."
     in visual,
     "vision output is framed as sensory evidence for conversation",
