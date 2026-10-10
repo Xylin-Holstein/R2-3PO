@@ -248,6 +248,12 @@ int main(void)
     branch_id = (int64_t)parsed_branch_id;
     free(list); list = NULL;
 
+    result = r2_imagination_create("Imagine a burger based on what you know about my tastes.");
+    if (!check(result && !strstr(last_prompt, "FRIDGE_SENTINEL")
+               && strstr(last_prompt, "REALITY_SENTINEL"),
+               "general food imagination uses learned Reality context without automatically reading fridge stock")) goto done;
+    free(result); result = NULL;
+
     result = r2_imagination_create("Imagine what I can make with what I have in the fridge.");
     if (!check(result && strstr(last_prompt, "FRIDGE_SENTINEL"),
                "current fridge inventory is retrieved for explicit inventory imagination")) goto done;
