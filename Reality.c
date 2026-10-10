@@ -1945,8 +1945,12 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
             return -1;
         }
     }
+    /* A zero-fullness item is not a meal: it must not reset the meal clock
+       or clear the prolonged-starvation marker without reducing hunger. */
+    if (!isfinite(fullness) || fullness <= 0.0) return -1;
     if (energy_override >= 0.0) energy_bonus = energy_override;
     if (fullness > 100.0) fullness = 100.0;
+    if (!isfinite(energy_bonus)) return -1;
     if (energy_bonus < 0.0) energy_bonus = 0.0;
     if (energy_bonus > 100.0) energy_bonus = 100.0;
     if (r2_reality_tick() != 0) return -1;
