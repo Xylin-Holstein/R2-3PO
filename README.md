@@ -215,3 +215,38 @@ The built-in VCR is AV input 1. Place supported video files in `VCR_Tapes/`, the
 
 The automated tests cover read-only state display, control-command validation/socket transport, empty versus connected signal sources, persistent VCR position display, and installing the device files under a temporary `room/TV/` directory. They do not prove that VLC opens on the real desktop; verify that interactively on R2's machine.
 
+## Overnight service (start at boot and recover from crashes)
+
+For an unattended session, install the systemd service from the repository at its established location, `/home/x/R2_Home/R2`. This is separate from the interactive desktop launcher: service mode has no terminal prompt or Observer popup, but keeps the initialized R2 core, autonomous-thinking/diary workers, and local TV-control server alive until systemd stops it.
+
+Before installing, make sure the local Ollama installation has the required model. This project intentionally does not download models or update package indexes during service startup:
+
+```sh
+ollama pull gemma3:4b
+```
+
+Then, from the repository directory:
+
+```sh
+cd /home/x/R2_Home/R2
+bash tools/install_r2_overnight.sh
+```
+
+The installer compiles the current source to a temporary executable first, preserves the previous executable if compilation fails, installs `r2-3po.service`, enables it at boot, and requests immediate startup. It refuses to rebuild while an R2 process is already running and refuses activation if the dedicated `r2` account cannot read/write the existing persistent-data directories.
+
+Useful operations:
+
+```sh
+sudo systemctl status r2-3po.service
+journalctl -u r2-3po.service -f
+sudo systemctl stop r2-3po.service
+sudo systemctl start r2-3po.service
+sudo systemctl disable r2-3po.service
+```
+
+The supervisor restarts failed runs, waits up to 60 seconds for the local Ollama API and `gemma3:4b`, and logs preflight failures to the journal. The runner uses the existing `libfaketime` installation to keep R2's private clock starting in 1999 and advancing continuously; it does not alter Linux's actual clock, run `apt-get update`, or pull models automatically. A sleep inhibitor requests that the host not suspend during the session; firmware, power loss, forced shutdown, and administrative overrides can still stop it.
+
+Sound assets remain host-local at `/home/x/R2_Home/R2_sounds/FX`. Service startup checks core prerequisites but does not prove speaker playback, camera permissions, microphone capture, or GUI/VLC integration. Verify those against the actual desktop/audio session after startup. Use `R2_Launch_Code.sh` for the existing interactive desktop shell and Observer window.
+
+**Activation boundary:** installing this service on GitHub does not activate it on the physical Linux host. Run the installer on that host, then check `systemctl status` and `journalctl` before relying on an overnight run.
+
