@@ -2044,7 +2044,7 @@ int r2_reality_autonomous_feed_if_needed(void)
     if (fridge_db) {
         st = NULL;
         if (sqlite3_prepare_v2(fridge_db,
-            "SELECT name FROM r2_fridge_items WHERE quantity>0 ORDER BY name LIMIT 1",
+            "SELECT name FROM r2_fridge_items WHERE quantity>0 AND fullness>0 ORDER BY name LIMIT 1",
             -1, &st, NULL) == SQLITE_OK && sqlite3_step(st) == SQLITE_ROW) {
             const unsigned char *name = sqlite3_column_text(st, 0);
             if (name) snprintf(food, sizeof(food), "%s", (const char *)name);
