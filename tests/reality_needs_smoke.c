@@ -459,7 +459,7 @@ int main(void)
     char *context = r2_reality_context();
     if (!context || !strstr(context, "PERSISTENT REALITY CONTEXT") ||
         !strstr(context, "Food-experience history unavailable") ||
-        !strstr(context, "SELF CONTINUITY") || !strstr(context, "ROOM AND INVENTORY")) {
+        !strstr(context, "SELF CONTINUITY") || !strstr(context, "R2'S ROOM")) {
         free(context);
         fail("one unavailable optional subsystem must not discard all Reality context");
     }
