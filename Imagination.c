@@ -19,9 +19,9 @@
 #include <string.h>
 #include <strings.h>
 
-#define IMAGINE_REQUEST_MAX 1800
-#define IMAGINE_CONTEXT_MAX 22000
-#define IMAGINE_CONTEXT_SECTION_MAX 4200
+#define IMAGINE_REQUEST_MAX 1200
+#define IMAGINE_CONTEXT_MAX 6100
+#define IMAGINE_CONTEXT_SECTION_MAX 540
 
 static pthread_mutex_t imagination_lock = PTHREAD_MUTEX_INITIALIZER;
 static int imagination_ready;
