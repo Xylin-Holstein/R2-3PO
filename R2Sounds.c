@@ -401,6 +401,15 @@ static int valid_marker_state(const char *value)
     return count == 1 && token_is_state(tokens[0]);
 }
 
+static const char *find_sound_marker(const char *text)
+{
+    static const char marker[] = "[R2_SOUND:";
+    size_t marker_len = sizeof(marker) - 1;
+    for (const char *p = text; p && *p; ++p)
+        if (!strncasecmp(p, marker, marker_len)) return p;
+    return NULL;
+}
+
 char *r2_sounds_process_reply(const char *reply)
 {
     if (!reply) return NULL;
@@ -410,7 +419,7 @@ char *r2_sounds_process_reply(const char *reply)
     size_t src = 0, dst = 0;
     int played_or_attempted = 0;
     while (src < len) {
-        const char *marker = strstr(reply + src, "[R2_SOUND:");
+        const char *marker = find_sound_marker(reply + src);
         if (!marker) {
             memcpy(clean + dst, reply + src, len - src);
             dst += len - src;
