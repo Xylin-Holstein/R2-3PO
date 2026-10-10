@@ -24,6 +24,8 @@ visual = read("Visual.c")
 header = read("r2.h")
 launcher = read("R2_Launch_Code.sh")
 shell = read("shell.c")
+log = read("Log.c")
+log_header = read("Log.h")
 
 require(
     re.search(r'^#define R2_OLLAMA_MODEL "gemma3:4b"$', header, re.MULTILINE) is not None,
@@ -162,6 +164,22 @@ require(
     and gameboy_helper_end > gameboy_helper_start
     and 'r2_reality_' not in gameboy_helpers,
     "Game Boy session logging does not mutate R2's physical Reality state",
+)
+
+
+require(
+    "shell_gameboy_sync_verified_events" in shell
+    and 'context=virtual' in shell
+    and "r2_log_event_exists" in shell
+    and "r2_log_event_exists" in log_header
+    and "int r2_log_event_exists(" in log,
+    "verified in-game events sync to Life Log with stable idempotency keys",
+)
+require(
+    'r2_log_event(R2_LOG_MEDIA, "virtual_game_event"' in shell
+    and "does not change physical Reality" in shell
+    and 'r2_reality_' not in shell[shell.find("static const char *shell_gameboy_json_string"):shell.find("static int shell_gameboy(const char *arg)")],
+    "synced game events remain virtual and never mutate physical Reality",
 )
 
 print("Gemma 3 unified-model contract checks passed.")
