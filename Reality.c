@@ -2000,6 +2000,10 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
     int quantity = 0;
     int consumed_tracked_item = 0;
     pthread_mutex_lock(&reality_lock);
+    if (sqlite3_exec(reality_db, "BEGIN IMMEDIATE", NULL, NULL, NULL) != SQLITE_OK) {
+        pthread_mutex_unlock(&reality_lock);
+        return -1;
+    }
     sqlite3_stmt *st = NULL;
     if (consume_tracked_item && sqlite3_prepare_v2(reality_db,
         "SELECT container,description,quantity FROM r2_reality_objects WHERE name=? COLLATE NOCASE",
@@ -2016,6 +2020,7 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
     if (st) sqlite3_finalize(st);
     st = NULL;
     if (consume_tracked_item && (quantity < 1 || !container_accessible(container))) {
+        (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
         pthread_mutex_unlock(&reality_lock);
         return -1;
     }
@@ -2028,6 +2033,8 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
         sqlite3_bind_double(st, 2, fullness);
         sqlite3_bind_double(st, 3, energy_bonus);
         rc = sqlite3_step(st);
+        if (rc == SQLITE_DONE && sqlite3_changes(reality_db) != 1)
+            rc = SQLITE_NOTFOUND;
     }
     if (st) sqlite3_finalize(st);
     st = NULL;
@@ -2041,7 +2048,10 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
                 -1, &st, NULL) == SQLITE_OK) {
                 bind_text(st, 1, food);
                 rc = sqlite3_step(st);
-                consumed_tracked_item = (rc == SQLITE_DONE);
+                if (rc == SQLITE_DONE && sqlite3_changes(reality_db) == 1)
+                    consumed_tracked_item = 1;
+                else if (rc == SQLITE_DONE)
+                    rc = SQLITE_NOTFOUND;
             } else rc = SQLITE_ERROR;
         } else {
             if (sqlite3_prepare_v2(reality_db,
@@ -2049,7 +2059,10 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
                 -1, &st, NULL) == SQLITE_OK) {
                 bind_text(st, 1, food);
                 rc = sqlite3_step(st);
-                consumed_tracked_item = (rc == SQLITE_DONE);
+                if (rc == SQLITE_DONE && sqlite3_changes(reality_db) == 1)
+                    consumed_tracked_item = 1;
+                else if (rc == SQLITE_DONE)
+                    rc = SQLITE_NOTFOUND;
             } else rc = SQLITE_ERROR;
         }
     }
@@ -2059,7 +2072,9 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
         if (sqlite3_prepare_v2(reality_db,
             "INSERT INTO r2_reality_self_facts(key,value,evidence) VALUES('starvation_72h_logged','no','Reset by qualifying food intake') ON CONFLICT(key) DO UPDATE SET value='no',evidence='Reset by qualifying food intake',updated_at=CURRENT_TIMESTAMP",
             -1, &st, NULL) == SQLITE_OK)
-            sqlite3_step(st);
+            rc = sqlite3_step(st);
+        else
+            rc = SQLITE_ERROR;
         if (st) sqlite3_finalize(st);
     }
     if (rc == SQLITE_DONE) {
@@ -2076,8 +2091,16 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
         } else rc = SQLITE_ERROR;
         if (st) sqlite3_finalize(st);
     }
+    if (rc == SQLITE_DONE) {
+        rc = sqlite3_exec(reality_db, "COMMIT", NULL, NULL, NULL);
+        if (rc != SQLITE_OK)
+            (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
+    } else {
+        (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
+    }
     pthread_mutex_unlock(&reality_lock);
-    if (rc != SQLITE_DONE) return -1;
+    if (rc != SQLITE_DONE && rc != SQLITE_OK) return -1;
+    /* COMMIT returns SQLITE_OK; all earlier statements return SQLITE_DONE. */
 
     if (consumed_tracked_item) {
         if (quantity == 1) mirror_remove(food, container);
