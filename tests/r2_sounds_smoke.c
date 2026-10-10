@@ -94,6 +94,12 @@ int main(void)
     fclose(player);
     assert(chmod(player_path, 0700) == 0);
     assert(setenv("PATH", root, 1) == 0);
+    /* An unknown model-invented state must be stripped without triggering a
+       generic sound; otherwise the following real play would be rate-limited. */
+    clean = r2_sounds_process_reply("Before [R2_SOUND:beep:banana] after");
+    assert(clean && !strstr(clean, "[R2_SOUND:") && strstr(clean, "Before ") &&
+           strstr(clean, " after"));
+    free(clean);
     assert(r2_sounds_play("beep", "curious") == 0);
     r2_sounds_shutdown();
     unlink(player_path);
