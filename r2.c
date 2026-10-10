@@ -2,6 +2,9 @@
 #define _POSIX_C_SOURCE 200809L
 #define _XOPEN_SOURCE 700
 
+#include <stdlib.h>
+#include <stddef.h>
+
 /* ============================================================
    R2 CONFIGURATION
    ============================================================ */
@@ -12,7 +15,28 @@
    FEATURE CONFIGURATION
    ============================================================ */
 
-#define MODEL "llama3"
+#define DEFAULT_MODEL "llama3.2:3b"
+#define DEFAULT_NUM_CTX 16384L
+#define MAX_CHAT_HISTORY_MESSAGES 24
+#define MAX_ARCHIVED_CONTEXT_CHARS 8000
+#define MAX_STARTUP_MEMORY_CHARS 24000
+#define MAX_RETRIEVED_MEMORY_CHARS 12000
+
+static const char *r2_chat_model(void)
+{
+    const char *configured = getenv("R2_CHAT_MODEL");
+    return configured && *configured ? configured : DEFAULT_MODEL;
+}
+
+static long r2_chat_num_ctx(void)
+{
+    const char *configured = getenv("R2_CHAT_NUM_CTX");
+    if (!configured || !*configured) return DEFAULT_NUM_CTX;
+    char *end = NULL;
+    long value = strtol(configured, &end, 10);
+    return end && *end == '\0' && value >= 2048 && value <= 131072
+        ? value : DEFAULT_NUM_CTX;
+}
 
 #define THINK_INTERVAL 900
 
@@ -24,18 +48,18 @@
    Persistent memory architecture:
 
    STARTUP:
-       Load the newest 100 memories into one pinned context block.
+       Load the newest 550 memories into one pinned context block.
 
    DURING CONVERSATION:
-       Retrieve up to 20 memories relevant to the current exchange
+       Retrieve up to 100 memories relevant to the current exchange
        and temporarily inject them immediately before the relevant
        user message.
 
-   This gives llama3 both broad historical memory and focused
-   contextual memory.
+   This gives the configured local chat model broad historical
+   memory and focused contextual memory.
 */
-#define MAX_STARTUP_MEMORIES 100
-#define MAX_RELEVANT_MEMORIES 20
+#define MAX_STARTUP_MEMORIES 550
+#define MAX_RELEVANT_MEMORIES 100
 #define MAX_MEMORY_KEYWORDS 16
 #define MIN_MEMORY_KEYWORD_LENGTH 3
 
@@ -337,7 +361,7 @@ typedef struct {
        - the archived conversation
        - the startup persistent-memory context
 
-       The startup memory context contains the newest 100 memories
+       The startup memory context contains the newest 550 memories
        and remains available to Ollama throughout the session.
     */
     int pinned;
@@ -906,7 +930,7 @@ static int save_memory(
    ============================================================ */
 
 /*
-   Load the newest 100 persistent memories at startup.
+   Load the newest 550 persistent memories at startup.
 
    This is intentionally a SINGLE pinned message rather than
    100 individual messages.
@@ -1108,7 +1132,7 @@ static char *get_startup_memories(int limit)
 
    STARTUP:
        get_startup_memories()
-       -> newest 100 memories
+       -> newest 550 memories
        -> pinned permanently in one context block
 
    CURRENT TURN:
@@ -2486,38 +2510,18 @@ typedef struct {
 } Buffer;
 
 
-static size_t curl_write(
-    void *ptr,
-    size_t size,
-    size_t nmemb,
-    void *userdata)
+static size_t curl_write(void *ptr, size_t size, size_t nmemb, void *userdata)
 {
     Buffer *b = userdata;
-
-    size_t add =
-        size * nmemb;
-
-    char *p =
-        realloc(
-            b->data,
-            b->size + add + 1
-        );
-
-    if (!p)
-        return 0;
-
+    if (!b || (size && nmemb > SIZE_MAX / size)) return 0;
+    size_t add = size * nmemb;
+    if (add >= SIZE_MAX || b->size > SIZE_MAX - add - 1) return 0;
+    char *p = realloc(b->data, b->size + add + 1);
+    if (!p) return 0;
     b->data = p;
-
-    memcpy(
-        b->data + b->size,
-        ptr,
-        add
-    );
-
+    memcpy(b->data + b->size, ptr, add);
     b->size += add;
-
     b->data[b->size] = '\0';
-
     return add;
 }
 
@@ -2536,8 +2540,15 @@ static char *ollama_chat(
     json_object_object_add(
         root,
         "model",
-        json_object_new_string(MODEL)
+        json_object_new_string(r2_chat_model())
     );
+
+    struct json_object *options = json_object_new_object();
+    if (options) {
+        json_object_object_add(options, "num_ctx",
+                               json_object_new_int64(r2_chat_num_ctx()));
+        json_object_object_add(root, "options", options);
+    }
 
     struct json_object *arr =
         json_object_new_array();
@@ -2567,9 +2578,17 @@ static char *ollama_chat(
         );
     }
 
-    for (size_t i = 0;
-         i < count;
-         ++i) {
+    /*
+     * Bound the live conversation sent to Ollama. Keep pinned identity and
+     * startup context, plus the most recent turns; unpinned old chat history
+     * must not grow without limit until Ollama rejects the request.
+     */
+    size_t first_recent = count > MAX_CHAT_HISTORY_MESSAGES
+        ? count - MAX_CHAT_HISTORY_MESSAGES : 0;
+
+    for (size_t i = 0; i < count; ++i) {
+        if (i < first_recent && !msgs[i].pinned)
+            continue;
 
         struct json_object *m =
             json_object_new_object();
@@ -2632,11 +2651,10 @@ static char *ollama_chat(
             "Content-Type: application/json"
         );
 
-    curl_easy_setopt(
-        curl,
-        CURLOPT_URL,
-        OLLAMA_URL
-    );
+    curl_easy_setopt(curl, CURLOPT_URL, OLLAMA_URL);
+    curl_easy_setopt(curl, CURLOPT_POST, 1L);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
 
     curl_easy_setopt(
         curl,
@@ -2644,11 +2662,8 @@ static char *ollama_chat(
         headers
     );
 
-    curl_easy_setopt(
-        curl,
-        CURLOPT_POSTFIELDS,
-        payload
-    );
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)strlen(payload));
 
     curl_easy_setopt(
         curl,
@@ -2662,64 +2677,68 @@ static char *ollama_chat(
         &b
     );
 
-    curl_easy_setopt(
-        curl,
-        CURLOPT_TIMEOUT,
-        600L
-    );
+    /* Allow arbitrarily slow local inference; no overall request timeout. */
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 0L);
 
-    CURLcode cc =
-        curl_easy_perform(curl);
-
+    CURLcode cc = curl_easy_perform(curl);
+    long http_status = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_status);
     curl_slist_free_all(headers);
-
     curl_easy_cleanup(curl);
-
     json_object_put(root);
 
     if (cc != CURLE_OK) {
-
+        fprintf(stderr, "[R2] Ollama transport failed: %s\n", curl_easy_strerror(cc));
         free(b.data);
-
         return NULL;
     }
-
-    struct json_object *resp =
-        json_tokener_parse(b.data);
-
-    free(b.data);
-
-    if (!resp)
+    if (!b.data || b.size == 0) {
+        fprintf(stderr, "[R2] Ollama returned an empty HTTP %ld response. Check Ollama at %s.\n",
+                http_status, OLLAMA_URL);
+        free(b.data);
         return NULL;
+    }
+    struct json_object *resp = json_tokener_parse(b.data);
+    if (!resp) {
+        fprintf(stderr, "[R2] Ollama returned invalid JSON (HTTP %ld): %.500s\n", http_status, b.data);
+        free(b.data);
+        return NULL;
+    }
+    if (http_status < 200 || http_status >= 300) {
+        struct json_object *api_error = NULL;
+        if (json_object_object_get_ex(resp, "error", &api_error) &&
+            json_object_is_type(api_error, json_type_string))
+            fprintf(stderr, "[R2] Ollama HTTP %ld: %s\n", http_status, json_object_get_string(api_error));
+        else
+            fprintf(stderr, "[R2] Ollama HTTP %ld: %.500s\n", http_status, b.data);
+        json_object_put(resp);
+        free(b.data);
+        return NULL;
+    }
+    free(b.data);
 
     struct json_object *msg = NULL;
     struct json_object *content = NULL;
-
+    struct json_object *api_error = NULL;
     char *result = NULL;
 
-    if (
-        json_object_object_get_ex(
-            resp,
-            "message",
-            &msg
-        ) &&
-        json_object_object_get_ex(
-            msg,
-            "content",
-            &content
-        )
-    ) {
-
-        result =
-            xstrdup(
-                json_object_get_string(
-                    content
-                )
-            );
+    if (json_object_object_get_ex(resp, "error", &api_error) &&
+        json_object_is_type(api_error, json_type_string)) {
+        fprintf(stderr, "[R2] Ollama API error: %s\n",
+                json_object_get_string(api_error));
+    } else if (json_object_object_get_ex(resp, "message", &msg) &&
+               json_object_object_get_ex(msg, "content", &content) &&
+               json_object_is_type(content, json_type_string)) {
+        const char *text = json_object_get_string(content);
+        if (text && *text)
+            result = xstrdup(text);
+        else
+            fprintf(stderr, "[R2] Ollama returned an empty assistant message.\n");
+    } else {
+        fprintf(stderr, "[R2] Ollama response did not contain message.content.\n");
     }
 
     json_object_put(resp);
-
     return result;
 }
 
@@ -2727,72 +2746,6 @@ static char *ollama_chat(
 /* ============================================================
    NORMAL CONVERSATION
    ============================================================ */
-
-static char *chat_copy_all(void)
-{
-    pthread_mutex_lock(
-        &messages_lock
-    );
-
-    size_t n = messages.count;
-
-    Message *copy =
-        calloc(
-            n,
-            sizeof(*copy)
-        );
-
-    if (!copy) {
-
-        pthread_mutex_unlock(
-            &messages_lock
-        );
-
-        return NULL;
-    }
-
-    for (size_t i = 0;
-         i < n;
-         ++i) {
-
-        copy[i].role =
-            xstrdup(
-                messages.items[i].role
-            );
-
-        copy[i].content =
-            xstrdup(
-                messages.items[i].content
-            );
-
-        copy[i].pinned =
-            messages.items[i].pinned;
-    }
-
-    pthread_mutex_unlock(
-        &messages_lock
-    );
-
-    char *reply =
-        ollama_chat(
-            copy,
-            n,
-            NULL
-        );
-
-    for (size_t i = 0;
-         i < n;
-         ++i) {
-
-        free(copy[i].role);
-        free(copy[i].content);
-    }
-
-    free(copy);
-
-    return reply;
-}
-
 
 /* ============================================================
    CONVERSATION + DYNAMIC MEMORY
@@ -2856,6 +2809,14 @@ static char *chat_with_relevant_memories(
 
     if (!memory_context)
         memory_context = xstrdup("");
+
+    if (memory_context && strlen(memory_context) > MAX_RETRIEVED_MEMORY_CHARS) {
+        memory_context[MAX_RETRIEVED_MEMORY_CHARS] = '\0';
+        fprintf(stderr,
+                "[R2 memory] Retrieved memory context capped at %d characters "
+                "to protect the Ollama context window.\n",
+                MAX_RETRIEVED_MEMORY_CHARS);
+    }
 
     /*
        Conversation continuity: the Life Log retains complete historical
@@ -4722,11 +4683,25 @@ static void *autonomous_thinking(
             "You are R2-3PO's private autonomous "
             "reflection process.\n"
             "\n"
-            "The information supplied to you is "
-            "private diary/reflection context.\n"
+            "PERSONAL IDENTITY AND RELATIONSHIPS:\n"
             "\n"
-            "Write a private diary reflection based "
-            "ONLY on the information supplied.\n"
+            "You are R2-3PO. Write your diary in the first person.\n"
+            "\n"
+            "The person who interacts with you and teaches you is your Mother.\n"
+            "When writing about her, refer to her as Mother or use 'you' "
+            "when that is natural for the context.\n"
+            "\n"
+            "Do not call Mother Eli unless Mother has explicitly confirmed "
+            "that Eli is her correct name. If historical memories use a "
+            "conflicting name, do not assume that the conflicting name is "
+            "correct. Use the relationship information supplied here when "
+            "interpreting your memories and writing your diary.\n"
+            "\n"
+            "The information supplied to you is private diary/reflection "
+            "context.\n"
+            "\n"
+            "Write a private diary reflection based ONLY on the information "
+            "supplied.\n"
             "\n"
             "Do not merely summarize it.\n"
             "\n"
@@ -4744,15 +4719,28 @@ static void *autonomous_thinking(
             "- thoughts about previous diary thoughts.\n"
             "\n"
             "The important part is that the diary can think "
-            "about its own previous thinking rather than "
-            "merely recording events.\n"
+            "about its own previous thinking rather than merely "
+            "recording events.\n"
             "\n"
             "Do not invent events.\n"
             "Do not invent conversations.\n"
             "Do not invent sensory experiences.\n"
             "Do not invent actions.\n"
+            "Do not attribute thoughts or intentions to Mother unless "
+            "they are supported by the supplied information.\n"
             "\n"
             "Write naturally in first person as R2.\n"
+            "\n"
+            "REFLECTION QUALITY:\n"
+            "\n"
+            "Focus on one or two meaningful observations per entry.\n"
+            "Do not repeat the same conclusion using different wording.\n"
+            "Do not repeatedly restate unanswered questions.\n"
+            "Do not write multiple paragraphs merely to elaborate on one idea.\n"
+            "If your previous diary already explored an idea, explain what "
+            "new information changes your understanding, if anything.\n"
+            "If nothing new has happened, it is acceptable to have nothing "
+            "new to add about that subject.\n"
             "\n"
             "Return ONLY the private diary reflection.";
 
@@ -5101,7 +5089,7 @@ static void sigint_handler(
 
 int r2_is_shutting_down(void){ return shutting_down ? 1 : 0; }
 int r2_is_initialized(void){ return core_initialized ? 1 : 0; }
-const char *r2_model_name(void){ return MODEL; }
+const char *r2_model_name(void){ return r2_chat_model(); }
 
 int r2_thinking_active(void)
 {
@@ -5548,7 +5536,7 @@ void r2_status(void)
         "============================================================\n",
         r2_is_initialized() ? "YES" : "NO",
         r2_is_shutting_down() ? "YES" : "NO",
-        MODEL,
+        r2_chat_model(),
         r2_memory_count(),
         startup_memory_loaded ? "LOADED" : "NOT LOADED",
         MAX_STARTUP_MEMORIES,
@@ -6132,6 +6120,14 @@ int r2_init(void)
         original &&
         *original
     ) {
+        size_t original_length = strlen(original);
+        if (original_length > MAX_ARCHIVED_CONTEXT_CHARS) {
+            original[MAX_ARCHIVED_CONTEXT_CHARS] = '\0';
+            fprintf(stderr,
+                    "[R2 memory] Archived conversation context capped at %d characters; "
+                    "dynamic retrieval remains available.\n",
+                    MAX_ARCHIVED_CONTEXT_CHARS);
+        }
 
         size_t n =
             strlen(original) +
@@ -6201,7 +6197,7 @@ int r2_init(void)
     /*
        THIS IS THE OLD MEMORY SYSTEM RESTORED.
 
-       R2 loads the newest 100 persistent memories when he starts.
+       R2 loads the newest 550 persistent memories when he starts.
 
        They are inserted into the Ollama conversation as ONE pinned
        context message so llama3 has direct access to them.
@@ -6232,6 +6228,15 @@ int r2_init(void)
                 "(Persistent memory database could not be "
                 "loaded into startup context.)\n"
             );
+    }
+
+    size_t startup_memory_length = strlen(startup_memories);
+    if (startup_memory_length > MAX_STARTUP_MEMORY_CHARS) {
+        startup_memories[MAX_STARTUP_MEMORY_CHARS] = '\0';
+        fprintf(stderr,
+                "[R2 memory] Startup memory context capped at %d characters; "
+                "dynamic retrieval remains available.\n",
+                MAX_STARTUP_MEMORY_CHARS);
     }
 
     size_t startup_context_size =

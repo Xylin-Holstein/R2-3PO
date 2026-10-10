@@ -1,0 +1,34 @@
+name: R2 Linux build checks
+
+on:
+  push:
+    branches:
+      - feature/v-webcam-and-chat-fix
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc libcurl4-openssl-dev libsqlite3-dev libjson-c-dev libpulse-dev
+
+      - name: Compile R2 with the launcher's build command
+        run: |
+          gcc -std=c11 -Wall -Wextra -O2 \
+            r2.c shell.c r2_diary.c Log.c Visual.c Ears.c Eyes.c \
+            -o /tmp/r2 \
+            -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
+
+      - name: Check Python viewer syntax
+        run: python3 -m py_compile V-Webcam.py
+
+      - name: Check launcher shell syntax
+        run: bash -n R2_Launch_Code.sh

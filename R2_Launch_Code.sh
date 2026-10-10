@@ -36,6 +36,7 @@ REQUIRED_FILES=(
 
     "$R2_SOURCE/Eyes.c"
     "$R2_SOURCE/Eyes.h"
+    "$R2_SOURCE/V-Webcam.py"
 
     "$R2_SOURCE/shell.c"
     "$R2_SOURCE/shell.h"
@@ -264,9 +265,15 @@ echo "Compilation successful."
 echo "Executable updated:"
 echo "    $R2_EXEC"
 echo
-echo "Default vision model: qwen2.5vl:3b"
-echo "R2's conversation model remains llama3; vision perception is handled by the separate local model."
-echo "If it is not installed, run: ollama pull qwen2.5vl:3b"
+# Llama 3.2 3B is the default chat model because it is a better fit
+# for R2's 16 GB RAM system than large models such as Llama 3.3 70B.
+# Explicit environment overrides remain supported.
+CHAT_MODEL="${R2_CHAT_MODEL:-llama3.2:3b}"
+CHAT_NUM_CTX="${R2_CHAT_NUM_CTX:-16384}"
+echo "Conversation model: $CHAT_MODEL (context: $CHAT_NUM_CTX tokens)"
+echo "Vision model: qwen2.5vl:3b (independent of the conversation model)"
+echo "If needed, install the conversation model with: ollama pull $CHAT_MODEL"
+echo "If needed, install the vision model with: ollama pull qwen2.5vl:3b"
 echo
 echo "Modules compiled:"
 echo "    r2.c"
@@ -296,6 +303,8 @@ sudo -u r2 \
     FAKETIME="${FAKETIME_OFFSET}" \
     FAKETIME_DONT_RESET=1 \
     R2_VISION_MODEL="${R2_VISION_MODEL:-qwen2.5vl:3b}" \
+    R2_CHAT_MODEL="$CHAT_MODEL" \
+    R2_CHAT_NUM_CTX="$CHAT_NUM_CTX" \
     "$R2_EXEC"
 
 status=$?
