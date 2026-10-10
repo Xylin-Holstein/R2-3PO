@@ -44,6 +44,18 @@ int main(void)
 {
     if (r2_reality_init() != 0) fail("Reality initialization failed");
 
+    /* Exercise malformed and zero-fullness XML metrics against the real
+       parser. The test root is disposable; append-only fixtures are isolated. */
+    char metrics_path[1024];
+    snprintf(metrics_path, sizeof(metrics_path), "%s/room/food_metrics.xml", R2_ROOT);
+    FILE *metrics = fopen(metrics_path, "a");
+    if (!metrics) fail("could not open temporary food metrics fixture");
+    fputs("\\n  <food name=\\"zero_fullness\\" fullness=\\"0\\" energy=\\"0\\" />"
+          "\\n  <food name=\\"nan_fullness\\" fullness=\\"nan\\" energy=\\"10\\" />"
+          "\\n  <food name=\\"nan_energy\\" fullness=\\"20\\" energy=\\"nan\\" />\\n",
+          metrics);
+    if (fclose(metrics) != 0) fail("could not close temporary food metrics fixture");
+
     char path[1024];
     snprintf(path, sizeof(path), "%s/r2_reality.db", R2_HOME);
     sqlite3 *db = NULL;
@@ -154,8 +166,10 @@ int main(void)
     if (r2_reality_set_location(1) != 0) fail("could not return home after away test");
     if (r2_reality_remove_item("burger") != 0) fail("could not remove room-only regression food");
 
-    /* Accessible portable food must be consumed from tracked Reality
-       inventory, with exactly one unit removed from its real quantity. */
+    /* Accessible portable food must skip a configured zero-fullness item,
+       then consume a useful tracked item with exactly one unit removed. */
+    if (r2_reality_add_item("zero_fullness", "Non-nutritive regression item", "pockets", 1) != 0)
+        fail("could not add zero-fullness tracked item to pockets");
     if (r2_reality_add_item("burger", "Explicit regression-test food", "pockets", 2) != 0)
         fail("could not add explicit tracked food to pockets");
     if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality database for tracked-food test");
@@ -174,8 +188,14 @@ int main(void)
     if (sqlite3_step(st) != SQLITE_ROW || sqlite3_column_int(st, 0) != 1)
         fail("tracked feeding must decrement quantity by exactly one");
     sqlite3_finalize(st);
+    if (sqlite3_prepare_v2(db, "SELECT quantity FROM r2_reality_objects WHERE name='zero_fullness'",
+        -1, &st, NULL) != SQLITE_OK) fail("could not query zero-fullness tracked item");
+    if (sqlite3_step(st) != SQLITE_ROW || sqlite3_column_int(st, 0) != 1)
+        fail("autonomous feeding must not consume a zero-fullness tracked item");
+    sqlite3_finalize(st);
     sqlite3_close(db);
     if (r2_reality_remove_item("burger") != 0) fail("could not remove remaining regression-test food");
+    if (r2_reality_remove_item("zero_fullness") != 0) fail("could not remove zero-fullness regression item");
 
     /* Empty fridge is a real state, not a cue to spawn a burger. */
     if (r2_reality_set_location(1) != 0) fail("could not return simulated location home");
