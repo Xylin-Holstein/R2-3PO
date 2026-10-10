@@ -231,8 +231,9 @@ int main(void)
     snprintf(sidecar, sizeof(sidecar), "%s-shm", R2_DIARY_DATABASE); unlink(sidecar);
 
     if (!check(ensure_log_schema() == 0, "create fixture Life Log tables")) goto done;
-    if (!check(r2_altself_init() == 0, "initialize the real Choice Lab database")) goto done;
-    if (!check(r2_imagination_init() == 0, "initialize imagination")) goto done;
+    if (!check(r2_imagination_init() == -1, "do not claim imagination is ready without Choice Lab persistence")) goto done;
+    if (!check(r2_altself_init() == 0 && r2_altself_is_initialized(), "initialize the real Choice Lab database")) goto done;
+    if (!check(r2_imagination_init() == 0, "initialize imagination after required dependencies are ready")) goto done;
 
     result = r2_imagination_create("Imagine the first movie in the CRT room.");
     if (!check(result && strstr(result, "hypothetical imagination") &&
