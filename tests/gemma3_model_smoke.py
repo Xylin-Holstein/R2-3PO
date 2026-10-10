@@ -178,5 +178,11 @@ require(
     and "r2_imagination_feedback(id, assessment, notes)" in shell,
     "the shell exposes explicit, non-punitive imagination feedback",
 )
+require(
+    "r2_altself_link_event" in imagination
+    and "feedback_for_imagination" in imagination
+    and "r2_altself_link_event" in read("AlternateSelf.c"),
+    "imagination feedback is linked back to its hypothetical branch in the existing Life Log graph",
+)
 
 print("Gemma 4 unified-model contract checks passed.")
