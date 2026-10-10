@@ -7205,10 +7205,16 @@ static char *r2_talk_impl(const char *message)
     }
 
     char *sound_clean_reply = r2_sounds_process_reply(reply);
-    if (sound_clean_reply) {
+    if (!sound_clean_reply) {
+        /* Fail closed: never expose a control marker if its safe copy cannot
+           be allocated. The user turn is rolled back so it can be retried. */
         free(reply);
-        reply = sound_clean_reply;
+        message_rollback_turn(message);
+        fprintf(stderr, "[R2] Could not safely remove sound control markers; discarded this turn.\\n");
+        return NULL;
     }
+    free(reply);
+    reply = sound_clean_reply;
 
     char *tools = process_tools(reply);
 
@@ -7236,10 +7242,14 @@ static char *r2_talk_impl(const char *message)
             return NULL;
         }
         sound_clean_reply = r2_sounds_process_reply(reply);
-        if (sound_clean_reply) {
+        if (!sound_clean_reply) {
             free(reply);
-            reply = sound_clean_reply;
+            message_rollback_turn(message);
+            fprintf(stderr, "[R2] Could not safely remove sound control markers from tool follow-up; discarded this turn.\\n");
+            return NULL;
         }
+        free(reply);
+        reply = sound_clean_reply;
     } else {
         free(tools);
     }
