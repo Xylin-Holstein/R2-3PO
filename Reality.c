@@ -2539,22 +2539,34 @@ static int money_transfer(double amount, int deposit)
 }
 int r2_reality_money_receive(double amount)
 {
-    if(!r2_reality_is_initialized()||!isfinite(amount)||amount<=0.0||amount>1000000.0)return -1;
-    sqlite3_int64 cents=(sqlite3_int64)llround(amount*100.0),cash=0,bank=0;
-    if(cents<=0||fabs(amount*100.0-(double)cents)>0.0001)return -1;
-    char wallet[1200]; money_dir_path(0,wallet,sizeof(wallet));
+    if (!r2_reality_is_initialized() || !isfinite(amount) ||
+        amount <= 0.0 || amount > 1000000.0) return -1;
+    sqlite3_int64 cents = (sqlite3_int64)llround(amount * 100.0);
+    if (cents <= 0 || fabs(amount * 100.0 - (double)cents) > 0.0001) return -1;
+
+    char wallet[1200];
+    money_dir_path(0, wallet, sizeof(wallet));
     pthread_mutex_lock(&reality_lock);
-    int rc=money_read_locked(&cash,&bank);
-    if(rc==0&&cash<=100000000LL-cents){
-        if(money_set_dir_balance(wallet,cash+cents)!=0){
-            (void)money_set_dir_balance(wallet,cash);
-            rc=-1;
-        }
-    }else rc=-1;
-    if(rc==0)rc=money_read_locked(&cash,&bank);
+    sqlite3_int64 cash = 0, bank = 0;
+    int rc = money_read_locked(&cash, &bank);
+    sqlite3_int64 old_cash = cash;
+    int mutation_started = 0;
+    if (rc == 0 && cash <= 100000000LL - cents) {
+        mutation_started = 1;
+        if (money_set_dir_balance(wallet, cash + cents) != 0 ||
+            money_read_locked(&cash, &bank) != 0) rc = -1;
+    } else {
+        rc = -1;
+    }
+    if (rc != 0 && mutation_started) {
+        int wallet_restore = money_set_dir_balance(wallet, old_cash);
+        int mirror_restore = money_read_locked(&cash, &bank);
+        if (wallet_restore != 0 || mirror_restore != 0)
+            fprintf(stderr, "[R2 Money] CRITICAL: cash receipt failed and wallet rollback was incomplete; inspect Wallet files.\\n");
+    }
     pthread_mutex_unlock(&reality_lock);
-    if(rc==0)money_mirror_write(cash,bank);
-    return rc;
+    if (rc == 0 || mutation_started) money_mirror_write(cash, bank);
+    return rc == 0 ? 0 : -1;
 }
 int r2_reality_money_deposit(double amount){return money_transfer(amount,1);}
 int r2_reality_money_withdraw(double amount){return money_transfer(amount,0);}
