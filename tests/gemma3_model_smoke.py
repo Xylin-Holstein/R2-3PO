@@ -193,6 +193,8 @@ require(
 require(
     "if (accurate)" in imagination
     and '"verified_imagination", 1' in imagination
+    and '"verified_imagination", 1,' in imagination
+    and "summary, 0)" in imagination
     and "not punished" in imagination
     and "r2_reward_apply_once(target, \"verified_imagination\", 1" in imagination
     and "if (accurate && (!notes || !*notes ||" in imagination
