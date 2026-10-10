@@ -75,6 +75,10 @@ int64_t r2_log_event(
     const char *source
 );
 
+/* Idempotency check for replayable event outboxes such as verified virtual
+ * game events. The source identifier must be stable across retries. */
+int r2_log_event_exists(const char *event_type, const char *source);
+
 /*
  * Record an event and, if save_as_memory is non-zero, attempt to
  * save a concise pointer/summary through the existing R2 memory
@@ -93,6 +97,23 @@ int64_t r2_log_event_with_memory(
 /* Lifecycle/session helpers. */
 int r2_log_session_start(void);
 int r2_log_session_end(const char *reason);
+
+/* Generic device/game/activity session hooks. Activity names are not hardcoded;
+ * a future Game Boy or other device can use the same tracker.
+ * Pass "unknown" when the last verified state or stop reason is unavailable.
+ */
+int64_t r2_log_activity_start(const char *activity_key,
+                              const char *activity_name,
+                              const char *details);
+int64_t r2_log_activity_end(const char *activity_key,
+                            const char *last_verified_state,
+                            const char *stop_reason,
+                            const char *details);
+
+/* Persist an explicit location transition. Welcome Home is private and only
+ * created on a previously-away to home transition.
+ */
+int r2_log_location_transition(const char *location, int is_home);
 
 /* Record the first verified occurrence of a named milestone. */
 int64_t r2_log_milestone(

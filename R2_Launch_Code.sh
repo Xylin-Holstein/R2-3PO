@@ -9,11 +9,62 @@ echo "        R2-3PO LAUNCH SEQUENCE"
 echo "========================================"
 echo
 
+if ! mkdir -p "$R2_ROOT"; then
+    echo "ERROR: Could not create R2 workspace root: $R2_ROOT"
+    read -p "Press Enter to exit..."
+    exit 1
+fi
+
 cd "$R2_ROOT" || {
     echo "ERROR: Could not enter R2 workspace."
     read -p "Press Enter to exit..."
     exit 1
 }
+
+# Create only the established workspace directories if they are missing.
+# Reality.c uses these same paths; never create parallel lowercase pockets/fridge trees.
+echo "[0/4] Checking R2 workspace directories..."
+R2_DIRS=(
+    "$R2_ROOT/R2"
+    "$R2_ROOT/R2_Diary"
+    "$R2_ROOT/room"
+    "$R2_ROOT/room/shelf"
+    "$R2_ROOT/room/box"
+    "$R2_ROOT/room/piggybank"
+    "$R2_ROOT/Pockets"
+    "$R2_ROOT/Pockets/Wallet"
+    "$R2_ROOT/fridge"
+)
+for DIR in "${R2_DIRS[@]}"; do
+    if ! mkdir -p "$DIR"; then
+        echo "ERROR: Could not create workspace directory: $DIR"
+        read -p "Press Enter to exit..."
+        exit 1
+    fi
+done
+echo "Workspace directories are ready."
+echo
+
+# TV.py and install_tv.sh should be copied into R2/ with the other downloaded
+# source files. Install if missing, or refresh the installed GUI if the source
+# has changed. The installer creates room/TV/ and VCR_Tapes/ at their canonical paths.
+TV_SOURCE="$R2_SOURCE/TV.py"
+TV_INSTALLER="$R2_SOURCE/install_tv.sh"
+TV_DIR="$R2_ROOT/room/TV"
+if [[ -f "$TV_SOURCE" && -f "$TV_INSTALLER" ]]; then
+    if [[ ! -x "$TV_DIR/run_tv.sh" || ! -f "$TV_DIR/TV.desktop" ||
+          ! -f "$TV_DIR/TV.py" ]] || ! cmp -s "$TV_SOURCE" "$TV_DIR/TV.py"; then
+        echo "Installing/updating R2's TV device..."
+        if ! bash "$TV_INSTALLER"; then
+            echo "WARNING: TV installer failed. R2 will continue startup; TV needs attention."
+        fi
+    else
+        echo "TV device is already installed and up to date."
+    fi
+else
+    echo "TV install skipped: copy TV.py and install_tv.sh into $R2_SOURCE to enable automatic installation."
+fi
+echo
 
 echo "[1/4] Checking R2 source modules..."
 echo
@@ -28,6 +79,15 @@ REQUIRED_FILES=(
     "$R2_SOURCE/Log.c"
     "$R2_SOURCE/Log.h"
 
+    "$R2_SOURCE/Reality.c"
+    "$R2_SOURCE/Reality.h"
+
+    "$R2_SOURCE/Addiction.c"
+    "$R2_SOURCE/Addiction.h"
+
+    "$R2_SOURCE/Reward.c"
+    "$R2_SOURCE/Reward.h"
+
     "$R2_SOURCE/Visual.c"
     "$R2_SOURCE/Visual.h"
 
@@ -36,6 +96,11 @@ REQUIRED_FILES=(
 
     "$R2_SOURCE/Eyes.c"
     "$R2_SOURCE/Eyes.h"
+
+    "$R2_SOURCE/AlternateSelf.c"
+    "$R2_SOURCE/AlternateSelf.h"
+
+    "$R2_SOURCE/Observer.py"
 
     "$R2_SOURCE/shell.c"
     "$R2_SOURCE/shell.h"
@@ -234,6 +299,10 @@ gcc -std=c11 -Wall -Wextra -O2 \
     "$R2_SOURCE/shell.c" \
     "$R2_SOURCE/r2_diary.c" \
     "$R2_SOURCE/Log.c" \
+    "$R2_SOURCE/Reality.c" \
+    "$R2_SOURCE/Addiction.c" \
+    "$R2_SOURCE/Reward.c" \
+    "$R2_SOURCE/AlternateSelf.c" \
     "$R2_SOURCE/Visual.c" \
     "$R2_SOURCE/Ears.c" \
     "$R2_SOURCE/Eyes.c" \
@@ -264,15 +333,19 @@ echo "Compilation successful."
 echo "Executable updated:"
 echo "    $R2_EXEC"
 echo
-echo "Default vision model: qwen2.5vl:3b"
-echo "R2's conversation model remains llama3; vision perception is handled by the separate local model."
-echo "If it is not installed, run: ollama pull qwen2.5vl:3b"
+echo "Unified conversation + vision model: gemma3:4b"
+echo "R2 uses one shared Ollama model for text and image perception."
+echo "If needed, install it with: ollama pull gemma3:4b"
 echo
 echo "Modules compiled:"
 echo "    r2.c"
 echo "    shell.c"
 echo "    r2_diary.c"
 echo "    Log.c"
+echo "    Reality.c"
+echo "    Addiction.c"
+echo "    Reward.c"
+echo "    AlternateSelf.c"
 echo "    Visual.c"
 echo "    Ears.c"
 echo "    Eyes.c"
@@ -280,6 +353,25 @@ echo
 
 echo "[4/4] Transitioning to Linux user: r2..."
 echo
+
+echo "Launching the read-only observer window..."
+echo
+
+# The observer must run as r2 to read the private Life Log database, but
+# the desktop X server normally rejects that separate Linux user. Grant only
+# r2 access to this local X server, then revoke it when R2 exits.
+OBSERVER_XHOST_GRANTED=0
+OBSERVER_PID=""
+if [ -n "${DISPLAY:-}" ] && command -v xhost >/dev/null 2>&1 && xhost +SI:localuser:r2 >/dev/null 2>&1; then
+    OBSERVER_XHOST_GRANTED=1
+    # Don't pass the desktop user's cookie or R2's virtual-clock environment.
+    sudo -u r2 env -u XAUTHORITY DISPLAY="${DISPLAY}" \
+        python3 "$R2_SOURCE/Observer.py" &
+    OBSERVER_PID=$!
+else
+    echo "WARNING: Could not authorize r2 for the desktop display; skipping Observer window."
+    echo "R2 will still launch normally."
+fi
 
 echo "Launching R2..."
 echo
@@ -295,10 +387,18 @@ sudo -u r2 \
     LD_PRELOAD="$FAKETIME_LIB" \
     FAKETIME="${FAKETIME_OFFSET}" \
     FAKETIME_DONT_RESET=1 \
-    R2_VISION_MODEL="${R2_VISION_MODEL:-qwen2.5vl:3b}" \
+    R2_VISION_MODEL="gemma3:4b" \
     "$R2_EXEC"
 
 status=$?
+
+# Avoid leaving a stale observer window or X-server permission after R2 exits.
+if [ -n "${OBSERVER_PID:-}" ]; then
+    kill "$OBSERVER_PID" 2>/dev/null || true
+fi
+if [ "${OBSERVER_XHOST_GRANTED:-0}" -eq 1 ]; then
+    xhost -SI:localuser:r2 >/dev/null 2>&1 || true
+fi
 
 echo
 echo "========================================"

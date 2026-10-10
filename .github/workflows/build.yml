@@ -1,0 +1,92 @@
+name: R2 build
+
+on:
+  push:
+    branches:
+      - main
+      - fix/text-model-network-and-sensory-continuity
+      - r2-audit-fixes-2026-10-09
+      - r2-complete-audit-2026-10-09
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libcurl4-openssl-dev libsqlite3-dev libjson-c-dev libpulse-dev python3-tk
+
+      - name: Check every shell script for syntax errors
+        run: find . -type f -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
+
+      - name: Check observer syntax and privacy allowlist
+        run: |
+          python3 -m py_compile Observer.py tests/observer_filter_smoke.py
+          python3 tests/observer_filter_smoke.py
+
+      - name: Check unified Gemma 3 conversation and vision wiring
+        run: python3 tests/gemma3_model_smoke.py
+
+      - name: Check Game Boy console syntax and lifecycle
+        run: |
+          python3 -m py_compile GameBoyAdvance.py tests/gameboy_console_smoke.py
+          python3 tests/gameboy_console_smoke.py
+
+      - name: Exercise Game Boy installer and desktop entry
+        run: bash tests/gameboy_install_smoke.sh
+
+      - name: Exercise CRT TV state reader and control client
+        run: |
+          python3 -m py_compile TV.py tests/tv_display_smoke.py
+          python3 tests/tv_display_smoke.py
+
+      - name: Exercise TV room-device installer
+        run: bash tests/tv_install_smoke.sh
+
+      - name: Exercise physical money wallet authority and restart behavior
+        run: |
+          ROOT=/tmp/r2-wallet-smoke
+          rm -rf "$ROOT" /tmp/r2-wallet-smoke-r2.o /tmp/r2-wallet-smoke-test
+          FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\"$ROOT\" -DR2_HOME=\"$ROOT/R2\" -DR2_WORKSPACE=\"$ROOT\" -DR2_DIARY_DATABASE=\"$ROOT/R2/r2_memory.db\" -DR2_DIARY_DIR=\"$ROOT/R2_Diary\""
+          cc $FLAGS -Dmain=r2_program_main -c r2.c -o /tmp/r2-wallet-smoke-r2.o
+          cc $FLAGS tests/money_wallet_smoke.c shell.c r2_diary.c Log.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c /tmp/r2-wallet-smoke-r2.o -o /tmp/r2-wallet-smoke-test -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
+          /tmp/r2-wallet-smoke-test
+
+      - name: Exercise shared Ollama request-gate serialization
+        run: |
+          ROOT=/tmp/r2-wallet-smoke
+          FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\"$ROOT\" -DR2_HOME=\"$ROOT/R2\" -DR2_WORKSPACE=\"$ROOT\" -DR2_DIARY_DATABASE=\"$ROOT/R2/r2_memory.db\" -DR2_DIARY_DIR=\"$ROOT/R2_Diary\""
+          cc $FLAGS tests/ollama_gate_smoke.c shell.c r2_diary.c Log.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c /tmp/r2-wallet-smoke-r2.o -o /tmp/r2-ollama-gate-smoke -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
+          /tmp/r2-ollama-gate-smoke
+
+      - name: Exercise Alternate-Self Lab persistence
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -O2 -I. \
+            -DR2_DIARY_DATABASE='"/tmp/r2-altself-smoke/r2_memory.db"' \
+            tests/alternate_self_smoke.c AlternateSelf.c -lsqlite3 -lpthread \
+            -o /tmp/r2-altself-smoke-test
+          /tmp/r2-altself-smoke-test
+
+      - name: Exercise diary, Life Log, and memory reconnection
+        run: |
+          rm -rf /tmp/r2-diary-smoke
+          cc -std=c11 -Wall -Wextra -Werror -O2 -I. \
+            -DR2_ROOT='"/tmp/r2-diary-smoke"' \
+            -DR2_HOME='"/tmp/r2-diary-smoke/R2"' \
+            -DR2_WORKSPACE='"/tmp/r2-diary-smoke"' \
+            -DR2_DIARY_DATABASE='"/tmp/r2-diary-smoke/R2/r2_memory.db"' \
+            -DR2_DIARY_DIR='"/tmp/r2-diary-smoke/R2_Diary"' \
+            tests/diary_integration_smoke.c r2_diary.c Reward.c -lsqlite3 -lpthread \
+            -o /tmp/r2-diary-integration-smoke
+          /tmp/r2-diary-integration-smoke
+
+      - name: Compile R2 with the same sources and flags as the launcher
+        run: make clean all CFLAGS="-std=c11 -Wall -Wextra -Werror -O2"
