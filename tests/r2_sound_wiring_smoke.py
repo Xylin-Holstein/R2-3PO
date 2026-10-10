@@ -5,6 +5,8 @@ r2 = (ROOT / "r2.c").read_text(encoding="utf-8")
 launcher = (ROOT / "R2_Launch_Code.sh").read_text(encoding="utf-8")
 makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 sounds = (ROOT / "R2Sounds.c").read_text(encoding="utf-8")
+sound_header = (ROOT / "R2Sounds.h").read_text(encoding="utf-8")
+reply_module = (ROOT / "R2Reply.c").read_text(encoding="utf-8")
 
 marker_processing_index = r2.find("r2_sounds_process_reply(reply)")
 tool_processing_index = r2.find("char *tools = process_tools(reply)")
@@ -15,6 +17,12 @@ checks = {
     "sound-state hints must be grounded in current evidence": "only when supported by this turn or current Reality evidence" in r2 and "Prefer no marker when the fit is unclear" in r2,
     "need-related sound tags cannot be inferred from topic alone": "Do not infer a need from the topic alone" in r2 and "Use sleepy or hungry only when the current modeled need actually supports it" in r2,
     "sound markers are processed before tool handling": marker_processing_index >= 0 and tool_processing_index >= 0 and marker_processing_index < tool_processing_index,
+    "official FX location is hard-coded in the sound API": '/home/x/R2_Home/R2_sounds/FX' in sound_header,
+    "launcher uses the official FX location as its default": '/home/x/R2_Home/R2_sounds/FX' in launcher,
+    "reply sanitizer removes explicit private reasoning blocks": 'r2_reply_sanitize' in reply_module and '"<think>"' in reply_module and '"<analysis>"' in reply_module,
+    "core sanitizes generated user-facing replies": 'r2_reply_sanitize(reply)' in r2,
+    "launcher compiles the reply sanitizer module": '"$R2_SOURCE/R2Reply.c"' in launcher,
+    "Makefile builds and tracks reply sanitizer": "R2Reply.c" in makefile and "R2Reply.h" in makefile,
     "launcher compiles the sound module": '"$R2_SOURCE/R2Sounds.c"' in launcher,
     "launcher checks both sound module files": '"$R2_SOURCE/R2Sounds.h"' in launcher,
     "launcher preflights FX access as the runtime user": 'find "$1" -maxdepth 1 -type f -iname "*.mp3"' in launcher and "WARNING: r2 cannot find readable MP3 effects" in launcher,
