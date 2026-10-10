@@ -102,6 +102,26 @@ static char *collect_context(const char *request)
     part = r2_reality_imagination_context();
     if (part) { append_source(&b, "CURRENT MODELED REALITY (read-only; no fridge stock; historical collection memories are not current inventory)", part, 1200); free(part); }
 
+    /* Pull domain-specific current Reality state only when it can shape the
+       requested scenario; never dump every device/account into every prompt. */
+    static const char *const media_terms[] = {
+        "crt", "tv", "television", "vcr", "tape", "movie", "film",
+        "video", "screen", "watching", "console", "gameboy", "game boy"
+    };
+    if (mentions_any(request, media_terms, sizeof(media_terms)/sizeof(media_terms[0]))) {
+        part = r2_reality_tv_status();
+        if (part) { append_source(&b, "CURRENT CRT/VCR STATE (Reality DB; model state, not proof of what a video contains)", part, 900); free(part); }
+    }
+
+    static const char *const money_terms[] = {
+        "money", "cash", "wallet", "piggybank", "bank balance", "price",
+        "cost", "buy", "buying", "purchase", "afford", "spend", "shop", "store"
+    };
+    if (mentions_any(request, money_terms, sizeof(money_terms)/sizeof(money_terms[0]))) {
+        part = r2_reality_money_context();
+        if (part) { append_source(&b, "CURRENT MONEY STATE (Reality DB; current modeled balances)", part, 650); free(part); }
+    }
+
     if (r2_visual_is_initialized()) {
         part = r2_visual_search(request, 4);
         if (part) { append_source(&b, "VISUAL EXPERIENCE LIBRARY (historical sensory evidence)", part, 900); free(part); }
