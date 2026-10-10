@@ -184,7 +184,8 @@ char *r2_fridge_context(void) { return strdup("FRIDGE_SENTINEL: current fridge i
 int r2_reward_apply_once(const char *target, const char *source, int points,
                          const char *reason, int voluntary_choice)
 {
-    (void)target; (void)source; (void)points; (void)reason; (void)voluntary_choice;
+    (void)target; (void)source; (void)points; (void)voluntary_choice;
+    if (!reason || strlen(reason) > 1023) return -1;
     ++reward_calls;
     if (reward_already_applied) return 1;
     reward_already_applied = 1;
