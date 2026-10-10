@@ -14,6 +14,9 @@ fail() { log "ERROR: $*"; exit 1; }
 [[ "$(id -un)" == "r2" ]] || fail "must run as the dedicated Linux account 'r2' (systemd unit configures this)."
 [[ -x "$R2_EXEC" ]] || fail "executable missing or not executable: $R2_EXEC; run tools/install_r2_overnight.sh first."
 [[ -d "$R2_SOURCE" && -r "$R2_SOURCE" && -x "$R2_SOURCE" ]] || fail "source/runtime directory is not readable: $R2_SOURCE"
+[[ -w "$R2_ROOT" ]] || fail "R2 runtime root is not writable by r2: $R2_ROOT"
+[[ -w "$R2_SOURCE" ]] || fail "R2 source/database directory is not writable by r2: $R2_SOURCE (SQLite and persistent memory need write access)"
+[[ -d "$R2_ROOT/R2_Diary" && -w "$R2_ROOT/R2_Diary" ]] || fail "R2 diary directory is missing or not writable by r2: $R2_ROOT/R2_Diary"
 command -v curl >/dev/null 2>&1 || fail "curl is required to check the local Ollama service."
 command -v python3 >/dev/null 2>&1 || fail "python3 is required for the local Ollama model preflight."
 command -v date >/dev/null 2>&1 || fail "date is required for R2's private clock."
@@ -59,18 +62,22 @@ FAKETIME_OFFSET=$((R2_EPOCH - REAL_EPOCH))
 
 log "Starting R2 with private clock $R2_START; host system time will not change."
 log "Sound assets: $R2_FX_DIR"
-export R2_SERVICE_MODE=1
-export R2_FX_DIR
-export R2_VISION_MODEL="gemma3:4b"
-export LD_PRELOAD="$FAKETIME_LIB"
-export FAKETIME="$FAKETIME_OFFSET"
-export FAKETIME_DONT_RESET=1
+# Keep the host clock and service-manager tools on real time. Apply faketime only
+# to R2 itself; otherwise systemd-inhibit would inherit the private 1999 clock.
+R2_ENV=(/usr/bin/env
+    "LD_PRELOAD=$FAKETIME_LIB"
+    "FAKETIME=$FAKETIME_OFFSET"
+    "FAKETIME_DONT_RESET=1"
+    "R2_SERVICE_MODE=1"
+    "R2_FX_DIR=$R2_FX_DIR"
+    "R2_VISION_MODEL=gemma3:4b"
+    "$R2_EXEC")
 
 # systemd-inhibit blocks suspend while R2 is alive, so an overnight session can continue.
 # The service still shuts down normally on systemctl stop or SIGTERM.
 if command -v systemd-inhibit >/dev/null 2>&1; then
-    exec systemd-inhibit --what=sleep --mode=block --who=R2-3PO --why="Keep R2-3PO running for its overnight session" "$R2_EXEC"
+    exec systemd-inhibit --what=sleep --mode=block --who=R2-3PO --why="Keep R2-3PO running for its overnight session" "${R2_ENV[@]}"
 else
     log "WARNING: systemd-inhibit unavailable; host suspend may pause the overnight session."
-    exec "$R2_EXEC"
+    exec "${R2_ENV[@]}"
 fi
