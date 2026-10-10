@@ -1017,8 +1017,13 @@ int r2_fridge_take(const char *food)
     pthread_mutex_unlock(&fridge_lock);
     if (rc != 0) return -1;
     if (r2_reality_add_item(food, desc, "pockets", 1) != 0) {
-        pthread_mutex_lock(&fridge_lock); fridge_restore_one(food, desc, fullness, energy, ingredients, taste);
-        fridge_mirror_write(food, desc, qty, fullness, energy); pthread_mutex_unlock(&fridge_lock);
+        pthread_mutex_lock(&fridge_lock);
+        int restore_rc = fridge_restore_one(food, desc, fullness, energy, ingredients, taste);
+        if (restore_rc == 0)
+            fridge_mirror_write(food, desc, qty, fullness, energy);
+        pthread_mutex_unlock(&fridge_lock);
+        if (restore_rc != 0)
+            fprintf(stderr, "[R2 Fridge] Failed to restore '%s' after a failed take; stock may need inspection.\\n", food);
         return -1;
     }
     pthread_mutex_lock(&fridge_lock); rc = fridge_seed_if_empty_locked(); pthread_mutex_unlock(&fridge_lock);
@@ -1044,7 +1049,12 @@ int r2_reality_fridge_eat(const char *food, double fullness)
     /* Fridge stock's authoritative metric wins over a caller-supplied value:
        non-nutritive stock must never become a meal via a positive override. */
     if (rc == 0 && (!isfinite(stored_fullness) || stored_fullness <= 0.0)) {
-        fridge_restore_one(food, desc, stored_fullness, energy, ingredients, taste);
+        int restore_rc = fridge_restore_one(food, desc, stored_fullness, energy, ingredients, taste);
+        if (restore_rc != 0) {
+            if (qty == 1) fridge_mirror_remove(food);
+            else fridge_mirror_write(food, desc, qty - 1, stored_fullness, energy);
+            fprintf(stderr, "[R2 Fridge] Failed to restore non-nutritive stock '%s'.\\n", food);
+        }
         rc = -1;
     }
     if (rc == 0) {
@@ -1056,8 +1066,17 @@ int r2_reality_fridge_eat(const char *food, double fullness)
     fullness = stored_fullness;
     rc = reality_eat_internal(food, fullness, 0, energy);
     if (rc != 0) {
-        pthread_mutex_lock(&fridge_lock); fridge_restore_one(food, desc, stored_fullness, energy, ingredients, taste);
-        fridge_mirror_write(food, desc, qty, stored_fullness, energy); pthread_mutex_unlock(&fridge_lock);
+        pthread_mutex_lock(&fridge_lock);
+        int restore_rc = fridge_restore_one(food, desc, stored_fullness, energy, ingredients, taste);
+        if (restore_rc == 0)
+            fridge_mirror_write(food, desc, qty, stored_fullness, energy);
+        else {
+            if (qty == 1) fridge_mirror_remove(food);
+            else fridge_mirror_write(food, desc, qty - 1, stored_fullness, energy);
+        }
+        pthread_mutex_unlock(&fridge_lock);
+        if (restore_rc != 0)
+            fprintf(stderr, "[R2 Fridge] Failed to restore '%s' after an unsuccessful meal; stock may need inspection.\\n", food);
         return -1;
     }
     pthread_mutex_lock(&fridge_lock); rc = fridge_seed_if_empty_locked(); pthread_mutex_unlock(&fridge_lock);
