@@ -21,6 +21,7 @@
 
 static char last_prompt[12000];
 static int feedback_events;
+static int fail_next_link;
 static int reward_calls;
 static int rewards_applied;
 static int reward_already_applied;
@@ -112,6 +113,7 @@ int64_t r2_log_hypothetical(const char *scenario, const char *assumptions,
 int r2_log_link(int64_t from_event_id, int64_t to_event_id,
                 const char *relationship, const char *notes)
 {
+    if (fail_next_link) { fail_next_link = 0; return -1; }
     sqlite3 *db = NULL;
     sqlite3_stmt *st = NULL;
     if (sqlite3_open(R2_DIARY_DATABASE, &db) != SQLITE_OK) {
@@ -298,6 +300,10 @@ int main(void)
                "current money state is retrieved when a hypothetical depends on affordability")) goto done;
     free(result); result = NULL;
 
+    fail_next_link = 1;
+    if (!check(r2_imagination_feedback(branch_id, "incorrect", "The link failure must not reward.") == -3
+               && rewards_applied == 0,
+               "failed feedback linkage blocks reinforcement")) goto done;
     if (!check(r2_imagination_feedback(branch_id, "incorrect", "Later observation contradicted it.") == 0,
                "incorrect imagination can be recorded without punishment")) goto done;
     if (!check(rewards_applied == 0, "incorrect imagination applies no reward or penalty")) goto done;
