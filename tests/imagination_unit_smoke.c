@@ -291,6 +291,11 @@ int main(void)
                "general food imagination uses learned Reality context without automatically reading fridge stock")) goto done;
     free(result); result = NULL;
 
+    result = r2_imagination_create("Imagine what I can make with LEGO bricks.");
+    if (!check(result && !strstr(last_prompt, "FRIDGE_SENTINEL"),
+               "generic creative what-can-I-make requests do not pull unrelated fridge inventory")) goto done;
+    free(result); result = NULL;
+
     result = r2_imagination_create("Imagine what I can make with what I have in the fridge.");
     if (!check(result && strstr(last_prompt, "FRIDGE_SENTINEL"),
                "current fridge inventory is retrieved for explicit inventory imagination")) goto done;
