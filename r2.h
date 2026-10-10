@@ -205,6 +205,11 @@ long r2_memory_count(void);
  */
 char *r2_process_tools(const char *input);
 
+/* Generate one bounded completion through the shared Ollama model without
+ * adding a fake user/assistant turn to R2's conversation history. Caller frees. */
+char *r2_model_generate(const char *system_prompt, const char *user_prompt,
+                        int max_tokens);
+
 
 /* ============================================================
    DIARY
