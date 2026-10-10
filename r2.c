@@ -7718,8 +7718,9 @@ int r2_init(void)
     }
 
     /*
-     * Vision is a separate local perception model. R2's existing
-     * conversational model, tools, and memory architecture remain intact.
+     * Visual perception is a separate pipeline and experience library, but
+     * it shares the same local Ollama model as conversation. R2's tools and
+     * memory architecture remain intact.
      */
     if (r2_visual_init(DB_PATH, R2_ROOT "/Visual_Library") != 0) {
         r2_log_event(R2_LOG_ERROR, "visual_library_init_failed",
