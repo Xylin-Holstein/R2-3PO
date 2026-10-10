@@ -234,8 +234,9 @@ require(
 require(
     "r2_altself_link_event" in imagination
     and "feedback_for_imagination" in imagination
+    and "context_for_imagination" in imagination
     and "r2_altself_link_event" in read("AlternateSelf.c"),
-    "imagination feedback is linked back to its hypothetical branch in the existing Life Log graph",
+    "imagination branches retain links to both their feedback and retrieved Life Log context",
 )
 
 print("Gemma 4 unified-model contract checks passed.")
