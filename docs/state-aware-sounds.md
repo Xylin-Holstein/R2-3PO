@@ -23,4 +23,4 @@ For automated tests, `R2_SOUNDS_DISABLE_PLAYBACK=1` disables the player while ke
 
 ## Validation boundary
 
-CI exercises filename matching and marker removal using temporary fixture filenames; it does not decode audio or verify a real speaker. The MP3 assets need to exist in the runtime FX directory, and playback still needs a quick check on R2's actual machine. The current GitHub tree I could inspect did not expose the MP3 assets, so the real filenames and state coverage have not yet been checked against the user's sound collection.
+CI exercises filename matching and marker removal using temporary fixture filenames; it does not decode audio or verify a real speaker. The FX collection is a runtime installation asset on the host machine, not a required repository directory. On R2's machine, the read-only inventory script checks the actual local filenames and state coverage; real speaker playback still needs a quick on-device check.
