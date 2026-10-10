@@ -82,9 +82,11 @@ R2_ENV=(/usr/bin/env
 
 # systemd-inhibit blocks suspend while R2 is alive, so an overnight session can continue.
 # The service still shuts down normally on systemctl stop or SIGTERM.
-if command -v systemd-inhibit >/dev/null 2>&1; then
+if command -v systemd-inhibit >/dev/null 2>&1 &&
+   systemd-inhibit --what=sleep --mode=block --who=R2-3PO \
+       --why="Check R2-3PO sleep inhibitor support" /usr/bin/true >/dev/null 2>&1; then
     exec systemd-inhibit --what=sleep --mode=block --who=R2-3PO --why="Keep R2-3PO running for its overnight session" "${R2_ENV[@]}"
 else
-    log "WARNING: systemd-inhibit unavailable; host suspend may pause the overnight session."
+    log "WARNING: system sleep inhibition is unavailable; host suspend may pause the overnight session."
     exec "${R2_ENV[@]}"
 fi
