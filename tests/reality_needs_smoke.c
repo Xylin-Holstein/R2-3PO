@@ -260,6 +260,14 @@ int main(void)
     if (sqlite3_step(st) != SQLITE_ROW || sqlite3_column_int(st, 0) != 0)
         fail("restart must remove legacy phantom-food copies from tracked inventory");
     sqlite3_finalize(st);
+    if (sqlite3_prepare_v2(db,
+        "SELECT COUNT(*) FROM r2_reality_objects WHERE name='burger' "
+        "AND description='User-owned burger; legitimate inventory' AND quantity=1",
+        -1, &st, NULL) != SQLITE_OK)
+        fail("could not verify legitimate burger survived legacy cleanup");
+    if (sqlite3_step(st) != SQLITE_ROW || sqlite3_column_int(st, 0) != 1)
+        fail("legacy cleanup must preserve legitimate user-owned burger inventory");
+    sqlite3_finalize(st);
     sqlite3_close(db);
     read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
     if (hunger < 23.4 || hunger > 23.6) fail("hunger should persist across restart");
