@@ -87,9 +87,7 @@ int main(void)
         fail("malformed energy bonus must fall back to fullness-derived finite energy");
     sqlite3_finalize(metric_st);
     sqlite3_close(metric_db);
-    if (r2_reality_remove_item("nan_energy") != 0)
-        fail("could not remove malformed energy metric test item");
-
+    /* The successful meal already consumed the single tracked test item. */
 
     snprintf(path, sizeof(path), "%s/r2_reality.db", R2_HOME);
     sqlite3 *db = NULL;
