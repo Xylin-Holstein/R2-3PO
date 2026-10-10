@@ -86,16 +86,25 @@ def audit_root(root: Path) -> int:
     for state in STATES_TO_REPORT:
         exact: list[str] = []
         fallback: list[str] = []
+        unlabelled: list[str] = []
         for kind, entries in by_kind.items():
             if any(words & aliases[state] for _, words in entries):
                 exact.append(kind)
             elif any(words & GENERIC for _, words in entries):
                 fallback.append(kind)
+            elif any(not (words & STATE_TOKENS) and not (words & GENERIC)
+                     for _, words in entries):
+                # The C selector can use a kind-specific file with no recognized
+                # state token as a last resort, but it never substitutes a
+                # different explicitly state-labeled clip.
+                unlabelled.append(kind)
         detail = []
         if exact:
             detail.append("exact=" + ", ".join(exact))
         if fallback:
             detail.append("generic fallback=" + ", ".join(fallback))
+        if unlabelled:
+            detail.append("unlabelled fallback=" + ", ".join(unlabelled))
         print(f"State {state}: {'; '.join(detail) if detail else 'no named match'}")
 
     players = [name for name in ("mpg123", "ffplay", "mpv") if shutil.which(name)]
