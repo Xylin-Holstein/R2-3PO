@@ -397,6 +397,56 @@ int main(void)
         fail("hunger at the 72-hour starvation threshold should be labeled starving");
     free(status);
 
+    /* Inject a failure after sleep has advanced hunger but before it restores
+       sleepiness. The enclosing transaction must roll the entire transition
+       back rather than persist a half-slept body state. */
+    if (r2_reality_tick() != 0) fail("pre-failure tick failed");
+    if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not open Reality DB for rollback test");
+    double before_hunger = 0.0, before_sleepiness = 0.0, before_energy = 0.0;
+    char before_elapsed[64] = {0};
+    if (sqlite3_prepare_v2(db,
+        "SELECT hunger,sleepiness,energy FROM r2_reality_self WHERE id=1",
+        -1, &st, NULL) != SQLITE_OK) fail("could not prepare rollback baseline");
+    if (sqlite3_step(st) != SQLITE_ROW) fail("rollback baseline row missing");
+    before_hunger = sqlite3_column_double(st, 0);
+    before_sleepiness = sqlite3_column_double(st, 1);
+    before_energy = sqlite3_column_double(st, 2);
+    sqlite3_finalize(st);
+    if (sqlite3_prepare_v2(db,
+        "SELECT value FROM r2_reality_meta WHERE key='world_elapsed_seconds'",
+        -1, &st, NULL) != SQLITE_OK) fail("could not prepare elapsed-time baseline");
+    if (sqlite3_step(st) != SQLITE_ROW) fail("elapsed-time baseline missing");
+    snprintf(before_elapsed, sizeof(before_elapsed), "%s", sqlite3_column_text(st, 0));
+    sqlite3_finalize(st);
+    if (sqlite3_exec(db,
+        "CREATE TRIGGER inject_sleep_failure BEFORE UPDATE ON r2_reality_self "
+        "WHEN NEW.sleepiness < OLD.sleepiness "
+        "BEGIN SELECT RAISE(ABORT,'injected sleep failure'); END",
+        NULL, NULL, NULL) != SQLITE_OK) fail("could not create injected sleep failure");
+    sqlite3_close(db);
+    if (r2_reality_sleep(1.0) == 0)
+        fail("sleep must fail when the restorative state update fails");
+    if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality DB after rollback test");
+    if (sqlite3_exec(db, "DROP TRIGGER inject_sleep_failure", NULL, NULL, NULL) != SQLITE_OK)
+        fail("could not remove injected sleep failure");
+    if (sqlite3_prepare_v2(db,
+        "SELECT hunger,sleepiness,energy FROM r2_reality_self WHERE id=1",
+        -1, &st, NULL) != SQLITE_OK) fail("could not query needs after rollback");
+    if (sqlite3_step(st) != SQLITE_ROW ||
+        fabs(sqlite3_column_double(st, 0) - before_hunger) > 0.0001 ||
+        fabs(sqlite3_column_double(st, 1) - before_sleepiness) > 0.0001 ||
+        fabs(sqlite3_column_double(st, 2) - before_energy) > 0.0001)
+        fail("failed sleep must roll back every needs column");
+    sqlite3_finalize(st);
+    if (sqlite3_prepare_v2(db,
+        "SELECT value FROM r2_reality_meta WHERE key='world_elapsed_seconds'",
+        -1, &st, NULL) != SQLITE_OK) fail("could not query elapsed time after rollback");
+    if (sqlite3_step(st) != SQLITE_ROW ||
+        strcmp((const char *)sqlite3_column_text(st, 0), before_elapsed) != 0)
+        fail("failed sleep must roll back modeled world elapsed time");
+    sqlite3_finalize(st);
+    sqlite3_close(db);
+
     r2_reality_shutdown();
     puts("reality needs smoke passed");
     return 0;
