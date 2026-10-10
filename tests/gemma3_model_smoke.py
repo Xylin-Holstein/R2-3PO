@@ -143,7 +143,7 @@ require(
     "r2_retrieve_memories(request)" in imagination
     and "r2_diary_search(request" in imagination
     and "r2_log_search(request" in imagination
-    and "r2_reality_context()" in imagination
+    and "r2_reality_imagination_context()" in imagination
     and "r2_visual_search(request" in imagination
     and "r2_reward_context()" in imagination
     and "r2_addiction_report()" in imagination
@@ -152,9 +152,12 @@ require(
 )
 require(
     'r2_fridge_context()' in imagination
-    and "mentions_any(request, food_terms" in imagination
-    and "Fridge state was conditionally retrieved" in imagination,
-    "fridge context is conditional and imagination is not fridge-only",
+    and "mentions_any(request, fridge_terms" in imagination
+    and "r2_reality_imagination_context()" in imagination
+    and "Fridge state was conditionally retrieved only when the request asked about fridge stock" in imagination
+    and "char *r2_reality_imagination_context(void)" in read("Reality.c")
+    and "Fridge stock is intentionally omitted from this general context" in read("Reality.c"),
+    "imagination uses a focused Reality snapshot and retrieves fridge stock only for explicit inventory questions",
 )
 require(
     "r2_model_generate(system, prompt, 700)" in imagination
