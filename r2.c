@@ -6306,7 +6306,11 @@ static void autonomous_needs_check(void)
         "Return no explanations and no other tool markers.\n\n";
     size_t n = strlen(state) + 2048;
     char *input = malloc(n);
-    if (!input) { free(state); return; }
+    if (!input) {
+        free(state);
+        autonomous_needs_food_safeguard();
+        return;
+    }
     snprintf(input, n, "%s%s", prompt, state);
     free(state);
 
