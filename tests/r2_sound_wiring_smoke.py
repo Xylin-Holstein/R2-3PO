@@ -18,7 +18,7 @@ checks = {
     "sound-state hints must be grounded in current evidence": "only when supported by this turn or current Reality evidence" in r2 and "Prefer no marker when the fit is unclear" in r2,
     "need-related sound tags cannot be inferred from topic alone": "Do not infer a need from the topic alone" in r2 and "Use sleepy or hungry only when the current modeled need actually supports it" in r2,
     "tool routing is decided before playback": marker_processing_index >= 0 and tool_processing_index >= 0 and tool_processing_index < marker_processing_index,
-    "intermediate tool replies strip markers without playing sounds": strip_marker_index >= 0 and tool_processing_index < strip_marker_index and "r2_sounds_strip_markers" in sound_header,
+    "sound markers are stripped before tool side effects": strip_marker_index >= 0 and tool_processing_index >= 0 and strip_marker_index < tool_processing_index and "process_tools(stripped_reply)" in r2 and "r2_sounds_strip_markers" in sound_header,
     "official FX location is hard-coded in the sound API": '/home/x/R2_Home/R2_sounds/FX' in sound_header,
     "launcher uses the official FX location as its default": '/home/x/R2_Home/R2_sounds/FX' in launcher,
     "reply sanitizer removes explicit private reasoning blocks": 'r2_reply_sanitize' in reply_module and '"<think>"' in reply_module and '"<analysis>"' in reply_module,
