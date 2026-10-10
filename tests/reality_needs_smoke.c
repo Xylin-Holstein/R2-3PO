@@ -73,8 +73,21 @@ int main(void)
     if (energy < 89.0 || energy > 91.0) fail("sleep should restore energy without exceeding its cap");
     if (since_meal < 32300.0 || since_meal > 32500.0) fail("sleep must advance elapsed time since meal");
 
-    /* Prove the deterministic fallback can recover R2 from high hunger using
-       the authoritative fridge stock, even without a model-selected action. */
+    /* Make the fridge's first-choice item explicit so the end-to-end test
+       can prove one unit is consumed, not merely that hunger was reset. */
+    char fridge_path[1024];
+    snprintf(fridge_path, sizeof(fridge_path), "%s/r2_fridge.db", R2_HOME);
+    sqlite3 *fridge = NULL;
+    if (sqlite3_open(fridge_path, &fridge) != SQLITE_OK) fail("could not open fridge database");
+    if (sqlite3_exec(fridge,
+        "INSERT INTO r2_fridge_items(name,description,quantity,fullness,energy,ingredients,taste) "
+        "VALUES('apple','Regression-test food stock',3,80,8,'apple','sweet') "
+        "ON CONFLICT(name) DO UPDATE SET quantity=3,fullness=80,energy=8",
+        NULL, NULL, NULL) != SQLITE_OK) fail("could not seed known fridge food stock");
+    sqlite3_close(fridge);
+
+    /* Simulate the autonomous cycle with no model-selected action: hunger
+       reaches 60, verified food is consumed, stock decrements, and needs reset. */
     if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality database");
     if (sqlite3_prepare_v2(db,
         "UPDATE r2_reality_self SET hunger=60,seconds_since_meal=10000,last_tick=? WHERE id=1",
@@ -88,6 +101,30 @@ int main(void)
     read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
     if (hunger > 1.0) fail("verified food should reset high hunger");
     if (since_meal > 5.0) fail("eating should reset time since meal");
+
+    if (sqlite3_open(fridge_path, &fridge) != SQLITE_OK) fail("could not reopen fridge database");
+    if (sqlite3_prepare_v2(fridge, "SELECT quantity FROM r2_fridge_items WHERE name='apple'",
+        -1, &st, NULL) != SQLITE_OK) fail("could not query consumed fridge stock");
+    if (sqlite3_step(st) != SQLITE_ROW || sqlite3_column_int(st, 0) != 2)
+        fail("autonomous feeding must decrement authoritative fridge quantity by one");
+    sqlite3_finalize(st);
+    sqlite3_close(fridge);
+
+    /* Persistence boundary: needs survive a full Reality shutdown/init cycle. */
+    if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality database for restart test");
+    if (sqlite3_prepare_v2(db,
+        "UPDATE r2_reality_self SET hunger=23.5,satisfaction=77,seconds_since_meal=123,last_tick=? WHERE id=1",
+        -1, &st, NULL) != SQLITE_OK) fail("could not prepare restart persistence state");
+    sqlite3_bind_int64(st, 1, (sqlite3_int64)time(NULL));
+    if (sqlite3_step(st) != SQLITE_DONE) fail("could not set restart persistence state");
+    sqlite3_finalize(st);
+    sqlite3_close(db);
+    r2_reality_shutdown();
+    if (r2_reality_init() != 0) fail("Reality restart failed");
+    read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
+    if (hunger < 23.4 || hunger > 23.6) fail("hunger should persist across restart");
+    if (satisfaction < 76.9 || satisfaction > 77.1) fail("satisfaction should persist across restart");
+    if (since_meal < 122.0 || since_meal > 124.0) fail("elapsed time since meal should persist across restart");
 
     /* At the 72-hour starvation marker, status must not still say only
        "very hungry" while the prolonged-starvation event is recorded. */
