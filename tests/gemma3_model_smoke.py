@@ -97,7 +97,8 @@ require(
 )
 require(
     "Never echo internal retrieval scaffolding" in core
-    and "raw [self]/[experience]/[CATEGORY] blocks" in core,
+    and "[self]/[experience]/[CATEGORY]" in core
+    and "database event dumps" in core,
     "user-facing replies are instructed not to leak raw internal retrieval context",
 )
 require(
