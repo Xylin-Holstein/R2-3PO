@@ -259,22 +259,12 @@ static char *collect_context(const char *request)
     part = r2_altself_list(6);
     if (part) { append_source(&b, "CHOICE LAB (older hypothetical branches; never factual evidence)", part, 500); free(part); }
 
-    /* The fridge is a specialized, conditional source—not the definition of
-       imagination. Include stock only when the request asks about current inventory or
-       ingredient availability. General food preferences and metrics remain part of Reality context. */
-    static const char *const fridge_terms[] = {
-        "fridge", "refrigerator", "fridge stock", "what is in the fridge",
-        "what's in the fridge", "what is in my fridge", "what's in my fridge",
-        "what food do i have", "what ingredients do i have",
-        "available ingredients", "cook with what i have", "meal with what i have",
-        "snack with what i have", "what can i cook", "what should i cook",
-        "what can i eat", "what should i eat", "what is available to eat",
-        "what's available to eat", "current food stock", "food inventory"
-    };
-    if (mentions_any(request, fridge_terms, sizeof(fridge_terms)/sizeof(fridge_terms[0]))) {
-        part = r2_fridge_context();
-        if (part) { append_source(&b, "FRIDGE STATE (only because the request asks about current food/inventory; modeled stock, not an invitation to alter it)", part, 700); free(part); }
-    }
+    /*
+     * Deliberately do not query live fridge stock from imagination. R2 should
+     * construct a plausible hypothetical from memories, learned preferences,
+     * food metrics, and other supplied context. A request to inspect actual
+     * inventory belongs to the explicit world-action path, not imagination.
+     */
 
     if (!b.data) {
         b.data = calloc(1, 1);
@@ -426,9 +416,9 @@ char *r2_imagination_create(const char *request)
         "Context sources consulted before generation: persistent memory; newest active "
         "conversation; private diary; Life Log; fridge-free Reality; visual experience "
         "library when available; current CRT/VCR state and money balances when relevant; "
-        "reward/learned feedback state; habit/enjoyment history; Choice Lab. Fridge stock "
-        "is consulted separately only for explicit current-inventory "
-        "questions.\n"
+        "reward/learned feedback state; habit/enjoyment history; Choice Lab. Live fridge "
+        "stock is never consulted by imagination; infer only plausible possibilities from "
+        "historical context and label uncertainty.\n"
         "Raw retrieved records are not copied into this branch; they remain in their "
         "authoritative stores and can be retrieved again. Relevant Life Log events are linked to the branch as context_for_imagination when their IDs are available; these links record provenance, not proof of the imagined outcome. The scenario's conclusion records "
         "its own contextual interpretation and uncertainty.\n"

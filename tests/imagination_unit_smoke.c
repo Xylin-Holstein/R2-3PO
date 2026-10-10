@@ -325,8 +325,9 @@ int main(void)
     free(result); result = NULL;
 
     result = r2_imagination_create("Imagine what I can make with what I have in the fridge.");
-    if (!check(result && strstr(last_prompt, "FRIDGE_SENTINEL"),
-               "current fridge inventory is retrieved for explicit inventory imagination")) goto done;
+    if (!check(result && !strstr(last_prompt, "FRIDGE_SENTINEL")
+               && strstr(last_prompt, "REALITY_SENTINEL"),
+               "even explicit fridge imagination uses prior/modelled context rather than reading live inventory")) goto done;
     free(result); result = NULL;
 
     result = r2_imagination_create("Imagine buying a new game if I have enough money.");

@@ -198,17 +198,45 @@ require(
     "imagination retrieves from active conversation, memory, diary, Life Log, Reality, visual, reward, habit, and Choice Lab systems",
 )
 require(
-    'r2_fridge_context()' in imagination
-    and "mentions_any(request, fridge_terms" in imagination
-    and "r2_reality_imagination_context()" in imagination
-    and "FRIDGE STATE (only because the request asks about current food/inventory" in imagination
+    "r2_reality_imagination_context()" in imagination
+    and "r2_fridge_context()" not in imagination
+    and "Live fridge " in imagination
+    and "stock is never consulted by imagination" in imagination
     and "char *r2_reality_imagination_context(void)" in read("Reality.c")
     and "Fridge stock is intentionally omitted from this general context" in read("Reality.c")
+    and "char *age = origin_age_context();" in read("Reality.c")
+    and "ORIGIN / AGE CONTINUITY" in read("Reality.c")
+    and "char *world_context = r2_reality_imagination_context();" in core
+    and "PHYSICAL WORLD ACTION INTERFACE" in core
+    and "[WORLD] fridge|look" in core
+    and "A hypothetical fridge scene must be imagined from prior context" in core
     and "r2_reality_tv_status()" in imagination
     and "mentions_any(request, media_terms" in imagination
     and "r2_reality_money_context()" in imagination
     and "mentions_any(request, money_terms" in imagination,
-    "imagination uses a focused Reality snapshot and retrieves fridge stock only for explicit inventory questions",
+    "chat and imagination exclude live fridge stock while preserving explicit world-action access",
+)
+require(
+    "static const char *const chat_media_terms[]" in core
+    and "if (chat_media_relevant && r2_reality_is_initialized())" in core
+    and "r2_reality_tv_status()" in core
+    and "static const char *const chat_money_terms[]" in core
+    and "if (chat_money_relevant && r2_reality_is_initialized())" in core
+    and "r2_reality_money_context()" in core,
+    "chat retrieves current TV/VCR and money state only when relevant to the topic",
+)
+task_context_start = core.find("static char *chat_task_context(void)")
+task_context_end = core.find("static char *chat_with_relevant_memories(", task_context_start)
+task_context_source = core[task_context_start:task_context_end] if task_context_start >= 0 and task_context_end > task_context_start else ""
+require(
+    task_context_source
+    and "task_head" in task_context_source
+    and "running_head" in task_context_source
+    and "completed_head" in task_context_source
+    and "collect_completed()" not in task_context_source
+    and "BACKGROUND TASK STATE" in core
+    and "chat_task_context()" in core,
+    "chat can inspect relevant live task state without draining task results",
 )
 require(
     "imagination_branch_saved" in core

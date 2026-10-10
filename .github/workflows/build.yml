@@ -9,6 +9,7 @@ on:
       - r2-complete-audit-2026-10-09
       - combined-audit-tv-vcr-2026-10-09
       - ollama-long-response-retries-2026-10-09
+      - 'fix/**'
   pull_request:
     branches:
       - main
