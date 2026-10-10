@@ -75,6 +75,13 @@ jobs:
           cc $FLAGS tests/ollama_gate_smoke.c shell.c r2_diary.c Log.c Reality.c Addiction.c Reward.c AlternateSelf.c Imagination.c Visual.c Ears.c Eyes.c /tmp/r2-wallet-smoke-r2.o -o /tmp/r2-ollama-gate-smoke -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
           /tmp/r2-ollama-gate-smoke
 
+      - name: Exercise imagination context grounding and feedback behavior
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -O2 -I. \
+            tests/imagination_unit_smoke.c Imagination.c -lpthread \
+            -o /tmp/r2-imagination-smoke
+          /tmp/r2-imagination-smoke
+
       - name: Exercise Alternate-Self Lab persistence
         run: |
           cc -std=c11 -Wall -Wextra -Werror -O2 -I. \
