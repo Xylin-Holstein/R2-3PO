@@ -161,6 +161,10 @@ char *r2_visual_search(const char *query, int limit)
 {
     (void)query; (void)limit; return strdup("VISUAL_SENTINEL: stored visual experience.");
 }
+char *r2_visual_recent(int limit)
+{
+    (void)limit; return strdup("VISUAL_RECENT_SENTINEL: most recent visual experience.");
+}
 char *r2_reward_context(void) { return strdup("REWARD_SENTINEL: learned feedback."); }
 char *r2_addiction_report(void) { return strdup("HABIT_SENTINEL: repeated preference history."); }
 char *r2_fridge_context(void) { return strdup("FRIDGE_SENTINEL: current fridge inventory."); }
