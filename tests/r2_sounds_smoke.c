@@ -134,6 +134,10 @@ int main(void)
     assert(clean && !strstr(clean, "[R2_SOUND:") &&
            strstr(clean, "Before ") && strstr(clean, " after"));
     free(clean);
+
+    /* A marker alone is not a user-facing answer and must not play. */
+    clean = r2_sounds_process_reply("[R2_SOUND:beep:curious]");
+    assert(clean == NULL);
     /* Strip-only processing must not start a player or consume the rate limit. */
     assert(r2_sounds_play("beep", "curious") == 0);
     r2_sounds_shutdown();
