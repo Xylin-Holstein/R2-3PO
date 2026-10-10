@@ -66,10 +66,18 @@ def create_snapshot_set(root: Path, snapshot_dir: Path) -> list[Path]:
     """Create a snapshot set, refusing all pre-existing target names up front."""
     snapshot_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     targets = [snapshot_dir / name for name in DATABASES]
-    conflicts = [path for path in targets if path.exists()]
+    conflicts = [path for path in targets if path.exists() or path.is_symlink()]
     if conflicts:
         joined = ", ".join(path.name for path in conflicts)
         raise FileExistsError(f"refusing to mix with existing snapshot file(s): {joined}")
+
+    # A database symlink can point outside R2's data directory. Do not follow
+    # it into another database, especially when creating a portable snapshot.
+    linked_sources = [root / name for name in DATABASES
+                      if (root / name).is_symlink()]
+    if linked_sources:
+        joined = ", ".join(path.name for path in linked_sources)
+        raise OSError(f"refusing symlink database source(s): {joined}")
 
     created: list[Path] = []
     try:
@@ -93,12 +101,15 @@ def create_snapshot_set(root: Path, snapshot_dir: Path) -> list[Path]:
 def audit_database(path: Path) -> dict[str, Any]:
     report: dict[str, Any] = {
         "path": str(path),
-        "exists": path.is_file(),
+        "exists": path.is_file() or path.is_symlink(),
         "integrity": None,
         "tables": {},
         "legacy_phantom_food_records": [],
         "error": None,
     }
+    if path.is_symlink():
+        report["error"] = "database path is a symlink; refusing to follow it"
+        return report
     if not report["exists"]:
         report["error"] = "database file not found"
         return report
