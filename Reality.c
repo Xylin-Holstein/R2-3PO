@@ -261,29 +261,58 @@ static int money_read_locked(sqlite3_int64 *cash, sqlite3_int64 *bank)
 static int money_initialize_files(int previously_seeded)
 {
     char wallet[1200], piggybank[1200];
-    money_dir_path(0,wallet,sizeof(wallet));
-    money_dir_path(1,piggybank,sizeof(piggybank));
-    if (ensure_dir_tree(wallet)!=0 || ensure_dir_tree(piggybank)!=0) return -1;
-    int wb=money_bill_count(wallet), bb=money_bill_count(piggybank);
-    int wc=money_change_cents(wallet), bc=money_change_cents(piggybank);
-    if (wb<0 || bb<0 || wc<0 || bc<0) return -1;
-    if (wb==0 && bb==0 && wc==0 && bc==0) {
-        if (!previously_seeded) {
-            if (money_set_dir_balance(wallet,500)!=0) return -1;
+    money_dir_path(0, wallet, sizeof(wallet));
+    money_dir_path(1, piggybank, sizeof(piggybank));
+    if (ensure_dir_tree(wallet) != 0 || ensure_dir_tree(piggybank) != 0) return -1;
+
+    int wb = money_bill_count(wallet), bb = money_bill_count(piggybank);
+    int wc = money_change_cents(wallet), bc = money_change_cents(piggybank);
+    if (wb < 0 || bb < 0 || wc < 0 || bc < 0) return -1;
+
+    int physical_authoritative = 0;
+    sqlite3_stmt *meta = NULL;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "SELECT value FROM r2_reality_meta WHERE key='money_files_authoritative'",
+        -1, &meta, NULL);
+    if (rc == SQLITE_OK) {
+        rc = sqlite3_step(meta);
+        if (rc == SQLITE_ROW) {
+            const unsigned char *value = sqlite3_column_text(meta, 0);
+            physical_authoritative = value && !strcmp((const char *)value, "1");
+            rc = SQLITE_OK;
+        } else if (rc == SQLITE_DONE) {
+            rc = SQLITE_OK;
+        }
+    }
+    if (meta) sqlite3_finalize(meta);
+    if (rc != SQLITE_OK) return -1;
+
+    if (wb == 0 && bb == 0 && wc == 0 && bc == 0) {
+        if (physical_authoritative) {
+            /* Once physical files have been authoritative, an empty wallet
+               remains empty. A stale SQLite summary must never respawn cash. */
+        } else if (!previously_seeded) {
+            if (money_set_dir_balance(wallet, 500) != 0) return -1;
         } else {
-            /* One-time migration preserves the old account's remaining value.
-             * A previous zero balance remains zero; this path never runs again. */
-            sqlite3_stmt *st=NULL;
-            if (sqlite3_prepare_v2(reality_db,
+            /* First migration from a legacy database only: preserve its
+               remaining balance before physical files become authoritative. */
+            sqlite3_stmt *st = NULL;
+            rc = sqlite3_prepare_v2(reality_db,
                 "SELECT cash_cents,bank_cents FROM r2_money_account WHERE id=1",
-                -1,&st,NULL)!=SQLITE_OK || sqlite3_step(st)!=SQLITE_ROW) {
+                -1, &st, NULL);
+            if (rc == SQLITE_OK) {
+                rc = sqlite3_step(st);
+                if (rc == SQLITE_ROW) rc = SQLITE_OK;
+            }
+            if (rc != SQLITE_OK) {
                 if (st) sqlite3_finalize(st);
                 return -1;
             }
-            sqlite3_int64 cash=sqlite3_column_int64(st,0), bank=sqlite3_column_int64(st,1);
+            sqlite3_int64 cash = sqlite3_column_int64(st, 0);
+            sqlite3_int64 bank = sqlite3_column_int64(st, 1);
             sqlite3_finalize(st);
-            if (money_set_dir_balance(wallet,cash)!=0 ||
-                money_set_dir_balance(piggybank,bank)!=0) return -1;
+            if (money_set_dir_balance(wallet, cash) != 0 ||
+                money_set_dir_balance(piggybank, bank) != 0) return -1;
         }
     }
     return exec_sql(
