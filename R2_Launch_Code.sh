@@ -97,6 +97,9 @@ REQUIRED_FILES=(
     "$R2_SOURCE/Eyes.c"
     "$R2_SOURCE/Eyes.h"
 
+    "$R2_SOURCE/R2Sounds.c"
+    "$R2_SOURCE/R2Sounds.h"
+
     "$R2_SOURCE/AlternateSelf.c"
     "$R2_SOURCE/AlternateSelf.h"
 
