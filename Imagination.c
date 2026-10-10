@@ -150,7 +150,8 @@ static char *search_context_terms(const char *request, ContextSearchFn search,
     for (size_t i = 0; i < term_count && used + 1 < cap; ++i) {
         char *found = search(terms[i], 1);
         if (!found || !*found ||
-            strstr(found, "(No visual experiences found.)")) {
+            (search == r2_visual_search &&
+             strstr(found, "(No visual experiences found.)"))) {
             free(found);
             continue;
         }
@@ -383,8 +384,9 @@ char *r2_imagination_create(const char *request)
         "Request: %.900s\n"
         "Context sources consulted before generation: persistent memory; newest active "
         "conversation; private diary; Life Log; fridge-free Reality; visual experience "
-        "library when available; reward/learned feedback state; habit/enjoyment history; "
-        "Choice Lab. Fridge stock is consulted separately only for explicit current-inventory "
+        "library when available; current CRT/VCR state and money balances when relevant; "
+        "reward/learned feedback state; habit/enjoyment history; Choice Lab. Fridge stock "
+        "is consulted separately only for explicit current-inventory "
         "questions.\n"
         "Raw retrieved records are not copied into this branch; they remain in their "
         "authoritative stores and can be retrieved again. The scenario's conclusion records "
