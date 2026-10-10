@@ -234,9 +234,12 @@ int main(void)
     if (sqlite3_exec(db,
         "INSERT INTO r2_reality_objects(name,description,quantity,container,owner) "
         "VALUES('legacy_phantom_burger','Guaranteed filling burger generated because the fridge was empty',1,'pockets','R2') "
-        "ON CONFLICT(name) DO UPDATE SET description='Guaranteed filling burger generated because the fridge was empty',quantity=1,container='pockets'",
+        "ON CONFLICT(name) DO UPDATE SET description='Guaranteed filling burger generated because the fridge was empty',quantity=1,container='pockets';"
+        "INSERT INTO r2_reality_objects(name,description,quantity,container,owner) "
+        "VALUES('burger','User-owned burger; legitimate inventory',1,'pockets','R2') "
+        "ON CONFLICT(name) DO UPDATE SET description='User-owned burger; legitimate inventory',quantity=1,container='pockets'",
         NULL, NULL, NULL) != SQLITE_OK)
-        fail("could not seed legacy phantom-food copy in tracked inventory");
+        fail("could not seed legacy and legitimate burger inventory");
     sqlite3_close(db);
     r2_reality_shutdown();
     if (r2_reality_init() != 0) fail("Reality restart failed");
