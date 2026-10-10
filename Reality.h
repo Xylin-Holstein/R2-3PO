@@ -38,6 +38,8 @@ void r2_fridge_shutdown(void);
 int r2_fridge_take(const char *food);
 int r2_fridge_add_item(const char *name, const char *description, int quantity,
                        double fullness, double energy, const char *ingredients, const char *taste);
+/* Fridge stock's stored fullness/energy are authoritative; fullness is
+   retained for API compatibility and cannot override inventory data. */
 int r2_reality_fridge_eat(const char *food, double fullness);
 
 /* Persistent object/container operations. */
