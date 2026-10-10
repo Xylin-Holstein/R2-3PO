@@ -785,9 +785,14 @@ static int fridge_init(void)
         "CREATE TABLE IF NOT EXISTS r2_fridge_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);"
         "INSERT OR IGNORE INTO r2_fridge_meta(key,value) VALUES('schema_version','1');",
         NULL, NULL, NULL);
+    /* Remove only stock created by the former automatic-refill behavior.
+       Real user-entered inventory and all unrelated food are preserved. */
+    if (rc == SQLITE_OK && sqlite3_exec(fridge_db,
+        "DELETE FROM r2_fridge_items WHERE description='Guaranteed filling burger generated because the fridge was empty'",
+        NULL, NULL, NULL) != SQLITE_OK) rc = SQLITE_ERROR;
     if (rc == SQLITE_OK && fridge_seed_if_empty_locked() != 0) rc = SQLITE_ERROR;
     pthread_mutex_unlock(&fridge_lock);
-    if (rc != SQLITE_OK) { fprintf(stderr, "[R2 Fridge] Could not initialize fridge schema or seed burger.\n"); return -1; }
+    if (rc != SQLITE_OK) { fprintf(stderr, "[R2 Fridge] Could not initialize fridge schema.\n"); return -1; }
     return 0;
 }
 void r2_fridge_shutdown(void)
