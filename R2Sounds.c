@@ -430,7 +430,9 @@ static char *process_reply_markers(const char *reply, int play_sound)
     char *clean = malloc(len + 1);
     if (!clean) return NULL;
     size_t src = 0, dst = 0;
-    int played_or_attempted = 0;
+    int marker_selected = 0;
+    char selected_kind[16] = {0};
+    char selected_state[R2_SOUND_MARKER_MAX] = {0};
     while (src < len) {
         const char *marker = find_sound_marker(reply + src);
         if (!marker) {
@@ -458,16 +460,31 @@ static char *process_reply_markers(const char *reply, int play_sound)
         char *sep = strchr(inside, ':');
         if (sep) {
             *sep++ = '\0';
-            if (!played_or_attempted && valid_marker_value(inside, 16) &&
+            if (!marker_selected && valid_marker_value(inside, 16) &&
                 valid_marker_state(sep) &&
                 (!strcasecmp(inside, "beep") || !strcasecmp(inside, "whistle"))) {
-                if (play_sound) (void)r2_sounds_play(inside, sep);
-                played_or_attempted = 1;
+                snprintf(selected_kind, sizeof(selected_kind), "%s", inside);
+                snprintf(selected_state, sizeof(selected_state), "%s", sep);
+                marker_selected = 1;
             }
         }
         src = (size_t)(end - reply) + 1;
     }
     clean[dst] = '\0';
+    int has_user_text = 0;
+    for (size_t i = 0; i < dst; ++i) {
+        if (!isspace((unsigned char)clean[i])) {
+            has_user_text = 1;
+            break;
+        }
+    }
+    if (!has_user_text) {
+        free(clean);
+        return NULL;
+    }
+    /* Delay playback until we know there is an actual user-facing reply. */
+    if (play_sound && marker_selected)
+        (void)r2_sounds_play(selected_kind, selected_state);
     return clean;
 }
 
