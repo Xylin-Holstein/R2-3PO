@@ -114,5 +114,10 @@ jobs:
           python3 -m py_compile tests/r2_sound_wiring_smoke.py
           python3 tests/r2_sound_wiring_smoke.py
 
+      - name: Audit sound asset inventory without touching audio payloads
+        run: |
+          python3 -m py_compile tools/audit_r2_sound_assets.py tests/test_sound_asset_audit.py
+          python3 tests/test_sound_asset_audit.py
+
       - name: Compile R2 with the same sources and flags as the launcher
         run: make clean all CFLAGS="-std=c11 -Wall -Wextra -Werror -O2"
