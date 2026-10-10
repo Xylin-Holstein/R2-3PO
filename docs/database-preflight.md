@@ -32,4 +32,4 @@ Existing snapshot files are never overwritten. Choose a new or empty destination
 
 Snapshots are consistent individually, but the three independent databases are not captured at one atomic instant. Stop R2 before running the audit when cross-database consistency matters. Keep the snapshot directory private because these databases may contain personal memories and activity records. Do not upload the database files to public issues or logs.
 
-A missing database is reported as missing and is not created. A present but unreadable/corrupt database or a snapshot error yields a non-zero exit status. Missing files alone are informational, since some installations may not have every subsystem initialized.
+A missing database is reported as missing and is not created. Because this is a deployment preflight for the three expected operational databases, any missing database, unreadable/corrupt database, integrity failure, or snapshot error yields a non-zero exit status. If you intentionally run a partial installation, treat the missing-database report as an expected limitation rather than allowing the preflight to pass silently.
