@@ -8,7 +8,7 @@
  *
  * r2.c owns the actual implementation:
  *
- *   - Ollama / Gemma 3 multimodal conversation and vision
+ *   - Ollama / Gemma 4 multimodal conversation and vision
  *   - conversation
  *   - memory
  *   - relevant-memory retrieval
@@ -32,7 +32,11 @@ extern "C" {
 #endif
 
 /* Single source of truth for every local Ollama inference in R2. */
-#define R2_OLLAMA_MODEL "gemma3:4b"
+#define R2_OLLAMA_MODEL "gemma4:e2b"
+
+/* Bounded inference settings for the local 16 GB RAM target. */
+#define R2_OLLAMA_NUM_CTX 8192
+#define R2_OLLAMA_NUM_BATCH 256
 
 
 /* ============================================================
@@ -254,7 +258,7 @@ int r2_is_initialized(void);
  *
  * Example:
  *
- *   Gemma 3 4B
+ *   Gemma 4 E2B
  *
  * The returned pointer is owned by R2 and must NOT be freed.
  */
