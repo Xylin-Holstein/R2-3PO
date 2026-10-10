@@ -596,6 +596,23 @@ int r2_diary_init(void)
     }
 
     /*
+     * The diary, memory kernel, and other learning subsystems can write to
+     * this same SQLite database from different threads/connections. WAL
+     * allows readers to coexist with a writer; a bounded busy timeout also
+     * lets a concurrent writer finish instead of dropping a memory/diary
+     * update immediately with SQLITE_BUSY.
+     */
+    result = sqlite3_busy_timeout(r2_diary_db, 5000);
+    if (result != SQLITE_OK)
+    {
+        fprintf(stderr, "[R2 DIARY] Could not configure SQLite busy timeout: %s\\n",
+                sqlite3_errmsg(r2_diary_db));
+        sqlite3_close(r2_diary_db);
+        r2_diary_db = NULL;
+        return -1;
+    }
+
+    /*
      * WAL improves behavior when the diary and R2 kernel
      * access the same database.
      */
