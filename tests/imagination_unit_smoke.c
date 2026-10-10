@@ -297,8 +297,10 @@ int main(void)
     if (!check(r2_altself_init() == 0, "reopen Choice Lab after restart")) goto done;
     branch = r2_altself_show(branch_id);
     if (!check(branch && strstr(branch, "Imagination: Imagine the first movie") &&
-               strstr(branch, "Imagine the first movie in the CRT room."),
-               "the original imagined branch survives a database restart")) goto done;
+               strstr(branch, "Imagine the first movie in the CRT room.") &&
+               strstr(branch, "Context sources consulted before generation") &&
+               !strstr(branch, "MEMORY_SENTINEL") && count_feedback_links() == 3,
+               "the branch, non-duplicating provenance, and linked feedback survive a database restart")) goto done;
 
     passed = 1;
 done:
