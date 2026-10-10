@@ -9,7 +9,7 @@ sound_header = (ROOT / "R2Sounds.h").read_text(encoding="utf-8")
 reply_module = (ROOT / "R2Reply.c").read_text(encoding="utf-8")
 
 marker_processing_index = r2.find("r2_sounds_process_reply(reply)")
-tool_processing_index = r2.find("char *tools = process_tools(reply)")
+tool_processing_index = r2.find("char *tools = process_tools(stripped_reply)")
 strip_marker_index = r2.find("r2_sounds_strip_markers(reply)")
 
 checks = {
