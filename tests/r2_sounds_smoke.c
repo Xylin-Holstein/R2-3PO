@@ -36,6 +36,7 @@ int main(void)
     touch(root, "R2_Beep_Sleepy.mp3");
     touch(root, "R2_Beep_Default.mp3");
     touch(root, "R2_Whistle_Happy.mp3");
+    touch(root, "R2_Whistle_Acknowledgement.mp3");
     touch(root, "R2_Whistle_Default.mp3");
     touch(root, "not_a_sound.wav");
     touch(root, "R2_Beep_Curious.txt");
@@ -58,6 +59,8 @@ int main(void)
        spelling of each state. */
     assert(r2_sounds_select_file(root, "whistle", "cheerful", path, sizeof(path)) == 0);
     assert(strstr(path, "R2_Whistle_Happy.mp3"));
+    assert(r2_sounds_select_file(root, "whistle", "greeting", path, sizeof(path)) == 0);
+    assert(strstr(path, "R2_Whistle_Acknowledgement.mp3"));
     assert(r2_sounds_select_file(root, "whistle", "confused", path, sizeof(path)) == 0);
     assert(strstr(path, "R2_Whistle_Default.mp3"));
     assert(r2_sounds_select_file(root, "laugh", "happy", path, sizeof(path)) != 0);
@@ -112,7 +115,7 @@ int main(void)
 
     const char *const names[] = {
         "R2_Beep_Curious.mp3", "R2_Beep_Sleepy.mp3", "R2_Beep_Default.mp3",
-        "R2_Whistle_Happy.mp3", "R2_Whistle_Default.mp3",
+        "R2_Whistle_Happy.mp3", "R2_Whistle_Acknowledgement.mp3", "R2_Whistle_Default.mp3",
         "not_a_sound.wav", "R2_Beep_Curious.txt"
     };
     for (size_t i = 0; i < sizeof(names)/sizeof(names[0]); ++i) {
