@@ -34,10 +34,13 @@ static pthread_mutex_t fridge_lock = PTHREAD_MUTEX_INITIALIZER;
 static int reality_ready = 0;
 static int reality_eat_internal(const char *food, double fullness, int consume_tracked_item, double energy_override);
 
-/* Elapsed world time advances continuously. At +0.1 hunger every 4.75
- * seconds, hunger reaches 100 from zero in about 79 minutes; the 72-hour
- * mark is still explicitly described as prolonged starvation. */
-static const double HUNGER_PER_SECOND = 0.1 / 4.75; /* +0.1 hunger and -0.1 satiety per 4.75 seconds */
+/* Separate modeled needs use separate time scales. Hunger rises by 0.1
+ * every 4.75 minutes (~79 hours from 0 to 100), aligning the hunger curve
+ * with the 72-hour prolonged-starvation marker. Sleepiness rises by 12.5/hour
+ * and energy falls by 10/hour; sleep recovery then reverses those rates. */
+static const double HUNGER_PER_SECOND = 0.1 / (4.75 * 60.0);
+static const double SLEEPINESS_PER_SECOND = 12.5 / 3600.0;
+static const double ENERGY_DRAIN_PER_SECOND = 10.0 / 3600.0;
 
 static int exec_sql(const char *sql)
 {
@@ -635,10 +638,11 @@ static void update_hunger_locked(double elapsed)
         satisfaction = sqlite3_column_double(st, 4);
     }
     if (st) sqlite3_finalize(st);
+    if (elapsed < 0.0) elapsed = 0.0;
     hunger += elapsed * HUNGER_PER_SECOND;
     satisfaction -= elapsed * HUNGER_PER_SECOND;
-    sleepiness += elapsed * HUNGER_PER_SECOND;
-    energy -= elapsed * HUNGER_PER_SECOND;
+    sleepiness += elapsed * SLEEPINESS_PER_SECOND;
+    energy -= elapsed * ENERGY_DRAIN_PER_SECOND;
     if (hunger > 100.0) hunger = 100.0;
     if (satisfaction < 0.0) satisfaction = 0.0;
     if (satisfaction > 150.0) satisfaction = 150.0;
@@ -1316,7 +1320,7 @@ static void maybe_record_starvation(void)
                 "The modeled elapsed time since the last qualifying meal reached 72 hours." ) == 0) {
             bridge_event("prolonged_starvation",
                 "R2 reached 72 modeled hours without a qualifying meal.",
-                "Hunger remains at its maximum modeled level. This is a simulation state, not a claim of biological metabolism.",
+                "Hunger is near its maximum modeled level. This is a simulation state, not a claim of biological metabolism.",
                 1, 1);
         }
     }
@@ -1475,7 +1479,7 @@ char *r2_reality_status(void)
     if(st) sqlite3_finalize(st);
     pthread_mutex_unlock(&reality_lock);
     const char *hstate = hunger < 25 ? "satisfied" : hunger < 50 ? "getting hungry" : hunger < 75 ? "hungry" : hunger < 100 ? "very hungry" : "starving";
-    snprintf(out,4096,"SELF CONTINUITY\nSatisfaction: %5.1f/150\nHunger: %04.1f/100 (%s)\nTime since meal: %.1f hours\nSleepiness: %.1f/100\nEnergy: %.1f/100\nModeled world time elapsed: %lld days, %lld hours\nObjects tracked in the world: %d\nHunger rises 0.1 and satiety falls 0.1 every 4.75 seconds of modeled elapsed time; satiety caps at 150/150.\nAfter 72 hours without food, prolonged starvation is recorded; needs do not magically reset on restart.\n",
+    snprintf(out,4096,"SELF CONTINUITY\nSatisfaction: %5.1f/150\nHunger: %04.1f/100 (%s)\nTime since meal: %.1f hours\nSleepiness: %.1f/100\nEnergy: %.1f/100\nModeled world time elapsed: %lld days, %lld hours\nObjects tracked in the world: %d\nHunger rises 0.1 and satiety falls 0.1 every 4.75 minutes of modeled elapsed time; satiety caps at 150/150. Sleepiness rises 12.5/hour and energy falls 10/hour while awake or asleep; sleep then restores energy and reduces sleepiness.\nAfter 72 hours without food, prolonged starvation is recorded; needs persist across restarts.\n",
         satisfaction,hunger,hstate,since/3600.0,sleepiness,energy,
         (long long)(world_elapsed/86400),(long long)((world_elapsed%86400)/3600),count);
     return out;
