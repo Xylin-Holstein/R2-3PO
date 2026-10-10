@@ -63,14 +63,15 @@ done
 [[ "$OLLAMA_READY" -eq 1 ]] || fail "Ollama did not become ready with gemma3:4b after 60 seconds. Start Ollama and make sure 'ollama list' contains gemma3:4b; service will retry automatically."
 
 # Preserve the established private, continuously advancing 1999 clock. The host clock is untouched.
-REAL_NOW="$(date '+%Y-%m-%d %H:%M:%S')"
-CURRENT_MONTH="$(date '+%m')"
-CURRENT_DAY="$(date '+%d')"
-CURRENT_HOUR="$(date '+%H')"
-CURRENT_MINUTE="$(date '+%M')"
-CURRENT_SECOND="$(date '+%S')"
+# Capture the host epoch once so a midnight boundary cannot mix two dates.
+REAL_EPOCH="$(date '+%s')"
+REAL_NOW="$(date -d "@$REAL_EPOCH" '+%Y-%m-%d %H:%M:%S')"
+CURRENT_MONTH="$(date -d "@$REAL_EPOCH" '+%m')"
+CURRENT_DAY="$(date -d "@$REAL_EPOCH" '+%d')"
+CURRENT_HOUR="$(date -d "@$REAL_EPOCH" '+%H')"
+CURRENT_MINUTE="$(date -d "@$REAL_EPOCH" '+%M')"
+CURRENT_SECOND="$(date -d "@$REAL_EPOCH" '+%S')"
 R2_START="1999-${CURRENT_MONTH}-${CURRENT_DAY} ${CURRENT_HOUR}:${CURRENT_MINUTE}:${CURRENT_SECOND}"
-REAL_EPOCH="$(date -d "$REAL_NOW" '+%s')"
 R2_EPOCH="$(date -d "$R2_START" '+%s')" || fail "could not calculate R2's private clock."
 [[ "$REAL_EPOCH" =~ ^-?[0-9]+$ && "$R2_EPOCH" =~ ^-?[0-9]+$ ]] || fail "could not calculate R2's private clock."
 FAKETIME_OFFSET=$((R2_EPOCH - REAL_EPOCH))
