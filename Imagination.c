@@ -289,6 +289,9 @@ int r2_imagination_feedback(long long branch_id, const char *assessment,
         details, "Imagination.c");
     free(branch);
     if (event_id < 0) return -1;
+    (void)r2_altself_link_event((int64_t)branch_id, event_id,
+        "feedback_for_imagination",
+        "Explicit feedback about a hypothetical branch; this link does not convert the branch into a factual event.");
 
     if (accurate) {
         char target[96];
