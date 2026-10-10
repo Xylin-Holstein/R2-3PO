@@ -25,6 +25,7 @@ static int fail_next_link;
 static int reward_calls;
 static int rewards_applied;
 static int reward_already_applied;
+static int64_t context_event_id;
 
 static int check(int ok, const char *message)
 {
@@ -155,8 +156,15 @@ char *r2_diary_search(const char *query, int limit)
 char *r2_log_search(const char *query, int limit)
 {
     (void)limit;
-    if (query && (!strcasecmp(query, "movie") || !strcasecmp(query, "CRT")))
-        return strdup("LIFELOG_SENTINEL: an earlier real movie event.");
+    if (query && (!strcasecmp(query, "movie") || !strcasecmp(query, "CRT"))) {
+        if (context_event_id <= 0)
+            context_event_id = insert_log_event(R2_LOG_WORLD, "movie_context_fixture",
+                "LIFELOG_SENTINEL: an earlier real movie event.", NULL, "test fixture");
+        char result[256];
+        snprintf(result, sizeof(result), "[%lld] LIFELOG_SENTINEL: an earlier real movie event.",
+                 (long long)context_event_id);
+        return strdup(result);
+    }
     return strdup("");
 }
 char *r2_reality_imagination_context(void)
@@ -221,6 +229,24 @@ static int feedback_mentions_scenario(void)
     return count > 0;
 }
 
+static int count_context_links(void)
+{
+    sqlite3 *db = NULL;
+    sqlite3_stmt *st = NULL;
+    int count = -1;
+    if (sqlite3_open(R2_DIARY_DATABASE, &db) != SQLITE_OK) {
+        if (db) sqlite3_close(db);
+        return -1;
+    }
+    if (sqlite3_prepare_v2(db,
+        "SELECT COUNT(*) FROM r2_log_links WHERE relationship='context_for_imagination'",
+        -1, &st, NULL) == SQLITE_OK && sqlite3_step(st) == SQLITE_ROW)
+        count = sqlite3_column_int(st, 0);
+    if (st) sqlite3_finalize(st);
+    sqlite3_close(db);
+    return count;
+}
+
 static int count_feedback_links(void)
 {
     sqlite3 *db = NULL;
@@ -261,6 +287,8 @@ int main(void)
     if (!check(result && strstr(result, "hypothetical imagination") &&
                strstr(result, "remembered CRT room"),
                "generate a scenario whose content is grounded in retrieved memory and Reality")) goto done;
+    if (!check(count_context_links() >= 1,
+               "the hypothetical branch is linked to the exact retrieved Life Log event for traceable grounding")) goto done;
     if (!check(strstr(last_prompt, "MEMORY_SENTINEL")
                && strstr(last_prompt, "CONVERSATION_SENTINEL")
                && strstr(last_prompt, "DIARY_SENTINEL")
