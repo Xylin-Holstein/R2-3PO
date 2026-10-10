@@ -145,9 +145,14 @@ require(
     and 'the game\'s virtual events remain separate from physical Reality' in shell,
     "game activity records explicitly preserve the life-versus-game boundary",
 )
+gameboy_helper_start = shell.find("static int shell_gameboy_read_status")
+gameboy_helper_end = shell.find("static int shell_gameboy(const char *arg)")
+gameboy_helpers = shell[gameboy_helper_start:gameboy_helper_end]
 require(
     'r2_reality_' not in gameboy
-    and 'r2_reality_' not in shell[shell.find("typedef struct {\\n    int valid;\\n    int running;\\n    char power_state[16];"):shell.find("static int shell_gameboy(const char *arg)")],
+    and gameboy_helper_start >= 0
+    and gameboy_helper_end > gameboy_helper_start
+    and 'r2_reality_' not in gameboy_helpers,
     "Game Boy session logging does not mutate R2's physical Reality state",
 )
 
