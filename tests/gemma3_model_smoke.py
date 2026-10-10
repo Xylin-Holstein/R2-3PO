@@ -151,6 +151,7 @@ require(
     and "search_context_terms(request, r2_log_search" in imagination
     and "r2_reality_imagination_context()" in imagination
     and "search_context_terms(request, r2_visual_search" in imagination
+    and "r2_visual_recent(2)" in imagination
     and "r2_reward_context()" in imagination
     and "r2_addiction_report()" in imagination
     and "r2_altself_list(6)" in imagination
