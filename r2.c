@@ -5898,7 +5898,7 @@ static void *autonomous_thinking(
                 r2_log_thinking("reflection_completed",
                                 "Autonomous diary reflection was written.",
                                 reflection);
-            log_structured_self_report(reflection, reflection_event_id);
+            log_structured_self_report(reflection, reflection_event_id, 0);
             r2_log_continuity("r2_private_reflection", "routine",
                               "Private autonomous reflection",
                               "R2 periodically reflects on supplied persistent context.",
