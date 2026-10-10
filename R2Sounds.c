@@ -1,6 +1,7 @@
 #define _POSIX_C_SOURCE 200809L
 #define _GNU_SOURCE
 #include "R2Sounds.h"
+#include "Log.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -264,6 +265,19 @@ int r2_sounds_play(const char *kind, const char *state)
     last_sound_at = now;
     have_last_sound_at = 1;
     pthread_mutex_unlock(&sound_lock);
+
+    /* Keep sound output in the existing factual Life Log. This records that
+       playback was scheduled, not that hardware or a decoder confirmed sound. */
+    if (r2_log_is_initialized()) {
+        const char *filename = strrchr(path, '/');
+        filename = filename ? filename + 1 : path;
+        char details[512];
+        snprintf(details, sizeof(details), "kind=%s\\nstate=%s\\nfile=%s",
+                 kind, (state && *state) ? state : "unspecified", filename);
+        (void)r2_log_event(R2_LOG_SENSORY, "sound_effect_scheduled",
+                           "R2 scheduled a named local droid sound effect.",
+                           details, "R2Sounds");
+    }
     return 0;
 }
 
