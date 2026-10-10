@@ -1,28 +1,13 @@
 /*
  * R2-3PO Ears
  *
- * General-purpose raw audio input system for R2.
- *
- * Ears provides R2 with PCM audio and tells him where
- * that audio originated:
- *
- *     FILE     -> supplied audio/media file
- *     WORLD    -> microphone / physical environment
- *     DESKTOP  -> computer/system audio
- *     SOURCE   -> arbitrary PulseAudio/PipeWire source
- *
- * Ears does NOT interpret the audio.
- *
- * It does not:
- *     - transcribe speech
- *     - identify songs
- *     - determine emotions
- *     - recognize speakers
- *     - create memories
- *
- * Those responsibilities belong to the hearing/cognition layer.
- *
- * Ears is the input layer only.
+ * Ears owns raw PCM capture and source metadata for files, microphones,
+ * desktop audio, and PulseAudio/PipeWire sources. For explicit user-triggered
+ * listening, it can capture a bounded clip, convert it to a compact WAV, ask
+ * the core's shared local Gemma 4 audio path for transcription/sound
+ * description, and persist the model-labeled interpretation through the
+ * existing memory and Life Log. It does not continuously record or identify
+ * people by voice.
  */
 
 #define _GNU_SOURCE
@@ -1015,7 +1000,7 @@ ssize_t r2_ears_read(
                 snprintf(details, sizeof(details),
                          "source=%s; bytes_received_since_last_entry=%llu; "
                          "sample_rate=%u; channels=%u; bits_per_sample=%u; "
-                         "audio_interpretation=not_performed_by_Ears",
+                         "audio_interpretation=not_performed_during_raw_sample_read",
                          ears->event.source_name,
                          (unsigned long long)ears->bytes_since_log,
                          ears->format.sample_rate, ears->format.channels,
