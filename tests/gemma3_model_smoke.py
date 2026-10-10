@@ -123,7 +123,14 @@ require(
 )
 
 
-gameboy = read("GameBoyAdvance.py")
+require(
+    "GAMEPLAY IS A REAL-LIFE ACTIVITY, NOT PHYSICAL REALITY" in core
+    and "An event inside a game is an event within that game" in core
+    and "Virtual outcomes do not directly change physical Reality" in core
+    and "Do not silently turn a metaphor into a factual state change" in core,
+    "the model distinguishes actual life, game-world events, and later philosophical hypotheticals",
+)
+\ngameboy = read("GameBoyAdvance.py")
 require(
     '"session_id": row["session_id"]' in gameboy
     and '"game_started_at": row["game_started_at"]' in gameboy,
