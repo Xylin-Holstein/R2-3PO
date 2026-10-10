@@ -32,6 +32,9 @@ checks = {
     "sound selection scans the configured FX directory": "R2_SOUNDS_DEFAULT_FX_DIR" in sounds and "opendir(fx_dir)" in sounds,
     "sound scheduling records an event in the existing Life Log": 'r2_log_event(R2_LOG_SENSORY, "sound_effect_scheduled"' in sounds,
     "core stops/reaps audio playback on shutdown": "r2_sounds_shutdown();" in r2,
+    "core resets sound lifecycle during initialization": "r2_sounds_init();" in r2 and "void r2_sounds_init(void)" in sounds,
+    "sound control marker recognition is case-insensitive": "find_sound_marker" in sounds and "strncasecmp(p, marker, marker_len)" in sounds,
+    "marker cleanup fails closed instead of exposing control text": "Could not safely remove sound control markers" in r2 and "if (!sound_clean_reply)" in r2,
 }
 failed = [label for label, ok in checks.items() if not ok]
 for label, ok in checks.items():
