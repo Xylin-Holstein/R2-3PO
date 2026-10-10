@@ -449,6 +449,22 @@ int main(void)
     sqlite3_finalize(st);
     sqlite3_close(db);
 
+    /* A failed optional food-history query must not erase the rest of the
+       combined Reality context. Missing data is labeled explicitly. */
+    if (sqlite3_open(path, &db) != SQLITE_OK)
+        fail("could not open Reality DB for context resilience test");
+    if (sqlite3_exec(db, "DROP TABLE r2_food_experiences", NULL, NULL, NULL) != SQLITE_OK)
+        fail("could not inject optional food-history query failure");
+    sqlite3_close(db);
+    char *context = r2_reality_context();
+    if (!context || !strstr(context, "PERSISTENT REALITY CONTEXT") ||
+        !strstr(context, "Food-experience history unavailable") ||
+        !strstr(context, "SELF CONTINUITY") || !strstr(context, "ROOM AND INVENTORY")) {
+        free(context);
+        fail("one unavailable optional subsystem must not discard all Reality context");
+    }
+    free(context);
+
     r2_reality_shutdown();
     puts("reality needs smoke passed");
     return 0;
