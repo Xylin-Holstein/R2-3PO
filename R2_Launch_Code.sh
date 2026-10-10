@@ -28,6 +28,12 @@ REQUIRED_FILES=(
     "$R2_SOURCE/Log.c"
     "$R2_SOURCE/Log.h"
 
+    "$R2_SOURCE/SensoryJournal.c"
+    "$R2_SOURCE/SensoryJournal.h"
+
+    "$R2_SOURCE/AlternateSelf.c"
+    "$R2_SOURCE/AlternateSelf.h"
+
     "$R2_SOURCE/Visual.c"
     "$R2_SOURCE/Visual.h"
 
@@ -234,6 +240,8 @@ gcc -std=c11 -Wall -Wextra -O2 \
     "$R2_SOURCE/shell.c" \
     "$R2_SOURCE/r2_diary.c" \
     "$R2_SOURCE/Log.c" \
+    "$R2_SOURCE/SensoryJournal.c" \
+    "$R2_SOURCE/AlternateSelf.c" \
     "$R2_SOURCE/Visual.c" \
     "$R2_SOURCE/Ears.c" \
     "$R2_SOURCE/Eyes.c" \
@@ -264,15 +272,19 @@ echo "Compilation successful."
 echo "Executable updated:"
 echo "    $R2_EXEC"
 echo
+echo "Conversation model: llama3.3"
 echo "Default vision model: qwen2.5vl:3b"
-echo "R2's conversation model remains llama3; vision perception is handled by the separate local model."
-echo "If it is not installed, run: ollama pull qwen2.5vl:3b"
+echo "Conversation and vision use separate local Ollama models."
+echo "If the conversation model is not installed, run: ollama pull llama3.3"
+echo "If the vision model is not installed, run: ollama pull qwen2.5vl:3b"
 echo
 echo "Modules compiled:"
 echo "    r2.c"
 echo "    shell.c"
 echo "    r2_diary.c"
 echo "    Log.c"
+echo "    SensoryJournal.c"
+echo "    AlternateSelf.c"
 echo "    Visual.c"
 echo "    Ears.c"
 echo "    Eyes.c"
