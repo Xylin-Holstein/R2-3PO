@@ -204,6 +204,8 @@ require(
     and "stock is never consulted by imagination" in imagination
     and "char *r2_reality_imagination_context(void)" in read("Reality.c")
     and "Fridge stock is intentionally omitted from this general context" in read("Reality.c")
+    and "char *age = origin_age_context();" in read("Reality.c")
+    and "ORIGIN / AGE CONTINUITY" in read("Reality.c")
     and "char *world_context = r2_reality_imagination_context();" in core
     and "PHYSICAL WORLD ACTION INTERFACE" in core
     and "[WORLD] fridge|look" in core
