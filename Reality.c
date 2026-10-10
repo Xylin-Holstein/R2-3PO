@@ -737,7 +737,8 @@ static int fridge_seed_if_empty_locked(void)
 static int remove_legacy_phantom_tracked_food(void)
 {
     for (;;) {
-        char name[512] = {0}, container[512] = {0};
+        char name[REALITY_MAX_TEXT + 1] = {0};
+        char container[REALITY_MAX_TEXT + 1] = {0};
         sqlite3_stmt *st = NULL;
         int rc = sqlite3_prepare_v2(reality_db,
             "SELECT name,container FROM r2_reality_objects "
@@ -756,10 +757,17 @@ static int remove_legacy_phantom_tracked_food(void)
         }
         const unsigned char *n = sqlite3_column_text(st, 0);
         const unsigned char *c = sqlite3_column_text(st, 1);
-        if (n) snprintf(name, sizeof(name), "%s", (const char *)n);
-        if (c) snprintf(container, sizeof(container), "%s", (const char *)c);
+        int name_bytes = sqlite3_column_bytes(st, 0);
+        int container_bytes = sqlite3_column_bytes(st, 1);
+        if (!n || !c || name_bytes <= 0 || container_bytes <= 0 ||
+            (size_t)name_bytes >= sizeof(name) ||
+            (size_t)container_bytes >= sizeof(container)) {
+            sqlite3_finalize(st);
+            return -1;
+        }
+        memcpy(name, n, (size_t)name_bytes);
+        memcpy(container, c, (size_t)container_bytes);
         sqlite3_finalize(st);
-        if (!*name || !*container) return -1;
 
         mirror_remove(name, container);
         st = NULL;
@@ -773,7 +781,7 @@ static int remove_legacy_phantom_tracked_food(void)
             rc = sqlite3_step(st);
         }
         if (st) sqlite3_finalize(st);
-        if (rc != SQLITE_DONE) return -1;
+        if (rc != SQLITE_DONE || sqlite3_changes(reality_db) != 1) return -1;
     }
 }
 
