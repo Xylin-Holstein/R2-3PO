@@ -844,7 +844,7 @@ char *r2_fridge_context(void)
     if (!items) return NULL;
     size_t cap = strlen(items) + 320;
     char *out = malloc(cap);
-    if (out) snprintf(out, cap, "FRIDGE (separate persistent database; physically at home and accessible only while R2 is home):\n%sIf all fridge stock is consumed or removed, one filling burger (fullness 100/100) is generated automatically.", items);
+    if (out) snprintf(out, cap, "FRIDGE (separate persistent database; physically at home and accessible only while R2 is home):\n%sOnly listed stock exists. When the fridge is empty, it stays empty until an explicit inventory addition or storage action occurs; do not imagine or claim replacement food.", items);
     free(items);
     return out;
 }
@@ -1578,7 +1578,7 @@ char *r2_reality_context(void)
         "[WORLD] ratefood|food|-2..2|reason to rate the most recent unrated eating experience. "
         "[WORLD] self|key|value|evidence to record a self-state fact. "
         "[WORLD] fridge|look to inspect fridge stock; [WORLD] fridge_take|food to move one item into pockets; [WORLD] fridge_eat|food to eat directly from fridge stock without consuming a similarly named pocket item; [WORLD] fridge_store|food to move a tracked inventory item into fridge stock. "
-        "The fridge is physically at home, outside the room (a sibling of room/ and pockets/), and is accessible only while R2 is home; it automatically generates one burger with fullness 100/100 whenever all stock is gone. Its stock is stored in a separate r2_fridge.db. " 
+        "The fridge is physically at home, outside the room (a sibling of room/ and pockets/), and is accessible only while R2 is home. Its stock is stored in a separate r2_fridge.db; an empty fridge stays empty until food is explicitly added or stored. Never infer that food exists merely because R2 is hungry. " 
         "Food metrics live in room/food_metrics.xml; each food can define fullness, energy, ingredients (comma-separated), and taste (sensory description). Use only listed metrics and auto rather than guessing. "
         "Containers: room, shelf, and one storage box; pockets are portable anywhere, the fridge is a fixed home object, and the wallet is inside pockets. While away from home, R2 may access only pockets and wallet; room objects and fridge stock require returning home. The old toy box is the same box and is normalized into it. Named containers can be created by moving an item to a new container name. " 
         "Food fullness points are modeled values, not measured biological facts. Sleep advances hunger and world time. "
