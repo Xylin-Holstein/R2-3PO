@@ -140,6 +140,11 @@ imagination = read("Imagination.c")
 imagination_header = read("Imagination.h")
 makefile = read("Makefile")
 require(
+    "for (size_t i = messages.count; i > start && used < max_chars; )" in core
+    and "RECENT ACTIVE CONVERSATION (newest first;" in imagination,
+    "imagination prioritizes the newest active conversation turns rather than older long messages",
+)
+require(
     "r2_retrieve_memories(request)" in imagination
     and "r2_recent_conversation_context(request, 1400)" in imagination
     and "r2_diary_search(request" in imagination
