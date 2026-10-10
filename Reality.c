@@ -1319,27 +1319,62 @@ int r2_reality_init(void)
     }
     fridge_sync_mirrors();
 
-    /* Catch up persistent world time across process restarts. Avoid huge
-       catch-up if the machine clock was changed or a test clock was used. */
+    /* Catch up persistent world time as one checked transaction. */
     sqlite3_stmt *st = NULL;
     sqlite3_int64 last = 0;
-    if (sqlite3_prepare_v2(reality_db, "SELECT last_tick FROM r2_reality_self WHERE id=1", -1, &st, NULL) == SQLITE_OK &&
-        sqlite3_step(st) == SQLITE_ROW) last = sqlite3_column_int64(st, 0);
+    int catchup_rc = sqlite3_exec(reality_db, "BEGIN IMMEDIATE", NULL, NULL, NULL);
+    if (catchup_rc == SQLITE_OK)
+        catchup_rc = sqlite3_prepare_v2(reality_db,
+            "SELECT last_tick FROM r2_reality_self WHERE id=1", -1, &st, NULL);
+    if (catchup_rc == SQLITE_OK) {
+        int step = sqlite3_step(st);
+        if (step == SQLITE_ROW) last = sqlite3_column_int64(st, 0);
+        else catchup_rc = step == SQLITE_DONE ? SQLITE_NOTFOUND : step;
+    }
     if (st) sqlite3_finalize(st);
+    st = NULL;
     sqlite3_int64 now = (sqlite3_int64)time(NULL);
-    if (last > 0 && now > last && now - last <= 7 * 86400) {
-        update_hunger_locked((double)(now - last));
-        st = NULL;
-        if (sqlite3_prepare_v2(reality_db, "INSERT INTO r2_reality_ticks(previous_tick,current_tick,elapsed_seconds) VALUES(?,?,?)", -1, &st, NULL) == SQLITE_OK) {
-            sqlite3_bind_int64(st, 1, last); sqlite3_bind_int64(st, 2, now); sqlite3_bind_int64(st, 3, now-last); sqlite3_step(st);
+    if (catchup_rc == SQLITE_OK && last > 0 && now > last && now - last <= 7 * 86400) {
+        if (update_hunger_locked((double)(now - last)) != 0) catchup_rc = SQLITE_ERROR;
+        if (catchup_rc == SQLITE_OK) {
+            catchup_rc = sqlite3_prepare_v2(reality_db,
+                "INSERT INTO r2_reality_ticks(previous_tick,current_tick,elapsed_seconds) VALUES(?,?,?)",
+                -1, &st, NULL);
+            if (catchup_rc == SQLITE_OK) {
+                sqlite3_bind_int64(st, 1, last);
+                sqlite3_bind_int64(st, 2, now);
+                sqlite3_bind_int64(st, 3, now - last);
+                catchup_rc = sqlite3_step(st);
+            }
+            if (st) sqlite3_finalize(st);
+            st = NULL;
+        }
+        if (catchup_rc == SQLITE_DONE) catchup_rc = SQLITE_OK;
+    }
+    if (catchup_rc == SQLITE_OK) {
+        catchup_rc = sqlite3_prepare_v2(reality_db,
+            "UPDATE r2_reality_self SET last_tick=?, updated_at=CURRENT_TIMESTAMP WHERE id=1",
+            -1, &st, NULL);
+        if (catchup_rc == SQLITE_OK) {
+            sqlite3_bind_int64(st, 1, now);
+            catchup_rc = sqlite3_step(st);
+            if (catchup_rc == SQLITE_DONE && sqlite3_changes(reality_db) != 1)
+                catchup_rc = SQLITE_NOTFOUND;
         }
         if (st) sqlite3_finalize(st);
+        st = NULL;
+        if (catchup_rc == SQLITE_DONE) catchup_rc = SQLITE_OK;
     }
-    st = NULL;
-    if (sqlite3_prepare_v2(reality_db, "UPDATE r2_reality_self SET last_tick=?, updated_at=CURRENT_TIMESTAMP WHERE id=1", -1, &st, NULL) == SQLITE_OK) {
-        sqlite3_bind_int64(st, 1, now); sqlite3_step(st);
+    if (catchup_rc == SQLITE_OK)
+        catchup_rc = sqlite3_exec(reality_db, "COMMIT", NULL, NULL, NULL);
+    if (catchup_rc != SQLITE_OK) {
+        (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
+        fprintf(stderr, "[R2 Reality] Persistent time catch-up failed; refusing partial startup state.\\n");
+        if (fridge_db) { sqlite3_close(fridge_db); fridge_db = NULL; }
+        sqlite3_close(reality_db); reality_db = NULL;
+        pthread_mutex_unlock(&reality_lock);
+        return -1;
     }
-    if (st) sqlite3_finalize(st);
     sqlite3_stmt *loc_st = NULL;
     reality_home_state = 1;
     if (sqlite3_prepare_v2(reality_db, "SELECT value FROM r2_reality_meta WHERE key='current_location'",
