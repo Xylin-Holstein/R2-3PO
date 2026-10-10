@@ -21,6 +21,7 @@ class SoundAssetAuditTests(unittest.TestCase):
                 "R2_Beep_Default.mp3",
                 "R2_Beep_Acknowledgement.mp3",
                 "R2_Whistle_Happy.mp3",
+                "R2_Whistle_01.mp3",
                 "not_a_sound.wav",
             ]
             for name in names:
@@ -34,13 +35,14 @@ class SoundAssetAuditTests(unittest.TestCase):
                 self.assertEqual(audit.audit_root(root), 0)
 
             report = output.getvalue()
-            self.assertIn("Readable regular MP3 files: 4", report)
+            self.assertIn("Readable regular MP3 files: 5", report)
             self.assertIn("R2_Beep_Curious.MP3 [curious]", report)
             self.assertIn("Beep candidates: 3", report)
-            self.assertIn("Whistle candidates: 1", report)
+            self.assertIn("Whistle candidates: 2", report)
             self.assertIn("State curious: exact=beep", report)
             self.assertIn("State greeting: exact=beep", report)
             self.assertIn("State happy: exact=whistle; generic fallback=beep", report)
+            self.assertIn("State hungry: generic fallback=beep; unlabelled fallback=whistle", report)
             self.assertIn("does not decode MP3s", report)
             after = {p.name: (p.is_dir(), p.read_bytes() if p.is_file() else None)
                      for p in root.iterdir()}
