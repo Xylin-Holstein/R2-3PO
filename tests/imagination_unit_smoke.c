@@ -301,8 +301,9 @@ int main(void)
     if (!check(r2_imagination_feedback(branch_id, "incorrect", "Later observation contradicted it.") == 0,
                "incorrect imagination can be recorded without punishment")) goto done;
     if (!check(rewards_applied == 0, "incorrect imagination applies no reward or penalty")) goto done;
-    if (!check(r2_imagination_feedback(branch_id, "accurate", "") == -2,
-               "positive feedback requires evidence notes")) goto done;
+    if (!check(r2_imagination_feedback(branch_id, "accurate", "") == -2
+               && r2_imagination_feedback(branch_id, "accurate", "   \\t\\r\\n") == -2,
+               "positive feedback requires non-empty, non-whitespace evidence notes")) goto done;
     if (!check(rewards_applied == 0, "missing evidence does not reward")) goto done;
     if (!check(r2_imagination_feedback(branch_id, "accurate", "Later direct observation matched the prediction.") == 0,
                "evidence-backed accurate feedback is accepted")) goto done;
