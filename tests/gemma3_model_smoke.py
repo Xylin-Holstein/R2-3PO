@@ -42,6 +42,11 @@ require(
     "launcher explicitly selects the unified vision model",
 )
 require(
+    "127.0.0.1:11434/api/tags" in launcher
+    and "Start Ollama, then run: ollama pull gemma4:e2b" in launcher,
+    "launcher fails early with actionable instructions if the local model is unavailable",
+)
+require(
     'strcmp(configured, R2_VISION_DEFAULT_MODEL) != 0' in visual
     and 'strcmp(model, R2_VISION_DEFAULT_MODEL) != 0' in visual,
     "environment overrides and runtime setter cannot split conversation and vision models",
@@ -130,6 +135,11 @@ require(
     and "char *r2_model_generate_audio(" in core
     and "R2_OLLAMA_MODEL" in core,
     "audio input uses the shared Gemma model and existing Ollama transport",
+)
+require(
+    '"RIFF"' in core and '"WAVE"' in core
+    and "file_size > 2 * 1024 * 1024" in core,
+    "audio inference validates WAV input and bounds encoded audio memory",
 )
 require(
     "r2_ears_listen(seconds)" in shell
