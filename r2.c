@@ -4614,8 +4614,13 @@ static char *process_tools(
         char _b[8192];                                                \
         int _n = snprintf(_b, sizeof(_b), __VA_ARGS__);              \
         if (_n > 0) {                                                 \
-            if (len + (size_t)_n + 1 > cap) {                        \
-                while (cap < len + (size_t)_n + 1)                   \
+            /* snprintf reports the required length, which may exceed   \
+               _b. Clamp to the bytes actually stored to avoid reading  \
+               past this stack buffer on long tool/context output. */   \
+            size_t _append_n = (size_t)_n;                            \
+            if (_append_n >= sizeof(_b)) _append_n = sizeof(_b) - 1;  \
+            if (len + _append_n + 1 > cap) {                         \
+                while (cap < len + _append_n + 1)                    \
                     cap *= 2;                                        \
                 char *_grown = realloc(results, cap);                \
                 if (!_grown) {                                       \
@@ -4624,8 +4629,8 @@ static char *process_tools(
                 }                                                     \
                 results = _grown;                                    \
             }                                                         \
-            memcpy(results + len, _b, (size_t)_n);                   \
-            len += (size_t)_n;                                       \
+            memcpy(results + len, _b, _append_n);                     \
+            len += _append_n;                                         \
             results[len] = '\0';                                     \
         }                                                             \
     } while (0)
