@@ -6492,7 +6492,7 @@ static char *r2_audio_file_base64(const char *wav_path)
         encoded[o++] = remain > 1 ? alphabet[((b & 0x0f) << 2) | ((c >> 6) & 0x03)] : '=';
         encoded[o++] = remain > 2 ? alphabet[c & 0x3f] : '=';
     }
-    encoded[o] = '\\0';
+    encoded[o] = '\0';
     free(bytes);
     return encoded;
 }
