@@ -35,13 +35,16 @@ use the same local `gemma4:e2b` model. Audio input is sent as a WAV through Olla
 multimodal message payload; R2 does not need a separate speech model.
 
 Use `ears listen` to capture up to 5 seconds from the default microphone, or
-`ears listen 1` through `ears listen 30` to choose a duration. Listening is
-user-triggered; R2 does not silently record continuously. The captured audio is
-downsampled to 16 kHz mono, interpreted locally, and the transcript/sound description
-is saved to the existing searchable memory and Life Log. The interpretation can be
-uncertain, so review it before treating it as a verified fact. The model is instructed
-not to identify people by voice. Audio analysis shares the existing Ollama request gate
-and yields rather than competing with a foreground conversation. Vision uses the same
+`ears listen 1` through `ears listen 30` to choose a duration. Conversation can also
+request `[HEAR] 5 [END HEAR]`, but a runtime guard checks the latest user message for
+explicit listening/transcription intent and blocks capture otherwise; only one clip
+can be captured per turn. Listening is user-triggered; R2 does not silently record
+continuously. The captured audio is downsampled to 16 kHz mono, interpreted locally,
+and the transcript/sound description is saved to the existing searchable memory and
+Life Log. The interpretation can be uncertain, so review it before treating it as a
+verified fact. The model is instructed not to identify people by voice. Audio analysis
+shares the existing Ollama request gate and yields rather than competing with a
+foreground conversation. Vision uses the same
 priority gate. Ordinary conversation does not trigger a new frame analysis unless the
 user asks about visual context; ongoing Eyes/VLC observation can continue through its
 existing watcher. If a vision request cannot run, its incomplete result is discarded
