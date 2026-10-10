@@ -142,7 +142,7 @@ require(
     and "r2_reward_context()" in imagination
     and "r2_addiction_report()" in imagination
     and "r2_altself_list(6)" in imagination,
-    "imagination retrieves from existing memory, diary, Life Log, Reality, visual, reward, habit, and Choice Lab systems",
+    "imagination retrieves from active conversation, memory, diary, Life Log, Reality, visual, reward, habit, and Choice Lab systems",
 )
 require(
     'r2_fridge_context()' in imagination
