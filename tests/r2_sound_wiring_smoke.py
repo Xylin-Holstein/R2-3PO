@@ -15,6 +15,7 @@ checks = {
     "Makefile builds and tracks the sound module": "R2Sounds.c" in makefile and "R2Sounds.h" in makefile,
     "sound selection scans the configured FX directory": "R2_SOUNDS_DEFAULT_FX_DIR" in sounds and "opendir(fx_dir)" in sounds,
     "sound scheduling records an event in the existing Life Log": 'r2_log_event(R2_LOG_SENSORY, "sound_effect_scheduled"' in sounds,
+    "core stops/reaps audio playback on shutdown": "r2_sounds_shutdown();" in r2,
 }
 failed = [label for label, ok in checks.items() if not ok]
 for label, ok in checks.items():
