@@ -99,15 +99,27 @@ require(
 )
 require(
     "REALITY CONTEXT: USE IT, DO NOT RECITE IT" in core
-    and "Never copy, dump, or narrate the whole context block" in core
-    and "Let current needs and available resources inform decisions." in core,
-    "Reality context is treated as internal evidence for grounded decisions, not user-facing text",
+    and "Never copy or narrate the whole block" in core
+    and "current situation or need" in core,
+    "Reality context is internal evidence and actions must connect situation to purpose",
 )
 require(
     "[WORLD] eat|EXACT_ITEM_NAME|auto" in core
     and "[WORLD] fridge_eat|EXACT_FRIDGE_ITEM_NAME" in core
-    and "the final response must still answer the user naturally" in core,
-    "supported need-driven food actions remain connected to a natural follow-up reply",
+    and "use only action markers and capabilities explicitly documented" in core,
+    "need-driven actions remain grounded in documented world capabilities",
+)
+require(
+    "Never treat a requested or planned action as completed until the tool result confirms it" in core
+    and "After an action, use the actual result" in core
+    and "An action does not replace conversation" in core,
+    "actions are checked, verified, interpreted, and connected back to conversation",
+)
+require(
+    "Consequential, destructive, external, or irreversible operations" in core
+    and "require appropriate user authorization" in core
+    and "Do not act just to look busy" in core,
+    "action selection respects purpose and authorization boundaries",
 )
 
 print("Gemma 3 unified-model contract checks passed.")
