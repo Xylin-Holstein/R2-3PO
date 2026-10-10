@@ -605,7 +605,7 @@ int r2_diary_init(void)
     result = sqlite3_busy_timeout(r2_diary_db, 5000);
     if (result != SQLITE_OK)
     {
-        fprintf(stderr, "[R2 DIARY] Could not configure SQLite busy timeout: %s\\n",
+        fprintf(stderr, "[R2 DIARY] Could not configure SQLite busy timeout: %s\n",
                 sqlite3_errmsg(r2_diary_db));
         sqlite3_close(r2_diary_db);
         r2_diary_db = NULL;
