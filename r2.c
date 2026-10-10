@@ -4615,10 +4615,14 @@ static char *process_tools(
         int _n = snprintf(_b, sizeof(_b), __VA_ARGS__);              \
         if (_n > 0) {                                                 \
             /* snprintf reports the required length, which may exceed   \
-               _b. Clamp to the bytes actually stored to avoid reading  \
-               past this stack buffer on long tool/context output. */   \
+               _b. Clamp to stored bytes and make truncation explicit. */\
             size_t _append_n = (size_t)_n;                            \
-            if (_append_n >= sizeof(_b)) _append_n = sizeof(_b) - 1;  \
+            if (_append_n >= sizeof(_b)) {                            \
+                static const char _truncated[] = "\\n[tool output truncated]"; \
+                _append_n = sizeof(_b) - 1 - (sizeof(_truncated) - 1);\
+                memcpy(_b + _append_n, _truncated, sizeof(_truncated) - 1); \
+                _append_n += sizeof(_truncated) - 1;                  \
+            }                                                         \
             if (len + _append_n + 1 > cap) {                         \
                 while (cap < len + _append_n + 1)                    \
                     cap *= 2;                                        \
