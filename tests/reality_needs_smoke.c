@@ -229,6 +229,15 @@ int main(void)
         "ON CONFLICT(name) DO UPDATE SET description='Guaranteed filling burger generated because the fridge was empty',quantity=1",
         NULL, NULL, NULL) != SQLITE_OK) fail("could not seed legacy phantom-food record");
     sqlite3_close(fridge);
+    if (sqlite3_open(path, &db) != SQLITE_OK)
+        fail("could not open Reality database for legacy tracked-food cleanup test");
+    if (sqlite3_exec(db,
+        "INSERT INTO r2_reality_objects(name,description,quantity,container,owner) "
+        "VALUES('legacy_phantom_burger','Guaranteed filling burger generated because the fridge was empty',1,'pockets','R2') "
+        "ON CONFLICT(name) DO UPDATE SET description='Guaranteed filling burger generated because the fridge was empty',quantity=1,container='pockets'",
+        NULL, NULL, NULL) != SQLITE_OK)
+        fail("could not seed legacy phantom-food copy in tracked inventory");
+    sqlite3_close(db);
     r2_reality_shutdown();
     if (r2_reality_init() != 0) fail("Reality restart failed");
     if (sqlite3_open(fridge_path, &fridge) != SQLITE_OK) fail("could not reopen fridge after legacy cleanup");
