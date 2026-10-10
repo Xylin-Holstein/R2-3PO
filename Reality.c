@@ -1023,7 +1023,7 @@ int r2_fridge_take(const char *food)
             fridge_mirror_write(food, desc, qty, fullness, energy);
         pthread_mutex_unlock(&fridge_lock);
         if (restore_rc != 0)
-            fprintf(stderr, "[R2 Fridge] Failed to restore '%s' after a failed take; stock may need inspection.\\n", food);
+            fprintf(stderr, "[R2 Fridge] Failed to restore '%s' after a failed take; stock may need inspection.\n", food);
         return -1;
     }
     pthread_mutex_lock(&fridge_lock); rc = fridge_seed_if_empty_locked(); pthread_mutex_unlock(&fridge_lock);
@@ -1053,7 +1053,7 @@ int r2_reality_fridge_eat(const char *food, double fullness)
         if (restore_rc != 0) {
             if (qty == 1) fridge_mirror_remove(food);
             else fridge_mirror_write(food, desc, qty - 1, stored_fullness, energy);
-            fprintf(stderr, "[R2 Fridge] Failed to restore non-nutritive stock '%s'.\\n", food);
+            fprintf(stderr, "[R2 Fridge] Failed to restore non-nutritive stock '%s'.\n", food);
         }
         rc = -1;
     }
@@ -1076,7 +1076,7 @@ int r2_reality_fridge_eat(const char *food, double fullness)
         }
         pthread_mutex_unlock(&fridge_lock);
         if (restore_rc != 0)
-            fprintf(stderr, "[R2 Fridge] Failed to restore '%s' after an unsuccessful meal; stock may need inspection.\\n", food);
+            fprintf(stderr, "[R2 Fridge] Failed to restore '%s' after an unsuccessful meal; stock may need inspection.\n", food);
         return -1;
     }
     pthread_mutex_lock(&fridge_lock); rc = fridge_seed_if_empty_locked(); pthread_mutex_unlock(&fridge_lock);
