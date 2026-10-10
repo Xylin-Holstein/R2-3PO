@@ -491,8 +491,13 @@ int r2_imagination_feedback(long long branch_id, const char *assessment,
         strspn(notes, " \t\r\n") == strlen(notes))) return -2;
 
     char *branch = r2_altself_show((int64_t)branch_id);
+    /* A display-name prefix is not proof that this branch was created by
+       this subsystem: users can name ordinary Choice Lab branches anything.
+       Require the persistent, explicit provenance marker before accepting
+       imagination feedback or granting its one-time positive signal. */
     if (!branch || strstr(branch, "No Alternate-Self branches found") ||
-        !strstr(branch, "Imagination: ")) {
+        !strstr(branch, "Imagination: ") ||
+        !strstr(branch, "IMAGINATION RECORD — hypothetical only; not a real event")) {
         free(branch);
         return -1;
     }
