@@ -138,6 +138,7 @@ require(
 
 imagination = read("Imagination.c")
 imagination_header = read("Imagination.h")
+imagination_header = read("Imagination.h")
 makefile = read("Makefile")
 require(
     "for (size_t i = messages.count; i > start && used < max_chars; )" in core
@@ -206,7 +207,10 @@ require(
     and "r2_imagination_create(trim(request))" in core
     and "r2_model_generate" in header
     and "Imagination.c" in launcher
-    and "Imagination.c" in makefile,
+    and "Imagination.c" in makefile
+    and "r2_imagination_is_initialized(void)" in imagination_header
+    and "Imagination      : %s" in core
+    and "r2_imagination_is_initialized()" in core,
     "natural-language imagination tool, shared model entry point, launcher, and standard build are connected",
 )
 require(
