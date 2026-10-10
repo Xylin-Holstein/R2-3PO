@@ -5464,11 +5464,16 @@ static char *process_tools(
             APPEND("FRIDGE %s: '%s' %s.\n", rc == 0 ? "RESULT" : "ERROR", fields[1],
                    rc == 0 ? "was moved from inventory into the fridge" : "could not be stored");
         } else if (nf >= 3 && !strcasecmp(fields[0], "eat")) {
-            double fullness = !strcasecmp(fields[2], "auto") ? -1.0 : atof(fields[2]);
-            int rc = r2_eat_and_learn(fields[1], fullness);
+            /* The XML metric is authoritative for tracked food. Do not let
+               model output invent a fullness value with atof() (which also
+               silently turns malformed text into zero). */
+            int valid_metric_request = !strcasecmp(fields[2], "auto");
+            int rc = valid_metric_request ? r2_eat_and_learn(fields[1], -1.0) : -1;
             APPEND("REAL NEEDS %s: eating '%s' %s.\n",
                    rc == 0 ? "RESULT" : "ERROR", fields[1],
-                   rc == 0 ? "updated persistent hunger and energy" : "could not update hunger");
+                   rc == 0 ? "updated persistent hunger and energy" :
+                   (valid_metric_request ? "failed; item or authoritative food metric is unavailable" :
+                                           "failed; use auto so the configured food metric remains authoritative"));
         } else if (nf >= 4 && !strcasecmp(fields[0], "ratefood")) {
             char *end = NULL;
             long score = strtol(fields[2], &end, 10);
