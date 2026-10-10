@@ -146,21 +146,22 @@ static int token_in_group(const char *token, const char *const *group)
 static int state_alias_match(const char *requested,
                             char tokens[][R2_SOUND_TOKEN_MAX], int count)
 {
+    static const char *const curious[] = {"curious", "curiosity", NULL};
+    static const char *const happy[] = {"happy", "happiness", "joy", "cheerful", "pleased", NULL};
+    static const char *const confused[] = {"confused", "confusion", "uncertain", "puzzled", NULL};
+    static const char *const alert[] = {"alert", "attention", "warning", "alarm", NULL};
+    static const char *const sad[] = {"sad", "sadness", "disappointed", NULL};
+    static const char *const sleepy[] = {"sleepy", "tired", "exhausted", "drowsy", NULL};
+    static const char *const hungry[] = {"hungry", "hunger", NULL};
+    static const char *const excited[] = {"excited", "excitement", "enthusiastic", NULL};
+    static const char *const thinking[] = {"thinking", "think", "processing", "pondering", NULL};
+    static const char *const greeting[] = {"greeting", "greet", "hello", "welcome", "acknowledge", "acknowledgement", NULL};
+    static const char *const confirm[] = {"confirm", "affirmative", "yes", NULL};
+    static const char *const neutral[] = {"neutral", "default", "idle", "normal", "generic", NULL};
+    static const char *const resting[] = {"sleep", "resting", NULL};
     static const char *const *const groups[] = {
-        (const char *const[]){"curious", "curiosity", NULL},
-        (const char *const[]){"happy", "happiness", "joy", "cheerful", "pleased", NULL},
-        (const char *const[]){"confused", "confusion", "uncertain", "puzzled", NULL},
-        (const char *const[]){"alert", "attention", "warning", "alarm", NULL},
-        (const char *const[]){"sad", "sadness", "disappointed", NULL},
-        (const char *const[]){"sleepy", "tired", "exhausted", "drowsy", NULL},
-        (const char *const[]){"hungry", "hunger", NULL},
-        (const char *const[]){"excited", "excitement", "enthusiastic", NULL},
-        (const char *const[]){"thinking", "think", "processing", "pondering", NULL},
-        (const char *const[]){"greeting", "greet", "hello", "welcome", "acknowledge", "acknowledgement", NULL},
-        (const char *const[]){"confirm", "affirmative", "yes", NULL},
-        (const char *const[]){"neutral", "default", "idle", "normal", "generic", NULL},
-        (const char *const[]){"sleep", "resting", NULL},
-        NULL
+        curious, happy, confused, alert, sad, sleepy, hungry, excited,
+        thinking, greeting, confirm, neutral, resting, NULL
     };
     for (size_t g = 0; groups[g]; ++g) {
         if (!token_in_group(requested, groups[g])) continue;
