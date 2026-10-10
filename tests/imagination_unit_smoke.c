@@ -199,6 +199,25 @@ char *r2_model_generate(const char *system_prompt, const char *user_prompt, int 
     return strdup("Hypothetical only: a generic scene without retrieved grounding.");
 }
 
+static int feedback_mentions_scenario(void)
+{
+    sqlite3 *db = NULL;
+    sqlite3_stmt *st = NULL;
+    int count = 0;
+    if (sqlite3_open(R2_DIARY_DATABASE, &db) != SQLITE_OK) {
+        if (db) sqlite3_close(db);
+        return 0;
+    }
+    if (sqlite3_prepare_v2(db,
+        "SELECT COUNT(*) FROM r2_log_events WHERE event_type='imagination_feedback' "
+        "AND summary LIKE '%first movie%'", -1, &st, NULL) == SQLITE_OK &&
+        sqlite3_step(st) == SQLITE_ROW)
+        count = sqlite3_column_int(st, 0);
+    if (st) sqlite3_finalize(st);
+    sqlite3_close(db);
+    return count > 0;
+}
+
 static int count_feedback_links(void)
 {
     sqlite3 *db = NULL;
@@ -287,7 +306,7 @@ int main(void)
     if (!check(rewards_applied == 0, "missing evidence does not reward")) goto done;
     if (!check(r2_imagination_feedback(branch_id, "accurate", "Later direct observation matched the prediction.") == 0,
                "evidence-backed accurate feedback is accepted")) goto done;
-    if (!check(rewards_applied == 1 && count_feedback_links() == 2,
+    if (!check(rewards_applied == 1 && count_feedback_links() == 2 && feedback_mentions_scenario(),
                "feedback is linked to the persistent hypothetical branch and rewards once")) goto done;
     if (!check(r2_imagination_feedback(branch_id, "accurate", "The same observation still matches.") == 2
                && reward_calls == 2 && rewards_applied == 1,
