@@ -119,14 +119,17 @@ static char *collect_context(const char *request)
     /* The fridge is a specialized, conditional source—not the definition of
        imagination. Include it only when the request makes food/inventory relevant.
        Current modeled contents and historical food memories remain distinct. */
-    static const char *const food_terms[] = {
-        "fridge", "refrigerator", "food", "meal", "ingredient", "cook",
-        "cooking", "eat", "eating", "snack", "burger", "sandwich",
-        "leftovers", "hungry", "kitchen", "taste", "recipe"
+    static const char *const fridge_terms[] = {
+        "fridge", "refrigerator", "fridge stock", "what is in the fridge",
+        "what's in the fridge", "what is in my fridge", "what's in my fridge",
+        "what food do i have", "what ingredients do i have",
+        "available ingredients", "cook with what i have", "what can i make",
+        "what is available to eat", "what's available to eat",
+        "current food stock", "food inventory"
     };
-    if (mentions_any(request, food_terms, sizeof(food_terms)/sizeof(food_terms[0]))) {
+    if (mentions_any(request, fridge_terms, sizeof(fridge_terms)/sizeof(fridge_terms[0]))) {
         part = r2_fridge_context();
-        if (part) { append_source(&b, "FRIDGE STATE (conditional context; modeled stock, not an invitation to alter it)", part, 700); free(part); }
+        if (part) { append_source(&b, "FRIDGE STATE (only because the request asks about current food/inventory; modeled stock, not an invitation to alter it)", part, 700); free(part); }
     }
 
     if (!b.data) {
