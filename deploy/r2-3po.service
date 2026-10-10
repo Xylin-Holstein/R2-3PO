@@ -16,7 +16,7 @@ Environment=R2_EXEC=/home/x/R2_Home/r2
 Environment=R2_FX_DIR=/home/x/R2_Home/R2_sounds/FX
 Environment=R2_SERVICE_MODE=1
 ExecStart=/home/x/R2_Home/R2/tools/r2_service_runner.sh
-Restart=on-failure
+Restart=always
 RestartSec=10
 KillSignal=SIGTERM
 TimeoutStopSec=60
