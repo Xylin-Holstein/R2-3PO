@@ -244,7 +244,7 @@ sudo systemctl start r2-3po.service
 sudo systemctl disable r2-3po.service
 ```
 
-The supervisor restarts failed runs, waits up to 60 seconds for the local Ollama API and `gemma3:4b`, and logs preflight failures to the journal. The runner uses the existing `libfaketime` installation to keep R2's private clock starting in 1999 and advancing continuously; it does not alter Linux's actual clock, run `apt-get update`, or pull models automatically. A sleep inhibitor requests that the host not suspend during the session; firmware, power loss, forced shutdown, and administrative overrides can still stop it.
+The supervisor restarts unexpected exits, waits up to 60 seconds for the local Ollama API and `gemma3:4b`, and logs preflight failures to the journal. The runner uses the existing `libfaketime` installation to keep R2's private clock starting in 1999 and advancing continuously; it does not alter Linux's actual clock, run `apt-get update`, or pull models automatically. A sleep inhibitor requests that the host not suspend during the session; firmware, power loss, forced shutdown, and administrative overrides can still stop it.
 
 Sound assets remain host-local at `/home/x/R2_Home/R2_sounds/FX`. Service startup checks core prerequisites but does not prove speaker playback, camera permissions, microphone capture, or GUI/VLC integration. Verify those against the actual desktop/audio session after startup. Use `R2_Launch_Code.sh` for the existing interactive desktop shell and Observer window.
 
