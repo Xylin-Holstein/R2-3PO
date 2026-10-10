@@ -360,6 +360,8 @@ int main(void)
     if (!check(branch && strstr(branch, "Imagination: Imagine the first movie") &&
                strstr(branch, "Imagine the first movie in the CRT room.") &&
                strstr(branch, "Context sources consulted before generation") &&
+               strstr(branch, "context_for_imagination") &&
+               strstr(branch, "LIFELOG_SENTINEL") &&
                !strstr(branch, "MEMORY_SENTINEL") && count_feedback_links() == 3
                && count_context_links() >= 1,
                "the branch, non-duplicating provenance, context links, and linked feedback survive a database restart")) goto done;
