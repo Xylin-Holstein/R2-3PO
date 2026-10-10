@@ -111,6 +111,7 @@ int main(void)
     free(clean);
     assert(r2_sounds_play("beep", "curious") == 0);
     r2_sounds_shutdown();
+    assert(r2_sounds_play("beep", "curious") != 0);
     unlink(player_path);
 
     const char *const names[] = {
