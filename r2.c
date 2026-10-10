@@ -8061,6 +8061,13 @@ void r2_shutdown(void)
 
 int main(void)
 {
+    const char *service_mode = getenv("R2_SERVICE_MODE");
+    if (service_mode && !strcmp(service_mode, "1")) {
+        /* systemd captures pipes, not a terminal; flush each log line promptly. */
+        (void)setvbuf(stdout, NULL, _IOLBF, 0);
+        (void)setvbuf(stderr, NULL, _IOLBF, 0);
+    }
+
     if (r2_init() != 0)
         return 1;
 
