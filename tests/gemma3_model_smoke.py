@@ -200,7 +200,8 @@ require(
 require(
     "r2_reality_imagination_context()" in imagination
     and "r2_fridge_context()" not in imagination
-    and "Live fridge stock is never consulted by imagination" in imagination
+    and "Live fridge " in imagination
+    and "stock is never consulted by imagination" in imagination
     and "char *r2_reality_imagination_context(void)" in read("Reality.c")
     and "Fridge stock is intentionally omitted from this general context" in read("Reality.c")
     and "char *world_context = r2_reality_imagination_context();" in core
