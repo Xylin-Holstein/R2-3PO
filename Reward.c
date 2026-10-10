@@ -366,6 +366,34 @@ int r2_reward_apply(const char *target, const char *source, int points,
     return 0;
 }
 
+
+/* Idempotent positive reinforcement for one verified branch outcome.
+ * Returns 0 if applied, 1 if this target/source was already rewarded, -1 on error. */
+int r2_reward_apply_once(const char *target, const char *source, int points,
+                         const char *reason, int voluntary_choice)
+{
+    if (!target || !*target || !source || !*source) return -1;
+    pthread_mutex_lock(&reward_lock);
+    if (ensure_db_locked() != 0) {
+        pthread_mutex_unlock(&reward_lock);
+        return -1;
+    }
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(reward_db,
+        "SELECT 1 FROM reward_events WHERE target=? AND source=? LIMIT 1",
+        -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        sqlite3_bind_text(st, 1, target, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(st, 2, source, -1, SQLITE_TRANSIENT);
+        rc = sqlite3_step(st);
+    }
+    sqlite3_finalize(st);
+    pthread_mutex_unlock(&reward_lock);
+    if (rc == SQLITE_ROW) return 1;
+    if (rc != SQLITE_DONE) return -1;
+    return r2_reward_apply(target, source, points, reason, voluntary_choice);
+}
+
 int r2_reward_reconnect_history(int limit)
 {
     PendingReward *pending = NULL;
