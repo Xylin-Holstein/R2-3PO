@@ -92,8 +92,13 @@ require(
     "vision inference bounds image dimensions and FFmpeg thread usage",
 )
 require(
-    '{"eli", "mother"}' in core and '{"mother", "eli"}' in core,
-    "memory retrieval resolves Eli and Mother bidirectionally",
+    '{"mother", "mom"}' in core and '{"mom", "mother"}' in core,
+    "memory retrieval resolves the explicitly supported Mom/Mother relationship aliases without inventing a name alias",
+)
+require(
+    "Never echo internal retrieval scaffolding" in core
+    and "raw [self]/[experience]/[CATEGORY] blocks" in core,
+    "user-facing replies are instructed not to leak raw internal retrieval context",
 )
 require(
     "if (needs_turn_summary)" in core,
