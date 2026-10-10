@@ -7931,6 +7931,9 @@ void r2_shutdown(void)
         pthread_cond_wait(&post_turn_cond, &post_turn_lock);
     pthread_mutex_unlock(&post_turn_lock);
 
+    /* Reap any short sound player before closing the Life Log. */
+    r2_sounds_shutdown();
+
     if (ears) {
         r2_ears_shutdown(ears);
         ears = NULL;
