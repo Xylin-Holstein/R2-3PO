@@ -138,8 +138,13 @@ require(
 
 imagination = read("Imagination.c")
 imagination_header = read("Imagination.h")
-imagination_header = read("Imagination.h")
 makefile = read("Makefile")
+readme = read("README.md")
+require(
+    "Reward.c AlternateSelf.c Imagination.c Visual.c" in readme
+    and "these twelve C translation units" in readme,
+    "the documented direct build includes the imagination source and the full source inventory count is current",
+)
 require(
     "for (size_t i = messages.count; i > start && used < max_chars; )" in core
     and "RECENT ACTIVE CONVERSATION (newest first;" in imagination,
