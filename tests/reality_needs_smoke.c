@@ -21,8 +21,6 @@ static void fail(const char *message)
 static void read_needs(double *hunger, double *sleepiness, double *energy,
                        double *satisfaction, double *since_meal)
 {
-    char path[1024];
-    snprintf(path, sizeof(path), "%s/r2_reality.db", R2_HOME);
     sqlite3 *db = NULL;
     sqlite3_stmt *st = NULL;
     if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not open Reality database");
@@ -60,7 +58,37 @@ int main(void)
     if (r2_reality_eat("nan_fullness", -1.0) == 0)
         fail("non-finite fullness metric must be rejected instead of corrupting needs");
 
+    /* A malformed energy bonus must fall back to the finite fullness-derived
+       bonus rather than propagating NaN into the persistent energy column. */
+    if (r2_reality_add_item("nan_energy", "Finite fallback metric test", "pockets", 1) != 0)
+        fail("could not add tracked item for malformed energy metric test");
     char path[1024];
+    snprintf(path, sizeof(path), "%s/r2_reality.db", R2_HOME);
+    sqlite3 *metric_db = NULL;
+    sqlite3_stmt *metric_st = NULL;
+    if (sqlite3_open(path, &metric_db) != SQLITE_OK)
+        fail("could not open Reality DB for malformed energy metric test");
+    if (sqlite3_exec(metric_db, "UPDATE r2_reality_self SET energy=50,hunger=30 WHERE id=1",
+                     NULL, NULL, NULL) != SQLITE_OK)
+        fail("could not set energy baseline for malformed metric test");
+    sqlite3_close(metric_db);
+    if (r2_reality_eat("nan_energy", -1.0) != 0)
+        fail("finite fullness with malformed energy bonus should use safe default");
+    if (sqlite3_open(path, &metric_db) != SQLITE_OK)
+        fail("could not reopen Reality DB after malformed energy metric test");
+    if (sqlite3_prepare_v2(metric_db, "SELECT energy FROM r2_reality_self WHERE id=1",
+                           -1, &metric_st, NULL) != SQLITE_OK)
+        fail("could not query energy after malformed metric test");
+    if (sqlite3_step(metric_st) != SQLITE_ROW ||
+        sqlite3_column_double(metric_st, 0) < 51.9 ||
+        sqlite3_column_double(metric_st, 0) > 52.1)
+        fail("malformed energy bonus must fall back to fullness-derived finite energy");
+    sqlite3_finalize(metric_st);
+    sqlite3_close(metric_db);
+    if (r2_reality_remove_item("nan_energy") != 0)
+        fail("could not remove malformed energy metric test item");
+
+
     snprintf(path, sizeof(path), "%s/r2_reality.db", R2_HOME);
     sqlite3 *db = NULL;
     sqlite3_stmt *st = NULL;
