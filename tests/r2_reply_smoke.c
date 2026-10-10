@@ -32,7 +32,7 @@ int main(void)
 
     reply = r2_reply_sanitize("We need answer the user with a concise response.");
     assert(reply == NULL);
-    reply = r2_reply_sanitize("We need answer the user.\\nFinal: Here is the answer.");
+    reply = r2_reply_sanitize("We need answer the user.\nFinal: Here is the answer.");
     assert(reply && !strcmp(reply, "Here is the answer."));
     free(reply);
 
