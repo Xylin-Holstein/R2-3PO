@@ -30,6 +30,7 @@ static pthread_mutex_t sound_lock = PTHREAD_MUTEX_INITIALIZER;
 static pid_t sound_child = -1;
 static struct timespec last_sound_at;
 static int have_last_sound_at;
+static int sound_shutting_down;
 
 static int is_mp3_name(const char *name)
 {
@@ -281,6 +282,10 @@ int r2_sounds_play(const char *kind, const char *state)
         return -1;
 
     pthread_mutex_lock(&sound_lock);
+    if (sound_shutting_down) {
+        pthread_mutex_unlock(&sound_lock);
+        return -1;
+    }
     if (getenv("R2_SOUNDS_DISABLE_PLAYBACK") &&
         !strcmp(getenv("R2_SOUNDS_DISABLE_PLAYBACK"), "1")) {
         pthread_mutex_unlock(&sound_lock);
@@ -335,6 +340,7 @@ int r2_sounds_play(const char *kind, const char *state)
 void r2_sounds_shutdown(void)
 {
     pthread_mutex_lock(&sound_lock);
+    sound_shutting_down = 1;
     pid_t child = sound_child;
     sound_child = -1;
     have_last_sound_at = 0;
