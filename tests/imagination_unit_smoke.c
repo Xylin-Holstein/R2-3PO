@@ -237,9 +237,11 @@ int main(void)
     free(result); result = NULL;
 
     list = r2_altself_list(1);
-    if (!check(list && sscanf(list, "Branch #%lld", (long long *)&branch_id) == 1 &&
-               branch_id > 0,
+    long long parsed_branch_id = 0;
+    if (!check(list && sscanf(list, "Branch #%lld", &parsed_branch_id) == 1 &&
+               parsed_branch_id > 0,
                "scenario is persisted as a real Choice Lab branch")) goto done;
+    branch_id = (int64_t)parsed_branch_id;
     free(list); list = NULL;
 
     result = r2_imagination_create("Imagine what I can make with what I have in the fridge.");
