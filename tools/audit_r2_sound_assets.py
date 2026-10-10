@@ -46,7 +46,8 @@ def audit_root(root: Path) -> int:
         return 2
     try:
         files = sorted((p for p in root.iterdir()
-                        if p.suffix.lower() == ".mp3" and p.is_file()\n                        and os.access(p, os.R_OK)),
+                        if p.suffix.lower() == ".mp3" and p.is_file()
+                        and os.access(p, os.R_OK)),
                        key=lambda p: p.name.casefold())
     except OSError as exc:
         print(f"ERROR: cannot list sound directory {root}: {exc}")
