@@ -86,6 +86,16 @@ require(
     "visual inference uses the same memory settings as conversation",
 )
 require(
+    r"scale=w=min(1280\\,iw)" in visual
+    and r"h=min(720\\,ih)" in visual
+    and '"-threads", "1"' in visual,
+    "vision inference bounds image dimensions and FFmpeg thread usage",
+)
+require(
+    '{"eli", "mother"}' in core and '{"mother", "eli"}' in core,
+    "memory retrieval resolves Eli and Mother bidirectionally",
+)
+require(
     "if (needs_turn_summary)" in core,
     "the extra summary inference runs only for synthesis-heavy turns",
 )
