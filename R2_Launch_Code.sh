@@ -122,6 +122,19 @@ done
 echo "All R2 source modules found."
 echo
 
+# Fail early if the local inference service or required unified model is absent.
+# This check is deliberately before virtual time and before launching as user r2.
+echo "[1.5/4] Checking local Ollama and the unified Gemma 4 model..."
+if ! python3 -c 'import json, urllib.request; d=json.load(urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=3)); names={m.get("name", "") for m in d.get("models", [])}; raise SystemExit(0 if "gemma4:e2b" in names else 1)' 2>/dev/null; then
+    echo "ERROR: R2 cannot reach the local Ollama API or gemma4:e2b is not installed."
+    echo "Start Ollama, then run: ollama pull gemma4:e2b"
+    echo "R2 was NOT launched."
+    read -p "Press Enter to exit..."
+    exit 1
+fi
+echo "Local Ollama is reachable and gemma4:e2b is installed."
+echo
+
 echo "[2/4] Configuring R2 private clock..."
 echo
 
