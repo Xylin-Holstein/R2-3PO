@@ -1,5 +1,6 @@
 import importlib.util
 import sqlite3
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -63,6 +64,35 @@ class DatabasePreflightTests(unittest.TestCase):
             copied.close()
             with self.assertRaises(FileExistsError):
                 audit.snapshot_database(source, snapshot)
+
+    def test_snapshot_is_private_and_existing_set_is_refused_before_partial_copy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "source"
+            snapshot_dir = Path(directory) / "snapshots"
+            root.mkdir()
+            source = root / "r2_reality.db"
+            db = sqlite3.connect(source)
+            db.execute("CREATE TABLE safe (value TEXT)")
+            db.execute("INSERT INTO safe VALUES ('source')")
+            db.commit()
+            db.close()
+
+            snapshot_dir.mkdir()
+            stale = snapshot_dir / "r2_fridge.db"
+            stale.write_text("preserve me", encoding="utf-8")
+            with self.assertRaises(FileExistsError):
+                audit.create_snapshot_set(root, snapshot_dir)
+
+            self.assertFalse((snapshot_dir / "r2_reality.db").exists())
+            self.assertEqual(stale.read_text(encoding="utf-8"), "preserve me")
+
+            stale.unlink()
+            created = audit.create_snapshot_set(root, snapshot_dir)
+            self.assertEqual(created, [snapshot_dir / "r2_reality.db"])
+            self.assertEqual(stat.S_IMODE(created[0].stat().st_mode) & 0o077, 0)
+            snapshot = sqlite3.connect(created[0])
+            self.assertEqual(snapshot.execute("SELECT value FROM safe").fetchone()[0], "source")
+            snapshot.close()
 
     def test_empty_database_is_valid_and_missing_files_are_not_created(self):
         with tempfile.TemporaryDirectory() as directory:
