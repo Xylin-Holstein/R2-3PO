@@ -2458,30 +2458,48 @@ char *r2_reality_money_context(void)
         cash/100.0,bank/100.0,(cash+bank)/100.0);
     return strdup(out);
 }
-static int money_transfer(double amount,int deposit)
+static int money_transfer(double amount, int deposit)
 {
-    if(!r2_reality_is_initialized()||!isfinite(amount)||amount<=0.0||amount>1000000.0)return -1;
-    sqlite3_int64 cents=(sqlite3_int64)llround(amount*100.0),cash=0,bank=0;
-    if(cents<=0||fabs(amount*100.0-(double)cents)>0.0001)return -1;
-    char wallet[1200],piggybank[1200];
-    money_dir_path(0,wallet,sizeof(wallet)); money_dir_path(1,piggybank,sizeof(piggybank));
+    if (!r2_reality_is_initialized() || !isfinite(amount) ||
+        amount <= 0.0 || amount > 1000000.0) return -1;
+    sqlite3_int64 cents = (sqlite3_int64)llround(amount * 100.0);
+    if (cents <= 0 || fabs(amount * 100.0 - (double)cents) > 0.0001) return -1;
+
+    char wallet[1200], piggybank[1200];
+    money_dir_path(0, wallet, sizeof(wallet));
+    money_dir_path(1, piggybank, sizeof(piggybank));
     pthread_mutex_lock(&reality_lock);
-    int rc=money_read_locked(&cash,&bank);
-    if(rc==0&&((deposit&&cash<cents)||(!deposit&&bank<cents)))rc=-1;
-    if(rc==0){
-        sqlite3_int64 new_cash=deposit?cash-cents:cash+cents;
-        sqlite3_int64 new_bank=deposit?bank+cents:bank-cents;
-        if(money_set_dir_balance(wallet,new_cash)!=0)rc=-1;
-        else if(money_set_dir_balance(piggybank,new_bank)!=0){
-            (void)money_set_dir_balance(wallet,cash);
-            (void)money_set_dir_balance(piggybank,bank);
-            rc=-1;
+    sqlite3_int64 cash = 0, bank = 0;
+    int rc = money_read_locked(&cash, &bank);
+    sqlite3_int64 old_cash = cash, old_bank = bank;
+    int mutation_started = 0;
+    if (rc == 0 && ((deposit && cash < cents) || (!deposit && bank < cents)))
+        rc = -1;
+
+    if (rc == 0) {
+        sqlite3_int64 new_cash = deposit ? cash - cents : cash + cents;
+        sqlite3_int64 new_bank = deposit ? bank + cents : bank - cents;
+        /* Either physical directory write can fail after changing some files.
+           Mark the transaction before the first write so both balances are
+           restored even when the first half fails part-way through. */
+        mutation_started = 1;
+        if (money_set_dir_balance(wallet, new_cash) != 0 ||
+            money_set_dir_balance(piggybank, new_bank) != 0 ||
+            money_read_locked(&cash, &bank) != 0) {
+            rc = -1;
         }
     }
-    if(rc==0)rc=money_read_locked(&cash,&bank);
+    if (rc != 0 && mutation_started) {
+        int wallet_restore = money_set_dir_balance(wallet, old_cash);
+        int bank_restore = money_set_dir_balance(piggybank, old_bank);
+        int mirror_restore = money_read_locked(&cash, &bank);
+        if (wallet_restore != 0 || bank_restore != 0 || mirror_restore != 0)
+            fprintf(stderr, "[R2 Money] CRITICAL: deposit/withdraw failed and balance rollback was incomplete; inspect Wallet and piggybank files.\\n");
+    }
     pthread_mutex_unlock(&reality_lock);
-    if(rc==0)money_mirror_write(cash,bank);
-    return rc;
+    if (rc == 0) money_mirror_write(cash, bank);
+    else if (mutation_started) money_mirror_write(cash, bank);
+    return rc == 0 ? 0 : -1;
 }
 int r2_reality_money_receive(double amount)
 {
@@ -2504,45 +2522,64 @@ int r2_reality_money_receive(double amount)
 }
 int r2_reality_money_deposit(double amount){return money_transfer(amount,1);}
 int r2_reality_money_withdraw(double amount){return money_transfer(amount,0);}
-int r2_reality_buy_item(const char *name,const char *description,double price,const char *container)
+int r2_reality_buy_item(const char *name, const char *description,
+                       double price, const char *container)
 {
-    if(!name||!*name||!isfinite(price)||price<=0.0||price>1000000.0||!r2_reality_is_initialized())return -1;
-    sqlite3_int64 cents=(sqlite3_int64)llround(price*100.0),cash=0,bank=0,old_cash=0,old_bank=0;
-    if(cents<=0||fabs(price*100.0-(double)cents)>0.0001)return -1;
-    char wallet[1200],piggybank[1200];
-    money_dir_path(0,wallet,sizeof(wallet));money_dir_path(1,piggybank,sizeof(piggybank));
+    if (!name || !*name || !isfinite(price) || price <= 0.0 ||
+        price > 1000000.0 || !r2_reality_is_initialized()) return -1;
+    sqlite3_int64 cents = (sqlite3_int64)llround(price * 100.0);
+    if (cents <= 0 || fabs(price * 100.0 - (double)cents) > 0.0001) return -1;
+
+    char wallet[1200], piggybank[1200];
+    money_dir_path(0, wallet, sizeof(wallet));
+    money_dir_path(1, piggybank, sizeof(piggybank));
     pthread_mutex_lock(&reality_lock);
-    int rc=money_read_locked(&cash,&bank);
-    old_cash=cash;old_bank=bank;
-    if(rc==0&&cash+bank<cents)rc=-1;
-    if(rc==0){
-        sqlite3_int64 spend_cash=cash<cents?cash:cents;
-        sqlite3_int64 spend_bank=cents-spend_cash;
-        if(money_set_dir_balance(wallet,cash-spend_cash)!=0)rc=-1;
-        else if(money_set_dir_balance(piggybank,bank-spend_bank)!=0){
-            (void)money_set_dir_balance(wallet,old_cash);
-            (void)money_set_dir_balance(piggybank,old_bank);
-            rc=-1;
-        }
+    sqlite3_int64 cash = 0, bank = 0;
+    int rc = money_read_locked(&cash, &bank);
+    sqlite3_int64 old_cash = cash, old_bank = bank;
+    int mutation_started = 0;
+    if (rc == 0 && cash + bank < cents) rc = -1;
+    if (rc == 0) {
+        sqlite3_int64 spend_cash = cash < cents ? cash : cents;
+        sqlite3_int64 spend_bank = cents - spend_cash;
+        mutation_started = 1;
+        if (money_set_dir_balance(wallet, cash - spend_cash) != 0 ||
+            money_set_dir_balance(piggybank, bank - spend_bank) != 0 ||
+            money_read_locked(&cash, &bank) != 0) rc = -1;
     }
-    if(rc==0)rc=money_read_locked(&cash,&bank);
+    if (rc != 0 && mutation_started) {
+        int wallet_restore = money_set_dir_balance(wallet, old_cash);
+        int bank_restore = money_set_dir_balance(piggybank, old_bank);
+        int mirror_restore = money_read_locked(&cash, &bank);
+        if (wallet_restore != 0 || bank_restore != 0 || mirror_restore != 0)
+            fprintf(stderr, "[R2 Money] CRITICAL: purchase failed and balance rollback was incomplete; inspect Wallet and piggybank files.\\n");
+    }
     pthread_mutex_unlock(&reality_lock);
-    if(rc!=0)return -1;
-    const char *destination=container&&*container?container:"pockets";
-    if(r2_reality_add_item(name,description?description:"Purchased item",destination,1)!=0){
-        pthread_mutex_lock(&reality_lock);
-        (void)money_set_dir_balance(wallet,old_cash);
-        (void)money_set_dir_balance(piggybank,old_bank);
-        (void)money_read_locked(&cash,&bank);
-        pthread_mutex_unlock(&reality_lock);
-        money_mirror_write(cash,bank);
+    if (rc != 0) {
+        if (mutation_started) money_mirror_write(cash, bank);
         return -1;
     }
-    money_mirror_write(cash,bank);
-    char summary[512],details[1024];
-    snprintf(summary,sizeof(summary),"R2 purchased %s for $%.2f.",name,cents/100.0);
-    snprintf(details,sizeof(details),"Item=%s; price=$%.2f; destination=%s; wallet cash paid first, then piggybank.",name,cents/100.0,destination);
-    bridge_event("purchase",summary,details,1,1);
+
+    const char *destination = container && *container ? container : "pockets";
+    if (r2_reality_add_item(name, description ? description : "Purchased item",
+                            destination, 1) != 0) {
+        pthread_mutex_lock(&reality_lock);
+        int wallet_restore = money_set_dir_balance(wallet, old_cash);
+        int bank_restore = money_set_dir_balance(piggybank, old_bank);
+        int mirror_restore = money_read_locked(&cash, &bank);
+        pthread_mutex_unlock(&reality_lock);
+        if (wallet_restore != 0 || bank_restore != 0 || mirror_restore != 0)
+            fprintf(stderr, "[R2 Money] CRITICAL: item creation failed and purchase rollback was incomplete; inspect Wallet and piggybank files.\\n");
+        money_mirror_write(cash, bank);
+        return -1;
+    }
+
+    money_mirror_write(cash, bank);
+    char summary[512], details[1024];
+    snprintf(summary, sizeof(summary), "R2 purchased %s for $%.2f.", name, cents / 100.0);
+    snprintf(details, sizeof(details), "Item=%s; price=$%.2f; destination=%s; wallet cash paid first, then piggybank.",
+             name, cents / 100.0, destination);
+    bridge_event("purchase", summary, details, 1, 1);
     return 0;
 }
 
