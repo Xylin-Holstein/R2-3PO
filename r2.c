@@ -8004,6 +8004,8 @@ int r2_init(void)
 
         hands_thread_started = 0;
 
+        r2_addiction_shutdown();
+        addiction_initialized = 0;
         r2_diary_shutdown();
         sqlite3_close(db);
         db = NULL;
