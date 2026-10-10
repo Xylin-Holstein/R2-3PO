@@ -54,6 +54,10 @@ int main(void)
     assert(strstr(path, "R2_Beep_Sleepy.mp3"));
     assert(r2_sounds_select_file(root, "whistle", "happy", path, sizeof(path)) == 0);
     assert(strstr(path, "R2_Whistle_Happy.mp3"));
+    /* Alias matching must work in both directions, not just for one canonical
+       spelling of each state. */
+    assert(r2_sounds_select_file(root, "whistle", "cheerful", path, sizeof(path)) == 0);
+    assert(strstr(path, "R2_Whistle_Happy.mp3"));
     assert(r2_sounds_select_file(root, "whistle", "confused", path, sizeof(path)) == 0);
     assert(strstr(path, "R2_Whistle_Default.mp3"));
     assert(r2_sounds_select_file(root, "laugh", "happy", path, sizeof(path)) != 0);
