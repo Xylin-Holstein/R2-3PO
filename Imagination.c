@@ -440,16 +440,33 @@ int r2_imagination_feedback(long long branch_id, const char *assessment,
         return -1;
     }
 
+    char scenario[180] = "(scenario text unavailable)";
+    const char *scenario_line = strstr(branch, "\n  Scenario: ");
+    if (!scenario_line) scenario_line = strstr(branch, "Scenario: ");
+    if (scenario_line) {
+        scenario_line = strchr(scenario_line, ':') + 1;
+        while (*scenario_line == ' ') ++scenario_line;
+        size_t n = strcspn(scenario_line, "\r\n");
+        if (n >= sizeof(scenario)) n = sizeof(scenario) - 1;
+        memcpy(scenario, scenario_line, n);
+        scenario[n] = '\0';
+    }
+
+    char summary[512];
+    snprintf(summary, sizeof(summary),
+        "Imagination feedback for branch #%lld (scenario: %.120s) assessed %s.",
+        branch_id, scenario, assessment);
+
     char details[2400];
     snprintf(details, sizeof(details),
-        "Imagination branch #%lld received explicit feedback: %s. "
-        "Feedback notes: %.1200s. Incorrect or unresolved imagination is "
-        "not punished and does not invalidate the act of exploring a possibility.",
-        branch_id, assessment, notes && *notes ? notes : "(none)");
+        "Imagination branch #%lld received explicit feedback: %s.\n"
+        "Scenario: %.170s\nFeedback notes: %.1200s.\n"
+        "Incorrect or unresolved imagination is not punished and does not "
+        "invalidate the act of exploring a possibility.",
+        branch_id, assessment, scenario, notes && *notes ? notes : "(none)");
 
     int64_t event_id = r2_log_event(R2_LOG_HYPOTHETICAL,
-        "imagination_feedback", "Feedback recorded for a hypothetical imagination.",
-        details, "Imagination.c");
+        "imagination_feedback", summary, details, "Imagination.c");
     free(branch);
     if (event_id < 0) return -1;
     (void)r2_altself_link_event((int64_t)branch_id, event_id,
@@ -461,7 +478,7 @@ int r2_imagination_feedback(long long branch_id, const char *assessment,
         snprintf(target, sizeof(target), "imagination_branch_%lld", branch_id);
         /* Positive-only reinforcement; no negative reward is applied for any
            non-accurate result. Feedback is recorded separately from factual memory. */
-                int reward_rc = r2_reward_apply_once(target, "verified_imagination", 1,
+        int reward_rc = r2_reward_apply_once(target, "verified_imagination", 1,
                                              details, 0);
         if (reward_rc < 0) return 1; /* Feedback persisted; reinforcement unavailable. */
         if (reward_rc > 0) return 2; /* Do not repeatedly reward the same branch. */
