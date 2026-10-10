@@ -7072,6 +7072,12 @@ int r2_ears_status(void)
     return ears ? (r2_ears_is_open(ears) ? 1 : 0) : 0;
 }
 
+char *r2_ears_listen(unsigned seconds)
+{
+    if (!core_initialized || shutting_down || !ears) return NULL;
+    return r2_ears_listen_and_interpret(ears, seconds);
+}
+
 int r2_watch_active(void){ return watch_running ? 1 : 0; }
 
 int r2_watch_start(void)
