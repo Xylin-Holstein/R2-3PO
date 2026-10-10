@@ -24,6 +24,9 @@ void r2_sounds_shutdown(void);
 
 /* Remove private [R2_SOUND:kind:state] markers and play at most one effect.
    Caller frees the returned reply. Unknown/malformed markers are stripped. */
+/* Remove internal sound controls without playing them (tool-routing replies). */
+char *r2_sounds_strip_markers(const char *reply);
+/* Remove controls and play at most one valid sound marker in a final reply. */
 char *r2_sounds_process_reply(const char *reply);
 
 #ifdef __cplusplus
