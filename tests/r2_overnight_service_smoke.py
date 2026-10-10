@@ -21,6 +21,8 @@ class OvernightServiceTests(unittest.TestCase):
     def test_runner_checks_local_model_and_private_clock(self):
         source = (ROOT / "tools/r2_service_runner.sh").read_text(encoding="utf-8")
         self.assertIn("gemma3:4b", source)
+        self.assertIn("refusing symlinked R2 database", source)
+        self.assertIn("r2_fridge.db", source)
         self.assertIn("/api/tags", source)
         self.assertIn("LD_PRELOAD", source)
         self.assertIn("FAKETIME_DONT_RESET=1", source)
@@ -50,6 +52,7 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertNotIn("apt-get update", source)
         self.assertIn("pgrep -x r2", source)
         self.assertIn("FAKETIME_FOUND", source)
+        self.assertIn("refusing symlinked R2 database", source)
 
 
 if __name__ == "__main__":
