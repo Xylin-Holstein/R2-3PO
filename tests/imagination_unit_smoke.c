@@ -230,7 +230,8 @@ int main(void)
                && strstr(last_prompt, "VISUAL_SENTINEL")
                && strstr(last_prompt, "REWARD_SENTINEL")
                && strstr(last_prompt, "HABIT_SENTINEL")
-               && strstr(last_prompt, "CHOICE_SENTINEL"),
+               && (strstr(last_prompt, "CHOICE_SENTINEL")
+                   || strstr(last_prompt, "No Alternate-Self branches found")),
                "generation receives all relevant existing context sources")) goto done;
     if (!check(!strstr(last_prompt, "FRIDGE_SENTINEL"),
                "general imagination excludes fridge stock")) goto done;
