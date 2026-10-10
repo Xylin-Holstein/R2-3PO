@@ -100,6 +100,9 @@ REQUIRED_FILES=(
     "$R2_SOURCE/R2Sounds.c"
     "$R2_SOURCE/R2Sounds.h"
 
+    "$R2_SOURCE/R2Reply.c"
+    "$R2_SOURCE/R2Reply.h"
+
     "$R2_SOURCE/AlternateSelf.c"
     "$R2_SOURCE/AlternateSelf.h"
 
@@ -126,7 +129,7 @@ echo
 # Sound assets are read by the separate r2 Linux account. Check access as that
 # account now, so a /home permission mismatch is reported before conversation
 # markers silently fail. An absent collection is non-fatal to R2 itself.
-R2_FX_DIR="${R2_FX_DIR:-$R2_ROOT/R2_sounds/FX}"
+R2_FX_DIR="${R2_FX_DIR:-/home/x/R2_Home/R2_sounds/FX}"
 SOUND_AUDIT="$R2_SOURCE/tools/audit_r2_sound_assets.py"
 if [ -f "$SOUND_AUDIT" ]; then
     if ! sudo -u r2 python3 "$SOUND_AUDIT" --root "$R2_FX_DIR"; then
@@ -328,6 +331,7 @@ gcc -std=c11 -Wall -Wextra -O2 \
     "$R2_SOURCE/Ears.c" \
     "$R2_SOURCE/Eyes.c" \
     "$R2_SOURCE/R2Sounds.c" \
+    "$R2_SOURCE/R2Reply.c" \
     -o "$R2_EXEC" \
     -lcurl \
     -lsqlite3 \
