@@ -7,6 +7,7 @@ extern "C" {
 
 /* Imagination is a capability over R2's existing systems, not a parallel
  * memory database. Imagined scenarios are retained through the Choice Lab. */
+int r2_imagination_is_initialized(void);
 int r2_imagination_init(void);
 void r2_imagination_shutdown(void);
 
