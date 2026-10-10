@@ -162,7 +162,8 @@ require(
     and '"verified_imagination", 1' in imagination
     and "not punished" in imagination
     and "if (accurate && (!notes || !*notes)) return -1;" in imagination
-    and "r2_reward_apply(target, \"verified_imagination\", 1" in imagination,
+    and "r2_reward_apply_once(target, \"verified_imagination\", 1" in imagination
+    and "if (accurate && (!notes || !*notes)) return -2;" in imagination,
     "only accurate feedback earns positive reinforcement; inaccurate imagination is never penalized",
 )
 require(
