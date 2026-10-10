@@ -261,6 +261,8 @@ int r2_imagination_feedback(long long branch_id, const char *assessment,
     int unresolved = !strcasecmp(assessment, "unresolved") ||
                      !strcasecmp(assessment, "unknown");
     if (!accurate && !partial && !incorrect && !unresolved) return -1;
+    /* Positive reinforcement requires an explicit evidence note. */
+    if (accurate && (!notes || !*notes)) return -1;
 
     char *branch = r2_altself_show((int64_t)branch_id);
     if (!branch || strstr(branch, "No Alternate-Self branches found") ||
