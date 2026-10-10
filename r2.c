@@ -7390,6 +7390,7 @@ int r2_conversation(void)
 int r2_init(void)
 {
     shutting_down = 0;
+    r2_sounds_init();
     atomic_store(&diary_running, 0);
     watch_running = 0;
     startup_memory_loaded = 0;
