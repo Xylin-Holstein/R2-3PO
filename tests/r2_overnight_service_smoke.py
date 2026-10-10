@@ -14,7 +14,9 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn("if (service_mode) {", source)
         self.assertIn("pause();", source)
         self.assertIn("SIGTERM", source)
-        self.assertIn("r2_shutdown();", (ROOT / "r2.c").read_text(encoding="utf-8"))
+        core = (ROOT / "r2.c").read_text(encoding="utf-8")
+        self.assertIn("r2_shutdown();", core)
+        self.assertIn("setvbuf(stdout, NULL, _IOLBF, 0)", core)
 
     def test_runner_checks_local_model_and_private_clock(self):
         source = (ROOT / "tools/r2_service_runner.sh").read_text(encoding="utf-8")
