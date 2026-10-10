@@ -148,7 +148,7 @@ require(
     "live audio interpretation is explicit and duration-bounded in the shell",
 )
 require(
-    '"[HEAR]"' in core
+    "[HEAR]" in core
     and "latest_user_explicitly_requested_hearing" in core
     and "HEARING BLOCKED" in core,
     "conversation-triggered hearing is gated by explicit latest-user intent",
