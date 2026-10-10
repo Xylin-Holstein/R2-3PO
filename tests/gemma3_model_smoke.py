@@ -147,13 +147,15 @@ require(
 require(
     "r2_retrieve_memories(request)" in imagination
     and "r2_recent_conversation_context(request, 1400)" in imagination
-    and "r2_diary_search(request" in imagination
-    and "r2_log_search(request" in imagination
+    and "search_context_terms(request, r2_diary_search" in imagination
+    and "search_context_terms(request, r2_log_search" in imagination
     and "r2_reality_imagination_context()" in imagination
-    and "r2_visual_search(request" in imagination
+    and "search_context_terms(request, r2_visual_search" in imagination
     and "r2_reward_context()" in imagination
     and "r2_addiction_report()" in imagination
-    and "r2_altself_list(6)" in imagination,
+    and "r2_altself_list(6)" in imagination
+    and "extract_context_terms" in imagination
+    and "matched keyword" in imagination,
     "imagination retrieves from active conversation, memory, diary, Life Log, Reality, visual, reward, habit, and Choice Lab systems",
 )
 require(
