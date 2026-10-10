@@ -218,11 +218,11 @@ char *r2_imagination_create(const char *request)
     snprintf(assumptions, sizeof(assumptions),
         "IMAGINATION RECORD — hypothetical only; not a real event, observation, "
         "or belief update. Request: %.900s\n"
-        "Context sources retrieved before generation: persistent memory; private "
-        "diary; Life Log; current modeled Reality; visual experience library when "
-        "available; reward/learned feedback state; habit/enjoyment history; "
-        "Choice Lab. Fridge state was conditionally retrieved only for a food/"
-        "inventory-related request. Full context was supplied to the imagination "
+        "Context sources retrieved before generation: persistent memory; recent active "
+        "conversation; private diary; Life Log; fridge-free current modeled Reality; "
+        "visual experience library when available; reward/learned feedback state; "
+        "habit/enjoyment history; Choice Lab. Fridge stock is retrieved separately "
+        "only for explicit current-inventory requests. Full context was supplied to the imagination "
         "model but is intentionally not duplicated into this record.\n"
         "Learning rule: inaccurate imagination is not punished; accuracy feedback "
         "must be evidence-based.\nRelevant retrieved context snapshot (abbreviated): %.2300s",
