@@ -2904,6 +2904,7 @@ static char *ollama_chat_with_limit(
     unsigned int retry_delay = 2;
     CURLcode cc = CURLE_OK;
     long http_status = 0;
+    int background_retry_yielded = 0;
 
     for (;;) {
         free(b.data);
@@ -2925,10 +2926,15 @@ static char *ollama_chat_with_limit(
         int retryable = (cc != CURLE_OK)
             ? ollama_retryable_curl(cc)
             : ollama_retryable_http(http_status);
-        if (!retryable || shutting_down ||
-            (ollama_background_mode &&
-             atomic_load(&foreground_ollama_waiting) > 0))
+        if (!retryable)
             break;
+        if (shutting_down ||
+            (ollama_background_mode &&
+             atomic_load(&foreground_ollama_waiting) > 0)) {
+            if (ollama_background_mode)
+                background_retry_yielded = 1;
+            break;
+        }
 
         remaining = (long)(deadline - time(NULL));
         if (remaining <= 0) {
@@ -2952,8 +2958,11 @@ static char *ollama_chat_with_limit(
 
         if (shutting_down ||
             (ollama_background_mode &&
-             atomic_load(&foreground_ollama_waiting) > 0))
+             atomic_load(&foreground_ollama_waiting) > 0)) {
+            if (ollama_background_mode)
+                background_retry_yielded = 1;
             break;
+        }
 
         if (retry_delay < 30) {
             retry_delay *= 2;
@@ -2964,6 +2973,14 @@ static char *ollama_chat_with_limit(
     pthread_mutex_unlock(&ollama_request_lock);
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
+
+    /* A background retry that yielded to a live turn is not an HTTP failure,
+       even if the last transient response itself had CURLE_OK. */
+    if (background_retry_yielded) {
+        free(b.data);
+        json_object_put(root);
+        return NULL;
+    }
 
     if (cc != CURLE_OK) {
         /* A background request intentionally yields when a foreground turn
