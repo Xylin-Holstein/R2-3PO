@@ -1746,6 +1746,10 @@ static void shell_imagine(const char *argument)
                 : "[Feedback recorded. No penalty was applied; the imagined branch remains distinct from fact.]\n");
         } else if (rc == 1) {
             printf("[Feedback saved, but positive reinforcement was unavailable. No penalty was applied.]\n");
+        } else if (rc == 2) {
+            printf("[Feedback recorded. This branch already received its one positive learning signal; no duplicate reward was applied.]\n");
+        } else if (rc == -2) {
+            printf("[Accurate feedback needs a note describing the evidence. No reward was applied.]\n");
         } else {
             printf("[Feedback could not be recorded. Check the branch ID and assessment.]\n");
         }
