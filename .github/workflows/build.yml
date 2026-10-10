@@ -114,6 +114,11 @@ jobs:
           python3 -m py_compile tests/r2_sound_wiring_smoke.py
           python3 tests/r2_sound_wiring_smoke.py
 
+      - name: Prevent private reasoning from leaking into user-facing replies
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -O2 -I. tests/r2_reply_smoke.c R2Reply.c -o /tmp/r2-reply-smoke
+          /tmp/r2-reply-smoke
+
       - name: Audit sound asset inventory without touching audio payloads
         run: |
           python3 -m py_compile tools/audit_r2_sound_assets.py tests/test_sound_asset_audit.py
