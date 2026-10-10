@@ -14,6 +14,13 @@ log() { printf '[R2 installer] %s\n' "$*"; }
 fail() { log "ERROR: $*"; exit 1; }
 if [[ "$EUID" -eq 0 ]]; then ROOT_CMD=(); else ROOT_CMD=(sudo); fi
 root_run() { "${ROOT_CMD[@]}" "$@"; }
+run_as_r2() {
+    if [[ "$EUID" -eq 0 ]]; then
+        runuser -u r2 -- "$@"
+    else
+        sudo -u r2 -- "$@"
+    fi
+}
 
 [[ -d "$R2_SOURCE" ]] || fail "expected source tree at $R2_SOURCE. Copy/clone this repository there first, then rerun."
 [[ -f "$R2_SOURCE/Makefile" && -f "$UNIT_SOURCE" && -f "$RUNNER_SOURCE" ]] || fail "repository files are incomplete; expected Makefile, deploy/r2-3po.service, and tools/r2_service_runner.sh."
@@ -36,11 +43,11 @@ fi
 # folders as r2 so first-run setup does not leave them owned by the desktop account.
 for path in "$R2_ROOT" "$R2_SOURCE"; do
     [[ -d "$path" ]] || fail "required persistent-data directory is missing: $path"
-    root_run -u r2 test -x "$path" || fail "Linux user r2 cannot traverse $path; fix directory permissions before activation."
-    root_run -u r2 test -r "$path" || fail "Linux user r2 cannot read $path; fix permissions before activation."
-    root_run -u r2 test -w "$path" || fail "Linux user r2 cannot write $path; SQLite, memories, and diary need persistent write access."
+    run_as_r2 test -x "$path" || fail "Linux user r2 cannot traverse $path; fix directory permissions before activation."
+    run_as_r2 test -r "$path" || fail "Linux user r2 cannot read $path; fix permissions before activation."
+    run_as_r2 test -w "$path" || fail "Linux user r2 cannot write $path; SQLite, memories, and diary need persistent write access."
 done
-root_run -u r2 mkdir -p \
+run_as_r2 mkdir -p \
     "$R2_ROOT/R2_Diary" \
     "$R2_ROOT/room/shelf" \
     "$R2_ROOT/room/box" \
@@ -48,7 +55,7 @@ root_run -u r2 mkdir -p \
     "$R2_ROOT/Pockets/Wallet" \
     "$R2_ROOT/fridge" || fail "could not create the runtime data directories as r2."
 for path in "$R2_ROOT/R2_Diary" "$R2_ROOT/room" "$R2_ROOT/Pockets" "$R2_ROOT/fridge"; do
-    root_run -u r2 test -x "$path" && root_run -u r2 test -r "$path" && root_run -u r2 test -w "$path" ||
+    run_as_r2 test -x "$path" && run_as_r2 test -r "$path" && run_as_r2 test -w "$path" ||
         fail "Linux user r2 needs read/write/traverse access to $path before activation."
 done
 
