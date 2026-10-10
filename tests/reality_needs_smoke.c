@@ -187,7 +187,8 @@ int main(void)
     if (!empty_fridge_context ||
         strstr(empty_fridge_context, "generated automatically") ||
         strstr(empty_fridge_context, "automatically generates") ||
-        !strstr(empty_fridge_context, "stays empty"))
+        !strstr(empty_fridge_context, "stays empty") ||
+        !strstr(empty_fridge_context, "fridge is empty"))
         fail("fridge context must not tell the model that empty stock respawns");
     free(empty_fridge_context);
     if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality database for empty-fridge test");
