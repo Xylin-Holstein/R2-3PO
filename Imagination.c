@@ -419,7 +419,7 @@ char *r2_imagination_create(const char *request)
 
     /* Persist through the existing Choice Lab / Life Log. No parallel memory
        database is created, and the generated scene is never a factual memory. */
-    char assumptions[1800];
+    char assumptions[2400];
     snprintf(assumptions, sizeof(assumptions),
         "IMAGINATION RECORD — hypothetical only; not a real event, observation, or belief update.\n"
         "Request: %.900s\n"
