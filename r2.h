@@ -1,6 +1,8 @@
 #ifndef R2_H
 #define R2_H
 
+#include <stddef.h>
+
 /*
  * ============================================================
  * R2-3PO CORE PUBLIC INTERFACE
@@ -8,7 +10,7 @@
  *
  * r2.c owns the actual implementation:
  *
- *   - Ollama / Gemma 3 multimodal conversation and vision
+ *   - Ollama / Gemma 4 multimodal conversation and vision
  *   - conversation
  *   - memory
  *   - relevant-memory retrieval
@@ -32,7 +34,11 @@ extern "C" {
 #endif
 
 /* Single source of truth for every local Ollama inference in R2. */
-#define R2_OLLAMA_MODEL "gemma3:4b"
+#define R2_OLLAMA_MODEL "gemma4:e2b"
+
+/* Bounded inference settings for the local 16 GB RAM target. */
+#define R2_OLLAMA_NUM_CTX 8192
+#define R2_OLLAMA_NUM_BATCH 256
 
 
 /* ============================================================
@@ -160,6 +166,10 @@ int r2_thinking_active(void);
  */
 char *r2_retrieve_memories(const char *query);
 
+/* Copy a bounded recent active-conversation context, excluding the current user
+ * message when it matches exclude_latest. Caller frees the result. */
+char *r2_recent_conversation_context(const char *exclude_latest, size_t max_chars);
+
 
 /*
  * Save a memory through R2's existing memory system.
@@ -200,6 +210,15 @@ long r2_memory_count(void);
  * The shell must not implement a second tool executor.
  */
 char *r2_process_tools(const char *input);
+
+/* Generate one bounded completion through the shared Ollama model without
+ * adding a fake user/assistant turn to R2's conversation history. Caller frees. */
+char *r2_model_generate(const char *system_prompt, const char *user_prompt,
+                        int max_tokens);
+/* Analyze a short RIFF/WAVE audio clip through the shared local Gemma 4 model.
+   Audio is opportunistic and yields to foreground conversation/vision priority. */
+char *r2_model_generate_audio(const char *system_prompt, const char *user_prompt,
+                              const char *wav_path, int max_tokens);
 
 
 /* ============================================================
@@ -254,7 +273,7 @@ int r2_is_initialized(void);
  *
  * Example:
  *
- *   Gemma 3 4B
+ *   Gemma 4 E2B
  *
  * The returned pointer is owned by R2 and must NOT be freed.
  */
@@ -310,6 +329,9 @@ int r2_vision_close(void);
 int r2_ears_start(void);
 int r2_ears_stop(void);
 int r2_ears_status(void);
+/* Explicitly listen to 1-30 seconds of audio, interpret it locally, and save
+   the user-triggered sensory observation through existing memory/Log systems. */
+char *r2_ears_listen(unsigned seconds);
 
 
 /* ============================================================

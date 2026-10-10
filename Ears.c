@@ -1,28 +1,13 @@
 /*
  * R2-3PO Ears
  *
- * General-purpose raw audio input system for R2.
- *
- * Ears provides R2 with PCM audio and tells him where
- * that audio originated:
- *
- *     FILE     -> supplied audio/media file
- *     WORLD    -> microphone / physical environment
- *     DESKTOP  -> computer/system audio
- *     SOURCE   -> arbitrary PulseAudio/PipeWire source
- *
- * Ears does NOT interpret the audio.
- *
- * It does not:
- *     - transcribe speech
- *     - identify songs
- *     - determine emotions
- *     - recognize speakers
- *     - create memories
- *
- * Those responsibilities belong to the hearing/cognition layer.
- *
- * Ears is the input layer only.
+ * Ears owns raw PCM capture and source metadata for files, microphones,
+ * desktop audio, and PulseAudio/PipeWire sources. For explicit user-triggered
+ * listening, it can capture a bounded clip, convert it to a compact WAV, ask
+ * the core's shared local Gemma 4 audio path for transcription/sound
+ * description, and persist the model-labeled interpretation through the
+ * existing memory and Life Log. It does not continuously record or identify
+ * people by voice.
  */
 
 #define _GNU_SOURCE
@@ -30,6 +15,7 @@
 
 #include "Ears.h"
 #include "Log.h"
+#include "r2.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -1014,7 +1000,7 @@ ssize_t r2_ears_read(
                 snprintf(details, sizeof(details),
                          "source=%s; bytes_received_since_last_entry=%llu; "
                          "sample_rate=%u; channels=%u; bits_per_sample=%u; "
-                         "audio_interpretation=not_performed_by_Ears",
+                         "audio_interpretation=not_performed_during_raw_sample_read",
                          ears->event.source_name,
                          (unsigned long long)ears->bytes_since_log,
                          ears->format.sample_rate, ears->format.channels,
@@ -1172,4 +1158,173 @@ R2HearingOrigin r2_ears_get_origin(R2Ears *ears)
         return R2_HEARING_NONE;
 
     return ears->event.origin;
+}
+
+
+/* ---------------------------------------------------------
+ * Explicit audio interpretation (no background recording)
+ * --------------------------------------------------------- */
+
+static void ears_put_le16(unsigned char *p, uint16_t value)
+{
+    p[0] = (unsigned char)(value & 0xff);
+    p[1] = (unsigned char)((value >> 8) & 0xff);
+}
+
+static void ears_put_le32(unsigned char *p, uint32_t value)
+{
+    p[0] = (unsigned char)(value & 0xff);
+    p[1] = (unsigned char)((value >> 8) & 0xff);
+    p[2] = (unsigned char)((value >> 16) & 0xff);
+    p[3] = (unsigned char)((value >> 24) & 0xff);
+}
+
+static int ears_write_wav_header(FILE *fp, uint32_t data_bytes)
+{
+    unsigned char h[44] = {0};
+    memcpy(h, "RIFF", 4);
+    ears_put_le32(h + 4, 36U + data_bytes);
+    memcpy(h + 8, "WAVEfmt ", 8);
+    ears_put_le32(h + 16, 16);
+    ears_put_le16(h + 20, 1);       /* PCM */
+    ears_put_le16(h + 22, 1);       /* mono */
+    ears_put_le32(h + 24, 16000);   /* downsampled from canonical 48 kHz */
+    ears_put_le32(h + 28, 32000);   /* byte rate */
+    ears_put_le16(h + 32, 2);       /* block align */
+    ears_put_le16(h + 34, 16);      /* bits per sample */
+    memcpy(h + 36, "data", 4);
+    ears_put_le32(h + 40, data_bytes);
+    return fwrite(h, 1, sizeof(h), fp) == sizeof(h) ? 0 : -1;
+}
+
+char *r2_ears_listen_and_interpret(R2Ears *ears, unsigned seconds)
+{
+    if (!ears || seconds < 1 || seconds > 30) {
+        errno = EINVAL;
+        return NULL;
+    }
+
+    int opened_here = 0;
+    if (!r2_ears_is_open(ears)) {
+        if (r2_ears_open_microphone(ears) != 0)
+            return NULL;
+        opened_here = 1;
+    }
+
+    R2HearingEvent event = {0};
+    (void)r2_ears_get_event(ears, &event);
+    char source_name[R2_EARS_SOURCE_NAME_MAX];
+    snprintf(source_name, sizeof(source_name), "%s",
+             event.source_name[0] ? event.source_name : "unknown audio source");
+
+    char temp_path[] = "/tmp/r2-ears-XXXXXX";
+    int fd = mkstemp(temp_path);
+    if (fd < 0) {
+        if (opened_here) r2_ears_close(ears);
+        return NULL;
+    }
+    FILE *fp = fdopen(fd, "wb+");
+    if (!fp) {
+        close(fd);
+        unlink(temp_path);
+        if (opened_here) r2_ears_close(ears);
+        return NULL;
+    }
+
+    int failed = ears_write_wav_header(fp, 0) != 0;
+    uint32_t data_bytes = 0;
+    unsigned char pcm[R2_EARS_FRAME_BYTES];
+    /* Each read is 10 ms of 48 kHz stereo PCM. Average each group of three
+       frames to produce a compact 16 kHz mono WAV accepted by Gemma 4. */
+    unsigned reads = seconds * 100U;
+    for (unsigned frame = 0; frame < reads && !failed; ++frame) {
+        ssize_t got = r2_ears_read(ears, pcm, sizeof(pcm));
+        if (got == 0) break; /* supplied file reached EOF */
+        if (got < 0) { failed = 1; break; }
+        size_t usable = (size_t)got - ((size_t)got % 12U);
+        for (size_t i = 0; i + 11 < usable; i += 12) {
+            int32_t sum = 0;
+            for (size_t k = 0; k < 12; k += 2) {
+                int16_t sample = (int16_t)((uint16_t)pcm[i + k] |
+                                           ((uint16_t)pcm[i + k + 1] << 8));
+                sum += sample;
+            }
+            int16_t mono = (int16_t)(sum / 6);
+            unsigned char out[2];
+            ears_put_le16(out, (uint16_t)mono);
+            if (data_bytes > UINT32_MAX - 2U ||
+                fwrite(out, 1, sizeof(out), fp) != sizeof(out)) {
+                failed = 1;
+                break;
+            }
+            data_bytes += 2U;
+        }
+    }
+
+    if (data_bytes < 3200U) failed = 1; /* require at least 100 ms of audio */
+    if (!failed && (fflush(fp) != 0 || fseek(fp, 0, SEEK_SET) != 0 ||
+                    ears_write_wav_header(fp, data_bytes) != 0 ||
+                    fflush(fp) != 0))
+        failed = 1;
+    if (fclose(fp) != 0) failed = 1;
+    if (opened_here) r2_ears_close(ears);
+
+    if (failed) {
+        unlink(temp_path);
+        r2_log_event(R2_LOG_ERROR, "audio_interpretation_capture_failed",
+                     "R2 could not capture a usable audio clip for interpretation.",
+                     "Capture was stopped or failed before a valid WAV could be prepared.",
+                     "Ears.c");
+        return NULL;
+    }
+
+    const char *system_prompt =
+        "You are R2-3PO's local hearing and sound-understanding layer. "
+        "Use only audible evidence in the attached audio. Transcribe speech "
+        "faithfully in its original language. Also describe clear non-speech "
+        "sounds when present. If multiple voices are audible, report only an "
+        "approximate count and distinguishable acoustic traits; never identify "
+        "a real person from their voice. Do not invent words obscured by noise, "
+        "and mark uncertainty instead of guessing. Do not infer a speaker's "
+        "identity, private attributes, intent, or emotional state beyond what "
+        "is clearly audible. Output concise labeled sections: TRANSCRIPT, "
+        "SOUND EVENTS, VOICES, and UNCERTAINTY. If no speech is audible, say so.";
+    const char *user_prompt =
+        "Analyze this short audio clip. Return a faithful transcription and "
+        "a concise description of audible non-speech events. Do not assume "
+        "the clip contains speech; explicitly state when speech is not clear.";
+
+    char *interpretation = r2_model_generate_audio(
+        system_prompt, user_prompt, temp_path, 420);
+    unlink(temp_path);
+
+    if (!interpretation || !*interpretation) {
+        free(interpretation);
+        r2_log_event(R2_LOG_ERROR, "audio_interpretation_model_failed",
+                     "R2 captured audio but the shared local model did not return an interpretation.",
+                     "The request may have yielded to a foreground conversation or the model may be unavailable.",
+                     "Ears.c");
+        return NULL;
+    }
+
+    char summary[512];
+    snprintf(summary, sizeof(summary),
+             "R2 interpreted an explicitly captured audio clip from %.400s.",
+             source_name);
+    char details[2400];
+    snprintf(details, sizeof(details),
+             "source=%.400s; captured_seconds_requested=%u; local_model=%s; "
+             "interpretation follows (model-generated, may be uncertain):\n%.1300s",
+             source_name, seconds, R2_OLLAMA_MODEL, interpretation);
+    (void)r2_log_event(R2_LOG_SENSORY, "audio_interpreted",
+                       summary, details, "Ears.c");
+
+    /* This command is explicitly invoked by the user, so the transcript can
+       enter R2's existing searchable memory and be reused by later reasoning. */
+    char memory[1900];
+    snprintf(memory, sizeof(memory),
+             "Explicit audio observation (model-generated; verify uncertain details) from %.200s: %.1450s",
+             source_name, interpretation);
+    (void)r2_save_memory(memory, "audio_transcript");
+    return interpretation;
 }

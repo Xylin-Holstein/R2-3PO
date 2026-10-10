@@ -8,6 +8,7 @@ extern "C" {
 #endif
 
 int r2_altself_init(void);
+int r2_altself_is_initialized(void);
 void r2_altself_shutdown(void);
 
 /* Each branch is explicitly hypothetical and never saved as factual memory. */
@@ -26,6 +27,9 @@ int r2_altself_retain_hypothesis(int64_t branch_id);
 char *r2_altself_list(int limit);
 char *r2_altself_show(int64_t branch_id);
 char *r2_altself_compare(int64_t first_id, int64_t second_id);
+/* Link a related Life Log event to an existing hypothetical branch. */
+int r2_altself_link_event(int64_t branch_id, int64_t event_id,
+                          const char *relationship, const char *notes);
 
 #ifdef __cplusplus
 }

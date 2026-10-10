@@ -178,8 +178,17 @@ static unsigned char *encode_jpeg(const R2VisionFrame *frame, size_t *jpeg_lengt
     if (pid == 0) {
         int nullfd = open("/dev/null", O_WRONLY);
         if (nullfd >= 0) { dup2(nullfd, STDERR_FILENO); close(nullfd); }
+        /*
+         * Cap the image sent to the multimodal model. Full-resolution frames
+         * remain in Eyes' capture/archive path; inference gets a bounded image
+         * to reduce JPEG/base64 memory and model prefill latency on R2's RAM.
+         * min() prevents upscaling small camera frames; escaped commas are
+         * required by FFmpeg's filter-expression parser.
+         */
         execlp("ffmpeg", "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error",
-               "-y", "-i", ppm_template, "-frames:v", "1", "-q:v", "5",
+               "-y", "-i", ppm_template, "-vf",
+               "scale=w=min(1280\\,iw):h=min(720\\,ih):force_original_aspect_ratio=decrease",
+               "-threads", "1", "-frames:v", "1", "-q:v", "5",
                "-f", "image2", jpg_template, (char *)NULL);
         _exit(127);
     }
@@ -234,18 +243,24 @@ static char *call_vision_model(const char *image_base64, const char *question,
     json_object *sys = json_object_new_object();
     json_object *user = json_object_new_object();
     json_object *images = json_object_new_array();
-    if (!root || !messages || !sys || !user || !images || !system_prompt) {
+    json_object *model_options = json_object_new_object();
+    if (!root || !messages || !sys || !user || !images || !model_options || !system_prompt) {
         if (root) json_object_put(root);
         if (messages) json_object_put(messages);
         if (sys) json_object_put(sys);
         if (user) json_object_put(user);
         if (images) json_object_put(images);
+        if (model_options) json_object_put(model_options);
         free(system_prompt);
         return NULL;
     }
     json_object_object_add(root, "model", json_object_new_string(model));
     json_object_object_add(root, "stream", json_object_new_boolean(0));
     json_object_object_add(root, "keep_alive", json_object_new_string("10m"));
+    json_object_object_add(model_options, "num_ctx", json_object_new_int(R2_OLLAMA_NUM_CTX));
+    json_object_object_add(model_options, "num_batch", json_object_new_int(R2_OLLAMA_NUM_BATCH));
+    json_object_object_add(model_options, "num_predict", json_object_new_int(256));
+    json_object_object_add(root, "options", model_options);
     json_object_object_add(sys, "role", json_object_new_string("system"));
     json_object_object_add(sys, "content", json_object_new_string(system_prompt));
     json_object_object_add(user, "role", json_object_new_string("user"));

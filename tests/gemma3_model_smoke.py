@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static contract tests for R2's unified Gemma 3 conversation/vision path."""
+"""Static contract tests for R2's unified Gemma 4 conversation/vision path."""
 
 from pathlib import Path
 import re
@@ -26,8 +26,8 @@ launcher = read("R2_Launch_Code.sh")
 shell = read("shell.c")
 
 require(
-    re.search(r'^#define R2_OLLAMA_MODEL "gemma3:4b"$', header, re.MULTILINE) is not None,
-    "one shared model constant selects gemma3:4b",
+    re.search(r'^#define R2_OLLAMA_MODEL "gemma4:e2b"$', header, re.MULTILINE) is not None,
+    "one shared model constant selects gemma4:e2b",
 )
 require(
     re.search(r'^#define MODEL R2_OLLAMA_MODEL$', core, re.MULTILINE) is not None,
@@ -38,8 +38,13 @@ require(
     "vision uses the exact same shared model constant",
 )
 require(
-    'R2_VISION_MODEL="gemma3:4b"' in launcher,
+    'R2_VISION_MODEL="gemma4:e2b"' in launcher,
     "launcher explicitly selects the unified vision model",
+)
+require(
+    "127.0.0.1:11434/api/tags" in launcher
+    and "Start Ollama, then run: ollama pull gemma4:e2b" in launcher,
+    "launcher fails early with actionable instructions if the local model is unavailable",
 )
 require(
     'strcmp(configured, R2_VISION_DEFAULT_MODEL) != 0' in visual
@@ -77,6 +82,79 @@ require(
     "the current user message remains authoritative over retrieved context",
 )
 require(
+    "R2_OLLAMA_NUM_CTX 8192" in header and "R2_OLLAMA_NUM_BATCH 256" in header,
+    "Ollama context and prompt batch are bounded for memory use",
+)
+require(
+    "json_object_new_int(R2_OLLAMA_NUM_CTX)" in visual
+    and "json_object_new_int(R2_OLLAMA_NUM_BATCH)" in visual,
+    "visual inference uses the same memory settings as conversation",
+)
+require(
+    r"scale=w=min(1280\\,iw)" in visual
+    and r"h=min(720\\,ih)" in visual
+    and '"-threads", "1"' in visual,
+    "vision inference bounds image dimensions and FFmpeg thread usage",
+)
+require(
+    '{"mother", "mom"}' in core and '{"mom", "mother"}' in core,
+    "memory retrieval resolves the explicitly supported Mom/Mother relationship aliases without inventing a name alias",
+)
+require(
+    "Never echo internal retrieval scaffolding" in core
+    and "[self]/[experience]/[CATEGORY]" in core
+    and "database event dumps" in core,
+    "user-facing replies are instructed not to leak raw internal retrieval context",
+)
+require(
+    "if (needs_turn_summary)" in core,
+    "the extra summary inference runs only for synthesis-heavy turns",
+)
+require(
+    "strcasestr(memory, keywords[k])" in core
+    and "calloc((size_t)limit, sizeof(*candidates))" in core
+    and "for (size_t j = i + 1" not in core,
+    "memory retrieval bounds candidate allocation and avoids quadratic sorting",
+)
+require(
+    "size_t capacity;" in core
+    and "while (capacity < needed)" in core
+    and "b->capacity = capacity;" in core,
+    "streamed Ollama responses use geometric buffer growth rather than per-chunk realloc",
+)
+ears = read("Ears.c")
+require(
+    "r2_ears_listen_and_interpret" in ears
+    and "r2_model_generate_audio" in ears
+    and "audio_interpreted" in ears
+    and "model-generated; verify uncertain details" in ears
+    and "r2_save_memory(memory, \"audio_transcript\")" in ears,
+    "Ears supports explicit local audio interpretation and reconnects the result to memory and Life Log",
+)
+require(
+    'json_object_object_add(m, "images", audio)' in core
+    and "char *r2_model_generate_audio(" in core
+    and "R2_OLLAMA_MODEL" in core,
+    "audio input uses the shared Gemma model and existing Ollama transport",
+)
+require(
+    '"RIFF"' in core and '"WAVE"' in core
+    and "file_size > 2 * 1024 * 1024" in core,
+    "audio inference validates WAV input and bounds encoded audio memory",
+)
+require(
+    "r2_ears_listen(seconds)" in shell
+    and "parsed > 30" in shell
+    and "ears listen [seconds]" in shell,
+    "live audio interpretation is explicit and duration-bounded in the shell",
+)
+require(
+    "[HEAR]" in core
+    and "latest_user_explicitly_requested_hearing" in core
+    and "HEARING BLOCKED" in core,
+    "conversation-triggered hearing is gated by explicit latest-user intent",
+)
+require(
     "Return a concise visual observation for R2's conversation to use as sensory evidence, not as a user-facing answer."
     in visual,
     "vision output is framed as sensory evidence for conversation",
@@ -87,4 +165,108 @@ require(
     "the shell explains that conversation and vision cannot select different models",
 )
 
-print("Gemma 3 unified-model contract checks passed.")
+
+imagination = read("Imagination.c")
+imagination_header = read("Imagination.h")
+makefile = read("Makefile")
+readme = read("README.md")
+require(
+    "Reward.c AlternateSelf.c Imagination.c Visual.c" in readme
+    and "these twelve C translation units" in readme,
+    "the documented direct build includes the imagination source and the full source inventory count is current",
+)
+require(
+    "for (size_t i = messages.count; i > start && used < max_chars; )" in core
+    and "RECENT ACTIVE CONVERSATION (newest first;" in imagination,
+    "imagination prioritizes the newest active conversation turns rather than older long messages",
+)
+require(
+    "r2_retrieve_memories(request)" in imagination
+    and "r2_recent_conversation_context(request, 1400)" in imagination
+    and "search_context_terms(request, r2_diary_search" in imagination
+    and "search_context_terms(request, r2_log_search" in imagination
+    and "r2_reality_imagination_context()" in imagination
+    and "search_context_terms(request, r2_visual_search" in imagination
+    and "r2_visual_recent(2)" in imagination
+    and "r2_reward_context()" in imagination
+    and "r2_addiction_report()" in imagination
+    and "r2_altself_is_initialized()" in imagination
+    and "r2_altself_is_initialized(void)" in read("AlternateSelf.c")
+    and "r2_altself_list(6)" in imagination
+    and "extract_context_terms" in imagination
+    and "matched keyword" in imagination,
+    "imagination retrieves from active conversation, memory, diary, Life Log, Reality, visual, reward, habit, and Choice Lab systems",
+)
+require(
+    'r2_fridge_context()' in imagination
+    and "mentions_any(request, fridge_terms" in imagination
+    and "r2_reality_imagination_context()" in imagination
+    and "FRIDGE STATE (only because the request asks about current food/inventory" in imagination
+    and "char *r2_reality_imagination_context(void)" in read("Reality.c")
+    and "Fridge stock is intentionally omitted from this general context" in read("Reality.c")
+    and "r2_reality_tv_status()" in imagination
+    and "mentions_any(request, media_terms" in imagination
+    and "r2_reality_money_context()" in imagination
+    and "mentions_any(request, money_terms" in imagination,
+    "imagination uses a focused Reality snapshot and retrieves fridge stock only for explicit inventory questions",
+)
+require(
+    "imagination_branch_saved" in core
+    and "if (!skip_hypotheticals &&" in core
+    and "schedule_post_turn_processing(message, reply, turn_event_id, imagination_branch_saved)" in core,
+    "post-turn extraction does not duplicate hypotheses already saved by the imagination tool",
+)
+require(
+    "r2_model_generate(system, prompt, 700)" in imagination
+    and "r2_altself_create(" in imagination
+    and "hypothetical only" in imagination
+    and "Context sources consulted before generation" in imagination
+    and "Raw retrieved records are not copied into this branch" in imagination
+    and "Retrieved records and prior transcript text are" in imagination
+    and "without activating Eyes or Ears" in imagination
+    and "r2_save_memory(" not in imagination
+    and "r2_eyes_" not in imagination
+    and "r2_ears_" not in imagination
+    and "never infer" in imagination
+    and "does not prove what a movie or recording contains" in imagination,
+    "imagination is generated from prior context and retained with its provenance in the existing Choice Lab",
+)
+require(
+    "if (accurate)" in imagination
+    and '"verified_imagination", 1' in imagination
+    and '"verified_imagination", 1,' in imagination
+    and "summary, 0)" in imagination
+    and "not punished" in imagination
+    and "r2_reward_apply_once(target, \"verified_imagination\", 1" in imagination
+    and "if (accurate && (!notes || !*notes ||" in imagination
+    and "strspn(notes" in imagination
+    and "if (link_rc != 0)" in imagination
+    and "return -3;" in imagination
+    and "rc == -3" in shell,
+    "only accurate feedback earns positive reinforcement; inaccurate imagination is never penalized",
+)
+require(
+    "[IMAGINE]" in core
+    and "r2_imagination_create(trim(request))" in core
+    and "r2_model_generate" in header
+    and "Imagination.c" in launcher
+    and "Imagination.c" in makefile
+    and "r2_imagination_is_initialized(void)" in imagination_header
+    and "Imagination      : %s" in core
+    and "r2_imagination_is_initialized()" in core,
+    "natural-language imagination tool, shared model entry point, launcher, and standard build are connected",
+)
+require(
+    "imagine feedback <id>" in shell
+    and "r2_imagination_feedback(id, assessment, notes)" in shell,
+    "the shell exposes explicit, non-punitive imagination feedback",
+)
+require(
+    "r2_altself_link_event" in imagination
+    and "feedback_for_imagination" in imagination
+    and "context_for_imagination" in imagination
+    and "r2_altself_link_event" in read("AlternateSelf.c"),
+    "imagination branches retain links to both their feedback and retrieved Life Log context",
+)
+
+print("Gemma 4 unified-model contract checks passed.")

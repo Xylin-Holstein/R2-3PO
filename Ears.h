@@ -4,18 +4,11 @@
 /*
  * R2-3PO Ears
  *
- * Ears is R2's raw audio input system.
- *
- * It does NOT decide what the audio means.
- * It delivers audio to R2 and identifies where
- * that audio originated.
- *
- * Possible origins:
- *   FILE  - audio originating from a file
- *   WORLD - audio originating from the physical world
- *           (microphone, future external sensors, etc.)
- *
- * Audio interpretation belongs to R2's hearing/cognition layer.
+ * Ears provides raw PCM input and records its source. For explicit,
+ * user-triggered listening, it can capture a short clip and pass a WAV to
+ * R2's shared local Gemma 4 model for transcription and cautious sound
+ * description. It does not identify a person by voice and does not silently
+ * record in the background.
  */
 
 #include <stddef.h>
@@ -274,6 +267,12 @@ int r2_ears_get_format(
 int r2_ears_is_open(
     R2Ears *ears
 );
+
+/* Explicitly capture and interpret 1-30 seconds from the current source.
+   If no source is open, this temporarily opens the default microphone.
+   The transcript/description is recorded in the existing memory and Life Log.
+   Returns caller-owned text, or NULL on capture/model failure. */
+char *r2_ears_listen_and_interpret(R2Ears *ears, unsigned seconds);
 
 
 /*

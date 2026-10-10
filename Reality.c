@@ -1589,6 +1589,52 @@ char *r2_reality_context(void)
     return out;
 }
 
+
+/* A focused, read-only snapshot for imagination. Unlike the full action prompt
+ * returned by r2_reality_context(), this omits fridge stock and action syntax.
+ * The imagination subsystem retrieves fridge state separately and conditionally. */
+char *r2_reality_imagination_context(void)
+{
+    if (!r2_reality_is_initialized()) return NULL;
+
+    char *status = r2_reality_status();
+    char *room = r2_reality_room_look();
+    char *facts = query_text(
+        "SELECT key,value,evidence FROM r2_reality_self_facts ORDER BY updated_at DESC LIMIT 30", NULL);
+    char *items_memory = query_text(
+        "WITH detailed AS (SELECT item_name,CASE precision WHEN 'exact' THEN printf('remembers collecting exactly %d',exact_quantity) ELSE printf('remembers collecting about %d',approximate_quantity) END AS memory,CASE precision WHEN 'exact' THEN printf('%d days ago',MAX(0,(strftime('%s','now')-collected_at)/86400)) ELSE printf('about %d weeks ago',MAX(1,ROUND((strftime('%s','now')-collected_at)/604800.0))) END AS timing,collected_at FROM r2_reality_item_memory WHERE precision IN ('exact','approximate')), vague AS (SELECT item_name,'remembers collecting some; exact quantity and timing have faded' AS memory,'older vague memory' AS timing,MAX(collected_at) AS collected_at FROM r2_reality_item_memory WHERE precision='vague' GROUP BY item_name) SELECT item_name,memory,timing FROM (SELECT * FROM detailed UNION ALL SELECT * FROM vague) ORDER BY collected_at DESC LIMIT 30", NULL);
+    char *food_preferences = query_text(
+        "SELECT ingredient,printf('average enjoyment rating %.2f/2',satisfaction_sum/rating_count),printf('%d ratings',rating_count) FROM r2_food_ingredient_preferences WHERE rating_count>0 ORDER BY satisfaction_sum*1.0/rating_count DESC LIMIT 20", NULL);
+    char *food_experiences = query_text(
+        "SELECT food_name,printf('enjoyment rating %+d/2',satisfaction),notes FROM r2_food_experiences WHERE satisfaction IS NOT NULL ORDER BY eaten_at DESC LIMIT 10", NULL);
+    char *foods = food_metrics_context();
+
+    if (!status || !room || !facts || !items_memory ||
+        !food_preferences || !food_experiences || !foods) {
+        free(status); free(room); free(facts); free(items_memory);
+        free(food_preferences); free(food_experiences); free(foods);
+        return NULL;
+    }
+
+    size_t cap = strlen(status) + strlen(room) + strlen(facts) +
+        strlen(items_memory) + strlen(food_preferences) +
+        strlen(food_experiences) + strlen(foods) + 512;
+    char *out = malloc(cap);
+    if (out) snprintf(out, cap,
+        "CURRENT MODELED SELF/WORLD STATE (read-only snapshot; not a sensory observation):\n"
+        "%s\n%s\nSELF-CONTINUITY FACTS:\n%s\n"
+        "COLLECTION MEMORIES (historical, not current inventory):\n%s\n"
+        "LEARNED FOOD/INGREDIENT PREFERENCES:\n%s\n"
+        "RECENT RATED FOOD EXPERIENCES:\n%s\n"
+        "AVAILABLE FOOD METRICS:\n%s\n"
+        "Fridge stock is intentionally omitted from this general context and must be retrieved separately only when relevant.",
+        status, room, facts, items_memory, food_preferences, food_experiences, foods);
+
+    free(status); free(room); free(facts); free(items_memory);
+    free(food_preferences); free(food_experiences); free(foods);
+    return out;
+}
+
 static void canonical_container_name(const char *input, char *out, size_t cap)
 {
     if (!input || !*input) input = "room";

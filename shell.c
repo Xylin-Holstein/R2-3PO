@@ -50,6 +50,7 @@
 #include "Reality.h"
 #include "Addiction.h"
 #include "AlternateSelf.h"
+#include "Imagination.h"
 
 
 /* ============================================================
@@ -379,6 +380,12 @@ static void shell_help(void)
         "      Move bank funds into carried cash.\n"
         "  money buy <item> | <price> | <description> | <container>\n"
         "      Purchase a user-specified item; no shop inventory or prices are hardcoded.\n"
+        "  imagine <what-if or creative request>\n"
+        "      Imagine from relevant memory, diary, Life Log, Reality, visual history, feedback, habits, and Choice Lab; saves a hypothetical branch.\n"
+        "  imagine list\n"
+        "      Inspect saved hypothetical branches shared with the Choice Lab.\n"
+        "  imagine feedback <id> <accurate|partial|incorrect|unresolved> [notes]\n"
+        "      Record feedback; accurate feedback with evidence notes earns a small positive signal; incorrect ideas are never penalized.\n"
         "  alternate [list|show <id>|create <fields>|discard <id>|retain <id>|compare <id> <id>]\n"
         "      Explore hypothetical choices without changing factual memories.\n"
         "      create fields: name|scenario|assumptions|predicted outcome|conclusion|optional evidence event ID\n"
@@ -444,7 +451,7 @@ static void shell_help(void)
         "  vision search <text>\n"
         "      Search the visual experience library.\n"
         "\n"
-        "  vision model gemma3:4b\n"
+        "  vision model gemma4:e2b\n"
         "      Confirm the single model shared by conversation and vision.\n"
         "\n"
         "  vision close\n"
@@ -458,6 +465,9 @@ static void shell_help(void)
         "\n"
         "  ears stop\n"
         "      Stop the existing Ears subsystem.\n"
+        "\n"
+        "  ears listen [seconds]\n"
+        "      Explicitly capture and interpret 1-30 seconds of audio locally (5 seconds by default).\n"
         "\n"
         "  watch\n"
         "      Start R2 Watch mode.\n"
@@ -1031,6 +1041,35 @@ static void shell_ears(const char *argument)
         return;
     }
 
+    if (shell_starts_with(argument, "listen")) {
+        const char *duration_text = argument + 6;
+        while (*duration_text == ' ' || *duration_text == '\t')
+            ++duration_text;
+        unsigned seconds = 5;
+        if (*duration_text) {
+            char *end = NULL;
+            errno = 0;
+            unsigned long parsed = strtoul(duration_text, &end, 10);
+            while (end && (*end == ' ' || *end == '\t')) ++end;
+            if (errno || !end || end == duration_text || *end ||
+                parsed < 1 || parsed > 30) {
+                printf("Usage: ears listen [1-30 seconds]\n");
+                return;
+            }
+            seconds = (unsigned)parsed;
+        }
+        printf("[Ears] Capturing up to %u second(s). This is an explicit, local audio request.\n",
+               seconds);
+        char *result = r2_ears_listen(seconds);
+        if (result) {
+            printf("%s\n", result);
+            free(result);
+        } else {
+            printf("[Ears] Audio interpretation failed. Check microphone/source access, the local Ollama model, and whether another foreground request is using the model.\n");
+        }
+        return;
+    }
+
     if (!strcasecmp(argument, "start")) {
 
         int result =
@@ -1075,7 +1114,7 @@ static void shell_ears(const char *argument)
     }
 
     printf(
-        "Usage: ears [start|stop|status]\n"
+        "Usage: ears [start|stop|status|listen [seconds]]\n"
     );
 }
 
@@ -1701,6 +1740,61 @@ static long long shell_parse_id(const char *text)
     return value;
 }
 
+static void shell_imagine(const char *argument)
+{
+    if (!argument || !*argument) {
+        printf("Usage: imagine <what-if or creative request> | list | feedback <id> <accurate|partial|incorrect|unresolved> [notes]\n");
+        return;
+    }
+    if (!strcasecmp(argument, "list")) {
+        char *result = r2_altself_list(25);
+        if (result) { printf("%s", result); free(result); }
+        else printf("[Choice Lab history is unavailable.]\n");
+        return;
+    }
+    if (shell_starts_with(argument, "feedback ")) {
+        char *copy = strdup(argument + 9);
+        if (!copy) { printf("[Out of memory.]\n"); return; }
+        char *id_text = shell_trim(copy);
+        char *space = strchr(id_text, ' ');
+        if (!space) {
+            printf("Usage: imagine feedback <id> <accurate|partial|incorrect|unresolved> [notes]\n");
+            free(copy);
+            return;
+        }
+        *space++ = '\0';
+        space = shell_trim(space);
+        char *assessment = space;
+        char *notes = strchr(assessment, ' ');
+        if (notes) { *notes++ = '\0'; notes = shell_trim(notes); }
+        long long id = shell_parse_id(id_text);
+        int rc = id > 0 ? r2_imagination_feedback(id, assessment, notes) : -1;
+        if (rc == 0) {
+            int accurate = !strcasecmp(assessment, "accurate") ||
+                           !strcasecmp(assessment, "correct") ||
+                           !strcasecmp(assessment, "confirmed");
+            printf(accurate
+                ? "[Feedback recorded. A small positive learning signal was applied; no factual memory was overwritten.]\n"
+                : "[Feedback recorded. No penalty was applied; the imagined branch remains distinct from fact.]\n");
+        } else if (rc == 1) {
+            printf("[Feedback saved, but positive reinforcement was unavailable. No penalty was applied.]\n");
+        } else if (rc == 2) {
+            printf("[Feedback recorded. This branch already received its one positive learning signal; no duplicate reward was applied.]\n");
+        } else if (rc == -2) {
+            printf("[Accurate feedback needs a note describing the evidence. No reward was applied.]\n");
+        } else if (rc == -3) {
+            printf("[Feedback was saved but could not be linked to its branch. No reward was applied.]\n");
+        } else {
+            printf("[Feedback could not be recorded. Check the branch ID and assessment.]\n");
+        }
+        free(copy);
+        return;
+    }
+    char *result = r2_imagination_create(argument);
+    if (result) { printf("%s\n", result); free(result); }
+    else printf("[Imagination failed or could not be saved. No factual state was changed.]\n");
+}
+
 static void shell_alternate(const char *argument)
 {
     if (!argument || !*argument || !strcasecmp(argument, "list")) {
@@ -1915,6 +2009,18 @@ static int shell_dispatch(char *input)
         return 1;
     }
 
+
+    /* --------------------------------------------------------
+       IMAGINATION
+       -------------------------------------------------------- */
+    if (!strcasecmp(command, "imagine")) {
+        shell_imagine(NULL);
+        return 1;
+    }
+    if (shell_starts_with(command, "imagine ")) {
+        shell_imagine(shell_trim(command + 8));
+        return 1;
+    }
 
     /* --------------------------------------------------------
        LIFE LOG

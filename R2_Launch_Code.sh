@@ -99,6 +99,8 @@ REQUIRED_FILES=(
 
     "$R2_SOURCE/AlternateSelf.c"
     "$R2_SOURCE/AlternateSelf.h"
+    "$R2_SOURCE/Imagination.c"
+    "$R2_SOURCE/Imagination.h"
 
     "$R2_SOURCE/Observer.py"
 
@@ -118,6 +120,19 @@ for FILE in "${REQUIRED_FILES[@]}"; do
 done
 
 echo "All R2 source modules found."
+echo
+
+# Fail early if the local inference service or required unified model is absent.
+# This check is deliberately before virtual time and before launching as user r2.
+echo "[1.5/4] Checking local Ollama and the unified Gemma 4 model..."
+if ! python3 -c 'import json, urllib.request; d=json.load(urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=3)); names={m.get("name", "") for m in d.get("models", [])}; raise SystemExit(0 if "gemma4:e2b" in names else 1)' 2>/dev/null; then
+    echo "ERROR: R2 cannot reach the local Ollama API or gemma4:e2b is not installed."
+    echo "Start Ollama, then run: ollama pull gemma4:e2b"
+    echo "R2 was NOT launched."
+    read -p "Press Enter to exit..."
+    exit 1
+fi
+echo "Local Ollama is reachable and gemma4:e2b is installed."
 echo
 
 echo "[2/4] Configuring R2 private clock..."
@@ -303,6 +318,7 @@ gcc -std=c11 -Wall -Wextra -O2 \
     "$R2_SOURCE/Addiction.c" \
     "$R2_SOURCE/Reward.c" \
     "$R2_SOURCE/AlternateSelf.c" \
+    "$R2_SOURCE/Imagination.c" \
     "$R2_SOURCE/Visual.c" \
     "$R2_SOURCE/Ears.c" \
     "$R2_SOURCE/Eyes.c" \
@@ -333,9 +349,9 @@ echo "Compilation successful."
 echo "Executable updated:"
 echo "    $R2_EXEC"
 echo
-echo "Unified conversation + vision model: gemma3:4b"
+echo "Unified conversation + vision model: gemma4:e2b"
 echo "R2 uses one shared Ollama model for text and image perception."
-echo "If needed, install it with: ollama pull gemma3:4b"
+echo "If needed, install it with: ollama pull gemma4:e2b"
 echo
 echo "Modules compiled:"
 echo "    r2.c"
@@ -346,6 +362,7 @@ echo "    Reality.c"
 echo "    Addiction.c"
 echo "    Reward.c"
 echo "    AlternateSelf.c"
+echo "    Imagination.c"
 echo "    Visual.c"
 echo "    Ears.c"
 echo "    Eyes.c"
@@ -387,7 +404,7 @@ sudo -u r2 \
     LD_PRELOAD="$FAKETIME_LIB" \
     FAKETIME="${FAKETIME_OFFSET}" \
     FAKETIME_DONT_RESET=1 \
-    R2_VISION_MODEL="gemma3:4b" \
+    R2_VISION_MODEL="gemma4:e2b" \
     "$R2_EXEC"
 
 status=$?

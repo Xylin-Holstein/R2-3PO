@@ -32,6 +32,8 @@ char *r2_reality_status(void);
 char *r2_reality_room_look(void);
 char *r2_reality_list(const char *container);
 char *r2_reality_context(void);
+/* Concise imagination context from Reality DB only; never includes fridge stock. */
+char *r2_reality_imagination_context(void);
 char *r2_fridge_list(void);
 char *r2_fridge_context(void);
 void r2_fridge_shutdown(void);

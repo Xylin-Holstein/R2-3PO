@@ -21,21 +21,34 @@ The resulting executable is `./r2`. To remove it, run `make clean`.
 
 ## Ollama model: conversation and vision
 
-R2's default conversation model and visual-perception model are both `gemma3:4b`.
+R2's default conversation model and visual-perception model are both `gemma4:e2b`.
 Install the model locally before launching R2:
 
 ```sh
-ollama pull gemma3:4b
-ollama run gemma3:4b
+ollama pull gemma4:e2b
+ollama run gemma4:e2b
 ```
 
 At the Ollama prompt, test a short message and then enter `/bye`. The launch script
-also reports the expected model name. R2 uses the same model for text and image input;
-visual inference shares the Ollama request lock with conversation and yields when a
-foreground conversation is waiting. Ordinary conversation does not trigger a new frame
-analysis unless the user asks about visual context; ongoing Eyes/VLC observation can
-continue through its existing watcher. If a vision request cannot run, its incomplete
-result is discarded rather than being treated as a valid observation.
+also reports the expected model name. Conversation, vision, and explicit audio analysis
+use the same local `gemma4:e2b` model. Audio input is sent as a WAV through Ollama's
+multimodal message payload; R2 does not need a separate speech model.
+
+Use `ears listen` to capture up to 5 seconds from the default microphone, or
+`ears listen 1` through `ears listen 30` to choose a duration. Conversation can also
+request `[HEAR] 5 [END HEAR]`, but a runtime guard checks the latest user message for
+explicit listening/transcription intent and blocks capture otherwise; only one clip
+can be captured per turn. Listening is user-triggered; R2 does not silently record
+continuously. The captured audio is downsampled to 16 kHz mono, interpreted locally,
+and the transcript/sound description is saved to the existing searchable memory and
+Life Log. The interpretation can be uncertain, so review it before treating it as a
+verified fact. The model is instructed not to identify people by voice. Audio analysis
+shares the existing Ollama request gate and yields rather than competing with a
+foreground conversation. Vision uses the same
+priority gate. Ordinary conversation does not trigger a new frame analysis unless the
+user asks about visual context; ongoing Eyes/VLC observation can continue through its
+existing watcher. If a vision request cannot run, its incomplete result is discarded
+rather than being treated as a valid observation.
 
 R2 builds a completed conversational response from the current user message and
 relevant memories/perceptions. A separate intent-summary inference is not used as an
@@ -46,27 +59,29 @@ You can also compile directly with the same source list and libraries:
 
 ```sh
 gcc -std=c11 -Wall -Wextra -O2 \
-  r2.c shell.c r2_diary.c Log.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c \
+  r2.c shell.c r2_diary.c Log.c Reality.c Addiction.c Reward.c AlternateSelf.c Imagination.c Visual.c Ears.c Eyes.c \
   -o r2 \
   -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
 ```
 
 ## Compilation source inventory
 
-The build requires these ten C translation units:
+The build requires these twelve C translation units:
 
-- `r2.c` — core
+- `r2.c` — core, conversation, shared Ollama interface, and memory retrieval
 - `shell.c` — command shell
-- `r2_diary.c` — diary subsystem
-- `Log.c` — factual Life Log chronology
+- `r2_diary.c` — private diary and historical reconnection
+- `Log.c` — factual Life Log chronology and event links
 - `Reality.c` — persistent self-continuity, world state, room objects, needs, and inventory containers
 - `Addiction.c` — persistent enjoyment history and behavior-derived repeated-interest/addiction labels
+- `Reward.c` — durable learning/reinforcement ledger
 - `AlternateSelf.c` — persistent, explicitly hypothetical Choice Lab branches
-- `Visual.c` — vision-model integration
-- `Ears.c` — audio input
+- `Imagination.c` — context-grounded hypothetical experiences, persisted through the Choice Lab rather than a parallel database
+- `Visual.c` — vision-model integration and visual experience library
+- `Ears.c` — raw audio input and source metadata
 - `Eyes.c` — visual input
 
-Their matching headers are included in the repository: `r2.h`, `shell.h`, `r2_diary.h`, `Log.h`, `Reality.h`, `Addiction.h`, `AlternateSelf.h`, `Visual.h`, `Ears.h`, and `Eyes.h`.
+Their matching headers are included in the repository: `r2.h`, `shell.h`, `r2_diary.h`, `Log.h`, `Reality.h`, `Addiction.h`, `Reward.h`, `AlternateSelf.h`, `Imagination.h`, `Visual.h`, `Ears.h`, and `Eyes.h`.
 
 GitHub Actions checks shell-script syntax and compiles this source set on pushes to the audit and combined integration branches and the configured main branches. It also runs isolated smoke tests for file-authoritative money (seed, deletion, restart, deposit/withdrawal, purchase rollback, and cents) and the GBA launcher/lifecycle. These tests do not exercise Ollama, live audio/video devices, or the user's actual graphical desktop.
 
@@ -80,6 +95,16 @@ Sensory counterfactuals can ask what a hypothetical view, sound, taste, smell, o
 R2's age is measured from the filesystem birth/creation time of `R2/r2_original_conversation.txt` (the original conversation archive), saved in Reality metadata so later edits do not reset it. If the file is absent or the filesystem does not expose a creation timestamp, age is left unestablished rather than guessed from modification time.
 
 Money is a crude persistent prototype, not a built-in shop. `money` shows carried cash and piggybank balance; `money receive 40` records an explicit gift/payment as cash; the initial $5 is seeded once into the physical `Pockets/Wallet/` directory as five separate `$1` files (`money`, `money(1)`, etc.). Deleting a bill deletes that dollar permanently, including across restarts. `change.txt` records cents below $1; the piggybank `room/piggybank/account.txt` and SQLite account are derived summaries, not the source of truth. `money deposit 1.50` moves physical value from `Pockets/Wallet/` to `room/piggybank/`; `money withdraw 0.50` returns it. `money buy Soda | 3.50 | A drink | fridge` deducts carried cash first and then piggybank funds, and adds the item to fridge stock; if item placement fails, funds are restored. Purchases are rejected when funds are insufficient. Each money operation is bounded to $1,000,000. No store stock, products, or prices are hardcoded.
+
+## Imagination and evidence-based feedback
+
+Imagination is a capability layered over R2's existing systems, not a separate memory database. In conversation, R2 can use the `[IMAGINE] request [END IMAGINE]` tool marker; in the shell, use `imagine <what-if or creative request>`. The shell also supports `imagine list` and `imagine feedback <id> <accurate|partial|incorrect|unresolved> [evidence notes]`. For explicit audio interpretation, use `ears listen [seconds]` (1–30 seconds; 5 seconds by default).
+
+Before generating a scenario, the subsystem retrieves relevant persistent memory, the newest active-conversation turns, private diary search results, Life Log history, a focused read-only Reality snapshot, visual experience history, reward/learned-feedback state, habit/enjoyment history, and Choice Lab branches. The general Reality snapshot intentionally excludes fridge stock. Current CRT/VCR state and money balances are retrieved from Reality when the request makes those details relevant. The fridge database is queried separately only for explicit questions about current fridge contents, food stock, or available ingredients; general food preferences and food metrics remain available through Reality.
+
+Each successful scenario is saved as a hypothetical Choice Lab branch with the original request, generated scenario, and a source-provenance note. Relevant Life Log event IDs retrieved during generation are linked directly to the branch as `context_for_imagination`; these links preserve traceability but do not claim that the imagined outcome happened. Raw private memory and diary excerpts are not copied into the branch; their authoritative records remain in their original stores. It does not change Reality, activate Eyes or Ears, or become a factual observation simply because it was imagined. Feedback is linked to the hypothetical branch in the Life Log. Incorrect, partial, and unresolved outcomes never apply a penalty. Positive reinforcement requires an explicit accurate assessment plus evidence notes, and a persistent unique key ensures a given branch receives that positive signal at most once, including across concurrent calls and restarts.
+
+The accuracy assessment is currently explicit feedback, not automatic proof that the model was right. Compare a hypothesis with an actual later observation before marking it accurate; imagination must not grade itself based only on how plausible its own output sounds. CI includes an imagination context/feedback smoke test, a fridge-free Reality-context check, a concurrent one-time-reward/restart test, and the normal full C build. These checks validate code paths with isolated fixtures; they do not substitute for a live run against R2's own Ollama model and databases. For a staged live check, launch R2, run `diagnostics` and confirm the `Imagination` status line says `READY`, then try `imagine Imagine the first movie in the CRT room.`, run `imagine list`, restart R2, and confirm the branch remains listed. Test fridge retrieval with an explicit inventory question and confirm an ordinary food-preference imagination does not load stock. Do not mark a scenario accurate unless a real later observation or explicit evidence supports it.
 
 ## Diary, Life Log, and persistent-memory continuity
 

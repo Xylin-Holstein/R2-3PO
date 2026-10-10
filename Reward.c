@@ -54,6 +54,9 @@ static int ensure_db_locked(void)
         " source TEXT NOT NULL, points INTEGER NOT NULL CHECK(points BETWEEN -7 AND 5 AND points<>0),"
         " reason TEXT NOT NULL, occurred_at INTEGER NOT NULL, modifier INTEGER NOT NULL,"
         " expires_at INTEGER NOT NULL, log_event_id INTEGER, memory_indexed INTEGER NOT NULL DEFAULT 0);"
+        "CREATE TABLE IF NOT EXISTS reward_once_keys ("
+        " target TEXT NOT NULL, source TEXT NOT NULL, created_at INTEGER NOT NULL,"
+        " PRIMARY KEY(target,source));"
         "CREATE INDEX IF NOT EXISTS reward_events_target_time ON reward_events(target,occurred_at);",
         NULL, NULL, NULL) != SQLITE_OK) {
         fprintf(stderr, "[R2 Reward] Schema error: %s\n", sqlite3_errmsg(reward_db));
@@ -270,12 +273,14 @@ static int store_log_link(sqlite3_int64 reward_id, int64_t log_event_id,
     return rc == SQLITE_DONE ? 0 : -1;
 }
 
-int r2_reward_apply(const char *target, const char *source, int points,
-                    const char *reason, int voluntary_choice)
+static int reward_apply_internal(const char *target, const char *source,
+                                 int points, const char *reason,
+                                 int voluntary_choice, int apply_once)
 {
     if (!valid_text(target, REWARD_TARGET_MAX) ||
         !valid_text(source, 128) || !valid_text(reason, REWARD_REASON_MAX) ||
-        points == 0 || points < -7 || points > 5)
+        points == 0 || points < -7 || points > 5 ||
+        (apply_once && points < 1))
         return -1;
 
     sqlite3_int64 now = (sqlite3_int64)time(NULL);
@@ -294,6 +299,30 @@ int r2_reward_apply(const char *target, const char *source, int points,
         return -1;
     }
     rc = sqlite3_exec(reward_db, "BEGIN IMMEDIATE;", NULL, NULL, NULL);
+    if (rc == SQLITE_OK && apply_once) {
+        rc = sqlite3_prepare_v2(reward_db,
+            "INSERT OR IGNORE INTO reward_once_keys(target,source,created_at) VALUES(?,?,?)",
+            -1, &st, NULL);
+        if (rc == SQLITE_OK) {
+            sqlite3_bind_text(st, 1, target, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(st, 2, source, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int64(st, 3, now);
+            rc = sqlite3_step(st);
+        }
+        if (st) sqlite3_finalize(st);
+        st = NULL;
+        if (rc == SQLITE_DONE && sqlite3_changes(reward_db) == 0) {
+            (void)sqlite3_exec(reward_db, "ROLLBACK;", NULL, NULL, NULL);
+            pthread_mutex_unlock(&reward_lock);
+            return 1;
+        }
+        if (rc != SQLITE_DONE) {
+            (void)sqlite3_exec(reward_db, "ROLLBACK;", NULL, NULL, NULL);
+            pthread_mutex_unlock(&reward_lock);
+            return -1;
+        }
+        rc = SQLITE_OK;
+    }
     if (rc == SQLITE_OK) {
         rc = sqlite3_prepare_v2(reward_db,
             "INSERT INTO reward_events(target,source,points,reason,occurred_at,modifier,expires_at)"
@@ -364,6 +393,24 @@ int r2_reward_apply(const char *target, const char *source, int points,
             points >= 0 ? (50 + points * 5) : (50 + points * 4),
             "reinforcement", details);
     return 0;
+}
+
+
+
+int r2_reward_apply(const char *target, const char *source, int points,
+                    const char *reason, int voluntary_choice)
+{
+    return reward_apply_internal(target, source, points, reason,
+                                 voluntary_choice, 0);
+}
+
+/* The once-key and reward mutation share one SQLite transaction, so concurrent
+ * callers cannot both pass a preflight SELECT and grant the same reward. */
+int r2_reward_apply_once(const char *target, const char *source, int points,
+                         const char *reason, int voluntary_choice)
+{
+    return reward_apply_internal(target, source, points, reason,
+                                 voluntary_choice, 1);
 }
 
 int r2_reward_reconnect_history(int limit)
