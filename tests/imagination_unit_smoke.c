@@ -353,6 +353,16 @@ int main(void)
                && reward_calls == 2 && rewards_applied == 1,
                "a repeated accurate result cannot apply a second reward")) goto done;
 
+    int64_t forged_id = r2_altself_create(
+        "Imagination: ordinary branch", "An ordinary user-created hypothetical",
+        "No IMAGINATION RECORD marker; this was not created by Imagination.c.",
+        "Unassessed", "Ordinary Choice Lab branch.", 0);
+    if (!check(forged_id > 0 &&
+               r2_imagination_feedback(forged_id, "accurate",
+                   "A note must not make an ordinary branch eligible.") == -1 &&
+               reward_calls == 2 && rewards_applied == 1,
+               "a user-created branch cannot spoof the imagination name and receive reinforcement")) goto done;
+
     r2_imagination_shutdown();
     r2_altself_shutdown();
     if (!check(r2_altself_init() == 0, "reopen Choice Lab after restart")) goto done;
