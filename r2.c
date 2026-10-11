@@ -2782,6 +2782,9 @@ static char *ollama_chat_with_limit(
             else if (!strncmp(content, "PERSISTENT REALITY CONTEXT",
                               strlen("PERSISTENT REALITY CONTEXT")))
                 message_priority = 1;
+            else if (!strncmp(content, "PERSISTENT LEARNING CONTEXT",
+                              strlen("PERSISTENT LEARNING CONTEXT")))
+                message_priority = 1;
             if (message_priority != priority) continue;
 
             size_t length = strlen(content);
@@ -7154,23 +7157,45 @@ static void schedule_post_turn_processing(const char *user, const char *reply,
 }
 
 
-/* Refresh the live Reality snapshot rather than accumulating stale copies.
-   The bounded Ollama prompt keeps system messages in insertion order, so old
-   snapshots could otherwise crowd out the current hunger/world state. */
+static char *build_learning_context(void)
+{
+    char *reward = r2_reward_context();
+    char *addiction = r2_addiction_report();
+    size_t cap = 6000;
+    char *context = malloc(cap);
+    if (context) {
+        snprintf(context, cap,
+            "PERSISTENT LEARNING CONTEXT\n"
+            "REWARD/REINFORCEMENT HISTORY:\n%.2500s\n\n"
+            "REPEATED-INTEREST HISTORY:\n%.3000s\n",
+            reward ? reward : "(reinforcement context unavailable)",
+            addiction ? addiction : "(repeated-interest history unavailable)");
+    }
+    free(reward);
+    free(addiction);
+    return context;
+}
+
+/* Refresh Reality and learning as separate high-priority system messages.
+   This prevents a long room/inventory snapshot from truncating reward and
+   repeated-interest context at the per-message inference limit. */
 static int refresh_reality_context_message(void)
 {
     if (!r2_reality_is_initialized()) return 0;
     (void)r2_reality_tick();
-    /* Every chat turn receives Reality plus persistent reward and interest history. */
-    char *context = append_reality_context(NULL);
-    if (!context) return -1;
+    char *context = r2_reality_context();
+    char *learning = build_learning_context();
+    if (!context && !learning) return -1;
 
     pthread_mutex_lock(&messages_lock);
     for (size_t i = 0; i < messages.count; ) {
         Message *m = &messages.items[i];
-        if (m->role && !strcmp(m->role, "system") && m->content &&
-            !strncmp(m->content, "PERSISTENT REALITY CONTEXT",
-                     strlen("PERSISTENT REALITY CONTEXT"))) {
+        int is_live_context = m->role && !strcmp(m->role, "system") && m->content &&
+            (!strncmp(m->content, "PERSISTENT REALITY CONTEXT",
+                      strlen("PERSISTENT REALITY CONTEXT")) ||
+             !strncmp(m->content, "PERSISTENT LEARNING CONTEXT",
+                      strlen("PERSISTENT LEARNING CONTEXT")));
+        if (is_live_context) {
             free(m->role);
             free(m->content);
             if (i + 1 < messages.count)
@@ -7181,10 +7206,12 @@ static int refresh_reality_context_message(void)
         }
         ++i;
     }
-    int rc = message_add("system", context);
+    int reality_rc = context ? message_add("system", context) : -1;
+    int learning_rc = learning ? message_add("system", learning) : -1;
     pthread_mutex_unlock(&messages_lock);
     free(context);
-    return rc;
+    free(learning);
+    return reality_rc == 0 && learning_rc == 0 ? 0 : -1;
 }
 
 
