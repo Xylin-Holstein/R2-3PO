@@ -785,6 +785,16 @@ static int fridge_mirror_write(const char *name, const char *description, int qu
     }
     return 0;
 }
+static void fridge_mirror_write_warn(const char *name, const char *description,
+                                     int quantity, double fullness, double energy,
+                                     const char *operation)
+{
+    if (fridge_mirror_write(name, description, quantity, fullness, energy) != 0)
+        fprintf(stderr,
+                "[R2 Fridge] Database remains authoritative, but mirror update failed during %s for '%s'.\\n",
+                operation ? operation : "inventory update", name ? name : "(unknown)");
+}
+
 /* Empty inventory is a valid world state. Never manufacture food to
  * make the fridge appear populated: only explicit inventory additions may
  * change stock. Keep the helper so existing call sites retain their error
@@ -873,8 +883,8 @@ static void fridge_sync_mirrors(void)
         while (sqlite3_step(st) == SQLITE_ROW) {
             const char *name = (const char *)sqlite3_column_text(st, 0);
             const char *description = (const char *)sqlite3_column_text(st, 1);
-            if (name) fridge_mirror_write(name, description, sqlite3_column_int(st, 2),
-                sqlite3_column_double(st, 3), sqlite3_column_double(st, 4));
+            if (name) fridge_mirror_write_warn(name, description, sqlite3_column_int(st, 2),
+                sqlite3_column_double(st, 3), sqlite3_column_double(st, 4), "startup sync");
         }
     }
     if (st) sqlite3_finalize(st);
@@ -1126,7 +1136,8 @@ int r2_fridge_add_item(const char *name, const char *description, int quantity,
         if (sqlite3_prepare_v2(fridge_db, "SELECT quantity FROM r2_fridge_items WHERE name=? COLLATE NOCASE", -1, &q, NULL) == SQLITE_OK) {
             bind_text(q, 1, name);
             if (sqlite3_step(q) == SQLITE_ROW)
-                fridge_mirror_write(name, description, sqlite3_column_int(q, 0), fullness, energy);
+                fridge_mirror_write_warn(name, description, sqlite3_column_int(q, 0),
+                                         fullness, energy, "stock addition");
         }
         if (q) sqlite3_finalize(q);
     }
@@ -1145,7 +1156,7 @@ int r2_fridge_take(const char *food)
                                          ingredients, sizeof(ingredients), taste, sizeof(taste));
     if (rc == 0) {
         if (qty == 1) fridge_mirror_remove(food);
-        else fridge_mirror_write(food, desc, qty - 1, fullness, energy);
+        else fridge_mirror_write_warn(food, desc, qty - 1, fullness, energy, "stock take");
     }
     pthread_mutex_unlock(&fridge_lock);
     if (rc != 0) return -1;
@@ -1153,7 +1164,7 @@ int r2_fridge_take(const char *food)
         pthread_mutex_lock(&fridge_lock);
         int restore_rc = fridge_restore_one(food, desc, fullness, energy, ingredients, taste);
         if (restore_rc == 0)
-            fridge_mirror_write(food, desc, qty, fullness, energy);
+            fridge_mirror_write_warn(food, desc, qty, fullness, energy, "failed-take rollback");
         pthread_mutex_unlock(&fridge_lock);
         if (restore_rc != 0)
             fprintf(stderr, "[R2 Fridge] Failed to restore '%s' after a failed take; stock may need inspection.\n", food);
@@ -1185,14 +1196,15 @@ int r2_reality_fridge_eat(const char *food, double fullness)
         int restore_rc = fridge_restore_one(food, desc, stored_fullness, energy, ingredients, taste);
         if (restore_rc != 0) {
             if (qty == 1) fridge_mirror_remove(food);
-            else fridge_mirror_write(food, desc, qty - 1, stored_fullness, energy);
+            else fridge_mirror_write_warn(food, desc, qty - 1, stored_fullness, energy,
+                                           "stock restoration");
             fprintf(stderr, "[R2 Fridge] Failed to restore non-nutritive stock '%s'.\n", food);
         }
         rc = -1;
     }
     if (rc == 0) {
         if (qty == 1) fridge_mirror_remove(food);
-        else fridge_mirror_write(food, desc, qty - 1, stored_fullness, energy);
+        else fridge_mirror_write_warn(food, desc, qty - 1, stored_fullness, energy, "meal stock consumption");
     }
     pthread_mutex_unlock(&fridge_lock);
     if (rc != 0) return -1;
@@ -1202,10 +1214,11 @@ int r2_reality_fridge_eat(const char *food, double fullness)
         pthread_mutex_lock(&fridge_lock);
         int restore_rc = fridge_restore_one(food, desc, stored_fullness, energy, ingredients, taste);
         if (restore_rc == 0)
-            fridge_mirror_write(food, desc, qty, stored_fullness, energy);
+            fridge_mirror_write_warn(food, desc, qty, stored_fullness, energy, "failed-meal rollback");
         else {
             if (qty == 1) fridge_mirror_remove(food);
-            else fridge_mirror_write(food, desc, qty - 1, stored_fullness, energy);
+            else fridge_mirror_write_warn(food, desc, qty - 1, stored_fullness, energy,
+                                           "stock restoration");
         }
         pthread_mutex_unlock(&fridge_lock);
         if (restore_rc != 0)
