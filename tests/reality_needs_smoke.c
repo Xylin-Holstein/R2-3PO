@@ -8,7 +8,12 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/stat.h>
+#include <errno.h>
 
+#ifndef R2_ROOT
+#define R2_ROOT "/tmp/r2-needs-smoke"
+#endif
 #ifndef R2_HOME
 #define R2_HOME "/tmp/r2-needs-smoke/R2"
 #endif
@@ -42,9 +47,94 @@ static void read_needs(double *hunger, double *sleepiness, double *energy,
     sqlite3_close(db);
 }
 
+static void seed_legacy_fridge_schema(void)
+{
+    if (mkdir(R2_ROOT, 0700) != 0 && errno != EEXIST) {
+        fprintf(stderr, "reality needs smoke failed: could not create test root\\n");
+        exit(1);
+    }
+    if (mkdir(R2_HOME, 0700) != 0 && errno != EEXIST) {
+        fprintf(stderr, "reality needs smoke failed: could not create test data directory\\n");
+        exit(1);
+    }
+
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/r2_fridge.db", R2_HOME);
+    sqlite3 *db = NULL;
+    if (sqlite3_open(path, &db) != SQLITE_OK) {
+        fprintf(stderr, "reality needs smoke failed: could not create legacy fridge fixture\\n");
+        if (db) sqlite3_close(db);
+        exit(1);
+    }
+    const char *legacy_schema =
+        "CREATE TABLE r2_fridge_items("
+        "name TEXT PRIMARY KEY COLLATE NOCASE,"
+        "description TEXT,"
+        "quantity INTEGER NOT NULL CHECK(quantity>0));"
+        "INSERT INTO r2_fridge_items(name,description,quantity) "
+        "VALUES('legacy_unknown','Legacy stock without nutrition metadata',2);";
+    char *error = NULL;
+    int rc = sqlite3_exec(db, legacy_schema, NULL, NULL, &error);
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "reality needs smoke failed: could not seed legacy fridge schema: %s\\n",
+                error ? error : sqlite3_errmsg(db));
+        sqlite3_free(error);
+        sqlite3_close(db);
+        exit(1);
+    }
+    sqlite3_close(db);
+}
+
+static void verify_legacy_fridge_migration(void)
+{
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/r2_fridge.db", R2_HOME);
+    sqlite3 *db = NULL;
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_open(path, &db) != SQLITE_OK)
+        fail("could not open migrated legacy fridge");
+    if (sqlite3_prepare_v2(db,
+        "SELECT quantity,fullness,energy FROM r2_fridge_items WHERE name='legacy_unknown'",
+        -1, &st, NULL) != SQLITE_OK || sqlite3_step(st) != SQLITE_ROW)
+        fail("legacy fridge stock disappeared during schema migration");
+    int quantity = sqlite3_column_int(st, 0);
+    double fullness = sqlite3_column_double(st, 1);
+    double energy = sqlite3_column_double(st, 2);
+    sqlite3_finalize(st);
+    sqlite3_close(db);
+    if (quantity != 2)
+        fail("legacy fridge quantity must be preserved during migration");
+    if (fullness != 0.0 || energy != 0.0)
+        fail("legacy stock without nutrition metadata must not receive invented fullness or energy");
+
+    if (r2_reality_fridge_eat("legacy_unknown", 100.0) == 0)
+        fail("caller-supplied fullness must not make unknown legacy stock edible");
+    if (sqlite3_open(path, &db) != SQLITE_OK)
+        fail("could not reopen migrated fridge after rejected meal");
+    if (sqlite3_prepare_v2(db,
+        "SELECT quantity,fullness,energy FROM r2_fridge_items WHERE name='legacy_unknown'",
+        -1, &st, NULL) != SQLITE_OK || sqlite3_step(st) != SQLITE_ROW)
+        fail("rejected meal must preserve legacy stock");
+    quantity = sqlite3_column_int(st, 0);
+    fullness = sqlite3_column_double(st, 1);
+    energy = sqlite3_column_double(st, 2);
+    sqlite3_finalize(st);
+    sqlite3_close(db);
+    if (quantity != 2 || fullness != 0.0 || energy != 0.0)
+        fail("rejected meal changed unknown legacy stock or its nutrition metadata");
+
+    if (r2_fridge_take("legacy_unknown") != 0 ||
+        r2_fridge_take("legacy_unknown") != 0)
+        fail("unknown legacy stock should remain movable even when nutrition is unconfigured");
+    if (r2_reality_remove_item("legacy_unknown") != 0)
+        fail("could not clean up migrated legacy stock fixture");
+}
+
 int main(void)
 {
+    seed_legacy_fridge_schema();
     if (r2_reality_init() != 0) fail("Reality initialization failed");
+    verify_legacy_fridge_migration();
     if (r2_reality_add_item("invalid_quantity", "Invalid quantity test", "pockets", 0) == 0)
         fail("Reality API must reject non-positive quantities rather than converting them to one");
     if (r2_reality_add_item("overflow_stack", "Quantity boundary test", "pockets", INT_MAX) != 0)
