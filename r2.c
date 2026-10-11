@@ -3247,12 +3247,57 @@ static char *ollama_chat_with_limit(
             current_user_reserve = current_length;
     }
 
+    /*
+     * A very long current turn cannot fit in every adaptive context, but it
+     * must never cause the fallback to allocate the entire input window to
+     * system messages. Bound its reservation while retaining at least 1000
+     * characters for system context plus generation/tokenizer overhead.
+     */
+    size_t max_user_reserve = input_budget > 1000
+        ? input_budget - 1000 : input_budget / 2;
+    if (current_user_reserve > max_user_reserve)
+        current_user_reserve = max_user_reserve;
+
     size_t system_budget = input_budget > current_user_reserve + 500
-        ? input_budget - current_user_reserve - 500 : input_budget;
+        ? input_budget - current_user_reserve - 500 : 0;
     if (system_budget > OLLAMA_MAX_SYSTEM_TOTAL_CHARS)
         system_budget = OLLAMA_MAX_SYSTEM_TOTAL_CHARS;
     if (system_budget > input_budget)
         system_budget = input_budget;
+
+    /*
+     * Under memory pressure, a long per-call override must not consume the
+     * entire system budget and silently evict R2's identity and live world
+     * context. Reserve a share for high-priority live context, cap the
+     * override, then give the core identity prompt the remaining space.
+     * At large contexts these caps do not reduce ordinary-sized prompts.
+     */
+    size_t reality_reserve = system_budget / 3;
+    if (reality_reserve > 6000)
+        reality_reserve = 6000;
+
+    size_t override_budget = system_budget / 4;
+    if (override_length > override_budget) {
+        override_length = override_budget;
+        if (system_override && json_object_array_length(arr) > 0) {
+            struct json_object *override_message = json_object_array_get_idx(arr, 0);
+            if (override_message) {
+                struct json_object *bounded_override =
+                    json_object_new_string_len(system_override, (int)override_length);
+                if (!bounded_override) {
+                    free(include);
+                    free(limits);
+                    json_object_put(arr);
+                    json_object_put(root);
+                    return NULL;
+                }
+                json_object_object_add(override_message, "content", bounded_override);
+            }
+        }
+    }
+
+    size_t identity_budget = system_budget > override_length + reality_reserve
+        ? system_budget - override_length - reality_reserve : 0;
 
     size_t total_chars = override_length;
     /*
@@ -3290,6 +3335,9 @@ static char *ollama_chat_with_limit(
             size_t length = strlen(content);
             if (length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS)
                 length = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;
+            /* Keep identity instructions from consuming the reserved live-context share. */
+            if (message_priority == 0 && length > identity_budget)
+                length = identity_budget;
             /* Reserve a little system budget for pinned memory after the live snapshot. */
             if (message_priority == 1 && length > 6000)
                 length = 6000;
