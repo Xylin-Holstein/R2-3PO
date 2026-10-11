@@ -136,6 +136,9 @@ int main(void)
     seed_legacy_fridge_schema();
     if (r2_reality_init() != 0) fail("Reality initialization failed");
     verify_legacy_fridge_migration();
+    read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
+    if (hunger < 99.9 || hunger > 100.0)
+        fail("fresh R2 state should start at full modeled satiety after the one-time semantics migration");
     if (r2_reality_add_item("invalid_quantity", "Invalid quantity test", "pockets", 0) == 0)
         fail("Reality API must reject non-positive quantities rather than converting them to one");
     if (r2_reality_add_item("overflow_stack", "Quantity boundary test", "pockets", INT_MAX) != 0)
@@ -376,7 +379,21 @@ int main(void)
     if (hunger < 65.5 || hunger > 67.5) fail("fullness should decrease by about 33.3 points per hour and reach zero in roughly three hours");
     if (sleepiness < 12.0 || sleepiness > 13.0) fail("sleepiness should rise about 12.5 points per hour");
     if (energy < 89.0 || energy > 91.0) fail("energy should fall about 10 points per hour");
-    if (satisfaction < 23.5 || satisfaction > 25.0) fail("satiety should fall about 75.8 points per hour at the 4.75-second rate");
+    if (satisfaction < 23.5 || satisfaction > 25.0) fail("satisfaction should decay independently at the configured modeled rate");
+
+    /* Three modeled hours without food should drain the fullness meter to
+       zero; this directly guards the intended time scale. */
+    if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality DB for three-hour fullness test");
+    if (sqlite3_prepare_v2(db,
+        "UPDATE r2_reality_self SET hunger=100,satisfaction=100,last_tick=? WHERE id=1",
+        -1, &st, NULL) != SQLITE_OK) fail("could not prepare three-hour fullness state");
+    sqlite3_bind_int64(st, 1, (sqlite3_int64)time(NULL) - 10800);
+    if (sqlite3_step(st) != SQLITE_DONE) fail("could not set three-hour fullness state");
+    sqlite3_finalize(st);
+    sqlite3_close(db);
+    if (r2_reality_tick() != 0) fail("three-hour fullness tick failed");
+    read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
+    if (hunger > 0.1) fail("fullness should reach zero after roughly three modeled hours without food");
 
     if (r2_reality_sleep(8.0) != 0) fail("eight-hour sleep transition failed");
     read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
