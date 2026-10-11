@@ -3314,7 +3314,7 @@ static char *ollama_chat_with_limit(
             if (!msgs[i].role || strcmp(msgs[i].role, "system") != 0)
                 continue;
             const char *content = msgs[i].content ? msgs[i].content : "";
-            int message_priority = 2;
+            int message_priority = 3;
             if (!strncmp(content,
                          "============================================================\nIDENTITY AND PERSISTENT MEMORY",
                          strlen("============================================================\nIDENTITY AND PERSISTENT MEMORY")))
