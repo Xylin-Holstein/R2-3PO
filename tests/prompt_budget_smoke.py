@@ -18,12 +18,12 @@ def macro(name: str) -> int:
 per_message = macro("OLLAMA_MAX_SYSTEM_MESSAGE_CHARS")
 system_total = macro("OLLAMA_MAX_SYSTEM_TOTAL_CHARS")
 history_total = macro("OLLAMA_MAX_TOTAL_CHARS")
-if per_message > 12000 or per_message < 10000:
-    raise SystemExit(f"System message cap should remain tightly bounded: {per_message}")
-if system_total > 20000 or system_total < 16000:
-    raise SystemExit(f"Aggregate system context cap should remain tightly bounded: {system_total}")
-if history_total > 26000 or history_total < 20000:
-    raise SystemExit(f"Bounded total history cap should remain tightly bounded: {history_total}")
+if per_message > 20000 or per_message < 19000:
+    raise SystemExit(f"System message cap must preserve the complete pinned prompt: {per_message}")
+if system_total > 32000 or system_total < 30000:
+    raise SystemExit(f"Aggregate system context cap must preserve identity and live context: {system_total}")
+if history_total > 36000 or history_total < 34000:
+    raise SystemExit(f"Bounded total history cap should remain finite but preserve the full prompt: {history_total}")
 
 start = core.find("static const char *SYSTEM_PROMPT =")
 end = core.find(";\n", start)
@@ -58,7 +58,6 @@ for required in (
     "size_t reality_reserve = system_budget / 3;",
     "size_t override_budget = system_budget / 4;",
     "size_t identity_budget = system_budget > override_length + reality_reserve",
-    "if (identity_budget > 4000)",
     "message_priority == 0 && length > identity_budget",
     'json_object_object_add(override_message, "content", bounded_override)',
 ):
@@ -80,7 +79,7 @@ def allocation_for_context(num_ctx: int, num_predict: int, override_length: int,
     system_budget = min(system_budget, system_total, input_budget)
     bounded_override = min(override_length, system_budget // 4)
     reality_reserve = min(system_budget // 3, 3000)
-    identity_budget = min(4000, max(0, system_budget - bounded_override - reality_reserve))
+    identity_budget = max(0, system_budget - bounded_override - reality_reserve)
     return (system_budget, bounded_override, identity_budget, reality_reserve,
             current_user_reserve, input_budget)
 
