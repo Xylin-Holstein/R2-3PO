@@ -242,6 +242,8 @@ Ollama requests are serialized. Foreground conversations take priority over oppo
 
 If the text model returns a recognizable failure that labels an ordinary typed message as unintelligible audio/noise instead of answering it, R2 makes one bounded corrective attempt with the original conversation, retrieved context, and exact active user turn retained. Normal replies do not incur an extra model call. A failed retry leaves the original draft available rather than crashing the conversation. The retry is a targeted safeguard, not a general semantic guarantee; real-world response quality must still be checked on the host.
 
+Foreground conversation and its corrective retry use a 45-minute request timeout by default. For especially slow local inference, set `R2_OLLAMA_TIMEOUT_SECONDS` before launching R2 to choose a timeout from 30 seconds up to 6 hours; for example, `export R2_OLLAMA_TIMEOUT_SECONDS=14400` allows up to four hours per request. Invalid values fall back to the default. This changes the wait limit, not model speed, and shutdown can still interrupt an in-flight request.
+
 ## Overnight service (start at boot and recover from crashes)
 
 For an unattended session, install the systemd service from the repository at its established location, `/home/x/R2_Home/R2`. This is separate from the interactive desktop launcher: service mode has no terminal prompt or Observer popup, but keeps the initialized R2 core, autonomous-thinking/diary workers, and local TV-control server alive until systemd stops it.
