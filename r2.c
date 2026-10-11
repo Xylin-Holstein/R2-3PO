@@ -3832,10 +3832,13 @@ static int r2_reply_misclassifies_plain_text(const char *query, const char *repl
         "random assortment of sounds",
         "random string of words",
         "that's a bit garbled",
+        "that’s a bit garbled",
         "that is a bit garbled",
         "i think you're trying to say",
+        "i think you’re trying to say",
         "i think you are trying to say",
         "you're trying to say",
+        "you’re trying to say",
         "you are trying to say",
         "is that what you mean"
     };
