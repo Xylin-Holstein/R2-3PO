@@ -57,6 +57,10 @@ require(
     and "message_priority = 3;" in core[learning_start:learning_end],
     "persistent learning is retained after live Reality and active-turn evidence",
 )
+require(
+    "int message_priority = 3;" in core,
+    "generic system context cannot crowd out active-turn retrieved evidence",
+)
 archive_start = core.find('"PAST CONVERSATION ARCHIVE — CONTEXT ONLY."')
 archive_end = core.find("message_priority = 4;", archive_start) if archive_start >= 0 else -1
 require(
