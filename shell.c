@@ -150,7 +150,7 @@ static void *tv_control_server(void *unused)
                 if (allowed && path[0] == '/' && *path &&
                     !strchr(path, '\n') && !strchr(path, '\r') &&
                     strlen(path) < 1100) {
-                    reply = r2_log_media_event(payload, "video", path,
+                    reply = r2_log_media_event(payload, "media", path,
                         "Observed from the CRT built-in VCR's VLC player; this records renderer state, not proof of what a person watched.") >= 0
                         ? "OK media event recorded" : "ERROR could not record media event";
                 } else {
