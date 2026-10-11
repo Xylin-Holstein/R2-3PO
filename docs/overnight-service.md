@@ -35,10 +35,10 @@ Run these on the R2 Linux machine, not on GitHub.
 5. Confirm the service account can access the existing workspace and local FX assets. Do not solve permission problems with broad `chmod 777` permissions:
 
    ```sh
-   sudo -u r2 test -x /home/x/R2_Home && echo "workspace traversable"
-   sudo -u r2 test -r /home/x/R2_Home/R2/r2.c && echo "source readable"
-   sudo -u r2 test -w /home/x/R2_Home/R2 && echo "persistent data directory writable"
-   sudo -u r2 test -r /home/x/R2_Home/R2_sounds/FX && echo "FX directory readable"
+   sudo -u r2 -- sh -c 'test -x /home/x/R2_Home' && echo "workspace traversable"
+   sudo -u r2 -- sh -c 'test -r /home/x/R2_Home/R2/r2.c' && echo "source readable"
+   sudo -u r2 -- sh -c 'probe=$(mktemp /home/x/R2_Home/R2/.r2-write-check.XXXXXX) && rm -f -- "$probe"' && echo "persistent data directory writable"
+   sudo -u r2 -- sh -c 'test -r /home/x/R2_Home/R2_sounds/FX' && echo "FX directory readable"
    ```
 
    If a check fails, correct the existing owner/group/ACL deliberately before continuing. The core stores its five SQLite databases under `R2/` (`r2_memory.db`, `r2_reality.db`, `r2_fridge.db`, `r2_rewards.db`, and `r2_addictions.db`), so account `r2` needs read/write access to that directory and its existing database files.
