@@ -44,6 +44,10 @@ talk_end = source.index("\nint r2_conversation(void)", talk_start)
 talk_wrapper = source[talk_start:talk_end]
 assert talk_wrapper.index("atomic_fetch_add(&foreground_conversation_waiting, 1)") < talk_wrapper.index("pthread_mutex_lock(&conversation_turn_lock)")
 assert "atomic_fetch_sub(&foreground_conversation_waiting, 1)" in talk_wrapper
+assert "ollama_foreground_turn_mode = 1;" in talk_wrapper
+assert "ollama_foreground_turn_mode = previous_turn_mode;" in talk_wrapper
+assert "(atomic_load(&foreground_conversation_waiting) > 0 &&" in source
+assert "!ollama_foreground_turn_mode" in source
 
 safeguard_start = source.index("static void autonomous_needs_food_safeguard(void)\n{")
 assert "pthread_mutex_trylock(&conversation_turn_lock) != 0" in source[safeguard_start:start]
