@@ -77,6 +77,19 @@ int main(void)
                     observed_bad_reply),
                 "observed fabricated paraphrase triggers corrective retry");
 
+    ok &= check(r2_reply_reverses_greeting(
+                    mother_message,
+                    "Hello R2, is your voice getting distorted?"),
+                "observed wrong-speaker greeting is detected as identity inversion");
+    ok &= check(r2_reply_misclassifies_plain_text(
+                    mother_message,
+                    "Hello R2, is your voice getting distorted?"),
+                "wrong-speaker reply triggers the production corrective retry");
+    ok &= check(!r2_reply_reverses_greeting(
+                    mother_message,
+                    "I missed you too, Mom. The room sounds lovely."),
+                "a correctly addressed warm response does not trigger identity correction");
+
     ok &= check(r2_reply_misclassifies_plain_text(mother_message,
                     "That's a bit garbled, but I think you're trying to say "
                     "something else."),
