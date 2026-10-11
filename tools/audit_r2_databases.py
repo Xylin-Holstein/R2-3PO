@@ -2,7 +2,7 @@
 """Read-only preflight audit for R2's SQLite databases.
 
 Point --root at the R2 data directory containing r2_reality.db, r2_fridge.db,
-and r2_memory.db. The tool never initializes R2, creates tables, or migrates a
+r2_memory.db, r2_rewards.db, and r2_addictions.db. The tool never initializes R2, creates tables, or migrates a
 source database. --snapshot-dir makes independent SQLite-backup snapshots
 without overwriting existing files, then audits those snapshots. For a
 cross-database-consistent snapshot, stop R2 before running this tool.
@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-DATABASES = ("r2_reality.db", "r2_fridge.db", "r2_memory.db")
+DATABASES = ("r2_reality.db", "r2_fridge.db", "r2_memory.db", "r2_rewards.db", "r2_addictions.db")
 LEGACY_PHANTOM_DESCRIPTION = (
     "Guaranteed filling burger generated because the fridge was empty"
 )
