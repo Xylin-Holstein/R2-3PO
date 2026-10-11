@@ -79,12 +79,12 @@ fi
 log "Waiting for the local Ollama API..."
 OLLAMA_READY=0
 for ((attempt=1; attempt<=30; attempt++)); do
-    if curl --silent --show-error --fail --max-time 2 "$OLLAMA_TAGS_URL" 2>/dev/null |
+    if curl --silent --show-error --fail --max-time 1 "$OLLAMA_TAGS_URL" 2>/dev/null |
         python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if any(x.get("name")=="gemma3:4b" or x.get("name","").startswith("gemma3:4b-") for x in d.get("models",[])) else 3)' >/dev/null 2>&1; then
         OLLAMA_READY=1
         break
     fi
-    sleep 2
+    sleep 1
 done
 [[ "$OLLAMA_READY" -eq 1 ]] || fail "Ollama did not become ready with gemma3:4b after 60 seconds. Start Ollama and make sure 'ollama list' contains gemma3:4b; service will retry automatically."
 
