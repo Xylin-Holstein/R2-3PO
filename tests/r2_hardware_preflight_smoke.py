@@ -17,7 +17,7 @@ required = (
     'r2_rewards.db', 'r2_addictions.db',
     'pactl', 'sudo -n -u r2 pactl info',
     '/dev/video*', 'R2 runtime account can read/write',
-    '/dev/snd/*', 'mGBA Qt emulator',
+    '/dev/snd/*', 'SupplementaryGroups=audio',\n    "R2 service's configured audio supplementary group can access", 'mGBA Qt emulator',
     'stop it before installation or database preflight',
     'sudo -n -u r2 test -r "$R2_FX_DIR"',
     'r2_diary.c r2_diary.h',
