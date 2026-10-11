@@ -2897,7 +2897,9 @@ static char *ollama_chat_with_limit(
     int max_predict = num_ctx >= 16384 ? 3072 :
                       num_ctx >= 12288 ? 2048 :
                       num_ctx >= 8192 ? 768 : 384;
-    if (num_predict < 1) num_predict = max_predict;
+    /* Background helpers that omit an explicit budget stay modest; complex
+       foreground requests can use the larger context-dependent ceiling. */
+    if (num_predict < 1) num_predict = num_ctx >= 12288 ? 1024 : 512;
     if (num_predict > max_predict) num_predict = max_predict;
 
     struct json_object *options = json_object_new_object();
@@ -2951,21 +2953,14 @@ static char *ollama_chat_with_limit(
      * requested from Ollama. Reserve generation room plus tokenizer overhead,
      * and count the extra system override which is serialized separately.
      */
-    size_t input_budget = (size_t)(num_ctx - num_predict - 512) * 3U;
+    size_t input_budget = (size_t)(num_ctx - num_predict - 512) * 32U / 10U;
     if (input_budget > OLLAMA_MAX_TOTAL_CHARS)
         input_budget = OLLAMA_MAX_TOTAL_CHARS;
+    /* Reserve enough for the current user turn and a recent exchange, while
+       keeping the full identity prompt ahead of historical context. Long user
+       messages are truncated only at the global payload boundary, not by
+       letting old pinned memories crowd the identity instructions out. */
     size_t current_user_reserve = 3000;
-    for (size_t i = count; i > 0; --i) {
-        size_t index = i - 1;
-        if (msgs[index].role && !strcmp(msgs[index].role, "user")) {
-            size_t n = msgs[index].content ? strlen(msgs[index].content) : 0;
-            if (n > OLLAMA_MAX_MESSAGE_CHARS) n = OLLAMA_MAX_MESSAGE_CHARS;
-            if (n > current_user_reserve) current_user_reserve = n;
-            break;
-        }
-    }
-    if (current_user_reserve > OLLAMA_MAX_MESSAGE_CHARS)
-        current_user_reserve = OLLAMA_MAX_MESSAGE_CHARS;
     size_t system_budget = input_budget > current_user_reserve + 1000
         ? input_budget - current_user_reserve - 1000 : OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;
     if (system_budget > OLLAMA_MAX_SYSTEM_TOTAL_CHARS)
