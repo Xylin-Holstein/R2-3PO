@@ -2957,7 +2957,7 @@ static char *ollama_chat_with_limit(
                  elapsed_seconds,
                  timeout_seconds > 0 ? timeout_seconds : 180L);
         fprintf(stderr,
-                "[R2 Ollama] transport failure: %s (HTTP %ld, payload %zu bytes, response %zu bytes, elapsed %.3fs; configured timeout %ld seconds)\\n",
+                "[R2 Ollama] transport failure: %s (HTTP %ld, payload %zu bytes, response %zu bytes, elapsed %.3fs; configured timeout %ld seconds)\n",
                 why, http_status, strlen(payload), b.size, elapsed_seconds,
                 timeout_seconds > 0 ? timeout_seconds : 180L);
         if (r2_log_is_initialized())
