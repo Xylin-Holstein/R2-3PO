@@ -6,8 +6,8 @@ R2_EXEC="$R2_ROOT/r2"
 
 # Request a partial GPU layer offload for Gemma 3 4B when a supported GPU
 # backend is available. Ollama runs the remaining layers on CPU. Override
-# R2_OLLAMA_NUM_GPU for the installed GPU/VRAM, or set it to 0 for auto.
-export R2_OLLAMA_NUM_GPU="${R2_OLLAMA_NUM_GPU:-20}"
+# R2_OLLAMA_NUM_GPU to tune the GPU/VRAM, or set it to 0 for auto.
+export R2_OLLAMA_NUM_GPU="${R2_OLLAMA_NUM_GPU:--1}"
 
 # The interactive launcher and the overnight service share persistent databases.
 # Never start a second core against those same files.
