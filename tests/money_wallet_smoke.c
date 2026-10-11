@@ -130,8 +130,10 @@ static void assert_legacy_reality_and_fridge_preserved(void)
         "WHERE name='legacy snack'", -1, &st, NULL) == SQLITE_OK);
     assert(sqlite3_step(st) == SQLITE_ROW);
     assert(sqlite3_column_int(st, 0) == 3);
-    assert(sqlite3_column_double(st, 1) == 100.0);
-    assert(sqlite3_column_double(st, 2) == 10.0);
+    /* Legacy stock without nutrition columns stays inventory, but its
+       nutritional values remain explicitly unknown rather than fabricated. */
+    assert(sqlite3_column_double(st, 1) == 0.0);
+    assert(sqlite3_column_double(st, 2) == 0.0);
     updated = sqlite3_column_text(st, 3);
     assert(updated && *updated);
     sqlite3_finalize(st);
