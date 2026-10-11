@@ -57,7 +57,7 @@
  * separately. Full history remains in R2's own memory and Life Log.
  */
 #define OLLAMA_MAX_RECENT_MESSAGES 48
-#define OLLAMA_MAX_MESSAGE_CHARS 10000
+#define OLLAMA_MAX_MESSAGE_CHARS 12000
 #define OLLAMA_MAX_SYSTEM_MESSAGE_CHARS 20000
 #define OLLAMA_MAX_SYSTEM_TOTAL_CHARS 28000
 #define OLLAMA_MAX_TOTAL_CHARS 48000
@@ -2931,6 +2931,8 @@ static char *ollama_chat_with_limit(
         atomic_fetch_sub(&foreground_ollama_waiting, 1);
     }
     CURLcode cc = curl_easy_perform(curl);
+    double elapsed_seconds = 0.0;
+    curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME, &elapsed_seconds);
     pthread_mutex_unlock(&ollama_request_lock);
 
     long http_status = 0;
@@ -2950,12 +2952,13 @@ static char *ollama_chat_with_limit(
         const char *why = curl_error[0] ? curl_error : curl_easy_strerror(cc);
         char details[768];
         snprintf(details, sizeof(details),
-                 "model=%s; transport=%s; HTTP=%ld; response_bytes=%zu; timeout_seconds=%ld",
-                 MODEL, why, http_status, b.size,
+                 "model=%s; transport=%s; HTTP=%ld; payload_bytes=%zu; response_bytes=%zu; elapsed_seconds=%.3f; timeout_seconds=%ld",
+                 MODEL, why, http_status, strlen(payload), b.size,
+                 elapsed_seconds,
                  timeout_seconds > 0 ? timeout_seconds : 180L);
         fprintf(stderr,
-                "[R2 Ollama] transport failure: %s (HTTP %ld, %zu response bytes; configured timeout %ld seconds)\n",
-                why, http_status, b.size,
+                "[R2 Ollama] transport failure: %s (HTTP %ld, payload %zu bytes, response %zu bytes, elapsed %.3fs; configured timeout %ld seconds)\\n",
+                why, http_status, strlen(payload), b.size, elapsed_seconds,
                 timeout_seconds > 0 ? timeout_seconds : 180L);
         if (r2_log_is_initialized())
             r2_log_event(R2_LOG_ERROR, "ollama_transport_failure",
