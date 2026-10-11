@@ -166,7 +166,6 @@ root_run install -m 0644 "$UNIT_SOURCE" "$UNIT_DEST"
 root_run systemctl daemon-reload
 
 log "Enabling R2 at boot and starting the overnight service..."
-STARTED_AT="$(date '+%Y-%m-%d %H:%M:%S')"
 START_EVENT_ID="$(latest_life_log_event_id)" || fail "could not read the current Life Log position before startup."
 if ! root_run systemctl enable --now r2-3po.service; then
     root_run systemctl --no-pager --full status r2-3po.service || true
