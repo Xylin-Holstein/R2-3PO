@@ -23,10 +23,11 @@ food_guard = source[helper_start:helper_end]
 assert 'strstr(action, "[WORLD] eat|")' in food_guard
 assert 'strstr(action, "[WORLD] fridge_eat|")' in food_guard
 assert 'double value = strtod(field, &end);' in food_guard
-assert "value >= 50.0" in food_guard
-assert "value >= 85.0" in food_guard
+assert "hunger >= 50.0" in food_guard
+assert "sleepiness >= 85.0" in food_guard
 assert 'strstr(action, "[WORLD] sleep|")' in food_guard
-assert 'const char *label = is_food_action ? "Hunger: " : "Sleepiness: ";' in food_guard
+assert "r2_reality_autonomous_food_available()" in food_guard
+assert "if (food_available != 0)" in food_guard
 assert "if (!status) return 0;" in food_guard
 assert "if (!autonomous_needs_action_still_needed(safe_action))" in function
 assert "autonomous_needs_stale_action" in function
