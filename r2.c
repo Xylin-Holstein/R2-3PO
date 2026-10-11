@@ -2882,6 +2882,20 @@ static int ollama_context_tokens(void)
             fprintf(stderr, "[R2 Ollama] Ignoring invalid R2_OLLAMA_NUM_CTX value.\n");
         }
     }
+    static atomic_int last_context_tokens = ATOMIC_VAR_INIT(0);
+    int previous_context = atomic_exchange(&last_context_tokens, safe_max);
+    if (previous_context != safe_max) {
+        if (available) {
+            fprintf(stderr,
+                    "[R2 Ollama] Adaptive context=%d tokens; available RAM≈%.1f GiB. "
+                    "Context is capped to preserve host headroom.\n",
+                    safe_max, (double)available / (1024.0 * 1024.0 * 1024.0));
+        } else {
+            fprintf(stderr,
+                    "[R2 Ollama] Adaptive context=%d tokens; RAM availability could not be measured.\n",
+                    safe_max);
+        }
+    }
     return safe_max;
 }
 
