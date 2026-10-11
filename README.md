@@ -4,6 +4,8 @@ R2-3PO is a C program with separate core, shell, diary, life-log, visual, eye, a
 
 For unattended overnight operation, boot-time activation, crash recovery, and sleep-inhibitor behavior, see [the overnight service guide](docs/overnight-service.md). The installer performs a database snapshot/integrity preflight before enabling the service. Do not run the systemd service and the interactive launcher at the same time.
 
+Before deployment, run `bash /home/x/R2_Home/R2/tools/preflight_r2_hardware.sh` for a non-destructive check of the local model, databases, permissions, sound assets, and device dependencies. See the guide for activation and live-device verification.
+
 ## Build on Ubuntu/Debian
 
 Install the compiler and development libraries:
