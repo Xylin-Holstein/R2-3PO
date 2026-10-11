@@ -7601,8 +7601,8 @@ int r2_init(void)
         r2_log_continuity("r2_alternate_self_lab", "subsystem",
                           "Alternate-Self Lab",
                           "What-if branches are kept distinct from factual events and memories.",
-                          "in_progress",
-                          "Connect hypothetical sensory reasoning and learned preferences without promoting predictions to observations.",
+                          "completed",
+                          "Counterfactual sensory reasoning receives learned preferences and self-facts; imagined sensations remain predictions and do not update experiential preferences.",
                           "r2_init");
 
     /* --------------------------------------------------------
@@ -7957,9 +7957,9 @@ int r2_init(void)
                      "r2_init");
         r2_log_continuity("r2_life_log_integration", "project",
                           "R2 Life Log integration",
-                          "Chronology, conversations, system state, reflection cycles, and continuity are logged.",
-                          "in_progress",
-                          "Connect raw sensor observations and media-playback events when their source interfaces expose them.",
+                          "Chronology, conversations, system state, reflection cycles, sensor metadata, visual experiences, and available VLC playback transitions are logged.",
+                          "completed",
+                          "Eyes/Ears record source and sample lifecycle metadata, Visual archives captured visual experiences, and the CRT VCR logs actual VLC playback transitions when its renderer and Life Log socket are available. Raw audio buffers are intentionally not persisted.",
                           "r2_init");
     }
 
