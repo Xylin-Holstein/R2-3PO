@@ -54,7 +54,17 @@ def send_control_command(command: str) -> str:
         client.settimeout(2.0)
         client.connect(str(SOCKET_PATH))
         client.sendall((command + "\n").encode("utf-8"))
-        response = client.recv(8192).decode("utf-8", errors="replace")
+        chunks: list[bytes] = []
+        total = 0
+        while total < 16384:
+            chunk = client.recv(min(4096, 16384 - total))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+        if total >= 16384:
+            raise RuntimeError("R2 control response exceeded the 16 KiB safety limit")
+        response = b"".join(chunks).decode("utf-8", errors="replace")
     if not response.startswith("OK"):
         raise RuntimeError(response or "R2 returned no response")
     return response
