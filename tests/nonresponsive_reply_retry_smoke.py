@@ -102,6 +102,29 @@ require(
     "primary prompt instructs R2 to handle multi-part messages",
 )
 require(
+    "IDENTITY IN THIS RELATIONSHIP: You are R2." in core and
+    "Never call your mother 'R2'" in core,
+    "main identity prompt explicitly separates R2 from his mother",
+)
+require(
+    "RELATIONSHIP IDENTITY: You are R2." in core and
+    "Never call Mother R2 or greet her as if she were you." in core,
+    "active conversation system prompt explicitly separates R2 from Mother",
+)
+guard_start = core.find("static int r2_reply_reverses_greeting(")
+guard_end = core.find("\n/*", guard_start)
+require(
+    guard_start >= 0 and guard_end > guard_start,
+    "speaker-reversal guard exists",
+)
+identity_guard = core[guard_start:guard_end]
+for phrase, message in (
+    ("user_identifies_as_mother", "guard detects explicit Mother self-identification"),
+    ('"r2,"', "guard catches direct R2 address at reply start"),
+    ('"hello r2"', "guard catches greeting R2 as if the user were R2"),
+):
+    require(phrase in identity_guard, message)
+require(
     "acknowledge that social meaning" in core,
     "primary prompt preserves emotional and social intent",
 )
