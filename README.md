@@ -234,6 +234,14 @@ ollama ps
 
 For NVIDIA, check `nvidia-smi` and the Ollama service log; for AMD, check the installed ROCm/Vulkan backend and device permissions. See the [Ollama GPU guide](https://docs.ollama.com/gpu) and [troubleshooting guide](https://docs.ollama.com/troubleshooting). A successful configuration should show a CPU/GPU split in `ollama ps` rather than `100% CPU`.
 
+## Conversation work scheduling and RAM reuse
+
+R2 keeps a bounded, short-lived RAM cache of historical memory and Life Log retrieval results (12 entries, 12-second monotonic TTL, 32 KiB maximum per value). Persistent-memory writes invalidate the cache. Current Reality and live visual observations are assembled separately rather than being reused as stale cached state. This lets the program reuse recent retrieval work without treating RAM as a processor or allowing old state to masquerade as live reality.
+
+Ollama requests are serialized. Foreground conversations take priority over opportunistic vision and background model calls; an in-flight background request checks the foreground wait queue and yields when possible. The C application, SQLite, prompt construction, scheduling, and cache still use the CPU. System RAM holds the model/runtime working set and cached context; it cannot execute model layers itself. A supported GPU backend is required for actual GPU inference.
+
+If the text model returns a recognizable failure that labels an ordinary typed message as unintelligible audio/noise instead of answering it, R2 makes one bounded corrective attempt with the original conversation, retrieved context, and exact active user turn retained. Normal replies do not incur an extra model call. A failed retry leaves the original draft available rather than crashing the conversation. The retry is a targeted safeguard, not a general semantic guarantee; real-world response quality must still be checked on the host.
+
 ## Overnight service (start at boot and recover from crashes)
 
 For an unattended session, install the systemd service from the repository at its established location, `/home/x/R2_Home/R2`. This is separate from the interactive desktop launcher: service mode has no terminal prompt or Observer popup, but keeps the initialized R2 core, autonomous-thinking/diary workers, and local TV-control server alive until systemd stops it.
