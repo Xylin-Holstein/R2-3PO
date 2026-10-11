@@ -891,6 +891,75 @@ static void fridge_sync_mirrors(void)
     pthread_mutex_unlock(&fridge_lock);
 }
 
+static int fridge_column_exists(const char *column)
+{
+    sqlite3_stmt *st = NULL;
+    int found = 0;
+    if (sqlite3_prepare_v2(fridge_db, "PRAGMA table_info(r2_fridge_items)", -1,
+                           &st, NULL) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            const unsigned char *name = sqlite3_column_text(st, 1);
+            if (name && !strcasecmp((const char *)name, column)) {
+                found = 1;
+                break;
+            }
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    return found;
+}
+
+static int fridge_ensure_column(const char *column, const char *definition)
+{
+    if (fridge_column_exists(column)) return SQLITE_OK;
+    char sql[512];
+    int n = snprintf(sql, sizeof(sql),
+                     "ALTER TABLE r2_fridge_items ADD COLUMN %s %s;",
+                     column, definition);
+    if (n < 0 || (size_t)n >= sizeof(sql)) return SQLITE_TOOBIG;
+    return sqlite3_exec(fridge_db, sql, NULL, NULL, NULL);
+}
+
+/* Upgrade older fridge tables in place. Existing stock is retained; optional
+   metadata is added with neutral defaults and old quantity aliases are copied
+   only when the canonical quantity column did not previously exist. */
+static int fridge_migrate_schema(void)
+{
+    int had_quantity = fridge_column_exists("quantity");
+    const char *columns[][2] = {
+        {"description", "TEXT"},
+        {"quantity", "INTEGER NOT NULL DEFAULT 1"},
+        {"fullness", "REAL NOT NULL DEFAULT 100"},
+        {"energy", "REAL NOT NULL DEFAULT 10"},
+        {"ingredients", "TEXT"},
+        {"taste", "TEXT"},
+        {"updated_at", "TEXT NOT NULL DEFAULT ''"}
+    };
+    for (size_t i = 0; i < sizeof(columns) / sizeof(columns[0]); ++i) {
+        if (fridge_ensure_column(columns[i][0], columns[i][1]) != SQLITE_OK)
+            return SQLITE_ERROR;
+    }
+
+    if (!had_quantity) {
+        if (fridge_column_exists("qty") &&
+            sqlite3_exec(fridge_db,
+                "UPDATE r2_fridge_items SET quantity=qty WHERE qty IS NOT NULL",
+                NULL, NULL, NULL) != SQLITE_OK)
+            return SQLITE_ERROR;
+        else if (fridge_column_exists("amount") &&
+            sqlite3_exec(fridge_db,
+                "UPDATE r2_fridge_items SET quantity=amount WHERE amount IS NOT NULL",
+                NULL, NULL, NULL) != SQLITE_OK)
+            return SQLITE_ERROR;
+    }
+    if (sqlite3_exec(fridge_db,
+        "UPDATE r2_fridge_items SET updated_at=CURRENT_TIMESTAMP "
+        "WHERE updated_at IS NULL OR updated_at='';",
+        NULL, NULL, NULL) != SQLITE_OK)
+        return SQLITE_ERROR;
+    return SQLITE_OK;
+}
+
 static int fridge_init(void)
 {
     char path[1200];
@@ -911,6 +980,8 @@ static int fridge_init(void)
         "CREATE TABLE IF NOT EXISTS r2_fridge_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);"
         "INSERT OR IGNORE INTO r2_fridge_meta(key,value) VALUES('schema_version','1');",
         NULL, NULL, NULL);
+    /* Migrate older inventory layouts without deleting user-entered stock. */
+    if (rc == SQLITE_OK && fridge_migrate_schema() != SQLITE_OK) rc = SQLITE_ERROR;
     /* Remove only stock created by the former automatic-refill behavior.
        Real user-entered inventory and all unrelated food are preserved. */
     if (rc == SQLITE_OK && sqlite3_exec(fridge_db,
