@@ -37,4 +37,17 @@ eat_action = r2[eat_start:eat_end]
 if "atof(fields[2])" in eat_action or '"auto"' not in eat_action:
     raise SystemExit("world eat action must require auto and use authoritative metrics")
 
+counterfactual_rules = (
+    "Imagined sensory details are predictions, not observations.",
+    "Never activate Eyes or Ears, change the world, eat food, or update a learned preference merely to answer a hypothetical.",
+    "Only a real experience or explicit user feedback may update an experiential preference.",
+    "[ALTERNATE_CREATE]",
+)
+for rule in counterfactual_rules:
+    if rule not in r2:
+        raise SystemExit(f"R2 is missing a counterfactual/learning boundary: {rule}")
+
+if '"r2_alternate_self_lab"' not in r2 or '"completed"' not in r2:
+    raise SystemExit("Alternate-Self completion state is not recorded in the core continuity integration")
+
 print("fridge context consistency smoke passed")
