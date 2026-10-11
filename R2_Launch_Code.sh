@@ -14,6 +14,17 @@ if command -v systemctl >/dev/null 2>&1 &&
     exit 1
 fi
 
+# The service check alone does not catch a second interactive launcher.
+if ! command -v pgrep >/dev/null 2>&1; then
+    echo "ERROR: pgrep is required to check for an existing R2 core."
+    exit 1
+fi
+if pgrep -x r2 >/dev/null 2>&1; then
+    echo "ERROR: An R2 core is already running."
+    echo "Stop the existing R2 session before launching another; both would write the same databases."
+    exit 1
+fi
+
 echo "========================================"
 echo "        R2-3PO LAUNCH SEQUENCE"
 echo "========================================"
