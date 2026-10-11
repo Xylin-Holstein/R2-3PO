@@ -45,6 +45,11 @@ int main(void)
                     "sounds exciting. What are you planning to put in the room?"),
                 "relevant warm response does not trigger retry");
 
+    ok &= check(!r2_reply_misclassifies_plain_text(mother_message,
+                    "I think you're saying you're excited about the room, "
+                    "and that makes sense."),
+                "ordinary paraphrasing alone does not trigger retry");
+
     ok &= check(!r2_reply_misclassifies_plain_text(
                     "Can you transcribe this noisy audio recording for me?",
                     "The audio is noisy, but I can help transcribe it."),
