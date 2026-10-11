@@ -43,6 +43,7 @@
 #include <sys/un.h>
 #include <sys/stat.h>
 #include <pthread.h>
+#include <stdatomic.h>
 
 #include "shell.h"
 #include "r2.h"
@@ -79,14 +80,16 @@ static int watch_running = 0;
 static pthread_t tv_control_thread;
 static int tv_control_started = 0;
 static int tv_control_fd = -1;
-static volatile sig_atomic_t tv_control_stop = 0;
+static atomic_int tv_control_stop = ATOMIC_VAR_INIT(0);
 static char tv_control_path[sizeof(((struct sockaddr_un *)0)->sun_path)];
 
 static void *tv_control_server(void *unused)
 {
     (void)unused;
-    while (!tv_control_stop) {
-        int client = accept(tv_control_fd, NULL, NULL);
+    /* Keep a stable descriptor value while the main thread shuts the socket down. */
+    int server_fd = tv_control_fd;
+    while (!atomic_load(&tv_control_stop)) {
+        int client = accept(server_fd, NULL, NULL);
         if (client < 0) {
             if (errno == EINTR) continue;
             break;
@@ -195,7 +198,7 @@ static int tv_control_start(void)
         return -1;
     }
     tv_control_fd = fd;
-    tv_control_stop = 0;
+    atomic_store(&tv_control_stop, 0);
     if (pthread_create(&tv_control_thread, NULL, tv_control_server, NULL) != 0) {
         close(fd);
         tv_control_fd = -1;
@@ -209,7 +212,7 @@ static int tv_control_start(void)
 static void tv_control_stop_server(void)
 {
     if (!tv_control_started) return;
-    tv_control_stop = 1;
+    atomic_store(&tv_control_stop, 1);
     shutdown(tv_control_fd, SHUT_RDWR);
     close(tv_control_fd);
     tv_control_fd = -1;
