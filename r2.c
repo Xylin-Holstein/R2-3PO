@@ -3711,7 +3711,7 @@ static char *chat_with_relevant_memories(
         context_cache_store(query ? query : "", MAX_RELEVANT_MEMORIES,
                             memory_context);
     } else {
-        fprintf(stderr, "[R2 Context] Reused persistent-memory retrieval from RAM cache.\\n");
+        fprintf(stderr, "[R2 Context] Reused persistent-memory retrieval from RAM cache.\n");
     }
 
     /*
