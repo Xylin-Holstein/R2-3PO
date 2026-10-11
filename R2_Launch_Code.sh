@@ -34,10 +34,10 @@ if [[ -t 0 ]]; then
 fi
 echo
 
-# Ask Ollama to offload as many Gemma 3 4B layers as fit on the GPU.
-# Any remaining layers stay on CPU. Override R2_OLLAMA_NUM_GPU to tune it,
-# or set it to 0 to return to Ollama's automatic placement.
-export R2_OLLAMA_NUM_GPU="${R2_OLLAMA_NUM_GPU:--1}"
+# Let Ollama choose CPU/GPU placement by default. This is the safest policy
+# on CPU-only hosts and on machines whose GPU backend is unsupported. Set
+# R2_OLLAMA_NUM_GPU explicitly only when you have verified a supported backend.
+export R2_OLLAMA_NUM_GPU="${R2_OLLAMA_NUM_GPU:-0}"
 
 # The interactive launcher and the overnight service share persistent databases.
 # Never start a second core against those same files.
