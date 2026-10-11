@@ -2801,7 +2801,7 @@ static char *ollama_chat_with_limit(
     }
 
     size_t max_total_chars = ollama_recovery_mode
-        ? OLLAMA_RECOVERY_MAX_TOTAL_CHARS : max_total_chars;
+        ? OLLAMA_RECOVERY_MAX_TOTAL_CHARS : OLLAMA_MAX_TOTAL_CHARS;
     size_t total_chars = 0;
     /*
      * Priority matters when the system-context budget is reached. Keep the
