@@ -461,7 +461,7 @@ int main(void)
         fail("room food and fridge stock must not count as accessible while away");
     if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality database for away test");
     if (sqlite3_prepare_v2(db,
-        "UPDATE r2_reality_self SET hunger=60,seconds_since_meal=10000,last_tick=? WHERE id=1",
+        "UPDATE r2_reality_self SET hunger=40,seconds_since_meal=10000,last_tick=? WHERE id=1",
         -1, &st, NULL) != SQLITE_OK) fail("could not prepare away hunger state");
     sqlite3_bind_int64(st, 1, (sqlite3_int64)time(NULL));
     if (sqlite3_step(st) != SQLITE_DONE) fail("could not set away hunger state");
@@ -508,7 +508,7 @@ int main(void)
         fail("unlisted tracked food must not be accepted from a guessed fullness value");
     if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality database for tracked-food test");
     if (sqlite3_prepare_v2(db,
-        "UPDATE r2_reality_self SET hunger=60,seconds_since_meal=10000,last_tick=? WHERE id=1",
+        "UPDATE r2_reality_self SET hunger=40,seconds_since_meal=10000,last_tick=? WHERE id=1",
         -1, &st, NULL) != SQLITE_OK) fail("could not prepare tracked-food hunger state");
     sqlite3_bind_int64(st, 1, (sqlite3_int64)time(NULL));
     if (sqlite3_step(st) != SQLITE_DONE) fail("could not set tracked-food hunger state");
@@ -581,7 +581,7 @@ int main(void)
     free(empty_fridge_context);
     if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality database for empty-fridge test");
     if (sqlite3_prepare_v2(db,
-        "UPDATE r2_reality_self SET hunger=60,seconds_since_meal=10000,last_tick=? WHERE id=1",
+        "UPDATE r2_reality_self SET hunger=40,seconds_since_meal=10000,last_tick=? WHERE id=1",
         -1, &st, NULL) != SQLITE_OK) fail("could not prepare empty-fridge hunger state");
     sqlite3_bind_int64(st, 1, (sqlite3_int64)time(NULL));
     if (sqlite3_step(st) != SQLITE_DONE) fail("could not set empty-fridge hunger state");
