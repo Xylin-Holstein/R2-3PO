@@ -27,6 +27,21 @@ int main(void)
         "did you know that you had a room with stuff in it? im actually "
         "working on giving you a fully detailed room with a bed, you also "
         "have physical pockets you can put stuff in";
+
+    ok &= check(!r2_query_explicitly_requests_recall(mother_message),
+                "ordinary affectionate update uses focused context retrieval");
+    ok &= check(r2_query_explicitly_requests_recall(
+                    "What did we talk about last time?"),
+                "explicit prior-conversation question enables broader recall");
+    ok &= check(r2_query_explicitly_requests_recall(
+                    "Do you remember what I told you about the room?"),
+                "explicit memory question enables broader recall");
+
+    char bounded_context[] = "[room] bed\\n[pockets] items\\n[old] archive\\n";
+    r2_bound_context_records(bounded_context, 15);
+    ok &= check(strcmp(bounded_context, "[room] bed") == 0,
+                "context budget truncates at a whole memory-record boundary");
+
     const char *observed_bad_reply =
         "That’s a bit garbled, but I think you’re trying to say, "
         "“Hello, I’m R2, and I’m making a mistake.” Is that correct?";
