@@ -4,12 +4,12 @@
 from pathlib import Path
 
 source = Path("r2.c").read_text(encoding="utf-8")
-start = source.index("static void autonomous_needs_check(void)\\n{")
-end = source.index("\\nint r2_think(void)", start)
+start = source.index("static void autonomous_needs_check(void)\n{")
+end = source.index("\nint r2_think(void)", start)
 function = source[start:end]
 
 allow_start = source.index("static int autonomous_needs_action_allowed(")
-allow_end = source.index("\\n/* Re-check hunger immediately", allow_start)
+allow_end = source.index("\n/* Re-check hunger immediately", allow_start)
 allow_guard = source[allow_start:allow_end]
 assert 'command_len == 3 && !strncmp(command, "eat", 3)' in allow_guard
 assert 'command_len == 10 && !strncmp(command, "fridge_eat", 10)' in allow_guard
@@ -18,7 +18,7 @@ assert "autonomous_needs_action_allowed(safe_action)" in function
 assert "autonomous_needs_action_rejected" in function
 
 helper_start = source.index("static int autonomous_food_action_still_needed(")
-helper_end = source.index("\\n/* Autonomous needs checks are deliberately limited", helper_start)
+helper_end = source.index("\n/* Autonomous needs checks are deliberately limited", helper_start)
 food_guard = source[helper_start:helper_end]
 assert 'strstr(action, "[WORLD] eat|")' in food_guard
 assert 'strstr(action, "[WORLD] fridge_eat|")' in food_guard
@@ -35,17 +35,17 @@ assert 'strstr(result, "updated persistent hunger and energy.") != NULL' in func
 assert 'strstr(result, "FRIDGE RESULT: eating \'") != NULL' in function
 assert 'strstr(result, "reduced hunger and consumed fridge stock.") != NULL' in function
 assert "REAL NEEDS RESULT: sleep transition was persisted." in function
-assert "if (!world_action_succeeded)\\n        autonomous_needs_food_safeguard();" in function
+assert "if (!world_action_succeeded)\n        autonomous_needs_food_safeguard();" in function
 assert "autonomous_needs_yielded_to_conversation" in function
 assert "pthread_mutex_trylock(&conversation_turn_lock)" in function
 
-talk_start = source.index("char *r2_talk(const char *message)\\n{")
-talk_end = source.index("\\nint r2_conversation(void)", talk_start)
+talk_start = source.index("char *r2_talk(const char *message)\n{")
+talk_end = source.index("\nint r2_conversation(void)", talk_start)
 talk_wrapper = source[talk_start:talk_end]
 assert talk_wrapper.index("atomic_fetch_add(&foreground_ollama_waiting, 1)") < talk_wrapper.index("pthread_mutex_lock(&conversation_turn_lock)")
 assert "atomic_fetch_sub(&foreground_ollama_waiting, 1)" in talk_wrapper
 
-safeguard_start = source.index("static void autonomous_needs_food_safeguard(void)\\n{")
+safeguard_start = source.index("static void autonomous_needs_food_safeguard(void)\n{")
 assert "pthread_mutex_trylock(&conversation_turn_lock) != 0" in source[safeguard_start:start]
 
 # A successful meal or sleep satisfies this cycle's action; the fallback only
