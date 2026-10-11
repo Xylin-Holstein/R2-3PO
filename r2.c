@@ -114,6 +114,8 @@ static pthread_mutex_t visual_capture_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t ollama_request_lock = PTHREAD_MUTEX_INITIALIZER;
 /* Foreground conversations can interrupt background Ollama bookkeeping. */
 static atomic_int foreground_ollama_waiting = ATOMIC_VAR_INIT(0);
+/* Covers the whole live turn, including time spent building context before HTTP. */
+static atomic_int foreground_conversation_waiting = ATOMIC_VAR_INIT(0);
 static _Thread_local int ollama_background_mode = 0;
 /* Original user query for the active contextual conversation request. */
 static _Thread_local const char *ollama_authoritative_user_query = NULL;
@@ -2953,7 +2955,8 @@ static int ollama_progress(void *userdata,
     (void)upload_now;
     return shutting_down ||
            (ollama_background_mode &&
-            atomic_load(&foreground_ollama_waiting) > 0) ? 1 : 0;
+            (atomic_load(&foreground_ollama_waiting) > 0 ||
+             atomic_load(&foreground_conversation_waiting) > 0)) ? 1 : 0;
 }
 
 int r2_ollama_vision_request_begin(void)
@@ -3502,7 +3505,8 @@ static char *ollama_chat_with_limit(
         /* A background request intentionally yields when a foreground turn
            arrives or shutdown begins; that is not a user-facing transport error. */
         if (ollama_background_mode &&
-            (shutting_down || atomic_load(&foreground_ollama_waiting) > 0)) {
+            (shutting_down || atomic_load(&foreground_ollama_waiting) > 0 ||
+             atomic_load(&foreground_conversation_waiting) > 0)) {
             free(b.data);
             json_object_put(root);
             return NULL;
@@ -7166,7 +7170,9 @@ static void autonomous_needs_food_safeguard(void)
     if (shutting_down ||
         pthread_mutex_trylock(&conversation_turn_lock) != 0)
         return;
-    if (shutting_down || atomic_load(&foreground_ollama_waiting) > 0) {
+    if (shutting_down ||
+        atomic_load(&foreground_ollama_waiting) > 0 ||
+        atomic_load(&foreground_conversation_waiting) > 0) {
         pthread_mutex_unlock(&conversation_turn_lock);
         return;
     }
@@ -7298,7 +7304,8 @@ static void autonomous_needs_check(void)
                              safe_action, "autonomous_needs_check");
             } else if (!turn_guard_locked ||
                        shutting_down ||
-                       atomic_load(&foreground_ollama_waiting) > 0) {
+                       atomic_load(&foreground_ollama_waiting) > 0 ||
+                       atomic_load(&foreground_conversation_waiting) > 0) {
                 if (turn_guard_locked)
                     pthread_mutex_unlock(&conversation_turn_lock);
                 r2_log_event(R2_LOG_WORLD, "autonomous_needs_yielded_to_conversation",
@@ -8376,11 +8383,11 @@ char *r2_talk(const char *message)
 {
     /* Announce foreground intent before waiting for the turn lock. Background
        inference/actions can then yield even while this caller is queued. */
-    atomic_fetch_add(&foreground_ollama_waiting, 1);
+    atomic_fetch_add(&foreground_conversation_waiting, 1);
     pthread_mutex_lock(&conversation_turn_lock);
     char *reply = r2_talk_impl(message);
     pthread_mutex_unlock(&conversation_turn_lock);
-    atomic_fetch_sub(&foreground_ollama_waiting, 1);
+    atomic_fetch_sub(&foreground_conversation_waiting, 1);
     return reply;
 }
 
