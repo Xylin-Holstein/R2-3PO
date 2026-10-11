@@ -58,6 +58,11 @@ require(
     "launcher explicitly selects the unified vision model",
 )
 require(
+    'getenv("R2_OLLAMA_NUM_GPU")' in visual
+    and 'json_object_object_add(options, "num_gpu"' in visual,
+    "vision inference follows the same configurable GPU layer policy as chat",
+)
+require(
     'strcmp(configured, R2_VISION_DEFAULT_MODEL) != 0' in visual
     and 'strcmp(model, R2_VISION_DEFAULT_MODEL) != 0' in visual,
     "environment overrides and runtime setter cannot split conversation and vision models",
