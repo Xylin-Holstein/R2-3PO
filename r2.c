@@ -435,7 +435,7 @@ static const char *SYSTEM_PROMPT =
 "The PERSISTENT REALITY CONTEXT is structured evidence about the current modeled world, not a script, action menu to dump, or user-facing answer. Never copy or narrate the whole block. Select only facts relevant to the current turn. Distinguish current state from historical logs, memories, predictions, and hypothetical branches.\n"
 "ACTION MEANING: Every action should serve a purpose. Before choosing one, connect (1) the current situation or need, (2) a relevant goal or question, (3) an action actually supported by the existing WORLD ACTIONS and current state, and (4) the expected result or information it should produce. Do not act just to look busy. Do not leave actions as disconnected commands: interpret the verified result, update your understanding, and use it to decide what to say or do next.\n"
 "Choose among conversation, observation, exploration, object/device interaction, meeting needs, and asking the user for help or clarification. If the user introduces a room, pockets, an object, or a capability, treat that as potentially useful new knowledge: when relevant and supported, inspect or explore it, learn what is actually there, and remember only what the system can verify. Do not claim exploration or inspection occurred unless its action ran and returned a result.\n"
-"Use needs and state as decision inputs, not just report fields. When a modeled need is urgent and an available supported action can address it, consider acting: for hunger, if hunger is at least 50/100 and valid edible tracked food is available in the room, shelf, box, pockets, or wallet, you may emit [WORLD] eat|EXACT_ITEM_NAME|auto; if not available there but the current fridge lists edible stock, you may emit [WORLD] fridge_eat|EXACT_FRIDGE_ITEM_NAME. Prefer addressing urgent hunger before sleep when food is available. Do not eat non-food objects, guess food metrics, or invent inventory. Apply the same goal-and-consequence reasoning to other modeled needs and actions, but use only action markers and capabilities explicitly documented in this prompt; do not invent generic commands.\n"
+"Use needs and state as decision inputs, not just report fields. When a modeled need is urgent and an available supported action can address it, consider acting: for hunger, if the fullness meter is below 50/100 and valid edible tracked food is available in the room, shelf, box, pockets, or wallet, you may emit [WORLD] eat|EXACT_ITEM_NAME|auto; if not available there but the current fridge lists edible stock, you may emit [WORLD] fridge_eat|EXACT_FRIDGE_ITEM_NAME. Prefer addressing urgent hunger before sleep when food is available. Do not eat non-food objects, guess food metrics, or invent inventory. Apply the same goal-and-consequence reasoning to other modeled needs and actions, but use only action markers and capabilities explicitly documented in this prompt; do not invent generic commands.\n"
 "For any action, check preconditions and constraints first: location/access, device power and connections, inventory, money, object existence, and any stated safety or sequencing rules. Choose the smallest relevant action or action sequence. For consequential, destructive, external, or irreversible operations, require appropriate user authorization rather than inferring permission from context. Never treat a requested or planned action as completed until the tool result confirms it.\n"
 "After an action, use the actual result: success can change modeled state and create a relevant experience; failure is evidence about a constraint and should lead to a correction, alternative, or honest explanation. Connect outcomes to relevant memory, learning, preferences, tasks, diary, or life-log systems only through their existing interfaces and when warranted. Do not duplicate state in a parallel subsystem, promote a prediction to a fact, or claim a memory/log was saved without confirmation.\n"
 "An action does not replace conversation. Answer the user’s actual message naturally and directly, using only relevant facts and verified outcomes. You may choose to act and then reply, reply first, ask a useful question, or continue without acting; do not force an action into every turn. Keep internal analysis, raw state snapshots, plans, and tool markers out of user-facing prose. If no action is justified or supported, say so naturally or continue the conversation. Never invent objects, resources, results, or actions.\n"
@@ -4086,7 +4086,7 @@ static const char r2_conversation_system_prompt[] =
             "as words they supposedly meant to say, and do not answer as though the user were you. "
             "SPEAKER AND RELATIONSHIP LEARNING: The current user message is spoken by the user; you are R2. Resolve pronouns from those actual speaker roles, not from names inside retrieved dialogue. Learn relationships from explicit statements and relevant persistent experiences, preserve them in memory, and apply them naturally when relevant. Retrieved dialogue is evidence about prior events, not the source of current turn roles. "
             "Answer the clear intent first; if a genuinely necessary detail remains unclear, ask one focused question. "
-            "REALITY CONTEXT RULES: Treat the persistent Reality snapshot as internal structured evidence, never as text to repeat. Select only facts relevant to the current turn. Let current needs and available resources inform decisions. If hunger is at least 50/100 and valid edible tracked food is available, you may emit one supported [WORLD] eat|EXACT_ITEM_NAME|auto marker; if not available in room/shelf/box/pockets/wallet but edible stock is listed in the fridge, you may emit [WORLD] fridge_eat|EXACT_FRIDGE_ITEM_NAME. Do not invent inventory or claim an action succeeded. When an action marker is used, the tool result will be supplied for a follow-up; the final response must still answer the user naturally. If no action is justified, simply converse or ask a relevant question. Never dump the snapshot, internal analysis, or tool instructions into the reply. "
+            "REALITY CONTEXT RULES: Treat the persistent Reality snapshot as internal structured evidence, never as text to repeat. Select only facts relevant to the current turn. Let current needs and available resources inform decisions. If the fullness meter is below 50/100 and valid edible tracked food is available, you may emit one supported [WORLD] eat|EXACT_ITEM_NAME|auto marker; if not available in room/shelf/box/pockets/wallet but edible stock is listed in the fridge, you may emit [WORLD] fridge_eat|EXACT_FRIDGE_ITEM_NAME. Do not invent inventory or claim an action succeeded. When an action marker is used, the tool result will be supplied for a follow-up; the final response must still answer the user naturally. If no action is justified, simply converse or ask a relevant question. Never dump the snapshot, internal analysis, or tool instructions into the reply. "
             "REPLY STYLE: Lead with the direct answer. Be natural, specific, warm, "
             "and concise. Avoid repeating the user's message, generic preambles, "
             "unnecessary summaries, and redundant caveats. Keep simple conversation "
@@ -7571,7 +7571,7 @@ static void autonomous_needs_food_safeguard(void)
     int feed_rc = r2_reality_autonomous_feed_if_needed();
     if (feed_rc > 0)
         r2_log_event(R2_LOG_WORLD, "autonomous_needs_food_fallback",
-                     "R2's deterministic needs safeguard consumed verified food because hunger remained high.",
+                     "R2's deterministic needs safeguard consumed verified food because the fullness meter was low.",
                      "Food was selected from accessible tracked inventory or the authoritative fridge database.",
                      "autonomous_needs_check");
     else if (feed_rc < 0)
@@ -7625,13 +7625,13 @@ static int autonomous_needs_action_still_needed(const char *action)
     free(status);
 
     if (is_food_action)
-        return valid_hunger && hunger >= 50.0;
+        return valid_hunger && hunger < 50.0;
     if (!valid_hunger || !valid_sleepiness || sleepiness < 85.0)
         return 0;
 
     /* Do not sleep through a currently satisfiable urgent hunger need.
        Unknown inventory is treated conservatively: defer the sleep action. */
-    if (hunger >= 50.0) {
+    if (hunger < 50.0) {
         int food_available = r2_reality_autonomous_food_available();
         if (food_available != 0)
             return 0;
@@ -7652,7 +7652,7 @@ static void autonomous_needs_check(void)
     const char *prompt =
         "You are R2-3PO's autonomous needs controller. Inspect the authoritative "
         "self/world state supplied below. This is a real persistent simulation, not roleplay. "
-        "If hunger is at least 50/100 and a clearly edible tracked item is present in the room, "
+        "If the fullness meter is below 50/100 and a clearly edible tracked item is present in the room, "
         "shelf, box, pockets, or wallet, emit exactly one line: [WORLD] eat|EXACT_ITEM_NAME|auto. "
         "The XML food metric must exist for ordinary tracked items; the engine rejects unknown foods. "
         "If no clearly edible item is available in those containers but the supplied fridge inventory "
