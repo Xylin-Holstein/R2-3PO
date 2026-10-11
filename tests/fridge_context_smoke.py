@@ -49,5 +49,7 @@ for rule in counterfactual_rules:
 
 if '"r2_alternate_self_lab"' not in r2 or '"completed"' not in r2:
     raise SystemExit("Alternate-Self completion state is not recorded in the core continuity integration")
+if '"r2_life_log_integration"' not in r2 or "available VLC playback transitions" not in r2:
+    raise SystemExit("Life Log sensory/media integration completion state is not recorded")
 
 print("fridge context consistency smoke passed")
