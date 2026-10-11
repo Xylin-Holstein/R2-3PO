@@ -733,6 +733,8 @@ int r2_diary_init(void)
         diary_link_ensure_column("linked_at", "TEXT NOT NULL DEFAULT ''") != SQLITE_OK ||
         diary_link_ensure_column("memory_indexed", "INTEGER NOT NULL DEFAULT 0") != SQLITE_OK ||
         sqlite3_exec(r2_diary_db,
+            "UPDATE r2_diary_entry_links SET linked_at=CURRENT_TIMESTAMP "
+            "WHERE linked_at IS NULL OR linked_at='';"
             "CREATE INDEX IF NOT EXISTS r2_diary_entry_links_event_idx "
             "ON r2_diary_entry_links(log_event_id);",
             NULL, NULL, NULL) != SQLITE_OK) {
