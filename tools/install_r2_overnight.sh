@@ -52,16 +52,16 @@ rollback_previous_executable() {
         log "ERROR: refusing to overwrite existing rollback path: $restore_exec"
         return 1
     fi
-    if ! cp "$BACKUP_EXEC" "$restore_exec" ||
-       ! chmod 0755 "$restore_exec" ||
+    if ! root_run cp "$BACKUP_EXEC" "$restore_exec" ||
+       ! root_run chmod 0755 "$restore_exec" ||
        ! root_run chown r2:r2 "$restore_exec" ||
-       ! mv -f "$restore_exec" "$R2_EXEC"; then
-        rm -f "$restore_exec"
+       ! root_run mv -f "$restore_exec" "$R2_EXEC"; then
+        root_run rm -f "$restore_exec" || true
         log "ERROR: could not atomically restore the previous executable from $BACKUP_EXEC"
         return 1
     fi
     root_run chown r2:r2 "$R2_EXEC" || return 1
-    chmod 0755 "$R2_EXEC" || return 1
+    root_run chmod 0755 "$R2_EXEC" || return 1
     log "Restored previous executable from $BACKUP_EXEC"
     root_run systemctl reset-failed r2-3po.service >/dev/null 2>&1 || true
     local rollback_started_at
