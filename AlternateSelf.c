@@ -62,9 +62,7 @@ int r2_altself_init(void)
         ");"
         "CREATE INDEX IF NOT EXISTS r2_alternate_self_status_idx "
         "ON r2_alternate_self_branches(status,id);"
-        "DELETE FROM r2_alternate_self_branches WHERE id NOT IN "
-        "(SELECT MIN(id) FROM r2_alternate_self_branches GROUP BY log_event_id);"
-        "CREATE UNIQUE INDEX IF NOT EXISTS r2_alternate_self_log_event_idx "
+        "CREATE INDEX IF NOT EXISTS r2_alternate_self_log_event_idx "
         "ON r2_alternate_self_branches(log_event_id);";
     if (as_exec(schema) != 0) {
         sqlite3_close(as_db); as_db = NULL;
