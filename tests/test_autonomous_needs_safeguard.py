@@ -39,7 +39,7 @@ assert 'strstr(action, "[WORLD] eat|")' in food_guard
 assert 'strstr(action, "[WORLD] fridge_eat|")' in food_guard
 assert 'double hunger = hunger_field' in food_guard
 assert 'double sleepiness = sleepiness_field' in food_guard
-assert "hunger >= 50.0" in food_guard
+assert "return valid_hunger && hunger < 50.0;" in food_guard
 assert "sleepiness < 85.0" in food_guard
 assert 'strstr(action, "[WORLD] sleep|")' in food_guard
 assert "r2_reality_autonomous_food_available()" in food_guard
