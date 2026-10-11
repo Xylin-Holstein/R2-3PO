@@ -20,7 +20,7 @@ for fragment in bad_fragments:
 
 if 'message_add_pinned(\n            "system",\n            c\n        );' not in core:
     raise SystemExit("The historical archive should remain a system-role context record, not a synthetic user turn.")
-archive_start = core.find("PAST CONVERSATION ARCHIVE — CONTEXT ONLY.")
+archive_start = core.find("PAST CONVERSATION ARCHIVE — CONTEXT ONLY.", core.find("LOAD ARCHIVED CONVERSATION"))
 archive_end = core.find("----- END ARCHIVED CONVERSATION -----", archive_start)
 if archive_start < 0 or archive_end < 0:
     raise SystemExit("The archive must retain clear historical boundaries.")
