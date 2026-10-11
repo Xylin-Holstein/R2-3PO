@@ -16,6 +16,8 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertNotIn("pause();", source)
         self.assertIn("sigprocmask(SIG_BLOCK, &service_signals, &original_mask)", source)
         self.assertIn("SIGTERM", source)
+        self.assertIn("static atomic_int shell_shutdown", source)
+        self.assertIn("atomic_is_lock_free(&shell_shutdown)", source)
         self.assertIn("static atomic_int tv_control_stop", source)
         self.assertIn("int server_fd = tv_control_fd", source)
         self.assertIn("accept(server_fd", source)
