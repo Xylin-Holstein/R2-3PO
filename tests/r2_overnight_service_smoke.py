@@ -86,7 +86,8 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn("audit-snapshot-", source)
         self.assertIn("integrity audit failed", source)
         self.assertIn('systemctl is-active --quiet r2-3po.service', source)
-        self.assertIn("did not reach active state", source)
+        self.assertIn('core_online_after "$START_EVENT_ID"', source)
+        self.assertIn("did not record a new core_online Life Log event", source)
 
 
 if __name__ == "__main__":
