@@ -101,34 +101,16 @@ done
 echo "Workspace directories are ready."
 echo
 
-# Fail early when the local multimodal model is unavailable. Do not compile or
-# launch a robot that cannot answer; this check is local-only and read-only.
+# Fail early unless the local multimodal model completes a real generation.
+# The shared check is localhost-only and does not download models or contact the internet.
 echo "[preflight] Checking the local Ollama API and required model..."
-if ! python3 - <<'PY'
-import json
-import sys
-import urllib.error
-import urllib.request
-
-url = "http://127.0.0.1:11434/api/tags"
-try:
-    with urllib.request.urlopen(url, timeout=4) as response:
-        data = json.load(response)
-except (OSError, ValueError, urllib.error.URLError) as exc:
-    print(f"ERROR: Local Ollama API is unavailable: {exc}", file=sys.stderr)
-    sys.exit(1)
-
-models = data.get("models", [])
-if not any(
-    model.get("name") == "gemma3:4b"
-    or model.get("name", "").startswith("gemma3:4b-")
-    for model in models
-):
-    print("ERROR: required local model gemma3:4b is not installed.", file=sys.stderr)
-    sys.exit(1)
-print("Local Ollama API is responding; gemma3:4b is installed.")
-PY
-then
+if [[ ! -r "$R2_SOURCE/tools/preflight_ollama_model.py" ]]; then
+    echo "ERROR: shared Ollama inference preflight is missing."
+    echo "R2 was NOT launched."
+    read -p "Press Enter to exit..."
+    exit 1
+fi
+if ! python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --timeout 180; then
     echo
     echo "R2 was NOT launched."
     echo "Start the local Ollama service and ensure 'ollama list' includes gemma3:4b."
