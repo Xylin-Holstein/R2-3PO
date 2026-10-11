@@ -221,6 +221,165 @@ static int append_text(char **buffer, size_t *length, size_t *capacity,
     return 0;
 }
 
+static int log_column_exists(const char *table, const char *column)
+{
+    char sql[256];
+    int n = snprintf(sql, sizeof(sql), "PRAGMA table_info(%s)", table);
+    if (n < 0 || (size_t)n >= sizeof(sql)) return 0;
+    sqlite3_stmt *st = NULL;
+    int found = 0;
+    if (sqlite3_prepare_v2(log_db, sql, -1, &st, NULL) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            const unsigned char *name = sqlite3_column_text(st, 1);
+            if (name && !strcasecmp((const char *)name, column)) {
+                found = 1;
+                break;
+            }
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    return found;
+}
+
+static int log_ensure_column(const char *table, const char *column,
+                             const char *definition)
+{
+    if (log_column_exists(table, column)) return SQLITE_OK;
+    char sql[512];
+    int n = snprintf(sql, sizeof(sql), "ALTER TABLE %s ADD COLUMN %s %s;",
+                     table, column, definition);
+    if (n < 0 || (size_t)n >= sizeof(sql)) return SQLITE_TOOBIG;
+    return sqlite3_exec(log_db, sql, NULL, NULL, NULL);
+}
+
+static int migrate_legacy_log_schema(void)
+{
+    static const char *const columns[][3] = {
+        {"r2_log_sessions","started_utc","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_sessions","started_local","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_sessions","ended_utc","TEXT"},
+        {"r2_log_sessions","ended_local","TEXT"},
+        {"r2_log_sessions","start_monotonic_ms","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_sessions","end_monotonic_ms","INTEGER"},
+        {"r2_log_sessions","process_id","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_sessions","end_reason","TEXT"},
+
+        {"r2_log_events","utc_time","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_events","local_time","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_events","monotonic_ms","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_events","session_id","INTEGER"},
+        {"r2_log_events","category","TEXT NOT NULL DEFAULT 'system'"},
+        {"r2_log_events","event_type","TEXT NOT NULL DEFAULT 'legacy'"},
+        {"r2_log_events","summary","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_events","details","TEXT"},
+        {"r2_log_events","source","TEXT"},
+        {"r2_log_events","related_event_id","INTEGER"},
+        {"r2_log_events","memory_saved","INTEGER NOT NULL DEFAULT 0"},
+
+        {"r2_log_activity_sessions","activity_key","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_activity_sessions","activity_name","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_activity_sessions","started_utc","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_activity_sessions","started_local","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_activity_sessions","started_epoch","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_activity_sessions","start_monotonic_ms","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_activity_sessions","ended_utc","TEXT"},
+        {"r2_log_activity_sessions","ended_local","TEXT"},
+        {"r2_log_activity_sessions","ended_epoch","INTEGER"},
+        {"r2_log_activity_sessions","duration_ms","INTEGER"},
+        {"r2_log_activity_sessions","last_verified_state","TEXT"},
+        {"r2_log_activity_sessions","stop_reason","TEXT"},
+        {"r2_log_activity_sessions","start_event_id","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_activity_sessions","end_event_id","INTEGER"},
+        {"r2_log_activity_sessions","status","TEXT NOT NULL DEFAULT 'active'"},
+
+        {"r2_log_location_state","current_location","TEXT NOT NULL DEFAULT 'home'"},
+        {"r2_log_location_state","is_home","INTEGER NOT NULL DEFAULT 1"},
+        {"r2_log_location_state","was_away","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_location_state","updated_utc","TEXT NOT NULL DEFAULT ''"},
+
+        {"r2_log_milestones","milestone_key","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_milestones","description","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_milestones","first_event_id","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_milestones","recorded_utc","TEXT NOT NULL DEFAULT ''"},
+
+        {"r2_log_conversations","event_id","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_conversations","user_text","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_conversations","assistant_text","TEXT NOT NULL DEFAULT ''"},
+
+        {"r2_log_inner_states","event_id","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_inner_states","state_kind","TEXT NOT NULL DEFAULT 'unknown'"},
+        {"r2_log_inner_states","description","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_inner_states","evidence","TEXT"},
+        {"r2_log_inner_states","confidence","REAL"},
+        {"r2_log_inner_states","origin","TEXT"},
+
+        {"r2_log_beliefs","belief_key","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_beliefs","belief","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_beliefs","evidence","TEXT"},
+        {"r2_log_beliefs","confidence","REAL"},
+        {"r2_log_beliefs","status","TEXT NOT NULL DEFAULT 'tentative'"},
+        {"r2_log_beliefs","origin","TEXT"},
+        {"r2_log_beliefs","first_seen_utc","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_beliefs","last_updated_utc","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_beliefs","last_event_id","INTEGER NOT NULL DEFAULT 0"},
+
+        {"r2_log_continuity","item_key","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_continuity","item_type","TEXT NOT NULL DEFAULT 'task'"},
+        {"r2_log_continuity","title","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_continuity","description","TEXT"},
+        {"r2_log_continuity","status","TEXT NOT NULL DEFAULT 'open'"},
+        {"r2_log_continuity","next_action","TEXT"},
+        {"r2_log_continuity","origin","TEXT"},
+        {"r2_log_continuity","first_seen_utc","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_continuity","last_updated_utc","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_continuity","completed_utc","TEXT"},
+        {"r2_log_continuity","last_event_id","INTEGER NOT NULL DEFAULT 0"},
+
+        {"r2_log_links","from_event_id","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_links","to_event_id","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_links","relationship","TEXT NOT NULL DEFAULT 'related'"},
+        {"r2_log_links","notes","TEXT"},
+        {"r2_log_links","created_utc","TEXT NOT NULL DEFAULT ''"},
+
+        {"r2_log_hypotheticals","event_id","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_hypotheticals","scenario","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_hypotheticals","assumptions","TEXT"},
+        {"r2_log_hypotheticals","predicted_outcome","TEXT"},
+        {"r2_log_hypotheticals","conclusion","TEXT"},
+        {"r2_log_hypotheticals","origin","TEXT"},
+
+        {"r2_log_system_snapshots","event_id","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_system_snapshots","hostname","TEXT"},
+        {"r2_log_system_snapshots","operating_system","TEXT"},
+        {"r2_log_system_snapshots","kernel_release","TEXT"},
+        {"r2_log_system_snapshots","machine","TEXT"},
+        {"r2_log_system_snapshots","process_id","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_system_snapshots","process_elapsed_ms","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_system_snapshots","system_uptime_seconds","INTEGER"},
+        {"r2_log_system_snapshots","total_ram_bytes","INTEGER"},
+        {"r2_log_system_snapshots","free_ram_bytes","INTEGER"},
+        {"r2_log_system_snapshots","workspace_total_bytes","INTEGER"},
+        {"r2_log_system_snapshots","workspace_free_bytes","INTEGER"}
+    };
+
+    for (size_t i = 0; i < sizeof(columns) / sizeof(columns[0]); ++i) {
+        if (log_ensure_column(columns[i][0], columns[i][1], columns[i][2]) != SQLITE_OK) {
+            fprintf(stderr, "[R2 Log] Could not migrate %s.%s: %s\n",
+                    columns[i][0], columns[i][1], sqlite3_errmsg(log_db));
+            return -1;
+        }
+    }
+
+    /* Existing tables are upgraded before indexes are created, so a missing
+       column from an older beta cannot abort the entire Life Log startup. */
+    return exec_sql(
+        "CREATE INDEX IF NOT EXISTS r2_log_events_time_idx ON r2_log_events(id);"
+        "CREATE INDEX IF NOT EXISTS r2_log_events_category_idx ON r2_log_events(category,id);"
+        "CREATE INDEX IF NOT EXISTS r2_log_activity_key_idx ON r2_log_activity_sessions(activity_key,status);"
+        "CREATE INDEX IF NOT EXISTS r2_log_inner_states_kind_idx ON r2_log_inner_states(state_kind,id);"
+        "CREATE INDEX IF NOT EXISTS r2_log_continuity_status_idx ON r2_log_continuity(status,item_type);");
+}
+
 static int ensure_tables(void)
 {
     static const char *schema =
@@ -252,10 +411,6 @@ static int ensure_tables(void)
         " FOREIGN KEY(session_id) REFERENCES r2_log_sessions(id),"
         " FOREIGN KEY(related_event_id) REFERENCES r2_log_events(id)"
         ");"
-        "CREATE INDEX IF NOT EXISTS r2_log_events_time_idx "
-        "ON r2_log_events(id);"
-        "CREATE INDEX IF NOT EXISTS r2_log_events_category_idx "
-        "ON r2_log_events(category, id);"
         "CREATE TABLE IF NOT EXISTS r2_log_activity_sessions ("
         " id INTEGER PRIMARY KEY AUTOINCREMENT,"
         " activity_key TEXT NOT NULL,"
@@ -276,8 +431,6 @@ static int ensure_tables(void)
         " FOREIGN KEY(start_event_id) REFERENCES r2_log_events(id),"
         " FOREIGN KEY(end_event_id) REFERENCES r2_log_events(id)"
         ");"
-        "CREATE INDEX IF NOT EXISTS r2_log_activity_key_idx "
-        "ON r2_log_activity_sessions(activity_key,status);"
         "CREATE TABLE IF NOT EXISTS r2_log_location_state ("
         " id INTEGER PRIMARY KEY CHECK(id=1),"
         " current_location TEXT NOT NULL,"
@@ -311,8 +464,6 @@ static int ensure_tables(void)
         " origin TEXT,"
         " FOREIGN KEY(event_id) REFERENCES r2_log_events(id)"
         ");"
-        "CREATE INDEX IF NOT EXISTS r2_log_inner_states_kind_idx "
-        "ON r2_log_inner_states(state_kind, id);"
         "CREATE TABLE IF NOT EXISTS r2_log_beliefs ("
         " id INTEGER PRIMARY KEY AUTOINCREMENT,"
         " belief_key TEXT NOT NULL UNIQUE,"
@@ -341,8 +492,6 @@ static int ensure_tables(void)
         " last_event_id INTEGER NOT NULL,"
         " FOREIGN KEY(last_event_id) REFERENCES r2_log_events(id)"
         ");"
-        "CREATE INDEX IF NOT EXISTS r2_log_continuity_status_idx "
-        "ON r2_log_continuity(status, item_type);"
         "CREATE TABLE IF NOT EXISTS r2_log_links ("
         " id INTEGER PRIMARY KEY AUTOINCREMENT,"
         " from_event_id INTEGER NOT NULL,"
@@ -384,7 +533,7 @@ static int ensure_tables(void)
     if (exec_sql(schema) != 0)
         return -1;
 
-    return 0;
+    return migrate_legacy_log_schema();
 }
 
 /* ------------------------------------------------------------
