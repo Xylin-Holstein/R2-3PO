@@ -243,6 +243,17 @@ int main(void) {
     assert(r2_reality_money_withdraw(0.50)==0);
     assert(bill_count(wallet)==3 && change_cents(wallet)==0);
     assert(bill_count(bank)==1 && change_cents(bank)==0);
+    /* A food purchase destined for the fridge must use an explicit metric,
+       just like any other fridge addition; the test supplies its own fixture. */
+    char metrics_path[1400];
+    snprintf(metrics_path, sizeof(metrics_path), "%s/room/food_metrics.xml", R2_ROOT);
+    FILE *metrics = fopen(metrics_path, "w");
+    assert(metrics);
+    fputs("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\\n"
+          "<foods>\\n"
+          "  <food name=\"soda\" fullness=\"25\" energy=\"3\" ingredients=\"carbonated water,sugar\" taste=\"sweet,fizzy\" />\\n"
+          "</foods>\\n", metrics);
+    assert(fclose(metrics) == 0);
     assert(r2_reality_buy_item("soda","A purchased drink",3.50,"fridge")==0);
     /* Pockets travel with R2; room storage and the fixed fridge do not. */
     assert(r2_reality_set_location(0)==0);
