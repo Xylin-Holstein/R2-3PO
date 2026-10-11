@@ -7663,9 +7663,17 @@ static char *r2_talk_impl(const char *message)
 
         reply = chat_with_relevant_memories(message);
         if (!reply) {
+            r2_log_event(R2_LOG_SYSTEM, "conversation_tool_followup_retry",
+                         "R2's first post-action response attempt failed; refreshing current context and retrying once.",
+                         "The already completed tool result remains in live context. The retry regenerates only the user-facing follow-up and does not rerun the completed action.",
+                         "r2_talk");
+            (void)refresh_reality_context_message();
+            reply = chat_with_relevant_memories(message);
+        }
+        if (!reply) {
             message_rollback_turn(message);
             fprintf(stderr,
-                    "[R2] Follow-up generation failed; the incomplete turn was removed from live context.\n");
+                    "[R2] Follow-up generation failed after one refreshed retry; the incomplete turn was removed from live context.\n");
             return NULL;
         }
 
