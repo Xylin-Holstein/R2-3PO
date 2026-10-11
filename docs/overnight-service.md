@@ -6,7 +6,7 @@ R2 already has a headless shell mode, a supervised systemd unit, a local-model p
 - Unit: `deploy/r2-3po.service`
 - Installer: `tools/install_r2_overnight.sh`
 
-The overnight service uses the same persistent databases as the desktop launcher. **Only one R2 core may run at a time.** The installer refuses to rebuild while an R2 process is already running, checks database paths and permissions, takes a private SQLite snapshot, requires a clean integrity audit, builds to a temporary executable, and only then enables/starts the service.
+The overnight service uses the same persistent databases as the desktop launcher. **Only one R2 core may run at a time.** The installer refuses to rebuild while an R2 process is already running, checks database paths and permissions, takes a private SQLite snapshot, requires a clean integrity audit, builds to a process-specific temporary executable, preserves the previous binary, and only then enables/starts the service. If activation or core initialization fails, it attempts to restore and restart the previous executable.
 
 ## One-time host preparation
 
@@ -38,7 +38,7 @@ It checks the source/deployment files, the local Ollama API and `gemma3:4b`, rea
    curl -fsS http://127.0.0.1:11434/api/tags
    ```
 
-   If Ollama is installed without a system unit named `ollama.service`, start it using the host's existing method. The R2 runner waits up to 60 seconds for the local API to provide `gemma3:4b`; it does not download model weights or contact an external API.
+   If Ollama is installed without a system unit named `ollama.service`, start it using the host's existing method. The R2 runner waits up to 60 seconds for the local API/model, then uses `tools/preflight_ollama_model.py` to require one real `gemma3:4b` chat completion (up to 180 seconds) before starting the core. This is a localhost-only inference check; it does not download model weights or contact an external API.
 
 5. Confirm the service account can access the existing workspace and local FX assets. Do not solve permission problems with broad `chmod 777` permissions:
 
@@ -131,7 +131,7 @@ systemctl --no-pager --full status r2-3po.service
 journalctl -u r2-3po.service -n 100 --no-pager
 ```
 
-Expected state is `enabled` and `active`. The journal should report that the local Ollama model check passed and R2 entered service mode. If the unit keeps restarting, inspect the logs; common causes are a missing `gemma3:4b` model, missing `libfaketime`, inaccessible workspace/database files, or Ollama not running.
+Expected state is `enabled` and `active`. The journal should report a successful local Ollama chat preflight and the core readiness marker (`[R2 READY] Core initialized; entering shell.`). The installer does not call the service ready based only on systemd's early `active` state. If the unit keeps restarting, inspect the logs; common causes are a missing `gemma3:4b` model, missing `libfaketime`, inaccessible workspace/database files, or Ollama not running.
 
 Follow live logs with `journalctl -u r2-3po.service -f`.
 
