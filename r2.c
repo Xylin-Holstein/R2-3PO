@@ -4050,7 +4050,7 @@ static int r2_reply_misclassifies_plain_text(const char *query, const char *repl
  */
 static long r2_conversation_timeout_seconds(void)
 {
-    const long default_timeout = 2700L;
+    const long default_timeout = 14400L;
     const char *configured = getenv("R2_OLLAMA_TIMEOUT_SECONDS");
     if (!configured || !*configured)
         return default_timeout;
@@ -4065,7 +4065,7 @@ static long r2_conversation_timeout_seconds(void)
     static atomic_int warned_invalid_timeout = ATOMIC_VAR_INIT(0);
     if (!atomic_exchange(&warned_invalid_timeout, 1))
         fprintf(stderr,
-                "[R2 Ollama] Ignoring invalid R2_OLLAMA_TIMEOUT_SECONDS; using the 2700-second default.\n");
+                "[R2 Ollama] Ignoring invalid R2_OLLAMA_TIMEOUT_SECONDS; using the 14400-second default.\n");
     return default_timeout;
 }
 
