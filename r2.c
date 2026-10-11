@@ -7173,6 +7173,32 @@ static void autonomous_needs_food_safeguard(void)
                      NULL, "autonomous_needs_check");
 }
 
+/* Re-check hunger immediately before executing a model-selected meal.
+ * The model's prompt is a snapshot; foreground actions may have changed needs
+ * while inference was running. Fail closed if authoritative status is unreadable. */
+static int autonomous_food_action_still_needed(const char *action)
+{
+    if (!action) return 0;
+    int is_food_action =
+        strstr(action, "[WORLD] eat|") != NULL ||
+        strstr(action, "[WORLD] fridge_eat|") != NULL;
+    if (!is_food_action) return 1;
+
+    char *status = r2_reality_status();
+    if (!status) return 0;
+    const char *field = strstr(status, "Hunger: ");
+    int needed = 0;
+    if (field) {
+        field += strlen("Hunger: ");
+        char *end = NULL;
+        double hunger = strtod(field, &end);
+        if (end != field && hunger >= 50.0)
+            needed = 1;
+    }
+    free(status);
+    return needed;
+}
+
 /* Autonomous needs checks are deliberately limited to [WORLD] actions. They
  * cannot run shell commands, delete workspace files, or invoke other tools. */
 static void autonomous_needs_check(void)
@@ -7229,24 +7255,30 @@ static void autonomous_needs_check(void)
             memcpy(safe_action, marker, length);
             safe_action[length] = '\n';
             safe_action[length + 1] = '\0';
-            char *result = process_tools(safe_action);
-            if (result && *result) {
-                r2_log_event(R2_LOG_WORLD, "autonomous_needs_action",
-                             "R2's autonomous needs check performed a world action.",
-                             result, "autonomous_needs_check");
-                /* A successful model-selected meal is already the one meal
-                   for this cycle. Do not immediately consume a second item
-                   just because hunger remains high after a small meal. */
-                food_action_succeeded =
-                    strstr(result, "REAL NEEDS RESULT: eating '") != NULL &&
-                    strstr(result, "updated persistent hunger and energy.") != NULL;
-                if (!food_action_succeeded) {
+            if (!autonomous_food_action_still_needed(safe_action)) {
+                r2_log_event(R2_LOG_WORLD, "autonomous_needs_stale_food_action",
+                             "Ignored a model-selected meal because authoritative hunger no longer met the action threshold.",
+                             safe_action, "autonomous_needs_check");
+            } else {
+                char *result = process_tools(safe_action);
+                if (result && *result) {
+                    r2_log_event(R2_LOG_WORLD, "autonomous_needs_action",
+                                 "R2's autonomous needs check performed a world action.",
+                                 result, "autonomous_needs_check");
+                    /* A successful model-selected meal is already the one meal
+                       for this cycle. Do not immediately consume a second item
+                       just because hunger remains high after a small meal. */
                     food_action_succeeded =
-                        strstr(result, "FRIDGE RESULT: eating '") != NULL &&
-                        strstr(result, "reduced hunger and consumed fridge stock.") != NULL;
+                        strstr(result, "REAL NEEDS RESULT: eating '") != NULL &&
+                        strstr(result, "updated persistent hunger and energy.") != NULL;
+                    if (!food_action_succeeded) {
+                        food_action_succeeded =
+                            strstr(result, "FRIDGE RESULT: eating '") != NULL &&
+                            strstr(result, "reduced hunger and consumed fridge stock.") != NULL;
+                    }
                 }
+                free(result);
             }
-            free(result);
             free(safe_action);
         }
     }
