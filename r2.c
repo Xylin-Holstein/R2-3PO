@@ -806,66 +806,159 @@ static int db_exec(const char *sql)
 }
 
 
+static int db_column_exists(const char *table, const char *column)
+{
+    if (!table || !column) return 0;
+    char sql[256];
+    int n = snprintf(sql, sizeof(sql), "PRAGMA table_info(%s);", table);
+    if (n < 0 || (size_t)n >= sizeof(sql)) return 0;
+
+    sqlite3_stmt *st = NULL;
+    int found = 0;
+    if (sqlite3_prepare_v2(db, sql, -1, &st, NULL) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            const unsigned char *name = sqlite3_column_text(st, 1);
+            if (name && !strcasecmp((const char *)name, column)) {
+                found = 1;
+                break;
+            }
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    return found;
+}
+
+static int db_ensure_column(const char *table, const char *column,
+                            const char *definition)
+{
+    if (db_column_exists(table, column)) return 0;
+    char sql[512];
+    int n = snprintf(sql, sizeof(sql), "ALTER TABLE %s ADD COLUMN %s %s;",
+                     table, column, definition);
+    if (n < 0 || (size_t)n >= sizeof(sql)) return -1;
+    return db_exec(sql);
+}
+
+/* Preserve older memory schemas by copying known legacy aliases into the
+   canonical columns. All identifiers here are fixed internal constants. */
+static int db_backfill_memory_column(const char *target,
+                                     const char *const *aliases,
+                                     size_t alias_count,
+                                     const char *fallback_sql)
+{
+    char expression[1024];
+    size_t used = 0;
+    int n = snprintf(expression, sizeof(expression), "COALESCE(NULLIF(%s,''),",
+                     target);
+    if (n < 0 || (size_t)n >= sizeof(expression)) return -1;
+    used = (size_t)n;
+
+    for (size_t i = 0; i < alias_count; ++i) {
+        if (!db_column_exists("memories", aliases[i])) continue;
+        n = snprintf(expression + used, sizeof(expression) - used,
+                     "NULLIF(%s,''),", aliases[i]);
+        if (n < 0 || (size_t)n >= sizeof(expression) - used) return -1;
+        used += (size_t)n;
+    }
+    n = snprintf(expression + used, sizeof(expression) - used, "%s)",
+                 fallback_sql ? fallback_sql : "''");
+    if (n < 0 || (size_t)n >= sizeof(expression) - used) return -1;
+
+    char sql[1400];
+    n = snprintf(sql, sizeof(sql),
+                 "UPDATE memories SET %s=%s WHERE %s IS NULL OR %s='';",
+                 target, expression, target, target);
+    if (n < 0 || (size_t)n >= sizeof(sql)) return -1;
+    return db_exec(sql);
+}
+
+static int migrate_memory_schema(void)
+{
+    static const char *const memory_aliases[] =
+        {"content", "memory_text", "text", "description", "value"};
+    static const char *const category_aliases[] =
+        {"type", "source", "kind"};
+    static const char *const created_aliases[] =
+        {"timestamp", "created", "date_created", "created_utc"};
+    static const char *const updated_aliases[] =
+        {"updated", "modified", "last_updated", "updated_utc"};
+
+    if (db_ensure_column("memories", "memory", "TEXT NOT NULL DEFAULT ''") != 0 ||
+        db_ensure_column("memories", "category", "TEXT NOT NULL DEFAULT 'other'") != 0 ||
+        db_ensure_column("memories", "created_at", "TEXT NOT NULL DEFAULT ''") != 0 ||
+        db_ensure_column("memories", "updated_at", "TEXT NOT NULL DEFAULT ''") != 0)
+        return -1;
+
+    if (db_backfill_memory_column("memory", memory_aliases,
+                                  sizeof(memory_aliases) / sizeof(memory_aliases[0]), "''") != 0 ||
+        db_backfill_memory_column("category", category_aliases,
+                                  sizeof(category_aliases) / sizeof(category_aliases[0]), "'other'") != 0 ||
+        db_backfill_memory_column("created_at", created_aliases,
+                                  sizeof(created_aliases) / sizeof(created_aliases[0]),
+                                  "CURRENT_TIMESTAMP") != 0 ||
+        db_backfill_memory_column("updated_at", updated_aliases,
+                                  sizeof(updated_aliases) / sizeof(updated_aliases[0]),
+                                  "CURRENT_TIMESTAMP") != 0)
+        return -1;
+
+    return db_exec("CREATE INDEX IF NOT EXISTS idx_memories_category_updated "
+                   "ON memories(category,updated_at);");
+}
+
 static int init_db(void)
 {
-    /*
-       DB_PATH comes from R2_DIARY_DATABASE and is therefore the
-       real persistent R2 database path defined by the diary
-       architecture.
-
-       Use explicit READWRITE|CREATE flags so the intended database
-       is opened rather than accidentally falling back to a relative
-       database in the launcher's working directory.
-    */
-
-    int rc =
-        sqlite3_open_v2(
-            DB_PATH,
-            &db,
-            SQLITE_OPEN_READWRITE |
-            SQLITE_OPEN_CREATE |
-            SQLITE_OPEN_FULLMUTEX,
-            NULL
-        );
+    /* Open the canonical persistent database. Existing tables may come from
+       an earlier R2 build, so upgrades are additive and preserve legacy
+       columns/rows rather than assuming CREATE TABLE IF NOT EXISTS updates
+       an old schema. */
+    int rc = sqlite3_open_v2(
+        DB_PATH, &db,
+        SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX,
+        NULL);
 
     if (rc != SQLITE_OK) {
-
-        fprintf(
-            stderr,
-            "SQLite open failed for %s: %s\n",
-            DB_PATH,
-            db
-                ? sqlite3_errmsg(db)
-                : "unknown"
-        );
-
+        fprintf(stderr, "SQLite open failed for %s: %s\n", DB_PATH,
+                db ? sqlite3_errmsg(db) : "unknown");
         if (db) {
             sqlite3_close(db);
             db = NULL;
         }
-
         return -1;
     }
 
-    sqlite3_busy_timeout(
-        db,
-        5000
-    );
+    if (sqlite3_busy_timeout(db, 5000) != SQLITE_OK) {
+        fprintf(stderr, "SQLite busy timeout setup failed: %s\n",
+                sqlite3_errmsg(db));
+        sqlite3_close(db);
+        db = NULL;
+        return -1;
+    }
 
-    /*
-       Keep the existing memory schema. Do not recreate or alter
-       the diary subsystem's tables here.
-    */
+    if (db_exec("PRAGMA journal_mode=WAL;") != 0 ||
+        db_exec("PRAGMA synchronous=NORMAL;") != 0 ||
+        db_exec("BEGIN IMMEDIATE;") != 0) {
+        return -1;
+    }
 
-    return db_exec(
+    int result = db_exec(
         "CREATE TABLE IF NOT EXISTS memories ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-        "memory TEXT NOT NULL,"
-        "category TEXT NOT NULL,"
-        "created_at TEXT NOT NULL,"
-        "updated_at TEXT NOT NULL"
-        ");"
-    );
+        "memory TEXT NOT NULL DEFAULT '',"
+        "category TEXT NOT NULL DEFAULT 'other',"
+        "created_at TEXT NOT NULL DEFAULT '',"
+        "updated_at TEXT NOT NULL DEFAULT ''"
+        ");");
+
+    if (result == 0) result = migrate_memory_schema();
+    if (result == 0) {
+        if (db_exec("COMMIT;") != 0) {
+            (void)db_exec("ROLLBACK;");
+            return -1;
+        }
+    } else {
+        (void)db_exec("ROLLBACK;");
+    }
+    return result;
 }
 
 
@@ -2703,6 +2796,89 @@ int r2_ollama_vision_request_should_abort(void)
     return shutting_down || atomic_load(&foreground_ollama_waiting) > 0;
 }
 
+/* Estimate safe Ollama context from host and container memory headroom.
+   Context size controls KV-cache allocation; blindly asking for a huge window
+   on a constrained host can evict other work or trigger OOM. */
+static unsigned long long read_uint_file(const char *path)
+{
+    FILE *f = fopen(path, "r");
+    if (!f) return 0;
+    char buffer[128];
+    if (!fgets(buffer, sizeof(buffer), f)) {
+        fclose(f);
+        return 0;
+    }
+    fclose(f);
+    if (!strncmp(buffer, "max", 3)) return 0;
+    errno = 0;
+    char *end = NULL;
+    unsigned long long value = strtoull(buffer, &end, 10);
+    return (errno || end == buffer) ? 0 : value;
+}
+
+static unsigned long long available_memory_bytes(void)
+{
+    unsigned long long host_available = 0;
+    FILE *f = fopen("/proc/meminfo", "r");
+    if (f) {
+        char line[256];
+        while (fgets(line, sizeof(line), f)) {
+            unsigned long long kb = 0;
+            if (sscanf(line, "MemAvailable: %llu kB", &kb) == 1) {
+                host_available = kb * 1024ULL;
+                break;
+            }
+        }
+        fclose(f);
+    }
+
+    unsigned long long cgroup_max = read_uint_file("/sys/fs/cgroup/memory.max");
+    unsigned long long cgroup_used = read_uint_file("/sys/fs/cgroup/memory.current");
+    if (cgroup_max && cgroup_used && cgroup_max > cgroup_used) {
+        unsigned long long cgroup_available = cgroup_max - cgroup_used;
+        if (!host_available || cgroup_available < host_available)
+            host_available = cgroup_available;
+    }
+    /* Older cgroup v1 deployments use these paths. */
+    if (!host_available) host_available = 0;
+    if (!cgroup_max) {
+        unsigned long long v1_max = read_uint_file("/sys/fs/cgroup/memory/memory.limit_in_bytes");
+        unsigned long long v1_used = read_uint_file("/sys/fs/cgroup/memory/memory.usage_in_bytes");
+        if (v1_max && v1_used && v1_max > v1_used) {
+            unsigned long long v1_available = v1_max - v1_used;
+            if (!host_available || v1_available < host_available)
+                host_available = v1_available;
+        }
+    }
+    return host_available;
+}
+
+static int ollama_context_tokens(void)
+{
+    const unsigned long long GiB = 1024ULL * 1024ULL * 1024ULL;
+    unsigned long long available = available_memory_bytes();
+    /* Conservative fallback if /proc is unavailable. */
+    int safe_max = !available ? 8192 :
+                   available >= 8ULL * GiB ? 16384 :
+                   available >= 5ULL * GiB ? 12288 :
+                   available >= 3ULL * GiB ? 8192 :
+                   available >= 2ULL * GiB ? 4096 : 2048;
+
+    const char *configured = getenv("R2_OLLAMA_NUM_CTX");
+    if (configured && *configured) {
+        errno = 0;
+        char *end = NULL;
+        long requested = strtol(configured, &end, 10);
+        if (!errno && end != configured && *end == '\0' &&
+            requested >= 2048 && requested <= 16384) {
+            if (requested < safe_max) safe_max = (int)requested;
+        } else {
+            fprintf(stderr, "[R2 Ollama] Ignoring invalid R2_OLLAMA_NUM_CTX value.\n");
+        }
+    }
+    return safe_max;
+}
+
 static char *ollama_chat_with_limit(
     Message *msgs,
     size_t count,
@@ -2717,13 +2893,18 @@ static char *ollama_chat_with_limit(
     json_object_object_add(root, "stream", json_object_new_boolean(0));
     json_object_object_add(root, "keep_alive", json_object_new_string("10m"));
 
-    if (num_predict > 0) {
-        struct json_object *options = json_object_new_object();
-        if (options) {
-            json_object_object_add(options, "num_predict",
-                                   json_object_new_int(num_predict));
-            json_object_object_add(root, "options", options);
-        }
+    int num_ctx = ollama_context_tokens();
+    int max_predict = num_ctx >= 16384 ? 3072 :
+                      num_ctx >= 12288 ? 2048 :
+                      num_ctx >= 8192 ? 768 : 384;
+    if (num_predict < 1) num_predict = max_predict;
+    if (num_predict > max_predict) num_predict = max_predict;
+
+    struct json_object *options = json_object_new_object();
+    if (options) {
+        json_object_object_add(options, "num_ctx", json_object_new_int(num_ctx));
+        json_object_object_add(options, "num_predict", json_object_new_int(num_predict));
+        json_object_object_add(root, "options", options);
     }
 
     struct json_object *arr = json_object_new_array();
@@ -2732,6 +2913,9 @@ static char *ollama_chat_with_limit(
         return NULL;
     }
 
+    size_t override_length = system_override ? strlen(system_override) : 0;
+    if (override_length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS)
+        override_length = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;
     if (system_override) {
         struct json_object *m = json_object_new_object();
         if (!m) {
@@ -2740,7 +2924,9 @@ static char *ollama_chat_with_limit(
             return NULL;
         }
         json_object_object_add(m, "role", json_object_new_string("system"));
-        json_object_object_add(m, "content", json_object_new_string(system_override));
+        json_object_object_add(m, "content",
+                               json_object_new_string_len(system_override,
+                                                          (int)override_length));
         json_object_array_add(arr, m);
     }
 
@@ -2760,7 +2946,32 @@ static char *ollama_chat_with_limit(
         return NULL;
     }
 
-    size_t total_chars = 0;
+    /*
+     * Align the serialized input window with the runtime context actually
+     * requested from Ollama. Reserve generation room plus tokenizer overhead,
+     * and count the extra system override which is serialized separately.
+     */
+    size_t input_budget = (size_t)(num_ctx - num_predict - 512) * 3U;
+    if (input_budget > OLLAMA_MAX_TOTAL_CHARS)
+        input_budget = OLLAMA_MAX_TOTAL_CHARS;
+    size_t current_user_reserve = 3000;
+    for (size_t i = count; i > 0; --i) {
+        size_t index = i - 1;
+        if (msgs[index].role && !strcmp(msgs[index].role, "user")) {
+            size_t n = msgs[index].content ? strlen(msgs[index].content) : 0;
+            if (n > OLLAMA_MAX_MESSAGE_CHARS) n = OLLAMA_MAX_MESSAGE_CHARS;
+            if (n > current_user_reserve) current_user_reserve = n;
+            break;
+        }
+    }
+    if (current_user_reserve > OLLAMA_MAX_MESSAGE_CHARS)
+        current_user_reserve = OLLAMA_MAX_MESSAGE_CHARS;
+    size_t system_budget = input_budget > current_user_reserve + 1000
+        ? input_budget - current_user_reserve - 1000 : OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;
+    if (system_budget > OLLAMA_MAX_SYSTEM_TOTAL_CHARS)
+        system_budget = OLLAMA_MAX_SYSTEM_TOTAL_CHARS;
+
+    size_t total_chars = override_length;
     /*
      * Priority matters when the system-context budget is reached. Keep the
      * core identity/personality prompt first, then the newest canonical Reality
@@ -2768,9 +2979,9 @@ static char *ollama_chat_with_limit(
      * memory blocks can crowd the refreshed hunger/world state out entirely.
      */
     for (int priority = 0; priority < 3 &&
-         total_chars < OLLAMA_MAX_SYSTEM_TOTAL_CHARS; ++priority) {
+         total_chars < system_budget; ++priority) {
         for (size_t i = 0; i < count &&
-             total_chars < OLLAMA_MAX_SYSTEM_TOTAL_CHARS; ++i) {
+             total_chars < system_budget; ++i) {
             if (!msgs[i].role || strcmp(msgs[i].role, "system") != 0)
                 continue;
             const char *content = msgs[i].content ? msgs[i].content : "";
@@ -2793,7 +3004,7 @@ static char *ollama_chat_with_limit(
             /* Reserve a little system budget for pinned memory after the live snapshot. */
             if (message_priority == 1 && length > 6000)
                 length = 6000;
-            size_t remaining = OLLAMA_MAX_SYSTEM_TOTAL_CHARS - total_chars;
+            size_t remaining = system_budget > total_chars ? system_budget - total_chars : 0;
             if (length > remaining) length = remaining;
             if (length == 0) continue;
             include[i] = 1;
@@ -2812,8 +3023,8 @@ static char *ollama_chat_with_limit(
         size_t length = strlen(content);
         if (length > OLLAMA_MAX_MESSAGE_CHARS)
             length = OLLAMA_MAX_MESSAGE_CHARS;
-        if (total_chars >= OLLAMA_MAX_TOTAL_CHARS) break;
-        size_t remaining = OLLAMA_MAX_TOTAL_CHARS - total_chars;
+        if (total_chars >= input_budget) break;
+        size_t remaining = input_budget - total_chars;
         if (length > remaining) length = remaining;
         if (length == 0) continue;
         include[index] = 1;
@@ -3107,10 +3318,10 @@ static char *chat_copy_all(void)
 static int conversation_reply_token_budget(const char *query)
 {
     if (!query || !*query)
-        return 512;
+        return 768;
 
     if (strlen(query) > 1200)
-        return 2048;
+        return 3072;
 
     static const char *const code_terms[] = {
         "write", "create", "implement", "code", "script", "program",
@@ -3124,13 +3335,13 @@ static int conversation_reply_token_budget(const char *query)
 
     for (size_t i = 0; i < sizeof(code_terms) / sizeof(code_terms[0]); ++i) {
         if (strcasestr(query, code_terms[i]))
-            return 2048;
+            return 3072;
     }
     for (size_t i = 0; i < sizeof(detailed_terms) / sizeof(detailed_terms[0]); ++i) {
         if (strcasestr(query, detailed_terms[i]))
-            return 1024;
+            return 2048;
     }
-    return 512;
+    return 768;
 }
 
 static char *chat_with_relevant_memories(
@@ -5718,14 +5929,18 @@ static void *autonomous_thinking(
             0
         };
 
+        /* Reflection is background work: yield immediately to live turns. */
+        int previous_background_mode = ollama_background_mode;
+        ollama_background_mode = 1;
         char *reflection =
             ollama_chat_with_limit(
                 &m,
                 1,
                 prompt,
                 1024,
-                180L
+                600L
             );
+        ollama_background_mode = previous_background_mode;
 
         free(ctx);
 
