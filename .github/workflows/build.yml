@@ -8,6 +8,7 @@ on:
       - r2-audit-fixes-2026-10-09
       - r2-complete-audit-2026-10-09
       - r2-hunger-reflection-fix-2026-10-10
+      - b2.5w2-system-prompt-budget-2026-10-11
   pull_request:
     branches:
       - main
@@ -40,6 +41,9 @@ jobs:
 
       - name: Check unified Gemma 3 conversation and vision wiring
         run: python3 tests/gemma3_model_smoke.py
+
+      - name: Prevent silent truncation of the complete system prompt
+        run: python3 tests/prompt_budget_smoke.py
 
       - name: Check Game Boy console syntax and lifecycle
         run: |
