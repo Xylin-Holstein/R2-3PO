@@ -77,8 +77,8 @@ for database in "$R2_SOURCE/r2_memory.db" "$R2_SOURCE/r2_reality.db" "$R2_SOURCE
     fi
 done
 
-# No R2 process is running, so take a consistent, private snapshot of all three
-# databases and require a clean integrity audit before installing/starting code.
+# No R2 process is running, so take a consistent, private snapshot of all five
+# persistent databases and require a clean integrity audit before installing/starting code.
 AUDIT_SCRIPT="$R2_SOURCE/tools/audit_r2_databases.py"
 [[ -f "$AUDIT_SCRIPT" ]] || fail "database audit tool is missing: $AUDIT_SCRIPT"
 SNAPSHOT_DIR="$R2_ROOT/audit-snapshot-$(date '+%Y%m%d-%H%M%S')"
