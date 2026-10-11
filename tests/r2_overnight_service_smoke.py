@@ -29,6 +29,8 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn("R2_SERVICE_MODE=1", source)
         self.assertIn("systemd-inhibit --what=sleep", source)
         self.assertLess(source.index("exec systemd-inhibit"), source.index('log "Waiting for the local Ollama API..."'))
+        self.assertIn('if [[ "$CURRENT_MONTH$CURRENT_DAY" == "0229" ]]', source)
+        self.assertIn('R2_START="1999-03-01', source)
         self.assertNotIn("apt-get update", source)
         self.assertNotIn("ollama pull", source)
 
@@ -55,6 +57,8 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn("refusing symlinked R2 database", source)
         self.assertIn("audit-snapshot-", source)
         self.assertIn("integrity audit failed", source)
+        self.assertIn('systemctl is-active --quiet r2-3po.service', source)
+        self.assertIn("did not reach active state", source)
 
 
 if __name__ == "__main__":
