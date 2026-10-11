@@ -107,18 +107,19 @@ if id r2 >/dev/null 2>&1; then pass "Linux account r2 exists"; else fail "Linux 
 if [[ -d "$R2_ROOT" && -d "$R2_SOURCE" ]]; then
   if have sudo && id r2 >/dev/null 2>&1; then
     for path in "$R2_ROOT" "$R2_SOURCE"; do
-      if sudo -n -u r2 test -r "$path" && sudo -n -u r2 test -x "$path" && sudo -n -u r2 test -w "$path"; then
+      if run_as_r2_with_audio_group test -r "$path" && run_as_r2_with_audio_group test -x "$path" && run_as_r2_with_audio_group test -w "$path"; then
         pass "r2 can read/write/traverse $path"
       else
         fail "r2 must have read/write/traverse access to $path for runtime directories, SQLite, and persistent memory; correct ownership/permissions before launch"
       fi
     done
-    # Existing persistent directories/files must be writable by the actual
-    # runtime account. Missing directories are okay: the launcher creates them
-    # as r2, but existing unwritable paths would otherwise fail after launch.
+    # Use the same setpriv-based identity/group setup as the launcher. On
+    # Ubuntu sudo-rs, plain `sudo -u r2` can evaluate access with a different
+    # supplementary-group context than the actual runtime process. Missing
+    # directories are okay: the launcher creates them as r2.
     for path in "$R2_ROOT/R2_Diary" "$R2_ROOT/room" "$R2_ROOT/room/shelf" "$R2_ROOT/room/box" "$R2_ROOT/room/piggybank" "$R2_ROOT/Pockets" "$R2_ROOT/Pockets/Wallet" "$R2_ROOT/fridge"; do
       [[ -e "$path" ]] || continue
-      if sudo -n -u r2 test -d "$path" && sudo -n -u r2 test -r "$path" && sudo -n -u r2 test -x "$path" && sudo -n -u r2 test -w "$path"; then
+      if run_as_r2_with_audio_group test -d "$path" && run_as_r2_with_audio_group test -r "$path" && run_as_r2_with_audio_group test -x "$path" && run_as_r2_with_audio_group test -w "$path"; then
         pass "r2 can read/write/traverse existing runtime directory $path"
       else
         fail "existing runtime directory is not read/write/traverse accessible to r2: $path"
@@ -128,7 +129,7 @@ if [[ -d "$R2_ROOT" && -d "$R2_SOURCE" ]]; then
       [[ -e "$database" ]] || continue
       if [[ -L "$database" ]]; then
         fail "refusing symlinked runtime database: $database"
-      elif sudo -n -u r2 test -f "$database" && sudo -n -u r2 test -r "$database" && sudo -n -u r2 test -w "$database"; then
+      elif run_as_r2_with_audio_group test -f "$database" && run_as_r2_with_audio_group test -r "$database" && run_as_r2_with_audio_group test -w "$database"; then
         pass "r2 can read/write database $database"
       else
         fail "existing database must be a readable/writable regular file for r2: $database"
@@ -142,7 +143,7 @@ if [[ -d "$R2_FX_DIR" && -r "$R2_FX_DIR" ]]; then
   else warn "FX directory contains no MP3 files; learned beeps/whistles cannot play."; fi
 else warn "FX directory missing/unreadable; expected local assets at $R2_FX_DIR."; fi
 if have sudo && id r2 >/dev/null 2>&1 && [[ -d "$R2_FX_DIR" ]]; then
-  if sudo -n -u r2 test -r "$R2_FX_DIR" && sudo -n -u r2 test -x "$R2_FX_DIR"; then
+  if run_as_r2_with_audio_group test -r "$R2_FX_DIR" && run_as_r2_with_audio_group test -x "$R2_FX_DIR"; then
     pass "r2 can read/traverse the FX directory"
   else warn "could not verify FX-directory access for r2 (sudo may require a password)."; fi
 fi
@@ -216,7 +217,7 @@ for camera in /dev/video*; do
     warn "current user cannot read/write $camera; camera capture may fail."
   fi
   if have sudo && id r2 >/dev/null 2>&1; then
-    if sudo -n -u r2 test -r "$camera" && sudo -n -u r2 test -w "$camera"; then
+    if run_as_r2_with_audio_group test -r "$camera" && run_as_r2_with_audio_group test -w "$camera"; then
       camera_accessible=$((camera_accessible + 1))
     fi
   fi
@@ -242,7 +243,7 @@ for node in /dev/snd/*; do
   [[ -e "$node" ]] || continue
   sound_node_count=$((sound_node_count + 1))
   if have sudo && id r2 >/dev/null 2>&1; then
-    if sudo -n -u r2 test -r "$node" && sudo -n -u r2 test -w "$node"; then
+    if run_as_r2_with_audio_group test -r "$node" && run_as_r2_with_audio_group test -w "$node"; then
       sound_node_accessible=$((sound_node_accessible + 1))
     fi
     # Test the service's configured supplementary group without changing
