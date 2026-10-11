@@ -45,6 +45,9 @@ jobs:
       - name: Prevent silent truncation of the complete system prompt
         run: python3 tests/prompt_budget_smoke.py
 
+      - name: Keep the current user turn in bounded Ollama payloads
+        run: python3 tests/ollama_current_turn_smoke.py
+
       - name: Check runtime headroom and backwards-compatible memory migration
         run: python3 tests/runtime_headroom_smoke.py
 
