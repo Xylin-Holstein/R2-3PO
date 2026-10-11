@@ -24,6 +24,9 @@ required = {
     "cgroup RAM reads distinguish zero from unreadable": "static unsigned long long read_uint_file(const char *path, int *valid)",
     "cgroup RAM exhaustion forces minimal headroom": "(!cgroup_used_valid || cgroup_used >= cgroup_max)",
     "unlimited cgroup v1 sentinel is not treated as real headroom": "v1_max < (1ULL << 60)",
+    "foreground timeout is configurable for long local inference": "R2_OLLAMA_TIMEOUT_SECONDS",
+    "foreground timeout has a six-hour safety ceiling": "requested <= 21600L",
+    "foreground timeout preserves the established default": "const long default_timeout = 2700L;",
 }
 for label, needle in required.items():
     if needle not in core:
