@@ -34,7 +34,12 @@ for rule in required_rules:
 
 if reality.count("!isfinite(f)") < 2 or reality.count("isfinite(parsed)") < 2:
     raise SystemExit("food metric parsing and context must reject non-finite numeric values")
-if "fullness REAL NOT NULL DEFAULT 100" in reality or "energy REAL NOT NULL DEFAULT 10" in reality:
+new_fridge_schema = next(
+    (line for line in reality.splitlines()
+     if '"CREATE TABLE IF NOT EXISTS r2_fridge_items(' in line),
+    "",
+)
+if "fullness REAL NOT NULL DEFAULT 100" in new_fridge_schema or "energy REAL NOT NULL DEFAULT 10" in new_fridge_schema:
     raise SystemExit("new fridge schema still assigns nutritious defaults to unspecified stock")
 
 eat_start = r2.find('} else if (nf >= 3 && !strcasecmp(fields[0], "eat")) {')
