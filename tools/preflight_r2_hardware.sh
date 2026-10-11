@@ -30,10 +30,33 @@ section "Required files and build tools"
 for tool in bash make gcc curl python3; do
   if have "$tool"; then pass "$tool installed"; else fail "$tool missing"; fi
 done
-for file in Makefile r2.c r2.h shell.c Reality.c Eyes.c Ears.c Visual.c R2Sounds.c R2Reply.c; do
+# Mirror the complete source/header set required by the interactive launcher,
+# so a partial manual copy is caught before the user is asked to continue.
+for file in \
+  Makefile \
+  r2.c r2.h \
+  r2_diary.c r2_diary.h \
+  Log.c Log.h \
+  Reality.c Reality.h \
+  Addiction.c Addiction.h \
+  Reward.c Reward.h \
+  AlternateSelf.c AlternateSelf.h \
+  Visual.c Visual.h \
+  Ears.c Ears.h \
+  Eyes.c Eyes.h \
+  R2Sounds.c R2Sounds.h \
+  R2Reply.c R2Reply.h \
+  shell.c shell.h \
+  Observer.py; do
   if [[ -r "$R2_SOURCE/$file" ]]; then pass "source readable: $file"; else fail "missing/unreadable: $R2_SOURCE/$file"; fi
 done
-for file in deploy/r2-3po.service tools/r2_service_runner.sh tools/install_r2_overnight.sh tools/audit_r2_databases.py; do
+for file in \
+  deploy/r2-3po.service \
+  tools/r2_service_runner.sh \
+  tools/install_r2_overnight.sh \
+  tools/audit_r2_databases.py \
+  tools/audit_r2_sound_assets.py \
+  tools/preflight_r2_hardware.sh; do
   if [[ -r "$R2_SOURCE/$file" ]]; then pass "deployment file readable: $file"; else fail "missing deployment file: $R2_SOURCE/$file"; fi
 done
 if [[ -x "$R2_EXEC" ]]; then pass "installed R2 executable exists"; else warn "installed executable missing; installer must build it before activation."; fi
