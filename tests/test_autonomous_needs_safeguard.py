@@ -9,7 +9,7 @@ end = source.index("\nint r2_think(void)", start)
 function = source[start:end]
 
 allow_start = source.index("static int autonomous_needs_action_allowed(")
-allow_end = source.index("\n/* Re-check hunger immediately", allow_start)
+allow_end = source.index("\n/* Re-check the authoritative need", allow_start)
 allow_guard = source[allow_start:allow_end]
 assert 'command_len == 3 && !strncmp(command, "eat", 3)' in allow_guard
 assert 'command_len == 10 && !strncmp(command, "fridge_eat", 10)' in allow_guard
@@ -22,7 +22,7 @@ helper_end = source.index("\n/* Autonomous needs checks are deliberately limited
 food_guard = source[helper_start:helper_end]
 assert 'strstr(action, "[WORLD] eat|")' in food_guard
 assert 'strstr(action, "[WORLD] fridge_eat|")' in food_guard
-assert 'double hunger = strtod(field, &end);' in food_guard
+assert 'double value = strtod(field, &end);' in food_guard
 assert "value >= 50.0" in food_guard
 assert "value >= 85.0" in food_guard
 assert 'strstr(action, "[WORLD] sleep|")' in food_guard
