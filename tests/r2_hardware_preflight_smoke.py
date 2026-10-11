@@ -33,16 +33,24 @@ required = (
     'tools/preflight_r2_hardware.sh',
     'for tool in bash make gcc curl python3 sudo pgrep date find grep cmp',
     'libfaketime.so.1 is missing',
+    'sudo apt-get update && sudo apt-get install -y ffmpeg',
+    'sudo apt-get update && sudo apt-get install -y pulseaudio-utils',
+    'physical-device/configuration issue, not a missing package',
     'overnight service installation cannot proceed',
 )
 missing = [item for item in required if item not in script]
 if missing:
     raise SystemExit(f"preflight contract missing expected checks: {missing}")
-for forbidden in ('chmod 777', 'apt-get install', 'apt-get update',
-                  'systemctl enable', 'systemctl start', 'systemctl stop',
-                  'make clean all', 'rm -f'):
+for forbidden in ('chmod 777', 'systemctl enable', 'systemctl start',
+                  'systemctl stop', 'make clean all', 'rm -f'):
     if forbidden in script:
         raise SystemExit(f"preflight must be read-only; found forbidden operation: {forbidden}")
+# Package-manager commands may appear only as human-readable guidance in warning
+# strings; the read-only report must never execute a package-manager operation.
+for line in script.splitlines():
+    if line.lstrip().startswith(('apt-get update', 'apt-get install', 'sudo apt-get update',
+                                 'sudo apt-get install')):
+        raise SystemExit("preflight must not execute package-manager commands")
 if 'R2_OLLAMA_URL:-http://127.0.0.1:11434/api/tags' not in script:
     raise SystemExit("Ollama endpoint must remain locally configurable")
 
