@@ -62,6 +62,9 @@ jobs:
       - name: Keep the current user turn in bounded Ollama payloads
         run: python3 tests/ollama_current_turn_smoke.py
 
+      - name: Retry obvious nonresponsive text misclassification once
+        run: python3 tests/nonresponsive_reply_retry_smoke.py
+
       - name: Check runtime headroom and backwards-compatible memory migration
         run: python3 tests/runtime_headroom_smoke.py
 
