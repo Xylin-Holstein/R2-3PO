@@ -2744,17 +2744,19 @@ static char *ollama_chat_with_limit(
      * Keep prompt evaluation batches bounded for the 16 GB local target.
      */
     struct json_object *options = json_object_new_object();
-    if (options) {
-        json_object_object_add(options, "num_ctx",
-                               json_object_new_int(R2_OLLAMA_CONTEXT_TOKENS));
-        json_object_object_add(options, "num_batch",
-                               json_object_new_int(R2_OLLAMA_PROMPT_BATCH));
-        if (num_predict > 0) {
-            json_object_object_add(options, "num_predict",
-                                   json_object_new_int(num_predict));
-        }
-        json_object_object_add(root, "options", options);
+    if (!options) {
+        json_object_put(root);
+        return NULL;
     }
+    json_object_object_add(options, "num_ctx",
+                           json_object_new_int(R2_OLLAMA_CONTEXT_TOKENS));
+    json_object_object_add(options, "num_batch",
+                           json_object_new_int(R2_OLLAMA_PROMPT_BATCH));
+    if (num_predict > 0) {
+        json_object_object_add(options, "num_predict",
+                               json_object_new_int(num_predict));
+    }
+    json_object_object_add(root, "options", options);
 
     struct json_object *arr = json_object_new_array();
     if (!arr) {
