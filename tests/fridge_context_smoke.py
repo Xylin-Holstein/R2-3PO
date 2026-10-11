@@ -16,11 +16,17 @@ for source_name, source in (("Reality.c", reality), ("shell.c", shell)):
         if claim in lowered:
             raise SystemExit(f"{source_name} still contains stale fridge claim: {claim}")
 
+if 'if (found != 0 && food && !strcasecmp(food, "burger"))' in reality:
+    raise SystemExit("Reality.c still substitutes a hard-coded burger metric")
+if 'const char *guaranteed = "burger:' in reality:
+    raise SystemExit("Reality.c still injects a synthetic burger metric into context")
+if '<food name=\\"burger\\" fullness=\\"100\\"' in reality:
+    raise SystemExit("fresh Reality setup still seeds a hard-coded burger metric")
+
 required_rules = (
     "Never infer that food exists merely because R2 is hungry",
     "Only listed stock exists",
     "an empty fridge stays empty",
-    "this does not mean a burger exists in inventory",
 )
 for rule in required_rules:
     if rule.lower() not in reality.lower():
