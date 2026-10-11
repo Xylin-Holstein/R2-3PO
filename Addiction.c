@@ -345,7 +345,7 @@ char *r2_addiction_report(void)
         "SELECT t.target,t.target_type,t.enjoyment,t.status,"
         "(SELECT COUNT(*) FROM addiction_events e WHERE e.target=t.target COLLATE NOCASE AND e.event_kind='choice' AND e.occurred_at>=?),"
         "(SELECT COUNT(DISTINCT date(e.occurred_at,'unixepoch','localtime')) FROM addiction_events e WHERE e.target=t.target COLLATE NOCASE AND e.event_kind='choice' AND e.occurred_at>=?),"
-        "COALESCE(t.last_chosen,0) FROM addiction_targets t ORDER BY t.updated_at DESC";
+        "COALESCE(t.last_chosen,0) FROM addiction_targets t ORDER BY t.updated_at DESC LIMIT 17";
     sqlite3_stmt *st = NULL;
     int rc = sqlite3_prepare_v2(addiction_db, sql, -1, &st, NULL);
     if (rc != SQLITE_OK) {
