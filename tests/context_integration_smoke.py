@@ -5,6 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 core = (ROOT / "r2.c").read_text(encoding="utf-8")
 reality = (ROOT / "Reality.c").read_text(encoding="utf-8")
+addiction = (ROOT / "Addiction.c").read_text(encoding="utf-8")
 
 start = core.find("static char *append_reality_context(char *base)")
 end = core.find("\nint r2_write_diary(void)", start)
@@ -37,5 +38,10 @@ for boundary in (
 
 if "Only listed stock exists" not in reality:
     raise SystemExit("Authoritative fridge inventory is not represented in Reality context.")
+
+if "ORDER BY t.updated_at DESC LIMIT 17" not in addiction or "if (rows >= 16)" not in addiction:
+    raise SystemExit("Addiction context must remain bounded for long-running prompt stability.")
+if "Additional repeated-interest records omitted from chat context" not in addiction:
+    raise SystemExit("Bounded addiction context must disclose omitted history without deleting it.")
 
 print("shared memory/reality/reward/addiction context wiring smoke passed")
