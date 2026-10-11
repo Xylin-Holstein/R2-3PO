@@ -51,9 +51,9 @@ It checks the source/deployment files, the local Ollama API and `gemma3:4b`, rea
 
    If a check fails, correct the existing owner/group/ACL deliberately before continuing. The core stores its five SQLite databases under `R2/` (`r2_memory.db`, `r2_reality.db`, `r2_fridge.db`, `r2_rewards.db`, and `r2_addictions.db`), so account `r2` needs read/write access to that directory and its existing database files.
 
-## Optional longer local inference timeout
+## Local inference timeout
 
-Foreground chat uses a 45-minute request timeout by default. To allow up to four hours per request in the interactive launcher, export the setting before starting it:
+Foreground chat and its corrective retry allow up to four hours per request by default to accommodate very slow local inference. Override the setting before starting the interactive launcher if needed:
 
 ```sh
 export R2_OLLAMA_TIMEOUT_SECONDS=14400
@@ -80,7 +80,7 @@ sudo systemctl daemon-reload
 sudo systemctl restart r2-3po.service
 ```
 
-Accepted values are 30–21,600 seconds (30 seconds to six hours); invalid values use the 45-minute default. This only changes how long R2 waits for a request, not inference speed.
+Accepted values are 30–21,600 seconds (30 seconds to six hours); invalid values use the four-hour default. This only changes how long R2 waits for a request, not inference speed.
 
 ## Diagnose a conversation that answers the wrong message
 
