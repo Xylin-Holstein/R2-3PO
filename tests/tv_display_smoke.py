@@ -89,6 +89,13 @@ class TVDisplaySmoke(unittest.TestCase):
         self.assertIn("if (sent < 0 && errno == EINTR) continue", source)
         self.assertIn("MSG_NOSIGNAL", source)
 
+    def test_server_bridges_media_events_to_life_log(self) -> None:
+        source = (Path(__file__).resolve().parents[1] / "shell.c").read_text(encoding="utf-8")
+        self.assertIn('!strncmp(command, "media ", 6)', source)
+        self.assertIn('r2_log_media_event(payload, "video", path', source)
+        self.assertIn('"vcr_playback_started"', source)
+        self.assertIn('"vcr_playback_error"', source)
+
     def test_control_client_uses_local_socket(self) -> None:
         received = []
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
