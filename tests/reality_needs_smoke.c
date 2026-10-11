@@ -52,7 +52,8 @@ int main(void)
     snprintf(metrics_path, sizeof(metrics_path), "%s/room/food_metrics.xml", R2_ROOT);
     FILE *metrics = fopen(metrics_path, "a");
     if (!metrics) fail("could not open temporary food metrics fixture");
-    fputs("\n  <food name=\"zero_fullness\" fullness=\"0\" energy=\"0\" />"
+    fputs("\n  <food name=\"burger\" fullness=\"100\" energy=\"10\" ingredients=\"bread,beef,cheese\" taste=\"savory,warm,salty\" />"
+          "\n  <food name=\"zero_fullness\" fullness=\"0\" energy=\"0\" />"
           "\n  <food name=\"nan_fullness\" fullness=\"nan\" energy=\"10\" />"
           "\n  <food name=\"nan_energy\" fullness=\"20\" energy=\"nan\" />\n",
           metrics);
