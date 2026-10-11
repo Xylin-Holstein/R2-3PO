@@ -1622,7 +1622,9 @@ static size_t extract_memory_keywords(
     if (!text)
         return 0;
 
-    char *copy = xstrdup(text);
+    /* Keyword extraction is optional context work: allocation failure
+       should skip retrieval, not terminate the whole R2 process. */
+    char *copy = strdup(text);
     if (!copy)
         return 0;
 
