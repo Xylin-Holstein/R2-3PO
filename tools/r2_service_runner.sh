@@ -54,6 +54,13 @@ if ! command -v mpg123 >/dev/null 2>&1 &&
    ! command -v mpv >/dev/null 2>&1; then
     log "WARNING: no local MP3 player (mpg123, ffplay, or mpv) is installed; beep/whistle playback cannot work."
 fi
+if ! command -v vlc >/dev/null 2>&1 ||
+   ! python3 -c 'import vlc' >/dev/null 2>&1; then
+    log "WARNING: VLC or python3-vlc is unavailable; the CRT VCR GUI cannot render tapes."
+fi
+if ! python3 -c 'import tkinter' >/dev/null 2>&1; then
+    log "WARNING: Tkinter is unavailable; the TV and Observer desktop windows cannot open."
+fi
 
 FAKETIME_LIB="${R2_FAKETIME_LIB:-}"
 if [[ -z "$FAKETIME_LIB" ]]; then
