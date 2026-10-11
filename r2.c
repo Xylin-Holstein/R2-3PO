@@ -7197,7 +7197,7 @@ static int autonomous_needs_action_allowed(const char *action)
         return 0;
     size_t command_len = (size_t)(separator - command);
     return (command_len == 3 && !strncmp(command, "eat", 3)) ||
-           (command_len == 9 && !strncmp(command, "fridge_eat", 9)) ||
+           (command_len == 10 && !strncmp(command, "fridge_eat", 10)) ||
            (command_len == 5 && !strncmp(command, "sleep", 5));
 }
 
