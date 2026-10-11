@@ -34,6 +34,9 @@ extern "C" {
 /* Single source of truth for every local Ollama inference in R2. */
 #define R2_OLLAMA_MODEL "gemma3:4b"
 
+/* Shared RAM-aware context sizing for text and multimodal inference. */
+int r2_ollama_context_tokens(void);
+
 
 /* ============================================================
    CORE LIFECYCLE
