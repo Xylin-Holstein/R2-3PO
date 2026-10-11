@@ -54,5 +54,22 @@ int main(void)
                     "I'm glad you're here. How are you doing?"),
                 "short ordinary conversation is not retried");
 
+    char *retry_prompt = r2_build_retry_system_prompt();
+    ok &= check(retry_prompt != NULL,
+                "corrective system prompt can be constructed");
+    if (retry_prompt) {
+        ok &= check(strstr(retry_prompt, "You are R2-3PO.") != NULL,
+                    "retry retains R2's core identity instructions");
+        ok &= check(strstr(retry_prompt, "REALITY CONTEXT RULES:") != NULL,
+                    "retry retains live Reality/action constraints");
+        ok &= check(strstr(retry_prompt, "REPLY STYLE:") != NULL,
+                    "retry retains user-facing response-style instructions");
+        ok &= check(strstr(retry_prompt, "RESPONSE CORRECTION:") != NULL,
+                    "retry appends the corrective instruction");
+        ok &= check(strstr(retry_prompt, "acknowledge that social meaning") != NULL,
+                    "retry preserves guidance for social and emotional meaning");
+        free(retry_prompt);
+    }
+
     return ok ? 0 : 1;
 }
