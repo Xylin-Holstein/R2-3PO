@@ -42,8 +42,8 @@ assert "pthread_mutex_trylock(&conversation_turn_lock)" in function
 talk_start = source.index("char *r2_talk(const char *message)\n{")
 talk_end = source.index("\nint r2_conversation(void)", talk_start)
 talk_wrapper = source[talk_start:talk_end]
-assert talk_wrapper.index("atomic_fetch_add(&foreground_ollama_waiting, 1)") < talk_wrapper.index("pthread_mutex_lock(&conversation_turn_lock)")
-assert "atomic_fetch_sub(&foreground_ollama_waiting, 1)" in talk_wrapper
+assert talk_wrapper.index("atomic_fetch_add(&foreground_conversation_waiting, 1)") < talk_wrapper.index("pthread_mutex_lock(&conversation_turn_lock)")
+assert "atomic_fetch_sub(&foreground_conversation_waiting, 1)" in talk_wrapper
 
 safeguard_start = source.index("static void autonomous_needs_food_safeguard(void)\n{")
 assert "pthread_mutex_trylock(&conversation_turn_lock) != 0" in source[safeguard_start:start]
