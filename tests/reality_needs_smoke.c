@@ -43,6 +43,43 @@ static void read_needs(double *hunger, double *sleepiness, double *energy,
 int main(void)
 {
     if (r2_reality_init() != 0) fail("Reality initialization failed");
+    if (r2_reality_add_item("invalid_quantity", "Invalid quantity test", "pockets", 0) == 0)
+        fail("Reality API must reject non-positive quantities rather than converting them to one");
+
+    /* Force a secondary persistence failure and verify the primary object,
+       its container, and its collection memory are rolled back together. */
+    char atomic_path[1024];
+    snprintf(atomic_path, sizeof(atomic_path), "%s/r2_reality.db", R2_HOME);
+    sqlite3 *atomic_db = NULL;
+    if (sqlite3_open(atomic_path, &atomic_db) != SQLITE_OK)
+        fail("could not open Reality DB for atomic-add regression");
+    if (sqlite3_exec(atomic_db,
+        "CREATE TRIGGER fail_atomic_item_memory BEFORE INSERT ON r2_reality_item_memory "
+        "WHEN NEW.item_name='atomic_failure' BEGIN SELECT RAISE(ABORT,'forced regression failure'); END;",
+        NULL, NULL, NULL) != SQLITE_OK)
+        fail("could not install atomic-add failure trigger");
+    sqlite3_close(atomic_db);
+    if (r2_reality_add_item("atomic_failure", "Must roll back", "atomic_test_container", 1) == 0)
+        fail("item addition must fail when its collection memory cannot be persisted");
+    if (sqlite3_open(atomic_path, &atomic_db) != SQLITE_OK)
+        fail("could not reopen Reality DB after atomic-add failure");
+    sqlite3_stmt *atomic_st = NULL;
+    const char *atomic_queries[] = {
+        "SELECT COUNT(*) FROM r2_reality_objects WHERE name='atomic_failure'",
+        "SELECT COUNT(*) FROM r2_reality_containers WHERE name='atomic_test_container'",
+        "SELECT COUNT(*) FROM r2_reality_item_memory WHERE item_name='atomic_failure'"
+    };
+    for (size_t i = 0; i < sizeof(atomic_queries) / sizeof(atomic_queries[0]); ++i) {
+        if (sqlite3_prepare_v2(atomic_db, atomic_queries[i], -1, &atomic_st, NULL) != SQLITE_OK ||
+            sqlite3_step(atomic_st) != SQLITE_ROW || sqlite3_column_int(atomic_st, 0) != 0)
+            fail("failed item addition left a partial world/container/memory record");
+        sqlite3_finalize(atomic_st);
+        atomic_st = NULL;
+    }
+    if (sqlite3_exec(atomic_db, "DROP TRIGGER fail_atomic_item_memory", NULL, NULL, NULL) != SQLITE_OK)
+        fail("could not remove atomic-add regression trigger");
+    sqlite3_close(atomic_db);
+
     if (r2_reality_sleep(NAN) == 0)
         fail("non-finite sleep duration must be rejected");
 
