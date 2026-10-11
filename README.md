@@ -2,6 +2,8 @@
 
 R2-3PO is a C program with separate core, shell, diary, life-log, visual, eye, and hearing modules.
 
+For unattended overnight operation, boot-time activation, crash recovery, and sleep-inhibitor behavior, see [the overnight service guide](docs/overnight-service.md). The installer performs a database snapshot/integrity preflight before enabling the service. Do not run the systemd service and the interactive launcher at the same time.
+
 ## Build on Ubuntu/Debian
 
 Install the compiler and development libraries:
