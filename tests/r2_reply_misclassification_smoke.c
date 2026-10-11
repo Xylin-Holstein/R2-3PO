@@ -25,23 +25,29 @@ int main(void)
 
     Message interleaved_messages[] = {
         { .role = "user", .content = "older user turn", .pinned = 0 },
-        { .role = "system", .content = "PERSISTENT REALITY CONTEXT", .pinned = 0 },
-        { .role = "assistant", .content = "older assistant turn", .pinned = 0 },
+        { .role = "system", .content = "PAST CONVERSATION ARCHIVE — CONTEXT ONLY.", .pinned = 0 },
         { .role = "system", .content = "PERSISTENT LEARNING CONTEXT", .pinned = 0 },
+        { .role = "assistant", .content = "older assistant turn", .pinned = 0 },
+        { .role = "system", .content = "CURRENT TURN RETRIEVED CONTEXT", .pinned = 0 },
+        { .role = "system", .content = "PERSISTENT REALITY CONTEXT", .pinned = 0 },
+        { .role = "system", .content = "============================================================\nIDENTITY AND PERSISTENT MEMORY", .pinned = 0 },
         { .role = "user", .content = "current user turn", .pinned = 0 }
     };
-    const unsigned char include_all[] = { 1, 1, 1, 1, 1 };
-    size_t message_order[5] = { 0 };
+    const unsigned char include_all[] = { 1, 1, 1, 1, 1, 1, 1, 1 };
+    size_t message_order[8] = { 0 };
     size_t ordered_count = r2_order_inference_messages(
-        interleaved_messages, include_all, 5, message_order, 5);
-    int order_ok = ordered_count == 5 &&
-                   message_order[0] == 1 &&
-                   message_order[1] == 3 &&
-                   message_order[2] == 0 &&
+        interleaved_messages, include_all, 8, message_order, 8);
+    int order_ok = ordered_count == 8 &&
+                   message_order[0] == 6 &&
+                   message_order[1] == 5 &&
+                   message_order[2] == 4 &&
                    message_order[3] == 2 &&
-                   message_order[4] == 4;
+                   message_order[4] == 1 &&
+                   message_order[5] == 0 &&
+                   message_order[6] == 3 &&
+                   message_order[7] == 7;
     ok &= check(order_ok,
-                "all system context is serialized before dialogue while preserving each group's order");
+                "system context follows semantic priority before chronological dialogue");
 
     const char *mother_message =
         "Hello r2, this is your mother speaking to you. i miss you. "
