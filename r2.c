@@ -3930,7 +3930,7 @@ static char *r2_build_retry_system_prompt(void)
     char *retry_system_prompt = malloc(prompt_size);
     if (!retry_system_prompt)
         return NULL;
-    snprintf(retry_system_prompt, prompt_size, "%s\\n\\n%s",
+    snprintf(retry_system_prompt, prompt_size, "%s\n\n%s",
              r2_conversation_system_prompt, retry_instruction);
     return retry_system_prompt;
 }
