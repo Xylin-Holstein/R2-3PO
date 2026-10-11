@@ -3274,6 +3274,9 @@ static char *ollama_chat_with_limit(
             else if (!strncmp(content, "PERSISTENT LEARNING CONTEXT",
                               strlen("PERSISTENT LEARNING CONTEXT")))
                 message_priority = 1;
+            else if (!strncmp(content, "CURRENT TURN RETRIEVED CONTEXT",
+                              strlen("CURRENT TURN RETRIEVED CONTEXT")))
+                message_priority = 1;
             else if (!strncmp(content, "PAST CONVERSATION ARCHIVE — CONTEXT ONLY.",
                               strlen("PAST CONVERSATION ARCHIVE — CONTEXT ONLY.")))
                 message_priority = 3;
