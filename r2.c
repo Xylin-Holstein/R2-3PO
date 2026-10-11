@@ -7341,8 +7341,8 @@ static void autonomous_needs_check(void)
         }
     }
     /* Model output is advisory, not the sole safeguard for a simulated
-       physical need. Fall back only when the model did not already feed R2
-       successfully; this avoids a second meal in the same needs cycle. */
+       physical need. Fall back only when the model did not complete a valid
+       action successfully; this avoids duplicate meals and post-sleep feeding. */
     if (!world_action_succeeded)
         autonomous_needs_food_safeguard();
     free(decision);
