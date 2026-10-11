@@ -83,7 +83,8 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn('export R2_OLLAMA_NUM_GPU="${R2_OLLAMA_NUM_GPU:-0}"', launcher)
         self.assertIn("R2_RUNTIME_GROUPS=", launcher)
         self.assertIn('R2_RUNTIME_GROUPS+=",${AUDIO_GID}"', launcher)
-        self.assertIn('sudo -u r2 -g r2 -G "$R2_RUNTIME_GROUPS"', launcher)
+        self.assertIn('sudo -n setpriv --reuid="$R2_UID" --regid="$R2_GID" --groups="$R2_RUNTIME_GROUPS" --', launcher)
+        self.assertNotIn('sudo -u r2 -g r2 -G "$R2_RUNTIME_GROUPS"', launcher)
         self.assertNotIn("usermod -aG audio", launcher)
 
     def test_installer_is_non_destructive_and_does_not_update_apt(self):
