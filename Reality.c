@@ -35,12 +35,11 @@ static pthread_mutex_t fridge_lock = PTHREAD_MUTEX_INITIALIZER;
 static int reality_ready = 0;
 static int reality_eat_internal(const char *food, double fullness, int consume_tracked_item, double energy_override);
 
-/* Separate modeled needs use separate time scales. Hunger rises by 0.1
- * every 4.75 seconds (~79 minutes from 0 to 100), while the 72-hour
- * prolonged-starvation marker tracks actual modeled time since a meal.
- * Sleepiness rises by 12.5/hour and energy falls by 10/hour; sleep recovery
- * then reverses those rates. */
-static const double HUNGER_PER_SECOND = 0.1 / 4.75;
+/* The hunger field is a 0..100 fullness meter: it drains to zero over three
+ * modeled hours without food and rises when R2 eats. The separate 72-hour
+ * starvation marker tracks elapsed time since a qualifying meal. Sleepiness
+ * rises by 12.5/hour and energy falls by 10/hour; sleep recovery reverses those rates. */
+static const double HUNGER_PER_SECOND = 100.0 / (3.0 * 3600.0);
 static const double SLEEPINESS_PER_SECOND = 12.5 / 3600.0;
 static const double ENERGY_DRAIN_PER_SECOND = 10.0 / 3600.0;
 
@@ -690,7 +689,7 @@ static int update_hunger_locked(double elapsed)
     if (rc != SQLITE_OK) return -1;
     rc = sqlite3_step(st);
     if (rc != SQLITE_ROW) { sqlite3_finalize(st); return -1; }
-    double hunger = sqlite3_column_double(st, 0) + elapsed * HUNGER_PER_SECOND;
+    double hunger = sqlite3_column_double(st, 0) - elapsed * HUNGER_PER_SECOND;
     double since_meal = sqlite3_column_double(st, 1) + elapsed;
     double sleepiness = sqlite3_column_double(st, 2) + elapsed * SLEEPINESS_PER_SECOND;
     double energy = sqlite3_column_double(st, 3) - elapsed * ENERGY_DRAIN_PER_SECOND;
@@ -698,7 +697,7 @@ static int update_hunger_locked(double elapsed)
     sqlite3_finalize(st);
     if (!isfinite(hunger) || !isfinite(since_meal) || !isfinite(sleepiness) ||
         !isfinite(energy) || !isfinite(satisfaction)) return -1;
-    if (hunger > 100.0) hunger = 100.0;
+    if (hunger < 0.0) hunger = 0.0;
     if (satisfaction < 0.0) satisfaction = 0.0;
     if (satisfaction > 150.0) satisfaction = 150.0;
     if (sleepiness > 100.0) sleepiness = 100.0;
@@ -1476,6 +1475,18 @@ int r2_reality_init(void)
         sqlite3_close(reality_db); reality_db = NULL;
         pthread_mutex_unlock(&reality_lock); return -1;
     }
+    /* Convert the old increasing-hunger scale to the intended decreasing
+       fullness scale once, after importing any legacy Reality database. */
+    if (exec_sql(
+        "INSERT OR IGNORE INTO r2_reality_meta(key,value) VALUES('hunger_fullness_semantics_v2','no');"
+        "UPDATE r2_reality_self SET hunger=MIN(100,MAX(0,100-hunger)) "
+        "WHERE (SELECT value FROM r2_reality_meta WHERE key='hunger_fullness_semantics_v2')='no';"
+        "UPDATE r2_reality_meta SET value='yes' WHERE key='hunger_fullness_semantics_v2' AND value='no';"
+    ) != 0) {
+        fprintf(stderr, "[R2 Reality] Could not migrate hunger/fullness semantics.\\n");
+        sqlite3_close(reality_db); reality_db = NULL;
+        pthread_mutex_unlock(&reality_lock); return -1;
+    }
     /* Upgrade existing persistent containers without resetting any inventory. */
     if (exec_sql(
         "INSERT OR IGNORE INTO r2_reality_containers(name,kind,description,parent) VALUES"
@@ -1863,8 +1874,8 @@ char *r2_reality_status(void)
     }
     if(st) sqlite3_finalize(st);
     pthread_mutex_unlock(&reality_lock);
-    const char *hstate = hunger < 25 ? "satisfied" : hunger < 50 ? "getting hungry" : hunger < 75 ? "hungry" : hunger < 90 ? "very hungry" : "starving";
-    snprintf(out,4096,"SELF CONTINUITY\nSatisfaction: %5.1f/150\nHunger: %04.1f/100 (%s)\nTime since meal: %.1f hours\nSleepiness: %.1f/100\nEnergy: %.1f/100\nModeled world time elapsed: %lld days, %lld hours\nObjects tracked in the world: %d\nHunger rises 0.1 and satiety falls 0.1 every 4.75 seconds of modeled elapsed time; satiety caps at 150/150. Sleepiness rises 12.5/hour and energy falls 10/hour while awake or asleep; sleep then restores energy and reduces sleepiness.\nAfter 72 hours without food, prolonged starvation is recorded; needs persist across restarts.\n",
+    const char *hstate = hunger < 10 ? "starving" : hunger < 25 ? "very hungry" : hunger < 50 ? "hungry" : hunger < 75 ? "getting hungry" : "satisfied";
+    snprintf(out,4096,"SELF CONTINUITY\nSatisfaction: %5.1f/150\nHunger: %04.1f/100 (%s)\nTime since meal: %.1f hours\nSleepiness: %.1f/100\nEnergy: %.1f/100\nModeled world time elapsed: %lld days, %lld hours\nObjects tracked in the world: %d\nFullness (the 0..100 hunger meter) decreases steadily to zero over roughly three modeled hours without food; eating raises it according to the configured food fullness value. Satisfaction is a separate 0..150 measure. Sleepiness rises 12.5/hour and energy falls 10/hour while awake or asleep; sleep then restores energy and reduces sleepiness.\nAfter 72 hours without food, prolonged starvation is recorded; needs persist across restarts.\n",
         satisfaction,hunger,hstate,since/3600.0,sleepiness,energy,
         (long long)(world_elapsed/86400),(long long)((world_elapsed%86400)/3600),count);
     return out;
@@ -1979,7 +1990,7 @@ char *r2_reality_context(void)
         "The fridge is physically at home, outside the room (a sibling of room/ and pockets/), and is accessible only while R2 is home. Its stock is stored in a separate r2_fridge.db; an empty fridge stays empty until food is explicitly added or stored. Never infer that food exists merely because R2 is hungry. "
         "Food metrics live in room/food_metrics.xml; each food can define fullness, energy, ingredients (comma-separated), and taste (sensory description). Use only listed metrics and auto rather than guessing. "
         "Containers: room, shelf, and one storage box; pockets are portable anywhere, the fridge is a fixed home object, and the wallet is inside pockets. While away from home, R2 may access only pockets and wallet; room objects and fridge stock require returning home. The old toy box is the same box and is normalized into it. Named containers can be created by moving an item to a new container name. "
-        "Food fullness points are modeled values, not measured biological facts. Sleep advances hunger and world time. "
+        "Food fullness points are modeled values, not measured biological facts. The hunger/fullness meter drains over about three hours without food and eating raises it. Sleep advances needs and world time. "
         "Dreams are stored as simulated reports, not waking facts. Ask before moving or deleting a user's important item. "
         "CHOICE LAB: Consider any possible option, action, object, or decision; there is no fixed menu. Compare alternatives using needs, memories, self-facts, preferences, and available evidence. "
         "ALTERNATE-SELF / CHOICE LAB: consider any possible option or action, not a fixed menu. [ALTERNATE_LIST] lists stored what-if branches; [ALTERNATE_SHOW] id inspects one; [ALTERNATE_COMPARE] id id compares two. To persist a useful hypothetical, emit [ALTERNATE_CREATE] name|scenario|assumptions|predicted outcome|conclusion|optional evidence event ID [END ALTERNATE_CREATE]. Use it when the user asks to save a what-if or when comparing distinct plausible futures would help; a branch is a hypothesis, never a factual event. Use [ALTERNATE_RETAIN] id or [ALTERNATE_DISCARD] id only when explicitly asked. Never promote predicted outcomes into real memories; retained hypotheses remain hypotheses. "
@@ -2418,7 +2429,7 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
         }
     }
     /* A zero-fullness item is not a meal: it must not reset the meal clock
-       or clear the prolonged-starvation marker without reducing hunger. */
+       or clear the prolonged-starvation marker without restoring fullness. */
     if (!isfinite(fullness) || fullness <= 0.0) return -1;
     if (energy_override >= 0.0) energy_bonus = energy_override;
     if (fullness > 100.0) fullness = 100.0;
@@ -2460,7 +2471,7 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
     }
 
     int rc = sqlite3_prepare_v2(reality_db,
-        "UPDATE r2_reality_self SET hunger=MAX(0,hunger-?), satisfaction=MIN(150,satisfaction+?), seconds_since_meal=0, energy=MIN(100,energy+?), updated_at=CURRENT_TIMESTAMP WHERE id=1",
+        "UPDATE r2_reality_self SET hunger=MIN(100,hunger+?), satisfaction=MIN(150,satisfaction+?), seconds_since_meal=0, energy=MIN(100,energy+?), updated_at=CURRENT_TIMESTAMP WHERE id=1",
         -1, &st, NULL);
     if (rc == SQLITE_OK) {
         sqlite3_bind_double(st, 1, fullness);
@@ -2543,8 +2554,8 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
     }
 
     char summary[512], details[1024];
-    snprintf(summary, sizeof(summary), "R2 ate %s; satisfaction increased and hunger decreased by the food's %.1f-point fullness value.", food, fullness);
-    snprintf(details, sizeof(details), "Food=%s; modeled satiety increase=%.1f points (maximum 150); modeled hunger reduction=%.1f/100; tracked object consumed=%s; these are simulated need values, not measured biological quantities.",
+    snprintf(summary, sizeof(summary), "R2 ate %s; fullness increased by the food's %.1f-point value.", food, fullness);
+    snprintf(details, sizeof(details), "Food=%s; modeled fullness increase=%.1f points (maximum 100); satisfaction increase=%.1f points (maximum 150); tracked object consumed=%s; these are simulated need values, not measured biological quantities.",
              food, fullness, fullness, consumed_tracked_item ? "yes" : "no");
     bridge_event("food_consumed", summary, details, 1, 0);
     /* A real eating choice feeds the shared habit evaluator using R2's
@@ -2557,7 +2568,7 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
     (void)r2_addiction_record_choice(food, "food", learned_enjoyment,
                                     "eating", habit_details);
     (void)r2_reward_apply(food, "food_consumed", 2,
-        "Food consumption completed and modeled hunger/satiety state was updated.", 0);
+        "Food consumption completed and modeled fullness/satisfaction state was updated.", 0);
     return 0;
 }
 
@@ -2567,10 +2578,9 @@ int r2_reality_eat(const char *food, double fullness)
     return reality_eat_internal(food, fullness, 1, -1.0);
 }
 
-/* Model output may fail to choose an obvious meal. Keep the simulated body
- * safe with a deterministic fallback grounded only in authoritative state:
- * eat a verified food metric from an accessible tracked container, otherwise
- * eat a stored fridge item when home. Never invent a food or bypass location. */
+/* Model output may fail to choose an obvious meal. Feed only when the
+ * fullness meter is low, using authoritative metrics from accessible inventory
+ * or the fridge at home. Never invent food or bypass location. */
 int r2_reality_autonomous_feed_if_needed(void)
 {
     if (!r2_reality_is_initialized()) return -1;
@@ -2590,7 +2600,7 @@ int r2_reality_autonomous_feed_if_needed(void)
         pthread_mutex_unlock(&reality_lock);
         return -1;
     }
-    if (hunger < 50.0) {
+    if (hunger >= 50.0) {
         pthread_mutex_unlock(&reality_lock);
         return 0;
     }
