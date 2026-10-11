@@ -8053,7 +8053,16 @@ static void *post_turn_worker(void *opaque)
     if (!job) return NULL;
     ollama_background_mode = 1;
 
-    log_structured_self_report(job->reply, job->event_id);
+    /* The worker is launched before r2_talk() returns. Wait until that turn
+       releases its foreground-priority flag before starting background model
+       work; otherwise its own post-turn inference would cancel itself. */
+    const struct timespec post_turn_pause = { .tv_sec = 0, .tv_nsec = 100000000L };
+    while (!shutting_down &&
+           atomic_load(&foreground_conversation_waiting) > 0)
+        nanosleep(&post_turn_pause, NULL);
+
+    if (!shutting_down)
+        log_structured_self_report(job->reply, job->event_id);
     if (!shutting_down) {
         char *decision = memory_decision(job->user, job->reply);
         if (decision) {
