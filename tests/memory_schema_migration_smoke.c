@@ -4,6 +4,7 @@
 #undef main
 
 #include <assert.h>
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -15,8 +16,14 @@
 
 int main(void)
 {
-    assert(mkdir(R2_ROOT, 0755) == 0);
-    assert(mkdir(R2_HOME, 0755) == 0);
+    if (mkdir(R2_ROOT, 0755) != 0 && errno != EEXIST) {
+        perror("mkdir R2_ROOT");
+        return 1;
+    }
+    if (mkdir(R2_HOME, 0755) != 0 && errno != EEXIST) {
+        perror("mkdir R2_HOME");
+        return 1;
+    }
 
     sqlite3 *legacy = NULL;
     assert(sqlite3_open(DB_PATH, &legacy) == SQLITE_OK);
