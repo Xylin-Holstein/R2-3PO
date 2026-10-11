@@ -7161,13 +7161,13 @@ static char *build_learning_context(void)
 {
     char *reward = r2_reward_context();
     char *addiction = r2_addiction_report();
-    size_t cap = 6000;
+    size_t cap = 2400;
     char *context = malloc(cap);
     if (context) {
         snprintf(context, cap,
             "PERSISTENT LEARNING CONTEXT\n"
-            "REWARD/REINFORCEMENT HISTORY:\n%.2500s\n\n"
-            "REPEATED-INTEREST HISTORY:\n%.3000s\n",
+            "REWARD/REINFORCEMENT SUMMARY:\n%.900s\n\n"
+            "REPEATED-INTEREST SUMMARY:\n%.900s\n",
             reward ? reward : "(reinforcement context unavailable)",
             addiction ? addiction : "(repeated-interest history unavailable)");
     }
