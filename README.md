@@ -15,7 +15,7 @@ sudo apt-get update
 sudo apt-get install -y build-essential libcurl4-openssl-dev libsqlite3-dev libjson-c-dev libpulse-dev libfaketime ffmpeg vlc python3-vlc xdotool pulseaudio-utils python3-tk mpg123
 ```
 
-Compile the complete C application from the repository root:
+Compile the complete C application from the repository root. The default Makefile, interactive launcher, and CI all use the same strict flags (`-Wall -Wextra -Werror -O2`), so compiler warnings stop the build:
 
 ```sh
 make clean all
