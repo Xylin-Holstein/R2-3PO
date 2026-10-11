@@ -8,6 +8,7 @@ on:
       - r2-audit-fixes-2026-10-09
       - r2-complete-audit-2026-10-09
       - r2-hunger-reflection-fix-2026-10-10
+      - r2-hardware-chat-pipeline-2026-10-11
       - b2.5w2-system-prompt-budget-2026-10-11
   pull_request:
     branches:
@@ -41,6 +42,12 @@ jobs:
 
       - name: Check unified Gemma 3 conversation and vision wiring
         run: python3 tests/gemma3_model_smoke.py
+
+      - name: Keep retrieved context separate from the active user turn
+        run: python3 tests/current_turn_context_smoke.py
+
+      - name: Check bounded RAM context cache and hardware telemetry
+        run: python3 tests/context_cache_smoke.py
 
       - name: Prevent archived dialogue from becoming an assistant instruction or answer
         run: python3 tests/archive_prompt_smoke.py
