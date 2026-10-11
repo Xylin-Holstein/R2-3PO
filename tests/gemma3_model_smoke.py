@@ -34,7 +34,7 @@ require(
 require(
     "Interpret the user's current message first." in core
     and "Answer the question, invitation, or" in core
-    and "Do not invent experiences or feelings as facts." in core
+    and "do not invent experiences or feelings as facts." in core
     and "Your user is your Mother (Mom)." not in core
     and "Do not call her Eli" not in core,
     "conversation is direct and grounded without hardcoded relationship/name rules",
