@@ -58,7 +58,8 @@ for phrase, message in (
     ("RESPONSE CORRECTION:", "builder includes a direct-answer correction instruction"),
     ("Preserve speaker identity and who said what", "builder protects speaker identity and stated meaning"),
     ("do not greet yourself as R2 or reverse who is speaking", "builder explicitly prevents the observed speaker inversion"),
-    ("attributes words to them that they did not say", "builder forbids fabricated paraphrases"),
+    ("attributes words to them", "builder forbids invented attributions"),
+    ("that they did not say", "builder forbids adding words the user never said"),
     ("r2_conversation_system_prompt, retry_instruction", "builder retains the full R2 prompt before appending correction"),
     ('"%s\\n\\n%s"', "builder separates core and corrective instructions cleanly"),
 ):
