@@ -7161,6 +7161,16 @@ int r2_sleep_and_dream(double hours)
  * model, context retrieval, or action parser succeeds. */
 static void autonomous_needs_food_safeguard(void)
 {
+    /* A foreground turn owns the world until it finishes. If it already owns
+       the turn lock, skip rather than mutate needs in the middle of a reply. */
+    if (shutting_down ||
+        pthread_mutex_trylock(&conversation_turn_lock) != 0)
+        return;
+    if (shutting_down || atomic_load(&foreground_ollama_waiting) > 0) {
+        pthread_mutex_unlock(&conversation_turn_lock);
+        return;
+    }
+
     int feed_rc = r2_reality_autonomous_feed_if_needed();
     if (feed_rc > 0)
         r2_log_event(R2_LOG_WORLD, "autonomous_needs_food_fallback",
@@ -7171,6 +7181,7 @@ static void autonomous_needs_food_safeguard(void)
         r2_log_event(R2_LOG_ERROR, "autonomous_needs_food_fallback_failed",
                      "The deterministic food safeguard could not inspect or update Reality state.",
                      NULL, "autonomous_needs_check");
+    pthread_mutex_unlock(&conversation_turn_lock);
 }
 
 /* Re-check hunger immediately before executing a model-selected meal.
@@ -7255,10 +7266,25 @@ static void autonomous_needs_check(void)
             memcpy(safe_action, marker, length);
             safe_action[length] = '\n';
             safe_action[length + 1] = '\0';
-            if (!autonomous_food_action_still_needed(safe_action)) {
+            /* Never execute a background world action inside a live user
+               turn. Try-locking makes this a clean handoff: if a turn already
+               owns the lock, discard this stale decision and let the user win. */
+            int turn_guard_locked =
+                !shutting_down &&
+                pthread_mutex_trylock(&conversation_turn_lock) == 0;
+            if (!turn_guard_locked ||
+                shutting_down ||
+                atomic_load(&foreground_ollama_waiting) > 0) {
+                if (turn_guard_locked)
+                    pthread_mutex_unlock(&conversation_turn_lock);
+                r2_log_event(R2_LOG_WORLD, "autonomous_needs_yielded_to_conversation",
+                             "Skipped an autonomous world action because a foreground conversation took priority.",
+                             safe_action, "autonomous_needs_check");
+            } else if (!autonomous_food_action_still_needed(safe_action)) {
                 r2_log_event(R2_LOG_WORLD, "autonomous_needs_stale_food_action",
                              "Ignored a model-selected meal because authoritative hunger no longer met the action threshold.",
                              safe_action, "autonomous_needs_check");
+                pthread_mutex_unlock(&conversation_turn_lock);
             } else {
                 char *result = process_tools(safe_action);
                 if (result && *result) {
@@ -7278,6 +7304,7 @@ static void autonomous_needs_check(void)
                     }
                 }
                 free(result);
+                pthread_mutex_unlock(&conversation_turn_lock);
             }
             free(safe_action);
         }
