@@ -3828,6 +3828,33 @@ static int r2_reply_misclassifies_plain_text(const char *query, const char *repl
  * before the active user turn. The original history and retrieved context are
  * retained; only the bad draft is discarded. The retry is bounded to one call.
  */
+/*
+ * Foreground replies may be slow on CPU-only or memory-constrained machines.
+ * Keep the established 45-minute default, but let the owner extend it for
+ * long local inference runs without changing source code. Bound the override
+ * so a typo cannot silently create an effectively infinite request.
+ */
+static long r2_conversation_timeout_seconds(void)
+{
+    const long default_timeout = 2700L;
+    const char *configured = getenv("R2_OLLAMA_TIMEOUT_SECONDS");
+    if (!configured || !*configured)
+        return default_timeout;
+
+    errno = 0;
+    char *end = NULL;
+    long requested = strtol(configured, &end, 10);
+    if (!errno && end != configured && *end == '\0' &&
+        requested >= 30L && requested <= 21600L)
+        return requested;
+
+    static atomic_int warned_invalid_timeout = ATOMIC_VAR_INIT(0);
+    if (!atomic_exchange(&warned_invalid_timeout, 1))
+        fprintf(stderr,
+                "[R2 Ollama] Ignoring invalid R2_OLLAMA_TIMEOUT_SECONDS; using the 2700-second default.\n");
+    return default_timeout;
+}
+
 static char *r2_retry_direct_answer(Message *messages_copy,
                                     size_t message_count,
                                     const char *query)
@@ -3915,7 +3942,8 @@ static char *r2_retry_direct_answer(Message *messages_copy,
         ollama_authoritative_user_query = query;
         retry = ollama_chat_with_limit(
             retry_messages, message_count + 1, NULL,
-            conversation_reply_token_budget(query), 2700L);
+            conversation_reply_token_budget(query),
+            r2_conversation_timeout_seconds());
         ollama_authoritative_user_query = previous_query;
     }
 
@@ -4252,7 +4280,7 @@ static char *chat_with_relevant_memories(
             "[R2_SOUND:beep:STATE] or [R2_SOUND:whistle:STATE]. Choose a state tag only when supported by this turn or current Reality evidence; the tag is a sound-selection hint, not a claim that R2 has a hidden emotional state. Use sleepy or hungry only when the current modeled need actually supports it; use alert for a concrete noteworthy event, greeting for a greeting, and curious/thinking only when the response genuinely reflects curiosity or deliberation. Do not infer a need from the topic alone, use sounds to imply an unsupported physical event, or force a tag onto routine replies. Prefer no marker when the fit is unclear. "
             "Do not emit a marker on routine replies, do not explain it, and never write a marker as visible prose. The runtime removes it and selects a matching existing named MP3.",
             conversation_reply_token_budget(query),
-            2700L
+            r2_conversation_timeout_seconds()
         );
     ollama_authoritative_user_query = previous_authoritative_query;
 
