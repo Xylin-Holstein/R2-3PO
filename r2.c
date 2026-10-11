@@ -3968,49 +3968,30 @@ static char *r2_retry_direct_answer(Message *messages_copy,
         "a different scenario. If it is genuinely ambiguous, "
         "ask one focused clarification. Return only the user-facing answer.";
 
-    Message *retry_messages = calloc(message_count + 1, sizeof(*retry_messages));
-    if (!retry_messages)
+    /*
+     * Keep the full R2 identity, reality, privacy, and response-style prompt on
+     * retries too. Previously the retry passed NULL as the system prompt, which
+     * silently dropped all of those rules and inserted a system-role message in
+     * the middle of the dialogue. Build one combined system prompt instead.
+     */
+    size_t prompt_size = sizeof(r2_conversation_system_prompt) +
+                         sizeof(retry_instruction) + 2;
+    char *retry_system_prompt = malloc(prompt_size);
+    if (!retry_system_prompt)
         return NULL;
+    snprintf(retry_system_prompt, prompt_size, "%s\n\n%s",
+             r2_conversation_system_prompt, retry_instruction);
 
-    int failed = 0;
-    for (size_t source = 0, target = 0; source < message_count; ++source, ++target) {
-        if (target == user_index) {
-            retry_messages[target].role = xstrdup("system");
-            retry_messages[target].content = xstrdup(retry_instruction);
-            retry_messages[target].pinned = 0;
-            if (!retry_messages[target].role || !retry_messages[target].content) {
-                failed = 1;
-                break;
-            }
-            ++target;
-        }
-        retry_messages[target].role = xstrdup(messages_copy[source].role);
-        retry_messages[target].content = xstrdup(messages_copy[source].content);
-        retry_messages[target].pinned = messages_copy[source].pinned;
-        if (!retry_messages[target].role || !retry_messages[target].content) {
-            failed = 1;
-            break;
-        }
-    }
-
-    char *retry = NULL;
-    if (!failed) {
-        fprintf(stderr, "[R2 Conversation] Model misclassified a clear text turn; retrying once with the active user turn preserved.\n");
-        const char *previous_query = ollama_authoritative_user_query;
-        ollama_authoritative_user_query = query;
-        retry = ollama_chat_with_limit(
-            retry_messages, message_count + 1, NULL,
-            conversation_reply_token_budget(query),
-            r2_conversation_timeout_seconds());
-        ollama_authoritative_user_query = previous_query;
-    }
-
-    for (size_t i = 0; i < message_count + 1; ++i) {
-        free(retry_messages[i].role);
-        free(retry_messages[i].content);
-    }
-    free(retry_messages);
-    return retry;
+    fprintf(stderr,
+            "[R2 Conversation] Correcting a misclassified text turn once while preserving the full conversation system prompt and active user turn.\n");
+    const char *previous_query = ollama_authoritative_user_query;
+    ollama_authoritative_user_query = query;
+    char *retry = ollama_chat_with_limit(
+        messages_copy, message_count, retry_system_prompt,
+        conversation_reply_token_budget(query),
+        r2_conversation_timeout_seconds());
+    ollama_authoritative_user_query = previous_query;
+    free(retry_system_prompt);
 }
 
 static char *chat_with_relevant_memories(
