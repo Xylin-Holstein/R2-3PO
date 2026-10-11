@@ -28,6 +28,16 @@ for cleanup in ("free(base);", "free(reality);", "free(reward);", "free(addictio
 if core.count("append_reality_context(") < 3:
     raise SystemExit("Shared context is not wired into both reflection and conversation paths.")
 
+refresh_start = core.find("static int refresh_reality_context_message(void)")
+refresh_end = core.find("\nstatic char *r2_talk_impl", refresh_start)
+if refresh_start < 0 or refresh_end < 0:
+    raise SystemExit("Could not locate live conversation context refresh.")
+refresh = core[refresh_start:refresh_end]
+if "append_reality_context(NULL)" not in refresh:
+    raise SystemExit("Live chat turns are not receiving the unified Reality/reward/addiction context.")
+if "char *context = r2_reality_context()" in refresh:
+    raise SystemExit("Live chat is still bypassing the shared learning context.")
+
 dream_start = core.find("int r2_sleep_and_dream(double hours)")
 dream_end = core.find("static void autonomous_needs_food_safeguard", dream_start)
 if dream_start < 0 or dream_end < 0:
