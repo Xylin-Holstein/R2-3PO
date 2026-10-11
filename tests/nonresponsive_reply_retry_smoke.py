@@ -119,11 +119,11 @@ require(
     "retrieval breadth is selected from the user's actual request",
 )
 
-history_filter_start = core.find("static int r2_history_keyword_is_low_signal(")
+history_filter_start = core.find("static int r2_keyword_is_low_signal(")
 history_filter_end = core.find("\nstatic int r2_query_explicitly_requests_recall(", history_filter_start)
 require(
     history_filter_start >= 0 and history_filter_end > history_filter_start,
-    "Life Log retrieval has a dedicated low-signal keyword filter",
+    "memory and Life Log retrieval share a low-signal keyword filter",
 )
 history_filter = core[history_filter_start:history_filter_end]
 for token in ('"hello"', '"hi"', '"hey"', '"r2"', '"speaking"', '"know"'):
@@ -132,7 +132,7 @@ for token in ('"hello"', '"hi"', '"hey"', '"r2"', '"speaking"', '"know"'):
         f"history retrieval skips low-signal greeting/address token {token}",
     )
 require(
-    "r2_history_keyword_is_low_signal(keywords[k])" in core,
+    "r2_keyword_is_low_signal(keywords[k])" in core,
     "history searches filter greeting/address tokens before spending limited search slots",
 )
 require(
