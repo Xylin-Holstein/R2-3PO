@@ -66,7 +66,7 @@ require(
     "recognized text misclassification triggers the retry",
 )
 fallback_start = core.find("static char *r2_validate_corrective_reply(")
-fallback_end = core.find("\\nstatic char *r2_retry_direct_answer(", fallback_start)
+fallback_end = core.find("static char *r2_retry_direct_answer(", fallback_start)
 require(
     fallback_start >= 0 and fallback_end > fallback_start,
     "corrective retry result validation exists",
