@@ -3826,9 +3826,12 @@ static char *r2_retry_direct_answer(Message *messages_copy,
     char *retry = NULL;
     if (!failed) {
         fprintf(stderr, "[R2 Conversation] Model misclassified a clear text turn; retrying once with the active user turn preserved.\n");
+        const char *previous_query = ollama_authoritative_user_query;
+        ollama_authoritative_user_query = query;
         retry = ollama_chat_with_limit(
             retry_messages, message_count + 1, NULL,
             conversation_reply_token_budget(query), 2700L);
+        ollama_authoritative_user_query = previous_query;
     }
 
     for (size_t i = 0; i < message_count + 1; ++i) {
