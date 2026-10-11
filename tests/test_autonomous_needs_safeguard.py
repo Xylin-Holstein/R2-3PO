@@ -17,16 +17,19 @@ assert 'command_len == 5 && !strncmp(command, "sleep", 5)' in allow_guard
 assert "autonomous_needs_action_allowed(safe_action)" in function
 assert "autonomous_needs_action_rejected" in function
 
-helper_start = source.index("static int autonomous_food_action_still_needed(")
+helper_start = source.index("static int autonomous_needs_action_still_needed(")
 helper_end = source.index("\n/* Autonomous needs checks are deliberately limited", helper_start)
 food_guard = source[helper_start:helper_end]
 assert 'strstr(action, "[WORLD] eat|")' in food_guard
 assert 'strstr(action, "[WORLD] fridge_eat|")' in food_guard
 assert 'double hunger = strtod(field, &end);' in food_guard
-assert "hunger >= 50.0" in food_guard
+assert "value >= 50.0" in food_guard
+assert "value >= 85.0" in food_guard
+assert 'strstr(action, "[WORLD] sleep|")' in food_guard
+assert 'const char *label = is_food_action ? "Hunger: " : "Sleepiness: ";' in food_guard
 assert "if (!status) return 0;" in food_guard
-assert "if (!autonomous_food_action_still_needed(safe_action))" in function
-assert "autonomous_needs_stale_food_action" in function
+assert "if (!autonomous_needs_action_still_needed(safe_action))" in function
+assert "autonomous_needs_stale_action" in function
 
 assert "int food_action_succeeded = 0;" in function
 assert "int world_action_succeeded = 0;" in function
