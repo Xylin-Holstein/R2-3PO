@@ -3190,12 +3190,37 @@ static void ollama_trace_prompt_if_enabled(const char *payload)
 }
 
 /*
- * Ollama conversation history may contain refreshed Reality/learning system
- * messages appended after earlier dialogue. Serialize every included system
- * message before any user/assistant turn, preserving order within each group.
- * System instructions/context appearing mid-dialogue can confuse chat templates
- * and make a small model answer the wrong speaker or ignore the active turn.
+ * System context has semantic priority as well as a role. The Reality and
+ * learning snapshots are refreshed during a session and can be appended after
+ * old dialogue; serializing them in that position makes them look like a new
+ * mid-conversation instruction. Emit all system context before dialogue in
+ * this order: identity/memory, current Reality, active-turn retrieval, learning,
+ * then archived history. Preserve order within each category and keep dialogue
+ * turns chronological.
  */
+static int r2_inference_system_priority(const char *content)
+{
+    if (!content)
+        return 3;
+    if (!strncmp(content,
+                 "============================================================\nIDENTITY AND PERSISTENT MEMORY",
+                 strlen("============================================================\nIDENTITY AND PERSISTENT MEMORY")))
+        return 0;
+    if (!strncmp(content, "PERSISTENT REALITY CONTEXT",
+                  strlen("PERSISTENT REALITY CONTEXT")))
+        return 1;
+    if (!strncmp(content, "CURRENT TURN RETRIEVED CONTEXT",
+                  strlen("CURRENT TURN RETRIEVED CONTEXT")))
+        return 2;
+    if (!strncmp(content, "PERSISTENT LEARNING CONTEXT",
+                  strlen("PERSISTENT LEARNING CONTEXT")))
+        return 3;
+    if (!strncmp(content, "PAST CONVERSATION ARCHIVE — CONTEXT ONLY.",
+                  strlen("PAST CONVERSATION ARCHIVE — CONTEXT ONLY.")))
+        return 4;
+    return 3;
+}
+
 static size_t r2_order_inference_messages(const Message *msgs,
                                          const unsigned char *include,
                                          size_t count,
@@ -3206,18 +3231,26 @@ static size_t r2_order_inference_messages(const Message *msgs,
         return 0;
 
     size_t used = 0;
-    for (int system_pass = 1; system_pass >= 0; --system_pass) {
+    for (int priority = 0; priority < 5; ++priority) {
         for (size_t i = 0; i < count; ++i) {
-            if (!include[i])
-                continue;
-            int is_system = msgs[i].role &&
-                            strcmp(msgs[i].role, "system") == 0;
-            if (is_system != system_pass)
+            if (!include[i] || !msgs[i].role ||
+                strcmp(msgs[i].role, "system") != 0 ||
+                r2_inference_system_priority(msgs[i].content) != priority)
                 continue;
             if (used >= capacity)
                 return used;
             order[used++] = i;
         }
+    }
+
+    /* Non-system messages keep their original chronological order. */
+    for (size_t i = 0; i < count; ++i) {
+        if (!include[i] ||
+            (msgs[i].role && strcmp(msgs[i].role, "system") == 0))
+            continue;
+        if (used >= capacity)
+            return used;
+        order[used++] = i;
     }
     return used;
 }
