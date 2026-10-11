@@ -142,7 +142,7 @@ require(
 )
 
 history_filter_start = core.find("static int r2_history_keyword_is_low_signal(")
-history_filter_end = core.find("\\nstatic int r2_query_explicitly_requests_recall(", history_filter_start)
+history_filter_end = core.find("\nstatic int r2_query_explicitly_requests_recall(", history_filter_start)
 require(
     history_filter_start >= 0 and history_filter_end > history_filter_start,
     "Life Log retrieval has a dedicated low-signal keyword filter",
