@@ -67,9 +67,14 @@ require(
     archive_start >= 0 and archive_end > archive_start,
     "archived dialogue is lowest priority and cannot crowd out current context",
 )
+system_start = core.find("static const char r2_conversation_system_prompt[]")
+system_end = core.find("\\nstatic char *r2_build_retry_system_prompt(", system_start)
+if system_start < 0 or system_end < 0:
+    raise SystemExit("Could not isolate the shared conversation system prompt.")
+system_prompt = core[system_start:system_end]
 require(
-    "Do not call an intelligible message gibberish" in builder
-    and "Do not replace a normal question or invitation with an analysis of the wording" in builder,
-    "the inference instructions prioritize ordinary conversational intent",
+    "Do not call an intelligible message gibberish" in system_prompt
+    and "Do not replace a normal question or invitation with an analysis of the wording" in system_prompt,
+    "the shared inference instructions prioritize ordinary conversational intent",
 )
 print("Current-turn context separation smoke passed.")
