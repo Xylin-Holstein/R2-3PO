@@ -3053,7 +3053,12 @@ static unsigned long long available_memory_bytes(void)
             "/sys/fs/cgroup/memory/memory.limit_in_bytes", &v1_max_valid);
         unsigned long long v1_used = read_uint_file(
             "/sys/fs/cgroup/memory/memory.usage_in_bytes", &v1_used_valid);
-        if (v1_max_valid && v1_max > 0) {
+        /*
+         * cgroup v1 commonly represents an unlimited limit with a near-UINT64_MAX
+         * sentinel. Do not treat that sentinel as enormous real headroom when
+         * /proc/meminfo is unavailable; fall back to the conservative context tier.
+         */
+        if (v1_max_valid && v1_max > 0 && v1_max < (1ULL << 60)) {
             unsigned long long v1_available =
                 (!v1_used_valid || v1_used >= v1_max)
                     ? 1ULL : v1_max - v1_used;
