@@ -21,7 +21,7 @@ required = (
     '/dev/snd/*',
     "R2 service's configured audio supplementary group can access", 'mGBA Qt emulator',
     'stop it before installation or database preflight',
-    'sudo -n -u r2 test -r "$R2_FX_DIR"',
+    'run_as_r2_with_audio_group test -r "$R2_FX_DIR"',
     'r2 must have read/write/traverse access to $path for runtime directories, SQLite, and persistent memory',
     'existing runtime directory is not read/write/traverse accessible to r2',
     'existing database must be a readable/writable regular file for r2',
