@@ -3955,12 +3955,28 @@ static int r2_reply_reverses_greeting(const char *query, const char *reply)
         !strncasecmp(query, "hello r2", 8) ||
         !strncasecmp(query, "hi r2", 5) ||
         !strncasecmp(query, "hey r2", 6);
-    int reply_greets_r2 =
+    int user_identifies_as_mother =
+        strcasestr(query, "this is your mother") != NULL ||
+        strcasestr(query, "your mother speaking") != NULL ||
+        strcasestr(query, "i am your mother") != NULL ||
+        strcasestr(query, "i'm your mother") != NULL ||
+        strcasestr(query, "this is mom") != NULL ||
+        strcasestr(query, "mom here") != NULL;
+    int reply_addresses_r2 =
         !strncasecmp(reply, "hello r2", 8) ||
         !strncasecmp(reply, "hi r2", 5) ||
-        !strncasecmp(reply, "hey r2", 6);
+        !strncasecmp(reply, "hey r2", 6) ||
+        !strncasecmp(reply, "r2,", 3) ||
+        !strncasecmp(reply, "r2:", 3) ||
+        !strncasecmp(reply, "r2!", 3) ||
+        !strncasecmp(reply, "r2?", 3);
 
-    return user_greets_r2 && reply_greets_r2;
+    /*
+     * If the current user has identified herself as R2's mother, addressing
+     * the response to R2 is still a speaker reversal even without a greeting.
+     * Never classify a normal reply that merely mentions R2 later in the text.
+     */
+    return (user_greets_r2 || user_identifies_as_mother) && reply_addresses_r2;
 }
 
 /*
