@@ -14,6 +14,25 @@ fail() { printf '[FAIL] %s\n' "$*"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s ==\n' "$*"; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
+# sudo-rs (Ubuntu's Rust sudo) does not implement sudo's traditional -G flag.
+# Use setpriv to install supplementary groups before dropping to r2. This is
+# scoped to one process and never changes r2's persistent group membership.
+run_as_r2_with_audio_group() {
+  have setpriv || return 127
+  local uid gid groups audio_gid
+  uid="$(id -u r2)" || return 1
+  gid="$(id -g r2)" || return 1
+  groups="$(id -G r2 | tr ' ' ',')" || return 1
+  audio_gid="$(getent group audio 2>/dev/null | cut -d: -f3 || true)"
+  if [[ "$audio_gid" =~ ^[0-9]+$ ]]; then
+    case ",$groups," in
+      *,"$audio_gid",*) ;;
+      *) groups+=",${audio_gid}" ;;
+    esac
+  fi
+  sudo -n setpriv --reuid="$uid" --regid="$gid" --groups="$groups" -- "$@"
+}
+
 section "Host summary"
 printf 'Workspace: %s\nSource: %s\nExecutable: %s\nFX assets: %s\n' "$R2_ROOT" "$R2_SOURCE" "$R2_EXEC" "$R2_FX_DIR"
 if have lscpu; then lscpu | awk -F: '/^Model name:/ {gsub(/^[ \t]+/, "", $2); print "CPU: " $2; exit}'; fi
@@ -28,7 +47,7 @@ else printf 'GPU: no NVIDIA runtime detected; CPU inference may still work.\n'; 
 
 section "Required files and build tools"
 # These commands are used directly by the interactive launcher or overnight installer.
-for tool in bash make gcc curl python3 sudo pgrep date find grep cmp; do
+for tool in bash make gcc curl python3 sudo setpriv pgrep date find grep cmp; do
   if have "$tool"; then pass "$tool installed"; else fail "$tool missing"; fi
 done
 if have xhost; then pass "xhost available for optional Observer GUI access"; else warn "xhost missing; Observer may not be able to grant the r2 account X display access."; fi
@@ -206,8 +225,8 @@ for node in /dev/snd/*; do
     # Test the service's configured supplementary group without changing
     # account membership or touching device state.
     if [[ "$service_audio_group_configured" -eq 1 ]] &&
-       sudo -n -u r2 -g r2 -G audio test -r "$node" &&
-       sudo -n -u r2 -g r2 -G audio test -w "$node"; then
+       run_as_r2_with_audio_group test -r "$node" &&
+       run_as_r2_with_audio_group test -w "$node"; then
       sound_node_service_accessible=$((sound_node_service_accessible + 1))
     fi
   fi
