@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+"""Guard one bounded retry for clear typed messages misread as unintelligible input."""
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+core = (ROOT / "r2.c").read_text(encoding="utf-8")
+
+
+def require(condition: bool, message: str) -> None:
+    if not condition:
+        print(f"FAIL: {message}", file=sys.stderr)
+        raise SystemExit(1)
+    print(f"PASS: {message}")
+
+
+start = core.find("static int r2_reply_misclassifies_plain_text(")
+end = core.find("\nstatic char *r2_retry_direct_answer(", start)
+require(start >= 0 and end > start, "plain-text misclassification guard exists")
+guard = core[start:end]
+for phrase in (
+    '"jumbled set of sounds"',
+    '"appears to be gibberish"',
+    '"unable to understand your message"',
+    "if (words < 5)",
+    "Do not override a legitimate conversation about audio, noise, or gibberish.",
+):
+    require(phrase in guard, f"guard checks {phrase}")
+
+start = core.find("static char *r2_retry_direct_answer(")
+end = core.find("\nstatic char *chat_with_relevant_memories(", start)
+require(start >= 0 and end > start, "corrective retry helper exists")
+retry = core[start:end]
+for phrase, message in (
+    ("RESPONSE CORRECTION:", "retry adds a direct-answer correction instruction"),
+    ("messages_copy[index].content, query", "retry locates the actual user turn"),
+    ('xstrdup("system")', "retry inserts a temporary system instruction"),
+    ("ollama_authoritative_user_query = query;", "retry preserves active-turn identity"),
+    ("conversation_reply_token_budget(query)", "retry respects the normal response budget"),
+    ("retry_messages, message_count + 1", "retry retains history and retrieved context"),
+):
+    require(phrase in retry, message)
+
+require(
+    "if (r2_reply_misclassifies_plain_text(query, reply ? reply : \"\"))" in core,
+    "only recognized misclassification triggers the retry",
+)
+require(
+    "retry produced no safe text; retaining original draft" in core,
+    "failed corrective retry does not crash or discard the fallback reply",
+)
+require(
+    "Do not reinterpret typed text as an audio stream, random sounds, or machine data" in core,
+    "primary conversation prompt discourages typed-text misclassification",
+)
+
+print("Nonresponsive text retry smoke passed.")
