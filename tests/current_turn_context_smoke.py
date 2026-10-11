@@ -35,12 +35,33 @@ require(
     and "----- BEGIN CURRENT USER MESSAGE -----" not in builder,
     "the user's original text stays byte-for-byte intact instead of being wrapped in context",
 )
+reality_start = core.find('if (!strncmp(content,')
+reality_marker = core.find('"PERSISTENT REALITY CONTEXT"', reality_start)
+reality_end = core.find("else if", reality_marker) if reality_marker >= 0 else -1
+require(
+    reality_marker >= 0 and reality_end > reality_marker
+    and "message_priority = 1;" in core[reality_marker:reality_end],
+    "live Reality state receives the highest contextual priority after core identity",
+)
 priority_start = core.find('else if (!strncmp(content, "CURRENT TURN RETRIEVED CONTEXT"')
 priority_end = core.find("else if", priority_start + 1) if priority_start >= 0 else -1
 require(
     priority_start >= 0 and priority_end > priority_start
-    and "message_priority = 1;" in core[priority_start:priority_end],
-    "relevant turn context is prioritized after live Reality/learning and before archive history",
+    and "message_priority = 2;" in core[priority_start:priority_end],
+    "retrieved evidence for the active turn outranks persistent learning and archived history",
+)
+learning_start = core.find('"PERSISTENT LEARNING CONTEXT"')
+learning_end = core.find("else if", learning_start) if learning_start >= 0 else -1
+require(
+    learning_start >= 0 and learning_end > learning_start
+    and "message_priority = 3;" in core[learning_start:learning_end],
+    "persistent learning is retained after live Reality and active-turn evidence",
+)
+archive_start = core.find('"PAST CONVERSATION ARCHIVE — CONTEXT ONLY."')
+archive_end = core.find("message_priority = 4;", archive_start) if archive_start >= 0 else -1
+require(
+    archive_start >= 0 and archive_end > archive_start,
+    "archived dialogue is lowest priority and cannot crowd out current context",
 )
 require(
     "Do not call an intelligible message gibberish" in builder
