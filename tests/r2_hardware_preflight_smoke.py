@@ -14,6 +14,8 @@ required = (
     'r2_memory.db', 'r2_reality.db', 'r2_fridge.db',
     'r2_rewards.db', 'r2_addictions.db',
     'pactl', '/dev/video*', 'mGBA Qt emulator',
+    'stop it before installation or database preflight',
+    'sudo -n -u r2 test -r "$R2_FX_DIR"',
 )
 missing = [item for item in required if item not in script]
 if missing:
