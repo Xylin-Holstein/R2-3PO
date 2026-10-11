@@ -56,6 +56,15 @@
 #define OLLAMA_MAX_SYSTEM_MESSAGE_CHARS 20000
 #define OLLAMA_MAX_SYSTEM_TOTAL_CHARS 32000
 #define OLLAMA_MAX_TOTAL_CHARS 60000
+/*
+ * Match the bounded message payload with an explicit Ollama context window.
+ * Without this, Ollama's server default can be smaller than the combined
+ * core prompt, Reality, retrieved evidence, and recent conversation.
+ * 16K gives the 4B model room for the bounded request without asking for an
+ * unbounded context; num_batch is kept modest for the 16 GB target machine.
+ */
+#define R2_OLLAMA_CONTEXT_TOKENS 16384
+#define R2_OLLAMA_PROMPT_BATCH 256
 #define OLLAMA_MAX_RESPONSE_BYTES (16U * 1024U * 1024U)
 
 #define OLLAMA_URL "http://127.0.0.1:11434/api/chat"
@@ -2728,13 +2737,23 @@ static char *ollama_chat_with_limit(
     json_object_object_add(root, "stream", json_object_new_boolean(0));
     json_object_object_add(root, "keep_alive", json_object_new_string("10m"));
 
-    if (num_predict > 0) {
-        struct json_object *options = json_object_new_object();
-        if (options) {
+    /*
+     * Explicitly size the model context to match R2's bounded prompt. Relying
+     * on Ollama's server default (commonly 4096 tokens) can leave a valid,
+     * carefully prioritized request larger than the model's active window.
+     * Keep prompt evaluation batches bounded for the 16 GB local target.
+     */
+    struct json_object *options = json_object_new_object();
+    if (options) {
+        json_object_object_add(options, "num_ctx",
+                               json_object_new_int(R2_OLLAMA_CONTEXT_TOKENS));
+        json_object_object_add(options, "num_batch",
+                               json_object_new_int(R2_OLLAMA_PROMPT_BATCH));
+        if (num_predict > 0) {
             json_object_object_add(options, "num_predict",
                                    json_object_new_int(num_predict));
-            json_object_object_add(root, "options", options);
         }
+        json_object_object_add(root, "options", options);
     }
 
     struct json_object *arr = json_object_new_array();
