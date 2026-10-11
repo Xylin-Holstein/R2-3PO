@@ -3189,6 +3189,71 @@ static void ollama_trace_prompt_if_enabled(const char *payload)
             path);
 }
 
+/*
+ * System context has semantic priority as well as a role. Reality and learning
+ * snapshots are refreshed during a session and can be appended after old
+ * dialogue; serializing them there makes them look like mid-conversation
+ * instructions. Emit system context before dialogue in this order: identity/
+ * memory, current Reality, active-turn retrieval, learning, then archived
+ * history. Preserve order within each category and keep dialogue chronological.
+ */
+static int r2_inference_system_priority(const char *content)
+{
+    if (!content)
+        return 3;
+    if (!strncmp(content,
+                 "============================================================\nIDENTITY AND PERSISTENT MEMORY",
+                 strlen("============================================================\nIDENTITY AND PERSISTENT MEMORY")))
+        return 0;
+    if (!strncmp(content, "PERSISTENT REALITY CONTEXT",
+                  strlen("PERSISTENT REALITY CONTEXT")))
+        return 1;
+    if (!strncmp(content, "CURRENT TURN RETRIEVED CONTEXT",
+                  strlen("CURRENT TURN RETRIEVED CONTEXT")))
+        return 2;
+    if (!strncmp(content, "PERSISTENT LEARNING CONTEXT",
+                  strlen("PERSISTENT LEARNING CONTEXT")))
+        return 3;
+    if (!strncmp(content, "PAST CONVERSATION ARCHIVE — CONTEXT ONLY.",
+                  strlen("PAST CONVERSATION ARCHIVE — CONTEXT ONLY.")))
+        return 4;
+    return 3;
+}
+
+static size_t r2_order_inference_messages(const Message *msgs,
+                                         const unsigned char *include,
+                                         size_t count,
+                                         size_t *order,
+                                         size_t capacity)
+{
+    if (!msgs || !include || !order)
+        return 0;
+
+    size_t used = 0;
+    for (int priority = 0; priority < 5; ++priority) {
+        for (size_t i = 0; i < count; ++i) {
+            if (!include[i] || !msgs[i].role ||
+                strcmp(msgs[i].role, "system") != 0 ||
+                r2_inference_system_priority(msgs[i].content) != priority)
+                continue;
+            if (used >= capacity)
+                return used;
+            order[used++] = i;
+        }
+    }
+
+    /* Non-system messages keep their original chronological order. */
+    for (size_t i = 0; i < count; ++i) {
+        if (!include[i] ||
+            (msgs[i].role && strcmp(msgs[i].role, "system") == 0))
+            continue;
+        if (used >= capacity)
+            return used;
+        order[used++] = i;
+    }
+    return used;
+}
+
 static char *ollama_chat_with_limit(
     Message *msgs,
     size_t count,
@@ -3505,8 +3570,18 @@ static char *ollama_chat_with_limit(
         ++recent_count;
     }
 
-    for (size_t i = 0; i < count; ++i) {
-        if (!include[i]) continue;
+    size_t *message_order = count ? calloc(count, sizeof(*message_order)) : NULL;
+    if (count && !message_order) {
+        free(include);
+        free(limits);
+        json_object_put(arr);
+        json_object_put(root);
+        return NULL;
+    }
+    size_t ordered_count = r2_order_inference_messages(
+        msgs, include, count, message_order, count);
+    for (size_t pos = 0; pos < ordered_count; ++pos) {
+        size_t i = message_order[pos];
         struct json_object *m = json_object_new_object();
         if (!m) continue;
         const char *role = msgs[i].role ? msgs[i].role : "user";
@@ -3516,6 +3591,7 @@ static char *ollama_chat_with_limit(
                                json_object_new_string_len(content, (int)limits[i]));
         json_object_array_add(arr, m);
     }
+    free(message_order);
     free(include);
     free(limits);
     json_object_object_add(root, "messages", arr);
