@@ -6732,12 +6732,15 @@ static char *process_tools_with_status(
                    rc == 0 ? "RESULT" : "ERROR", fields[1],
                    rc == 0 ? "was saved as a subjective score" : "could not be saved; score must be -2..2 and an unrated meal must exist");
         } else if (nf >= 2 && !strcasecmp(fields[0], "sleep")) {
-            int rc = r2_sleep_and_dream(atof(fields[1]));
+            double hours = 0.0;
+            int valid_hours = parse_finite_double(fields[1], &hours) &&
+                              hours > 0.0 && hours <= 48.0;
+            int rc = valid_hours ? r2_sleep_and_dream(hours) : -1;
             if (rc == 0 && world_action_succeeded)
                 *world_action_succeeded = 1;
             APPEND("REAL NEEDS %s: sleep transition %s.\n",
                    rc == 0 ? "RESULT" : "ERROR",
-                   rc == 0 ? "was persisted" : "could not be persisted (hours must be >0 and <=48)");
+                   rc == 0 ? "was persisted" : "could not be persisted (hours must be a finite number >0 and <=48)");
         } else if (nf >= 2 && !strcasecmp(fields[0], "dream")) {
             int rc = r2_reality_record_dream(fields[1]);
             APPEND("REAL SELF-CONTINUITY %s: reported dream %s.\n",
