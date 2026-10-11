@@ -18,6 +18,10 @@ if grep -Eq 'run_as_r2[[:space:]]+test([[:space:]]|$)' "$INSTALLER"; then
     echo "ERROR: installer still invokes external test through run_as_r2." >&2
     exit 1
 fi
+if grep -Eq 'sudo -u r2[[:space:]]+test[[:space:]]+-w' "$ROOT/docs/overnight-service.md"; then
+    echo "ERROR: service guide still documents the unreliable external write check." >&2
+    exit 1
+fi
 
 # Exercise the actual directory-probe functions against a disposable directory.
 tmpdir="$(mktemp -d)"
