@@ -15,6 +15,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <math.h>
+#include <limits.h>
 #include <pthread.h>
 #include <sqlite3.h>
 #include <stdio.h>
@@ -1120,10 +1121,27 @@ int r2_fridge_add_item(const char *name, const char *description, int quantity,
     int seed_rc = fridge_seed_if_empty_locked();
     sqlite3_stmt *st = NULL;
     int rc = seed_rc == 0 ? sqlite3_prepare_v2(fridge_db,
+        "SELECT quantity FROM r2_fridge_items WHERE name=? COLLATE NOCASE",
+        -1, &st, NULL) : SQLITE_ERROR;
+    if (rc == SQLITE_OK) {
+        bind_text(st, 1, name);
+        rc = sqlite3_step(st);
+        if (rc == SQLITE_ROW) {
+            sqlite3_int64 existing_quantity = sqlite3_column_int64(st, 0);
+            rc = existing_quantity > 0 &&
+                 existing_quantity <= (sqlite3_int64)INT_MAX - quantity
+                ? SQLITE_OK : SQLITE_TOOBIG;
+        } else if (rc == SQLITE_DONE) {
+            rc = SQLITE_OK;
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    st = NULL;
+    if (rc == SQLITE_OK) rc = sqlite3_prepare_v2(fridge_db,
         "INSERT INTO r2_fridge_items(name,description,quantity,fullness,energy,ingredients,taste) VALUES(?,?,?,?,?,?,?) "
         "ON CONFLICT(name) DO UPDATE SET description=excluded.description,quantity=r2_fridge_items.quantity+excluded.quantity,"
         "fullness=excluded.fullness,energy=excluded.energy,ingredients=excluded.ingredients,taste=excluded.taste,updated_at=CURRENT_TIMESTAMP",
-        -1, &st, NULL) : SQLITE_ERROR;
+        -1, &st, NULL);
     if (rc == SQLITE_OK) {
         bind_text(st, 1, name); bind_text(st, 2, description ? description : "");
         sqlite3_bind_int(st, 3, quantity); sqlite3_bind_double(st, 4, fullness); sqlite3_bind_double(st, 5, energy);
@@ -2021,9 +2039,10 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
         return -1;
     }
 
+    sqlite3_int64 prior_quantity = 0;
     sqlite3_stmt *prior = NULL;
     rc = sqlite3_prepare_v2(reality_db,
-        "SELECT container FROM r2_reality_objects WHERE name=? COLLATE NOCASE",
+        "SELECT container,quantity FROM r2_reality_objects WHERE name=? COLLATE NOCASE",
         -1, &prior, NULL);
     if (rc == SQLITE_OK) {
         bind_text(prior, 1, name);
@@ -2031,11 +2050,17 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
         if (rc == SQLITE_ROW) {
             const unsigned char *oc = sqlite3_column_text(prior, 0);
             if (oc) snprintf(old_container, sizeof(old_container), "%s", (const char *)oc);
+            prior_quantity = sqlite3_column_int64(prior, 1);
             rc = SQLITE_DONE;
         }
     }
     if (prior) sqlite3_finalize(prior);
     if (rc != SQLITE_DONE) {
+        (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
+        pthread_mutex_unlock(&reality_lock);
+        return -1;
+    }
+    if (prior_quantity < 0 || prior_quantity > (sqlite3_int64)INT_MAX - quantity) {
         (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
         pthread_mutex_unlock(&reality_lock);
         return -1;
@@ -2100,8 +2125,13 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
             bind_text(st, 1, name);
             rc = sqlite3_step(st);
             if (rc == SQLITE_ROW) {
-                total_quantity = sqlite3_column_int(st, 0);
-                rc = SQLITE_DONE;
+                sqlite3_int64 stored_quantity = sqlite3_column_int64(st, 0);
+                if (stored_quantity < 1 || stored_quantity > INT_MAX)
+                    rc = SQLITE_TOOBIG;
+                else {
+                    total_quantity = (int)stored_quantity;
+                    rc = SQLITE_DONE;
+                }
             }
         }
         if (st) sqlite3_finalize(st);
