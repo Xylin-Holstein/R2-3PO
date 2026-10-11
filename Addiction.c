@@ -117,8 +117,7 @@ static int ensure_db_locked(void)
         " enjoyment INTEGER NOT NULL CHECK(enjoyment BETWEEN 0 AND 100),"
         " source TEXT NOT NULL DEFAULT 'unknown',"
         " details TEXT NOT NULL DEFAULT '',"
-        " occurred_at INTEGER NOT NULL);"
-
+        " occurred_at INTEGER NOT NULL);",
         NULL, NULL, NULL) != SQLITE_OK) {
         fprintf(stderr, "[R2 Addiction] Could not create schema: %s\n",
                 sqlite3_errmsg(addiction_db));
