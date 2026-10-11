@@ -42,6 +42,10 @@ for phrase, message in (
     require(phrase in retry, message)
 
 require(
+    "if (retry_after_sanitize_failure ||" in core,
+    "empty sanitized replies also receive one corrective retry",
+)
+require(
     "if (r2_reply_misclassifies_plain_text(query, reply ? reply : \"\"))" in core,
     "only recognized misclassification triggers the retry",
 )
