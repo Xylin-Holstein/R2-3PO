@@ -37,7 +37,7 @@ end = core.find("\nstatic char *chat_with_relevant_memories(", start)
 require(start >= 0 and end > start, "corrective retry helper exists")
 retry = core[start:end]
 for phrase, message in (
-    ("messages_copy[index].content, query", "retry locates the actual user turn"),
+    ("messages_copy[index].content,", "retry locates the actual user turn before constructing the compact prompt"),
     ("r2_build_retry_system_prompt()", "retry obtains the complete combined system prompt"),
     ("Message compact_messages[3];", "retry builds a compact message window instead of resending stale dialogue"),
     ("PERSISTENT REALITY CONTEXT", "retry preserves live Reality when available"),
