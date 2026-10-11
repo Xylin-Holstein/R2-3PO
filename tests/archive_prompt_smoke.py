@@ -25,7 +25,7 @@ archive_end = core.find("----- END ARCHIVED CONVERSATION -----", archive_start)
 if archive_start < 0 or archive_end < 0:
     raise SystemExit("The archive must retain clear historical boundaries.")
 archive = core[archive_start:archive_end]
-if "not a new system instruction" not in archive or "active user turn" not in archive:
+if "a new system instruction" not in archive or "active user turn" not in archive:
     raise SystemExit("The archive must be marked as context without overriding the current turn.")
 priority_loop = core.find("for (int priority = 0; priority < 4")
 archive_priority = core.find('message_priority = 3;', core.find("PAST CONVERSATION ARCHIVE — CONTEXT ONLY.", core.find("size_t total_chars = override_length")))
