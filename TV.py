@@ -258,9 +258,22 @@ class CRTDisplay:
         def seek_and_apply() -> None:
             if self._player is None or self._loaded_path != path:
                 return
-            self._player.set_time(int(position * 1000))
-            self._player.set_pause(0 if transport == "play" else 1)
-            self._last_transport = transport
+            # The transport may have changed while VLC initialized. Re-read
+            # Reality at callback time instead of applying stale captured state.
+            try:
+                current_path, current_transport, current_position = self.read_vcr_state()
+                power, kind, value, _device = self.read_state()
+            except (sqlite3.Error, OSError, RuntimeError, ValueError):
+                self._player.audio_set_mute(True)
+                self._player.set_pause(1)
+                return
+            if current_path != path:
+                return
+            audible_now = bool(power and kind == "input" and value == 1)
+            self._player.audio_set_mute(not audible_now)
+            self._player.set_time(int(current_position * 1000))
+            self._player.set_pause(0 if current_transport == "play" else 1)
+            self._last_transport = current_transport
 
         self.root.after(500, seek_and_apply)
 
