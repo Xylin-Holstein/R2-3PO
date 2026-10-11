@@ -5,8 +5,8 @@ from pathlib import Path
 
 source = Path("r2.c").read_text(encoding="utf-8")
 shell = Path("shell.c").read_text(encoding="utf-8")
-shell_needs_start = shell.index("static int shell_needs(const char *command)\\n{")
-shell_needs_end = shell.index("\\nstatic int shell_dispatch", shell_needs_start)
+shell_needs_start = shell.index("static int shell_needs(const char *command)")
+shell_needs_end = shell.index("static int shell_dispatch", shell_needs_start)
 shell_needs = shell[shell_needs_start:shell_needs_end]
 assert "shell_parse_amount(reality_trim(sep + 1), &fullness)" in shell_needs
 assert "shell_parse_amount(command + 6, &hours)" in shell_needs
