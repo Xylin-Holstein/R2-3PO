@@ -3843,9 +3843,9 @@ static int r2_reply_misclassifies_plain_text(const char *query, const char *repl
 }
 
 /*
- * Retry one clear misclassification with a short system message immediately
- * before the active user turn. The original history and retrieved context are
- * retained; only the bad draft is discarded. The retry is bounded to one call.
+ * Retry one clear misclassification using the full conversation system prompt
+ * plus a corrective instruction. Preserve the existing history and active user
+ * turn; discard the bad draft. The retry is bounded to one extra inference.
  */
 /*
  * Foreground replies may be slow on CPU-only or memory-constrained machines.
