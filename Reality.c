@@ -2135,33 +2135,68 @@ int r2_reality_move_item(const char *name,const char *container)
         double fullness = 0.0, energy = 0.0;
         if (food_metric(name, &fullness, &energy) != 0) return -1;
         food_attributes(name, ingredients, sizeof(ingredients), taste, sizeof(taste));
-        int prior_fridge_quantity = 0;
+        int prior_fridge_quantity = 0, prior_fridge_exists = 0;
+        char prior_fridge_description[REALITY_MAX_TEXT + 1] = {0};
+        char prior_fridge_ingredients[1024] = {0}, prior_fridge_taste[1024] = {0};
+        double prior_fridge_fullness = 0.0, prior_fridge_energy = 0.0;
         pthread_mutex_lock(&fridge_lock);
         sqlite3_stmt *prior_fridge = NULL;
-        if (sqlite3_prepare_v2(fridge_db, "SELECT quantity FROM r2_fridge_items WHERE name=? COLLATE NOCASE", -1, &prior_fridge, NULL) == SQLITE_OK) {
+        int prior_rc = sqlite3_prepare_v2(fridge_db,
+            "SELECT description,quantity,fullness,energy,ingredients,taste FROM r2_fridge_items WHERE name=? COLLATE NOCASE",
+            -1, &prior_fridge, NULL);
+        if (prior_rc == SQLITE_OK) {
             bind_text(prior_fridge, 1, name);
-            if (sqlite3_step(prior_fridge) == SQLITE_ROW) prior_fridge_quantity = sqlite3_column_int(prior_fridge, 0);
+            prior_rc = sqlite3_step(prior_fridge);
+            if (prior_rc == SQLITE_ROW) {
+                const unsigned char *pd = sqlite3_column_text(prior_fridge, 0);
+                const unsigned char *pi = sqlite3_column_text(prior_fridge, 4);
+                const unsigned char *pt = sqlite3_column_text(prior_fridge, 5);
+                snprintf(prior_fridge_description, sizeof(prior_fridge_description), "%s", pd ? (const char *)pd : "");
+                prior_fridge_quantity = sqlite3_column_int(prior_fridge, 1);
+                prior_fridge_fullness = sqlite3_column_double(prior_fridge, 2);
+                prior_fridge_energy = sqlite3_column_double(prior_fridge, 3);
+                snprintf(prior_fridge_ingredients, sizeof(prior_fridge_ingredients), "%s", pi ? (const char *)pi : "");
+                snprintf(prior_fridge_taste, sizeof(prior_fridge_taste), "%s", pt ? (const char *)pt : "");
+                prior_fridge_exists = 1;
+                prior_rc = SQLITE_DONE;
+            }
         }
         if (prior_fridge) sqlite3_finalize(prior_fridge);
         pthread_mutex_unlock(&fridge_lock);
+        if (prior_rc != SQLITE_DONE) return -1;
         if (r2_fridge_add_item(name, description, quantity, fullness, energy, ingredients, taste) != 0) return -1;
         if (r2_reality_remove_item(name) != 0) {
             pthread_mutex_lock(&fridge_lock);
             sqlite3_stmt *rollback = NULL;
-            const char *rollback_sql = prior_fridge_quantity > 0
-                ? "UPDATE r2_fridge_items SET quantity=?,updated_at=CURRENT_TIMESTAMP WHERE name=? COLLATE NOCASE"
+            const char *rollback_sql = prior_fridge_exists
+                ? "UPDATE r2_fridge_items SET description=?,quantity=?,fullness=?,energy=?,ingredients=?,taste=?,updated_at=CURRENT_TIMESTAMP WHERE name=? COLLATE NOCASE"
                 : "DELETE FROM r2_fridge_items WHERE name=? COLLATE NOCASE";
-            if (sqlite3_prepare_v2(fridge_db, rollback_sql, -1, &rollback, NULL) == SQLITE_OK) {
-                if (prior_fridge_quantity > 0) {
-                    sqlite3_bind_int(rollback, 1, prior_fridge_quantity);
-                    bind_text(rollback, 2, name);
-                } else bind_text(rollback, 1, name);
-                (void)sqlite3_step(rollback);
+            int rollback_rc = sqlite3_prepare_v2(fridge_db, rollback_sql, -1, &rollback, NULL);
+            if (rollback_rc == SQLITE_OK) {
+                if (prior_fridge_exists) {
+                    bind_text(rollback, 1, prior_fridge_description);
+                    sqlite3_bind_int(rollback, 2, prior_fridge_quantity);
+                    sqlite3_bind_double(rollback, 3, prior_fridge_fullness);
+                    sqlite3_bind_double(rollback, 4, prior_fridge_energy);
+                    bind_text(rollback, 5, prior_fridge_ingredients);
+                    bind_text(rollback, 6, prior_fridge_taste);
+                    bind_text(rollback, 7, name);
+                } else {
+                    bind_text(rollback, 1, name);
+                }
+                rollback_rc = sqlite3_step(rollback);
+                if (rollback_rc == SQLITE_DONE) rollback_rc = SQLITE_OK;
             }
             if (rollback) sqlite3_finalize(rollback);
-            if (prior_fridge_quantity > 0)
-                fridge_mirror_write(name, description, prior_fridge_quantity, fullness, energy);
-            else fridge_mirror_remove(name);
+            if (rollback_rc == SQLITE_OK && prior_fridge_exists) {
+                if (fridge_mirror_write(name, prior_fridge_description, prior_fridge_quantity,
+                                        prior_fridge_fullness, prior_fridge_energy) != 0)
+                    fprintf(stderr, "[R2 Fridge] Database rollback succeeded but mirror restoration failed for '%s'.\n", name);
+            } else if (rollback_rc == SQLITE_OK) {
+                fridge_mirror_remove(name);
+            } else {
+                fprintf(stderr, "[R2 Fridge] CRITICAL: failed to roll back fridge stock after failed move of '%s'; inspect fridge inventory.\n", name);
+            }
             (void)fridge_seed_if_empty_locked();
             pthread_mutex_unlock(&fridge_lock);
             return -1;
