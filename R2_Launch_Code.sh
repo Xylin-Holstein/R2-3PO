@@ -4,6 +4,36 @@ R2_ROOT="/home/x/R2_Home"
 R2_SOURCE="$R2_ROOT/R2"
 R2_EXEC="$R2_ROOT/r2"
 
+# Run the read-only deployment preflight before touching workspace state,
+# compiling, installing packages, starting the observer, or launching R2.
+R2_FX_DIR="${R2_FX_DIR:-$R2_ROOT/R2_sounds/FX}"
+R2_PREFLIGHT="$R2_SOURCE/tools/preflight_r2_hardware.sh"
+echo "========================================"
+echo "       R2-3PO DEPLOYMENT PREFLIGHT"
+echo "========================================"
+echo
+if [[ ! -r "$R2_PREFLIGHT" ]]; then
+    echo "ERROR: Read-only deployment preflight is missing:"
+    echo "       $R2_PREFLIGHT"
+    echo "Copy tools/preflight_r2_hardware.sh into the R2 source tree first."
+    if [[ -t 0 ]]; then read -r -p "Press Enter to exit..."; fi
+    exit 1
+fi
+if ! R2_ROOT="$R2_ROOT" R2_SOURCE="$R2_SOURCE" R2_EXEC="$R2_EXEC" \
+     R2_FX_DIR="$R2_FX_DIR" bash "$R2_PREFLIGHT"; then
+    echo
+    echo "R2 launch cancelled: preflight reported one or more failures."
+    echo "Correct the [FAIL] items above, then run the launcher again."
+    if [[ -t 0 ]]; then read -r -p "Press Enter to exit..."; fi
+    exit 1
+fi
+echo
+echo "Preflight finished. Review any [WARN] items above."
+if [[ -t 0 ]]; then
+    read -r -p "Press Enter to continue launching R2, or Ctrl+C to cancel..."
+fi
+echo
+
 # Ask Ollama to offload as many Gemma 3 4B layers as fit on the GPU.
 # Any remaining layers stay on CPU. Override R2_OLLAMA_NUM_GPU to tune it,
 # or set it to 0 to return to Ollama's automatic placement.
