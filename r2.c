@@ -117,6 +117,8 @@ static atomic_int foreground_ollama_waiting = ATOMIC_VAR_INIT(0);
 /* Covers the whole live turn, including time spent building context before HTTP. */
 static atomic_int foreground_conversation_waiting = ATOMIC_VAR_INIT(0);
 static _Thread_local int ollama_background_mode = 0;
+/* Nested model calls made by the foreground turn itself are not background work. */
+static _Thread_local int ollama_foreground_turn_mode = 0;
 /* Original user query for the active contextual conversation request. */
 static _Thread_local const char *ollama_authoritative_user_query = NULL;
 static pthread_mutex_t post_turn_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -2956,7 +2958,8 @@ static int ollama_progress(void *userdata,
     return shutting_down ||
            (ollama_background_mode &&
             (atomic_load(&foreground_ollama_waiting) > 0 ||
-             atomic_load(&foreground_conversation_waiting) > 0)) ? 1 : 0;
+             (atomic_load(&foreground_conversation_waiting) > 0 &&
+              !ollama_foreground_turn_mode))) ? 1 : 0;
 }
 
 int r2_ollama_vision_request_begin(void)
@@ -3506,7 +3509,8 @@ static char *ollama_chat_with_limit(
            arrives or shutdown begins; that is not a user-facing transport error. */
         if (ollama_background_mode &&
             (shutting_down || atomic_load(&foreground_ollama_waiting) > 0 ||
-             atomic_load(&foreground_conversation_waiting) > 0)) {
+             (atomic_load(&foreground_conversation_waiting) > 0 &&
+              !ollama_foreground_turn_mode))) {
             free(b.data);
             json_object_put(root);
             return NULL;
@@ -8383,7 +8387,10 @@ char *r2_talk(const char *message)
        inference/actions can then yield even while this caller is queued. */
     atomic_fetch_add(&foreground_conversation_waiting, 1);
     pthread_mutex_lock(&conversation_turn_lock);
+    int previous_turn_mode = ollama_foreground_turn_mode;
+    ollama_foreground_turn_mode = 1;
     char *reply = r2_talk_impl(message);
+    ollama_foreground_turn_mode = previous_turn_mode;
     pthread_mutex_unlock(&conversation_turn_lock);
     atomic_fetch_sub(&foreground_conversation_waiting, 1);
     return reply;
