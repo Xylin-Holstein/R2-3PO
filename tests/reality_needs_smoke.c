@@ -551,9 +551,10 @@ int main(void)
         -1, &st, NULL) != SQLITE_OK)
         fail("could not query needs after rollback test");
     if (sqlite3_step(st) != SQLITE_ROW ||
-        sqlite3_column_double(st, 0) < 59.8 ||
+        sqlite3_column_double(st, 0) < 39.8 ||
+        sqlite3_column_double(st, 0) > 40.1 ||
         sqlite3_column_double(st, 1) < 9990.0)
-        fail("failed meal must roll back hunger and meal-clock changes");
+        fail("failed meal must roll back fullness and meal-clock changes");
     sqlite3_finalize(st);
     if (sqlite3_prepare_v2(db,
         "SELECT quantity FROM r2_reality_objects WHERE name='burger'",
