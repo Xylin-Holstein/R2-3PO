@@ -36,10 +36,11 @@ static int reality_ready = 0;
 static int reality_eat_internal(const char *food, double fullness, int consume_tracked_item, double energy_override);
 
 /* Separate modeled needs use separate time scales. Hunger rises by 0.1
- * every 4.75 minutes (~79 hours from 0 to 100), aligning the hunger curve
- * with the 72-hour prolonged-starvation marker. Sleepiness rises by 12.5/hour
- * and energy falls by 10/hour; sleep recovery then reverses those rates. */
-static const double HUNGER_PER_SECOND = 0.1 / (4.75 * 60.0);
+ * every 4.75 seconds (~79 minutes from 0 to 100), while the 72-hour
+ * prolonged-starvation marker tracks actual modeled time since a meal.
+ * Sleepiness rises by 12.5/hour and energy falls by 10/hour; sleep recovery
+ * then reverses those rates. */
+static const double HUNGER_PER_SECOND = 0.1 / 4.75;
 static const double SLEEPINESS_PER_SECOND = 12.5 / 3600.0;
 static const double ENERGY_DRAIN_PER_SECOND = 10.0 / 3600.0;
 
@@ -1863,7 +1864,7 @@ char *r2_reality_status(void)
     if(st) sqlite3_finalize(st);
     pthread_mutex_unlock(&reality_lock);
     const char *hstate = hunger < 25 ? "satisfied" : hunger < 50 ? "getting hungry" : hunger < 75 ? "hungry" : hunger < 90 ? "very hungry" : "starving";
-    snprintf(out,4096,"SELF CONTINUITY\nSatisfaction: %5.1f/150\nHunger: %04.1f/100 (%s)\nTime since meal: %.1f hours\nSleepiness: %.1f/100\nEnergy: %.1f/100\nModeled world time elapsed: %lld days, %lld hours\nObjects tracked in the world: %d\nHunger rises 0.1 and satiety falls 0.1 every 4.75 minutes of modeled elapsed time; satiety caps at 150/150. Sleepiness rises 12.5/hour and energy falls 10/hour while awake or asleep; sleep then restores energy and reduces sleepiness.\nAfter 72 hours without food, prolonged starvation is recorded; needs persist across restarts.\n",
+    snprintf(out,4096,"SELF CONTINUITY\nSatisfaction: %5.1f/150\nHunger: %04.1f/100 (%s)\nTime since meal: %.1f hours\nSleepiness: %.1f/100\nEnergy: %.1f/100\nModeled world time elapsed: %lld days, %lld hours\nObjects tracked in the world: %d\nHunger rises 0.1 and satiety falls 0.1 every 4.75 seconds of modeled elapsed time; satiety caps at 150/150. Sleepiness rises 12.5/hour and energy falls 10/hour while awake or asleep; sleep then restores energy and reduces sleepiness.\nAfter 72 hours without food, prolonged starvation is recorded; needs persist across restarts.\n",
         satisfaction,hunger,hstate,since/3600.0,sleepiness,energy,
         (long long)(world_elapsed/86400),(long long)((world_elapsed%86400)/3600),count);
     return out;
