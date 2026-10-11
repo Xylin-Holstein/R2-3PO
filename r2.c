@@ -887,7 +887,7 @@ static int migrate_memory_schema(void)
     static const char *const created_aliases[] =
         {"timestamp", "created", "date_created", "created_utc"};
     static const char *const updated_aliases[] =
-        {"updated", "modified", "last_updated", "updated_utc"};
+        {"updated", "modified", "last_updated", "updated_utc", "created_at"};
 
     if (db_ensure_column("memories", "memory", "TEXT NOT NULL DEFAULT ''") != 0 ||
         db_ensure_column("memories", "category", "TEXT NOT NULL DEFAULT ''") != 0 ||
