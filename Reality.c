@@ -1979,11 +1979,12 @@ static int container_is_inventory(const char *container)
 
 int r2_reality_add_item(const char *name,const char *description,const char *container,int quantity)
 {
-    if(!name || !*name || strlen(name)>REALITY_MAX_TEXT || (description && strlen(description)>REALITY_MAX_TEXT)) return -1;
+    if(!name || !*name || strlen(name)>REALITY_MAX_TEXT ||
+       (description && strlen(description)>REALITY_MAX_TEXT) || quantity < 1)
+        return -1;
     char canonical_container[REALITY_MAX_TEXT + 1];
     canonical_container_name(container, canonical_container, sizeof(canonical_container));
     container = canonical_container;
-    if(quantity<1) quantity=1;
     if (!strcasecmp(container, "fridge")) {
         if (!r2_reality_is_initialized() || !reality_is_home()) return -1;
         char ingredients[1024] = {0}, taste[1024] = {0};
@@ -1996,52 +1997,107 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
     char old_container[REALITY_MAX_TEXT + 1] = {0};
     int total_quantity = quantity;
     pthread_mutex_lock(&reality_lock);
-    sqlite3_stmt *prior = NULL;
-    if (sqlite3_prepare_v2(reality_db, "SELECT container FROM r2_reality_objects WHERE name=? COLLATE NOCASE", -1, &prior, NULL) == SQLITE_OK) {
-        bind_text(prior, 1, name);
-        if (sqlite3_step(prior) == SQLITE_ROW) {
-            const unsigned char *oc = sqlite3_column_text(prior, 0);
-            if (oc) snprintf(old_container, sizeof(old_container), "%s", (const char *)oc);
-        }
-    }
-    if (prior) sqlite3_finalize(prior);
-    if (*old_container && !container_accessible(old_container)) {
+    int rc = sqlite3_exec(reality_db, "BEGIN IMMEDIATE", NULL, NULL, NULL);
+    if (rc != SQLITE_OK) {
         pthread_mutex_unlock(&reality_lock);
         return -1;
     }
-    sqlite3_stmt *st=NULL;
-    int rc=sqlite3_prepare_v2(reality_db,"INSERT INTO r2_reality_containers(name,kind,description,parent) VALUES(?,?,?,?) ON CONFLICT(name) DO NOTHING",-1,&st,NULL);
-    if(rc==SQLITE_OK){bind_text(st,1,container);bind_text(st,2,container_is_inventory(container)?"inventory":"container");bind_text(st,3,"Persistent object container");bind_text(st,4,container_parent_name(container));rc=sqlite3_step(st);}
-    if(st)sqlite3_finalize(st);
-    st=NULL;
-    if(rc==SQLITE_DONE) rc=sqlite3_prepare_v2(reality_db,"INSERT INTO r2_reality_objects(name,description,quantity,container,owner) VALUES(?,?,?,?, 'R2') ON CONFLICT(name) DO UPDATE SET description=excluded.description,quantity=r2_reality_objects.quantity+excluded.quantity,container=excluded.container,updated_at=CURRENT_TIMESTAMP",-1,&st,NULL);
-    if(rc==SQLITE_OK){bind_text(st,1,name);bind_text(st,2,description);sqlite3_bind_int(st,3,quantity);bind_text(st,4,container);rc=sqlite3_step(st);}
-    if(st)sqlite3_finalize(st);
+
+    sqlite3_stmt *prior = NULL;
+    rc = sqlite3_prepare_v2(reality_db,
+        "SELECT container FROM r2_reality_objects WHERE name=? COLLATE NOCASE",
+        -1, &prior, NULL);
+    if (rc == SQLITE_OK) {
+        bind_text(prior, 1, name);
+        rc = sqlite3_step(prior);
+        if (rc == SQLITE_ROW) {
+            const unsigned char *oc = sqlite3_column_text(prior, 0);
+            if (oc) snprintf(old_container, sizeof(old_container), "%s", (const char *)oc);
+            rc = SQLITE_DONE;
+        }
+    }
+    if (prior) sqlite3_finalize(prior);
+    if (rc != SQLITE_DONE) {
+        (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
+        pthread_mutex_unlock(&reality_lock);
+        return -1;
+    }
+    if (*old_container && !container_accessible(old_container)) {
+        (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
+        pthread_mutex_unlock(&reality_lock);
+        return -1;
+    }
+
+    sqlite3_stmt *st = NULL;
+    rc = sqlite3_prepare_v2(reality_db,
+        "INSERT INTO r2_reality_containers(name,kind,description,parent) VALUES(?,?,?,?) ON CONFLICT(name) DO NOTHING",
+        -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        bind_text(st, 1, container);
+        bind_text(st, 2, container_is_inventory(container) ? "inventory" : "container");
+        bind_text(st, 3, "Persistent object container");
+        bind_text(st, 4, container_parent_name(container));
+        rc = sqlite3_step(st);
+    }
+    if (st) sqlite3_finalize(st);
+    st = NULL;
+
+    if (rc == SQLITE_DONE)
+        rc = sqlite3_prepare_v2(reality_db,
+            "INSERT INTO r2_reality_objects(name,description,quantity,container,owner) VALUES(?,?,?,?, 'R2') "
+            "ON CONFLICT(name) DO UPDATE SET description=excluded.description,quantity=r2_reality_objects.quantity+excluded.quantity,container=excluded.container,updated_at=CURRENT_TIMESTAMP",
+            -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        bind_text(st, 1, name);
+        bind_text(st, 2, description);
+        sqlite3_bind_int(st, 3, quantity);
+        bind_text(st, 4, container);
+        rc = sqlite3_step(st);
+    }
+    if (st) sqlite3_finalize(st);
+    st = NULL;
+
     if (rc == SQLITE_DONE) {
-        st = NULL;
-        if (sqlite3_prepare_v2(reality_db,
+        rc = sqlite3_prepare_v2(reality_db,
             "INSERT INTO r2_reality_item_memory(item_name,description,exact_quantity,precision,collected_at,last_decay_at) VALUES(?,?,?,'exact',?,?)",
-            -1, &st, NULL) == SQLITE_OK) {
+            -1, &st, NULL);
+        if (rc == SQLITE_OK) {
             sqlite3_int64 collected = (sqlite3_int64)time(NULL);
             bind_text(st, 1, name);
             bind_text(st, 2, description);
             sqlite3_bind_int(st, 3, quantity);
             sqlite3_bind_int64(st, 4, collected);
             sqlite3_bind_int64(st, 5, collected);
-            if (sqlite3_step(st) != SQLITE_DONE) rc = SQLITE_ERROR;
-        } else rc = SQLITE_ERROR;
+            rc = sqlite3_step(st);
+        }
         if (st) sqlite3_finalize(st);
-    }
-    if (rc == SQLITE_DONE) {
         st = NULL;
-        if (sqlite3_prepare_v2(reality_db, "SELECT quantity FROM r2_reality_objects WHERE name=? COLLATE NOCASE", -1, &st, NULL) == SQLITE_OK) {
+    }
+
+    if (rc == SQLITE_DONE) {
+        rc = sqlite3_prepare_v2(reality_db,
+            "SELECT quantity FROM r2_reality_objects WHERE name=? COLLATE NOCASE",
+            -1, &st, NULL);
+        if (rc == SQLITE_OK) {
             bind_text(st, 1, name);
-            if (sqlite3_step(st) == SQLITE_ROW) total_quantity = sqlite3_column_int(st, 0);
+            rc = sqlite3_step(st);
+            if (rc == SQLITE_ROW) {
+                total_quantity = sqlite3_column_int(st, 0);
+                rc = SQLITE_DONE;
+            }
         }
         if (st) sqlite3_finalize(st);
     }
+
+    if (rc == SQLITE_DONE) {
+        rc = sqlite3_exec(reality_db, "COMMIT", NULL, NULL, NULL);
+        if (rc != SQLITE_OK)
+            (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
+    } else {
+        (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
+    }
     pthread_mutex_unlock(&reality_lock);
-    if(rc!=SQLITE_DONE) return -1;
+    if (rc != SQLITE_OK) return -1;
     if (*old_container) mirror_remove(name, old_container);
     if (mirror_write(name, description, total_quantity, container) != 0)
         fprintf(stderr, "[R2 Reality] Database saved, but room mirror file could not be updated for '%s'.\n", name);
