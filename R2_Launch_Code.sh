@@ -416,7 +416,7 @@ echo
 # Build beside the live executable and replace it only after a successful link.
 # This preserves the last known-good R2 binary if compilation fails.
 TEMP_EXEC="${R2_EXEC}.tmp.${BASHPID}"
-if [ -e "$TEMP_EXEC" ]; then
+if [ -e "$TEMP_EXEC" ] || [ -L "$TEMP_EXEC" ]; then
     echo "ERROR: Temporary build path already exists: $TEMP_EXEC"
     echo "R2 was NOT launched."
     exit 1
