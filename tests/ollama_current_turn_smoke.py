@@ -22,6 +22,7 @@ required = (
     "const char *authoritative_query = ollama_authoritative_user_query;",
     "strcmp(content, authoritative_query) == 0",
     "memcmp(begin, authoritative_query, wrapped_length) == 0",
+    "if (wrapped_length && begin[wrapped_length - 1] == '\\n')",
 )
 for needle in required:
     if needle not in builder:
