@@ -85,6 +85,14 @@ int main(void)
                     mother_message,
                     "Hello R2, is your voice getting distorted?"),
                 "wrong-speaker reply triggers the production corrective retry");
+    ok &= check(r2_reply_reverses_greeting(
+                    "This is your mother speaking. I missed you, R2.",
+                    "R2, is your voice getting distorted?"),
+                "speaker reversal is caught without a matching greeting template");
+    ok &= check(r2_reply_misclassifies_plain_text(
+                    "This is your mother speaking. I missed you, R2.",
+                    "R2, is your voice getting distorted?"),
+                "broader Mother identity reversal triggers corrective retry");
     ok &= check(!r2_reply_reverses_greeting(
                     mother_message,
                     "I missed you too, Mom. The room sounds lovely."),
