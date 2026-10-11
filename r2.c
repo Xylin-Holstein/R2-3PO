@@ -39,11 +39,22 @@
 #define MAX_MEMORY_KEYWORDS 16
 #define MIN_MEMORY_KEYWORD_LENGTH 3
 
-/* Bound prompts for the local Gemma 3 4B model: keep system instructions and recent turns. */
+/*
+ * The complete live SYSTEM_PROMPT is ~18 KB of source text. The old 10 KB
+ * per-system-message cap silently cut it off in the middle of the diary
+ * section, dropping the file, hands, autonomous-reflection, and alternate-self
+ * instructions. The old 18 KB total system budget then left little or no room
+ * for current-turn evidence and learning context.
+ *
+ * Keep the full core prompt, current Reality, current-turn retrieved evidence,
+ * and learning context in the same request. This remains bounded: system
+ * messages share 32 KB, while the entire message-history payload is capped at
+ * 60 KB. The higher limit fixes truncation; it does not make history unbounded.
+ */
 #define OLLAMA_MAX_RECENT_MESSAGES 48
 #define OLLAMA_MAX_MESSAGE_CHARS 12000
-#define OLLAMA_MAX_SYSTEM_MESSAGE_CHARS 10000
-#define OLLAMA_MAX_SYSTEM_TOTAL_CHARS 18000
+#define OLLAMA_MAX_SYSTEM_MESSAGE_CHARS 20000
+#define OLLAMA_MAX_SYSTEM_TOTAL_CHARS 32000
 #define OLLAMA_MAX_TOTAL_CHARS 60000
 #define OLLAMA_MAX_RESPONSE_BYTES (16U * 1024U * 1024U)
 
