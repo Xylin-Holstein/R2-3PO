@@ -30,7 +30,16 @@ run_as_r2_with_audio_group() {
       *) groups+=",${audio_gid}" ;;
     esac
   fi
-  sudo -n setpriv --reuid="$uid" --regid="$gid" --groups="$groups" -- "$@"
+  # Bash's builtin test -w agrees with the runtime's [[ -w ]] checks on
+  # this host; /usr/bin/test -w incorrectly reports these ACL-writable paths
+  # as unwritable. Keep permission predicates in Bash under the target identity.
+  if [[ "${1:-}" == "test" ]]; then
+    shift
+    sudo -n setpriv --reuid="$uid" --regid="$gid" --groups="$groups" -- \
+      bash -c 'builtin test "$@"' r2-preflight-test "$@"
+  else
+    sudo -n setpriv --reuid="$uid" --regid="$gid" --groups="$groups" -- "$@"
+  fi
 }
 
 section "Host summary"
