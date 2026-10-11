@@ -765,7 +765,28 @@ int main(void)
     }
     free(context);
 
+    /* Simulate an upgrade from the old increasing-hunger scale. The migration
+       must invert it once (20 -> 80 fullness), then remain idempotent. */
     r2_reality_shutdown();
+    if (sqlite3_open(path, &db) != SQLITE_OK)
+        fail("could not open Reality DB for hunger semantics migration test");
+    if (sqlite3_exec(db,
+        "UPDATE r2_reality_self SET hunger=20 WHERE id=1;"
+        "UPDATE r2_reality_meta SET value='no' WHERE key='hunger_fullness_semantics_v2';",
+        NULL, NULL, NULL) != SQLITE_OK)
+        fail("could not seed old hunger semantics fixture");
+    sqlite3_close(db);
+    if (r2_reality_init() != 0) fail("hunger semantics migration restart failed");
+    read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
+    if (hunger < 79.9 || hunger > 80.1)
+        fail("old hunger value must be inverted to fullness exactly once during migration");
+    r2_reality_shutdown();
+    if (r2_reality_init() != 0) fail("second hunger semantics restart failed");
+    read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
+    if (hunger < 79.9 || hunger > 80.1)
+        fail("hunger semantics migration must not invert state again on later restarts");
+    r2_reality_shutdown();
+
     puts("reality needs smoke passed");
     return 0;
 }
