@@ -4179,12 +4179,15 @@ static char *chat_with_relevant_memories(
     /* Ollama's content field can occasionally include private reasoning tags.
        Sanitize only the user-facing conversation result, not structured
        planner/diary calls which have separate machine-readable contracts. */
+    int retry_after_sanitize_failure = 0;
     if (reply) {
         char *user_facing = r2_reply_sanitize(reply);
         free(reply);
         reply = user_facing;
-        if (!reply)
-            fprintf(stderr, "[R2 Ollama] Reply contained no safe user-facing text after sanitization; retrying the conversation turn.\n");
+        if (!reply || !*reply) {
+            retry_after_sanitize_failure = 1;
+            fprintf(stderr, "[R2 Ollama] Reply contained no safe user-facing text after sanitization; a corrective retry will be attempted.\n");
+        }
     }
 
     /*
@@ -4193,7 +4196,8 @@ static char *chat_with_relevant_memories(
      * Only this explicit failure class gets one extra inference call; normal
      * turns keep their existing latency and token budget.
      */
-    if (r2_reply_misclassifies_plain_text(query, reply ? reply : "")) {
+    if (retry_after_sanitize_failure ||
+        r2_reply_misclassifies_plain_text(query, reply ? reply : "")) {
         char *retry = r2_retry_direct_answer(copy, base_count, query);
         if (retry) {
             char *retry_user_facing = r2_reply_sanitize(retry);
