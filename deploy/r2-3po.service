@@ -6,6 +6,7 @@ After=network-online.target ollama.service sound.target
 StartLimitIntervalSec=0
 
 [Service]
+Environment=R2_OLLAMA_NUM_GPU=20
 Type=simple
 User=r2
 Group=r2
