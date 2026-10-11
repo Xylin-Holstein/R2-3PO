@@ -2010,7 +2010,7 @@ int r2_reality_move_item(const char *name,const char *container)
         }
         char summary[512], details[1024];
         snprintf(summary, sizeof(summary), "R2 stored %s in the fridge.", name);
-        snprintf(details, sizeof(details), "Object=%s; source container=%s; quantity=%d; destination=separate fridge database.", name, old_container, quantity);
+        snprintf(details, sizeof(details), "Object=%.300s; source container=%.200s; quantity=%d; destination=separate fridge database.", name, old_container, quantity);
         bridge_event("fridge_item_stored", summary, details, 1, 0);
         return 0;
     }
@@ -2457,8 +2457,8 @@ int r2_reality_rate_food(const char *food, int satisfaction, const char *notes)
         free(copy);
     }
     char summary[512], details[2048];
-    snprintf(summary,sizeof(summary),"R2's modeled enjoyment rating for %s was %+d/2.",food,satisfaction);
-    snprintf(details,sizeof(details),"Food=%s; ingredients=%s; sensory description=%s; enjoyment_rating=%d/2; reason=%s. This is a learned subjective simulation, not an externally verified reaction.",
+    snprintf(summary,sizeof(summary),"R2's modeled enjoyment rating for %.200s was %+d/2.",food,satisfaction);
+    snprintf(details,sizeof(details),"Food=%.160s; ingredients=%.400s; sensory description=%.400s; enjoyment_rating=%d/2; reason=%.400s. This is a learned subjective simulation, not an externally verified reaction.",
         food,*ingredients?ingredients:"not specified",*taste?taste:"not specified",satisfaction,notes?notes:"not supplied");
     bridge_event("food_preference_learned",summary,details,1,0);
     /* Synchronize the habit evaluator with the accumulated average rating,
