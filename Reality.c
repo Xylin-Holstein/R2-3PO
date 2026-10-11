@@ -1483,7 +1483,7 @@ int r2_reality_init(void)
         "WHERE (SELECT value FROM r2_reality_meta WHERE key='hunger_fullness_semantics_v2')='no';"
         "UPDATE r2_reality_meta SET value='yes' WHERE key='hunger_fullness_semantics_v2' AND value='no';"
     ) != 0) {
-        fprintf(stderr, "[R2 Reality] Could not migrate hunger/fullness semantics.\\n");
+        fprintf(stderr, "[R2 Reality] Could not migrate hunger/fullness semantics.\n");
         sqlite3_close(reality_db); reality_db = NULL;
         pthread_mutex_unlock(&reality_lock); return -1;
     }
