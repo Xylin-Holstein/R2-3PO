@@ -2396,34 +2396,42 @@ int r2_shell_run(void)
 {
     char *line = NULL;
     size_t capacity = 0;
+    sigset_t service_signals, original_mask, wait_mask;
+    int service_signals_blocked = 0;
+
+    const char *service_mode_value = getenv("R2_SERVICE_MODE");
+    int service_mode = service_mode_value &&
+                       !strcmp(service_mode_value, "1");
+
+    /*
+     * Block termination signals before starting threads or installing handlers.
+     * In service mode, sigsuspend() atomically unblocks them while waiting, so
+     * a SIGTERM arriving between the loop condition and the wait cannot be lost.
+     */
+    if (service_mode) {
+        sigemptyset(&service_signals);
+        sigaddset(&service_signals, SIGINT);
+        sigaddset(&service_signals, SIGTERM);
+        if (sigprocmask(SIG_BLOCK, &service_signals, &original_mask) != 0) {
+            fprintf(stderr, "[R2 Shell] Could not prepare reliable service signal handling.\n");
+            return -1;
+        }
+        service_signals_blocked = 1;
+        wait_mask = original_mask;
+        sigdelset(&wait_mask, SIGINT);
+        sigdelset(&wait_mask, SIGTERM);
+    }
 
     shell_shutdown = 0;
     shell_running = 1;
 
+    signal(SIGINT, shell_signal_handler);
+    signal(SIGTERM, shell_signal_handler);
+
     if (tv_control_start() != 0)
         fprintf(stderr, "[TV] GUI control socket unavailable; shell TV commands remain available.\n");
 
-    signal(
-        SIGINT,
-        shell_signal_handler
-    );
-
-    signal(
-        SIGTERM,
-        shell_signal_handler
-    );
-
     shell_banner();
-
-    /*
-     * systemd overnight mode has no interactive stdin. Keep the initialized
-     * core, workers, and local TV-control socket alive until SIGTERM/SIGINT
-     * rather than treating /dev/null as Ctrl-D and shutting R2 down.
-     * Interactive desktop launches retain the normal command shell.
-     */
-    const char *service_mode_value = getenv("R2_SERVICE_MODE");
-    int service_mode = service_mode_value &&
-                       !strcmp(service_mode_value, "1");
 
     while (
         shell_running &&
@@ -2431,7 +2439,7 @@ int r2_shell_run(void)
         !r2_is_shutting_down()
     ) {
         if (service_mode) {
-            pause();
+            (void)sigsuspend(&wait_mask);
             continue;
         }
 
@@ -2484,7 +2492,10 @@ int r2_shell_run(void)
     }
 
     tv_control_stop_server();
-        free(line);
+    free(line);
+
+    if (service_signals_blocked)
+        (void)sigprocmask(SIG_SETMASK, &original_mask, NULL);
 
     return 0;
 }
