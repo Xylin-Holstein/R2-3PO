@@ -84,6 +84,13 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn("r2_addictions.db", source)
         self.assertIn("r2.new", source)
         self.assertIn('mv -f "$TEMP_EXEC" "$R2_EXEC"', source)
+        self.assertIn('BACKUP_EXEC="$(mktemp "$R2_ROOT/r2.previous.XXXXXX")"', source)
+        self.assertIn('cp "$R2_EXEC" "$BACKUP_EXEC"', source)
+        self.assertIn("rollback_previous_executable() {", source)
+        self.assertIn("refusing symlinked existing executable", source)
+        self.assertEqual(source.count("rollback_previous_executable || log"), 2)
+        self.assertLess(source.index('cp "$R2_EXEC" "$BACKUP_EXEC"'),
+                        source.index('mv -f "$TEMP_EXEC" "$R2_EXEC"'))
         self.assertIn("systemctl enable --now r2-3po.service", source)
         self.assertNotIn("apt-get update", source)
         self.assertIn("pgrep -x r2", source)
