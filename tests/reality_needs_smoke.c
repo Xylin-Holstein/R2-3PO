@@ -373,14 +373,15 @@ int main(void)
     if (r2_reality_tick() != 0) fail("one-hour needs tick failed");
     double hunger, sleepiness, energy, satisfaction, since_meal;
     read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
-    if (hunger < 1.20 || hunger > 1.35) fail("hunger should rise about 1.26 points per hour");
+    if (hunger < 75.0 || hunger > 76.5) fail("hunger should rise about 75.8 points per hour at the 4.75-second rate");
     if (sleepiness < 12.0 || sleepiness > 13.0) fail("sleepiness should rise about 12.5 points per hour");
     if (energy < 89.0 || energy > 91.0) fail("energy should fall about 10 points per hour");
-    if (satisfaction < 98.6 || satisfaction > 98.9) fail("satiety should fall at the hunger rate");
+    if (satisfaction < 23.5 || satisfaction > 25.0) fail("satiety should fall about 75.8 points per hour at the 4.75-second rate");
 
     if (r2_reality_sleep(8.0) != 0) fail("eight-hour sleep transition failed");
     read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
-    if (hunger < 11.0 || hunger > 12.0) fail("eight hours of sleep should add about 10.1 hunger points");
+    if (hunger < 99.9 || hunger > 100.0) fail("eight modeled hours of sleep should advance hunger to its 100-point cap");
+    if (satisfaction > 0.1) fail("eight modeled hours without a qualifying meal should deplete satiety to zero");
     if (sleepiness > 1.0) fail("eight hours of sleep should restore sleepiness to zero");
     if (energy < 89.0 || energy > 91.0) fail("sleep should restore energy without exceeding its cap");
     if (since_meal < 32300.0 || since_meal > 32500.0) fail("sleep must advance elapsed time since meal");
