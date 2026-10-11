@@ -362,7 +362,7 @@ int main(void)
     sqlite3_stmt *st = NULL;
     if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not open Reality database");
     if (sqlite3_prepare_v2(db,
-        "UPDATE r2_reality_self SET hunger=0,satisfaction=100,seconds_since_meal=0,"
+        "UPDATE r2_reality_self SET hunger=100,satisfaction=100,seconds_since_meal=0,"
         "sleepiness=0,energy=100,last_tick=? WHERE id=1", -1, &st, NULL) != SQLITE_OK)
         fail("could not prepare controlled starting state");
     sqlite3_bind_int64(st, 1, (sqlite3_int64)time(NULL) - 3600);
@@ -373,14 +373,14 @@ int main(void)
     if (r2_reality_tick() != 0) fail("one-hour needs tick failed");
     double hunger, sleepiness, energy, satisfaction, since_meal;
     read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
-    if (hunger < 75.0 || hunger > 76.5) fail("hunger should rise about 75.8 points per hour at the 4.75-second rate");
+    if (hunger < 65.5 || hunger > 67.5) fail("fullness should decrease by about 33.3 points per hour and reach zero in roughly three hours");
     if (sleepiness < 12.0 || sleepiness > 13.0) fail("sleepiness should rise about 12.5 points per hour");
     if (energy < 89.0 || energy > 91.0) fail("energy should fall about 10 points per hour");
     if (satisfaction < 23.5 || satisfaction > 25.0) fail("satiety should fall about 75.8 points per hour at the 4.75-second rate");
 
     if (r2_reality_sleep(8.0) != 0) fail("eight-hour sleep transition failed");
     read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
-    if (hunger < 99.9 || hunger > 100.0) fail("eight modeled hours of sleep should advance hunger to its 100-point cap");
+    if (hunger > 0.1) fail("eight modeled hours without food should drain the fullness meter to zero");
     if (satisfaction > 0.1) fail("eight modeled hours without a qualifying meal should deplete satiety to zero");
     if (sleepiness > 1.0) fail("eight hours of sleep should restore sleepiness to zero");
     if (energy < 89.0 || energy > 91.0) fail("sleep should restore energy without exceeding its cap");
@@ -423,20 +423,20 @@ int main(void)
     sqlite3_finalize(st);
     sqlite3_close(fridge);
 
-    /* Simulate the autonomous cycle with no model-selected action: hunger
-       reaches 60, verified food is consumed, stock decrements, and needs reset. */
+    /* Simulate the autonomous cycle with no model-selected action: fullness
+       is low, verified food is consumed, stock decrements, and fullness rises. */
     if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality database");
     if (sqlite3_prepare_v2(db,
-        "UPDATE r2_reality_self SET hunger=60,seconds_since_meal=10000,last_tick=? WHERE id=1",
+        "UPDATE r2_reality_self SET hunger=40,seconds_since_meal=10000,last_tick=? WHERE id=1",
         -1, &st, NULL) != SQLITE_OK) fail("could not prepare hungry fallback state");
     sqlite3_bind_int64(st, 1, (sqlite3_int64)time(NULL));
     if (sqlite3_step(st) != SQLITE_DONE) fail("could not set hungry fallback state");
     sqlite3_finalize(st);
     sqlite3_close(db);
     if (r2_reality_autonomous_feed_if_needed() != 1)
-        fail("verified fridge food should be consumed when hunger reaches 60");
+        fail("verified fridge food should be consumed when fullness falls below 50");
     read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
-    if (hunger > 1.0) fail("verified food should reset high hunger");
+    if (hunger < 99.0) fail("verified food should restore fullness according to its configured metric");
     if (since_meal > 5.0) fail("eating should reset time since meal");
 
     if (sqlite3_open(fridge_path, &fridge) != SQLITE_OK) fail("could not reopen fridge database");
@@ -453,7 +453,7 @@ int main(void)
     sqlite3_close(fridge);
 
     /* Away from home, room food and the fridge are both inaccessible.
-       The safeguard must preserve both inventories and leave hunger high. */
+       The safeguard must preserve both inventories and leave fullness low. */
     if (r2_reality_add_item("burger", "Room-only regression food", "room", 1) != 0)
         fail("could not add room-only test food");
     if (r2_reality_set_location(0) != 0) fail("could not move simulated location away from home");
@@ -484,7 +484,7 @@ int main(void)
     sqlite3_finalize(st);
     sqlite3_close(db);
     read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
-    if (hunger < 59.0) fail("away fallback must not fake eating or reset hunger");
+    if (hunger > 40.1) fail("away fallback must not fake eating or increase fullness");
     if (r2_reality_set_location(1) != 0) fail("could not return home after away test");
     if (r2_reality_remove_item("burger") != 0) fail("could not remove room-only regression food");
 
@@ -597,7 +597,7 @@ int main(void)
     sqlite3_finalize(st);
     sqlite3_close(fridge);
     read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
-    if (hunger < 59.0) fail("empty-fridge fallback must not pretend R2 ate");
+    if (hunger > 40.1) fail("empty-fridge fallback must not pretend R2 ate or increase fullness");
 
     /* Persistence boundary: needs survive a full Reality shutdown/init cycle. */
     if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality database for restart test");
@@ -666,7 +666,7 @@ int main(void)
        "very hungry" while the prolonged-starvation event is recorded. */
     if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality database for starvation status");
     if (sqlite3_prepare_v2(db,
-        "UPDATE r2_reality_self SET hunger=91,seconds_since_meal=259200,last_tick=? WHERE id=1",
+        "UPDATE r2_reality_self SET hunger=5,seconds_since_meal=259200,last_tick=? WHERE id=1",
         -1, &st, NULL) != SQLITE_OK) fail("could not prepare prolonged-starvation state");
     sqlite3_bind_int64(st, 1, (sqlite3_int64)time(NULL));
     if (sqlite3_step(st) != SQLITE_DONE) fail("could not set prolonged-starvation state");
@@ -677,7 +677,7 @@ int main(void)
         fail("hunger at the 72-hour starvation threshold should be labeled starving");
     free(status);
 
-    /* Inject a failure after sleep has advanced hunger but before it restores
+    /* Inject a failure after sleep has advanced fullness decay but before it restores
        sleepiness. The enclosing transaction must roll the entire transition
        back rather than persist a half-slept body state. */
     if (r2_reality_tick() != 0) fail("pre-failure tick failed");
