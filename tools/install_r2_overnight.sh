@@ -146,6 +146,11 @@ run_as_r2 python3 "$AUDIT_SCRIPT" --root "$R2_SOURCE" --snapshot-dir "$SNAPSHOT_
 log "Database snapshot and integrity audit passed: $SNAPSHOT_DIR"
 
 # Compile to a new path first. A failed build never replaces the last known executable.
+# Make's clean target removes TARGET, so never let it remove an unexpected stale
+# file or symlink that happens to collide with a reused process ID.
+if [[ -e "$TEMP_EXEC" || -L "$TEMP_EXEC" ]]; then
+    fail "refusing existing temporary build path: $TEMP_EXEC"
+fi
 log "Compiling the complete C runtime..."
 make -C "$R2_SOURCE" clean all TARGET="$TEMP_EXEC"
 [[ -x "$TEMP_EXEC" ]] || fail "build completed without producing $TEMP_EXEC."
