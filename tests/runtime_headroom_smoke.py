@@ -51,7 +51,7 @@ if "int previous_background_mode = ollama_background_mode;" not in reflection:
     raise SystemExit("Autonomous reflection must restore the thread's previous mode")
 
 talk_start = core.find("static char *r2_talk_impl(const char *message)")
-talk_end = core.find("\\nchar *r2_talk(const char *message)", talk_start)
+talk_end = core.find("\nchar *r2_talk(const char *message)", talk_start)
 if talk_start < 0 or talk_end < 0:
     raise SystemExit("Could not locate the serialized conversation-turn implementation.")
 talk = core[talk_start:talk_end]
