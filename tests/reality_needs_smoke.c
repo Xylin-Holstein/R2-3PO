@@ -382,7 +382,7 @@ int main(void)
     if (hunger < 65.5 || hunger > 67.5) fail("fullness should decrease by about 33.3 points per hour and reach zero in roughly three hours");
     if (sleepiness < 12.0 || sleepiness > 13.0) fail("sleepiness should rise about 12.5 points per hour");
     if (energy < 89.0 || energy > 91.0) fail("energy should fall about 10 points per hour");
-    if (satisfaction < 65.5 || satisfaction > 67.5) fail("satisfaction should decay at the configured three-hour modeled rate");
+    if (satisfaction < 23.5 || satisfaction > 25.0) fail("satiety should fall about 75.8 points per hour at its independent configured rate");
 
     if (r2_reality_sleep(8.0) != 0) fail("eight-hour sleep transition failed");
     read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
