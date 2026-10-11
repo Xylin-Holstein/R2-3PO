@@ -427,6 +427,15 @@ echo
 echo "[3/4] Recompiling R2..."
 echo
 
+# Build beside the live executable and replace it only after a successful link.
+# This preserves the last known-good R2 binary if compilation fails.
+TEMP_EXEC="$R2_EXEC.tmp.$"
+if [ -e "$TEMP_EXEC" ]; then
+    echo "ERROR: Temporary build path already exists: $TEMP_EXEC"
+    echo "R2 was NOT launched."
+    exit 1
+fi
+
 gcc -std=c11 -Wall -Wextra -Werror -O2 \
     "$R2_SOURCE/r2.c" \
     "$R2_SOURCE/shell.c" \
@@ -441,7 +450,7 @@ gcc -std=c11 -Wall -Wextra -Werror -O2 \
     "$R2_SOURCE/Eyes.c" \
     "$R2_SOURCE/R2Sounds.c" \
     "$R2_SOURCE/R2Reply.c" \
-    -o "$R2_EXEC" \
+    -o "$TEMP_EXEC" \
     -lcurl \
     -lsqlite3 \
     -lpthread \
@@ -453,14 +462,22 @@ gcc -std=c11 -Wall -Wextra -Werror -O2 \
 status=$?
 
 if [ $status -ne 0 ]; then
+    rm -f "$TEMP_EXEC"
     echo
     echo "========================================"
     echo "ERROR: R2 compilation failed."
-    echo "R2 was NOT launched."
+    echo "The previous executable was preserved; R2 was NOT launched."
     echo "========================================"
     echo
     read -p "Press Enter to exit..."
     exit $status
+fi
+
+if ! chmod 0755 "$TEMP_EXEC" || ! mv -f "$TEMP_EXEC" "$R2_EXEC"; then
+    rm -f "$TEMP_EXEC"
+    echo "ERROR: Could not atomically install the newly compiled R2 executable."
+    echo "The previous executable was preserved if replacement had not completed; R2 was NOT launched."
+    exit 1
 fi
 
 echo
