@@ -32,10 +32,12 @@ require(
     "one shared model constant selects gemma3:4b",
 )
 require(
-    "Your user is your Mother (Mom)." in core
-    and "Do not call her Eli" in core
-    and "Do not describe clear text as jumbled sounds" in core,
-    "R2's established Mother relationship and natural-message interpretation are explicit",
+    "Interpret the user's current message first." in core
+    and "Answer the question, invitation, or" in core
+    and "Do not invent experiences or feelings as facts." in core
+    and "Your user is your Mother (Mom)." not in core
+    and "Do not call her Eli" not in core,
+    "conversation is direct and grounded without hardcoded relationship/name rules",
 )
 require(
     "You are not merely a generic AI assistant." in core
