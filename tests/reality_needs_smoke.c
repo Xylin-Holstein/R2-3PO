@@ -152,6 +152,15 @@ int main(void)
         fail("failed fridge move did not restore the original stock metadata and quantity");
     }
     free(fridge_after_rollback);
+    /* Remove the deliberate rollback fixture so later autonomous-feeding
+       assertions exercise only their own explicitly seeded food stock. */
+    if (r2_reality_remove_item("fridge_move_failure") != 0)
+        fail("could not remove world-side fridge rollback fixture");
+    if (r2_fridge_take("fridge_move_failure") != 0 ||
+        r2_fridge_take("fridge_move_failure") != 0)
+        fail("could not remove fridge-side rollback fixture");
+    if (r2_reality_remove_item("fridge_move_failure") != 0)
+        fail("could not remove pocket copy of fridge rollback fixture");
     if (r2_reality_sleep(NAN) == 0)
         fail("non-finite sleep duration must be rejected");
 
