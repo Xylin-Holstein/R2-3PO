@@ -4,7 +4,7 @@ R2-3PO is a C program with separate core, shell, diary, life-log, visual, eye, a
 
 For unattended overnight operation, boot-time activation, crash recovery, and sleep-inhibitor behavior, see [the overnight service guide](docs/overnight-service.md). The installer performs a database snapshot/integrity preflight before enabling the service. Do not run the systemd service and the interactive launcher at the same time.
 
-Before deployment, run `bash /home/x/R2_Home/R2/tools/preflight_r2_hardware.sh` for a non-destructive check of the local model, databases, permissions, sound assets, and device dependencies. See the guide for activation and live-device verification.
+`R2_Launch_Code.sh` opens the read-only hardware deployment preflight before it creates workspace directories, compiles, opens the Observer, or launches R2. Review every `[FAIL]` and resolve it before continuing; `[WARN]` items identify optional or host-specific features that still need checking. You can also run `bash /home/x/R2_Home/R2/tools/preflight_r2_hardware.sh` manually before deployment. The launcher compiles with warnings treated as errors (`-Werror`), matching CI. See the guide for activation and live-device verification.
 
 ## Build on Ubuntu/Debian
 
@@ -49,7 +49,7 @@ test with the locally installed Ollama model and actual Eyes/TV setup.
 You can also compile directly with the same source list and libraries:
 
 ```sh
-gcc -std=c11 -Wall -Wextra -O2 \
+gcc -std=c11 -Wall -Wextra -Werror -O2 \
   r2.c shell.c r2_diary.c Log.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c R2Sounds.c R2Reply.c \
   -o r2 \
   -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
