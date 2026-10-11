@@ -2964,8 +2964,8 @@ static char *ollama_chat_with_limit(
             char *gpu_end = NULL;
             long gpu_layers = strtol(gpu_layers_env, &gpu_end, 10);
             if (!errno && gpu_end != gpu_layers_env && *gpu_end == '\0' &&
-                gpu_layers >= 0 && gpu_layers <= 999) {
-                if (gpu_layers > 0)
+                gpu_layers >= -1 && gpu_layers <= 999) {
+                if (gpu_layers != 0)
                     json_object_object_add(options, "num_gpu",
                                            json_object_new_int((int)gpu_layers));
                 else
