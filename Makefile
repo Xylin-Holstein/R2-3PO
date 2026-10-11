@@ -1,5 +1,5 @@
 CC ?= gcc
-CFLAGS ?= -std=c11 -Wall -Wextra -O2
+CFLAGS ?= -std=c11 -Wall -Wextra -Werror -O2
 LDLIBS ?= -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
 
 SOURCES = r2.c shell.c r2_diary.c Log.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c R2Sounds.c R2Reply.c
