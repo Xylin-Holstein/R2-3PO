@@ -427,7 +427,7 @@ echo
 echo "[3/4] Recompiling R2..."
 echo
 
-gcc -std=c11 -Wall -Wextra -O2 \
+gcc -std=c11 -Wall -Wextra -Werror -O2 \
     "$R2_SOURCE/r2.c" \
     "$R2_SOURCE/shell.c" \
     "$R2_SOURCE/r2_diary.c" \
