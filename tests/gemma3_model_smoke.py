@@ -88,6 +88,13 @@ require(
     "ordinary user language is interpreted directly instead of being dismissed as gibberish",
 )
 require(
+    "priority < 5" in core
+    and '"CURRENT TURN RETRIEVED CONTEXT"' in core
+    and "message_priority = 2;" in core
+    and "message_priority >= 1 && message_priority <= 3" in core,
+    "current-turn evidence is budgeted ahead of learning/archive context without displacing identity and Reality priority",
+)
+require(
     "Return a concise visual observation for R2's conversation to use as sensory evidence, not as a user-facing answer."
     in visual,
     "vision output is framed as sensory evidence for conversation",
