@@ -86,6 +86,32 @@ int main(void)
                     !r2_history_keyword_is_low_signal("pockets"),
                 "Life Log retrieval preserves relationship and concrete-topic keywords");
 
+    char history_keywords[MAX_MEMORY_KEYWORDS][64] = { { 0 } };
+    size_t history_keyword_count = extract_memory_keywords(
+        mother_message, history_keywords);
+    const char *first_history_searches[2] = { NULL, NULL };
+    size_t selected_history_searches = 0;
+    for (size_t i = 0; i < history_keyword_count &&
+         selected_history_searches < 2; ++i) {
+        if (r2_history_keyword_is_low_signal(history_keywords[i]) ||
+            !strcasecmp(history_keywords[i], "movie") ||
+            !strcasecmp(history_keywords[i], "video") ||
+            !strcasecmp(history_keywords[i], "watch") ||
+            !strcasecmp(history_keywords[i], "watching") ||
+            !strcasecmp(history_keywords[i], "talk") ||
+            !strcasecmp(history_keywords[i], "said") ||
+            !strcasecmp(history_keywords[i], "thing") ||
+            !strcasecmp(history_keywords[i], "show") ||
+            !strcasecmp(history_keywords[i], "about"))
+            continue;
+        first_history_searches[selected_history_searches++] =
+            history_keywords[i];
+    }
+    ok &= check(selected_history_searches == 2 &&
+                    strcmp(first_history_searches[0], "mother") == 0 &&
+                    strcmp(first_history_searches[1], "missed") == 0,
+                "current affectionate message searches relationship/meaning, not generic Hello/R2 history");
+
     ok &= check(r2_reply_misclassifies_plain_text(mother_message,
                     "That's a bit garbled, but I think you're trying to say "
                     "something else."),
