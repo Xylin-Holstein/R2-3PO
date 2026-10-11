@@ -106,6 +106,9 @@ jobs:
       - name: Check fridge context against real inventory semantics
         run: python3 tests/fridge_context_smoke.py
 
+      - name: Check unified memory/reality/reward/addiction context wiring
+        run: python3 tests/context_integration_smoke.py
+
       - name: Test non-destructive R2 database preflight
         run: |
           python3 -m py_compile tools/audit_r2_databases.py tests/test_database_preflight.py
