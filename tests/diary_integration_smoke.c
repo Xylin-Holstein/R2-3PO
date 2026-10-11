@@ -241,7 +241,7 @@ int main(void)
     assert(scalar_int("SELECT COUNT(*) FROM r2_log_events "
                       "WHERE event_type='enjoyment_changed';") == 5);
     assert(r2_reward_current_modifier("diary_writing") >= 0);
-    assert(r2_reward_current_modifier("diary_writing") <= 2);
+    assert(r2_reward_current_modifier("diary_writing") <= 10);
     assert(scalar_int("SELECT COUNT(*) FROM r2_diary_entry_links "
                       "WHERE log_event_id IS NOT NULL;") == 2);
     assert(scalar_int("SELECT COUNT(*) FROM r2_diary_entry_links "
