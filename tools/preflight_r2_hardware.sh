@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+# Read-only deployment readiness report. Never installs, rebuilds, edits DBs, or starts/stops R2.
+set -uo pipefail
+R2_ROOT="${R2_ROOT:-/home/x/R2_Home}"
+R2_SOURCE="${R2_SOURCE:-$R2_ROOT/R2}"
+R2_EXEC="${R2_EXEC:-$R2_ROOT/r2}"
+R2_FX_DIR="${R2_FX_DIR:-$R2_ROOT/R2_sounds/FX}"
+OLLAMA_URL="${R2_OLLAMA_URL:-http://127.0.0.1:11434/api/tags}"
+FAILURES=0
+WARNINGS=0
+pass() { printf '[PASS] %s\n' "$*"; }
+warn() { printf '[WARN] %s\n' "$*"; WARNINGS=$((WARNINGS + 1)); }
+fail() { printf '[FAIL] %s\n' "$*"; FAILURES=$((FAILURES + 1)); }
+section() { printf '\n== %s ==\n' "$*"; }
+have() { command -v "$1" >/dev/null 2>&1; }
+
+section "Host summary"
+printf 'Workspace: %s\nSource: %s\nExecutable: %s\nFX assets: %s\n' "$R2_ROOT" "$R2_SOURCE" "$R2_EXEC" "$R2_FX_DIR"
+if have lscpu; then lscpu | awk -F: '/^Model name:/ {gsub(/^[ \t]+/, "", $2); print "CPU: " $2; exit}'; fi
+if [[ -r /proc/meminfo ]]; then awk '/^MemTotal:/ {printf "RAM: %.1f GiB\n", $2/1048576; exit}' /proc/meminfo; fi
+if [[ -e /dev/dri/renderD128 || -e /dev/dri/card0 ]]; then
+  printf 'Graphics: DRM device detected; this does not prove Ollama GPU offload works.\n'
+else
+  warn "No DRM graphics device detected; expect CPU inference unless Ollama reports otherwise."
+fi
+if have nvidia-smi; then nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | sed 's/^/GPU: /' || warn "NVIDIA GPU query failed."
+else printf 'GPU: no NVIDIA runtime detected; CPU inference may still work.\n'; fi
+
+section "Required files and build tools"
+for tool in bash make gcc curl python3; do
+  if have "$tool"; then pass "$tool installed"; else fail "$tool missing"; fi
+done
+for file in Makefile r2.c r2.h shell.c Reality.c Eyes.c Ears.c Visual.c R2Sounds.c R2Reply.c; do
+  if [[ -r "$R2_SOURCE/$file" ]]; then pass "source readable: $file"; else fail "missing/unreadable: $R2_SOURCE/$file"; fi
+done
+for file in deploy/r2-3po.service tools/r2_service_runner.sh tools/install_r2_overnight.sh tools/audit_r2_databases.py; do
+  if [[ -r "$R2_SOURCE/$file" ]]; then pass "deployment file readable: $file"; else fail "missing deployment file: $R2_SOURCE/$file"; fi
+done
+if [[ -x "$R2_EXEC" ]]; then pass "installed R2 executable exists"; else warn "installed executable missing; installer must build it before activation."; fi
+if have systemctl && systemctl is-active --quiet r2-3po.service 2>/dev/null; then
+  printf '[INFO] overnight service is active\n'
+elif have pgrep && pgrep -x r2 >/dev/null 2>&1; then
+  warn "interactive R2 is running; stop it before rebuilding/installing."
+else printf '[INFO] no active R2 core detected\n'; fi
+
+section "Dedicated user, workspace, and sound assets"
+if id r2 >/dev/null 2>&1; then pass "Linux account r2 exists"; else fail "Linux account r2 missing"; fi
+if [[ -d "$R2_ROOT" && -d "$R2_SOURCE" ]]; then
+  for path in "$R2_ROOT" "$R2_SOURCE"; do
+    if have sudo && id r2 >/dev/null 2>&1; then
+      if sudo -n -u r2 test -r "$path" && sudo -n -u r2 test -x "$path" && sudo -n -u r2 test -w "$path"; then
+        pass "r2 can read/write/traverse $path"
+      else warn "could not verify r2 permissions on $path (sudo may require a password); installer performs authoritative checks."; fi
+    fi
+  done
+else fail "workspace root or source directory missing"; fi
+if [[ -d "$R2_FX_DIR" && -r "$R2_FX_DIR" ]]; then
+  if find "$R2_FX_DIR" -maxdepth 1 -type f -iname '*.mp3' -print -quit 2>/dev/null | grep -q .; then
+    pass "FX directory contains MP3 assets"
+  else warn "FX directory contains no MP3 files; learned beeps/whistles cannot play."; fi
+else warn "FX directory missing/unreadable; expected local assets at $R2_FX_DIR."; fi
+
+section "Ollama and unified Gemma model"
+if TAGS="$(curl --silent --show-error --fail --max-time 4 "$OLLAMA_URL" 2>/dev/null)"; then
+  if printf '%s' "$TAGS" | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if any(m.get("name") == "gemma3:4b" or m.get("name","").startswith("gemma3:4b-") for m in d.get("models",[])) else 1)' >/dev/null 2>&1; then
+    pass "local Ollama API responds and gemma3:4b is installed"
+  else fail "Ollama responds but gemma3:4b is not installed"; fi
+else fail "Ollama API unreachable at $OLLAMA_URL"; fi
+if have ollama; then printf 'Ollama placement (when a model is loaded):\n'; ollama ps 2>&1 | sed 's/^/  /' || warn "ollama ps could not report placement."
+else warn "ollama CLI not found on PATH."; fi
+
+section "Read-only SQLite integrity"
+python3 - "$R2_SOURCE" <<'PY'
+import pathlib, sqlite3, sys
+from urllib.parse import quote
+root = pathlib.Path(sys.argv[1])
+names = ("r2_memory.db", "r2_reality.db", "r2_fridge.db", "r2_rewards.db", "r2_addictions.db")
+existing = bad = 0
+for name in names:
+    path = root / name
+    if path.is_symlink():
+        print(f"[FAIL] refusing symlinked database: {path}"); bad += 1; continue
+    if not path.exists():
+        print(f"[INFO] not created yet: {name}"); continue
+    existing += 1
+    try:
+        uri = "file:" + quote(str(path.resolve()), safe="/") + "?mode=ro"
+        with sqlite3.connect(uri, uri=True, timeout=3) as db:
+            result = db.execute("PRAGMA integrity_check").fetchone()
+        if result and result[0] == "ok": print(f"[PASS] {name}: integrity_check=ok (read-only)")
+        else: print(f"[FAIL] {name}: integrity_check={result!r}"); bad += 1
+    except Exception as exc:
+        print(f"[FAIL] {name}: read-only check failed: {exc}"); bad += 1
+if not existing: print("[WARN] no existing database files; first-run DB initialization remains unverified")
+sys.exit(1 if bad else 0)
+PY
+db_rc=$?
+if [[ "$db_rc" -ne 0 ]]; then fail "existing database integrity check failed"; fi
+
+section "Audio, microphone, camera, TV, and emulator"
+if have mpg123 || have ffplay || have mpv; then pass "supported local MP3 playback process available"
+else warn "no mpg123/ffplay/mpv; sound effects will not play."; fi
+if have pactl; then
+  if pactl info >/dev/null 2>&1; then pass "current user's audio server responds"
+  else warn "current user's PulseAudio/PipeWire server is unreachable."; fi
+else warn "pactl missing; audio routing cannot be checked."; fi
+if have arecord; then arecord -l 2>&1 | sed 's/^/  /' || true; else warn "arecord missing; cannot enumerate microphone devices."; fi
+if have aplay; then aplay -l 2>&1 | sed 's/^/  /' || true; else warn "aplay missing; cannot enumerate ALSA output devices."; fi
+camera_count=0
+for camera in /dev/video*; do [[ -e "$camera" ]] || continue; camera_count=$((camera_count + 1)); printf '[INFO] camera: %s\n' "$camera"; done
+if [[ "$camera_count" -eq 0 ]]; then warn "no /dev/video* camera detected; verify the configured Eyes source."; fi
+for tool in ffmpeg ffprobe xdotool; do if have "$tool"; then pass "$tool available"; else warn "$tool missing; related media/controller feature may be degraded."; fi; done
+if python3 -c 'import vlc, tkinter' >/dev/null 2>&1; then pass "Python VLC and Tkinter import"; else warn "Python VLC/Tkinter import failed; TV/VCR or Observer GUI may not open."; fi
+if [[ -x /usr/games/mgba-qt ]]; then pass "mGBA Qt emulator available"; else warn "mGBA Qt not found at /usr/games/mgba-qt; configure R2_MGBA_EXECUTABLE if installed elsewhere."; fi
+if [[ -r "$R2_SOURCE/TV.py" && -r "$R2_SOURCE/install_tv.sh" ]]; then pass "TV/VCR source and installer present"; else warn "TV/VCR source/installer missing."; fi
+
+section "Summary"
+printf 'Failures: %d  Warnings: %d\n' "$FAILURES" "$WARNINGS"
+if [[ "$FAILURES" -gt 0 ]]; then
+  printf 'NOT READY: fix every [FAIL] and rerun this read-only report.\n'; exit 1
+elif [[ "$WARNINGS" -gt 0 ]]; then
+  printf 'CORE CHECKS PASSED WITH WARNINGS. Review optional device/audio/GUI warnings before relying on those features.\n'
+else
+  printf 'PREFLIGHT PASSED. Still test a real conversation and physical speaker/microphone/camera after activation.\n'
+fi
+exit 0
