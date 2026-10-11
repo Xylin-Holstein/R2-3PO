@@ -41,7 +41,7 @@ Run these on the R2 Linux machine, not on GitHub.
    sudo -u r2 test -r /home/x/R2_Home/R2_sounds/FX && echo "FX directory readable"
    ```
 
-   If a check fails, correct the existing owner/group/ACL deliberately before continuing. The core stores SQLite databases under `R2/`, so account `r2` needs read/write access to that directory and its existing database files.
+   If a check fails, correct the existing owner/group/ACL deliberately before continuing. The core stores its five SQLite databases under `R2/` (`r2_memory.db`, `r2_reality.db`, `r2_fridge.db`, `r2_rewards.db`, and `r2_addictions.db`), so account `r2` needs read/write access to that directory and its existing database files.
 
 ## Build, audit, and activate
 
@@ -57,7 +57,7 @@ It will:
 - verify `r2`, build tools, `libfaketime`, and the expected deployed files;
 - refuse to run beside an already active R2 process;
 - check permissions and refuse symlinked database paths;
-- create a private snapshot of the memory, Reality, and fridge databases and require the integrity audit to pass;
+- create a private snapshot of the memory, Reality, fridge, reward, and addiction databases and require the integrity audit to pass;
 - compile the full C runtime to a temporary executable so a failed build does not replace the prior executable;
 - install the systemd unit, reload systemd, and enable/start the overnight service.
 
