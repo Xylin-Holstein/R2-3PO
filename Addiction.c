@@ -345,7 +345,7 @@ char *r2_addiction_report(void)
         "SELECT t.target,t.target_type,t.enjoyment,t.status,"
         "(SELECT COUNT(*) FROM addiction_events e WHERE e.target=t.target COLLATE NOCASE AND e.event_kind='choice' AND e.occurred_at>=?),"
         "(SELECT COUNT(DISTINCT date(e.occurred_at,'unixepoch','localtime')) FROM addiction_events e WHERE e.target=t.target COLLATE NOCASE AND e.event_kind='choice' AND e.occurred_at>=?),"
-        "COALESCE(t.last_chosen,0) FROM addiction_targets t ORDER BY t.updated_at DESC";
+        "COALESCE(t.last_chosen,0) FROM addiction_targets t ORDER BY t.updated_at DESC LIMIT 17";
     sqlite3_stmt *st = NULL;
     int rc = sqlite3_prepare_v2(addiction_db, sql, -1, &st, NULL);
     if (rc != SQLITE_OK) {
@@ -360,18 +360,24 @@ char *r2_addiction_report(void)
     if (!out) { sqlite3_finalize(st); pthread_mutex_unlock(&addiction_lock); return NULL; }
     out[0] = '\0';
     int rows = 0;
+    int omitted = 0;
     while (sqlite3_step(st) == SQLITE_ROW) {
+        /* Keep this context bounded so a long-running R2 cannot grow prompts forever. */
+        if (rows >= 16) {
+            omitted = 1;
+            break;
+        }
         const unsigned char *target = sqlite3_column_text(st, 0);
         const unsigned char *type = sqlite3_column_text(st, 1);
         const unsigned char *status = sqlite3_column_text(st, 3);
-        char line[1024];
+        char line[512];
         int n = snprintf(line, sizeof(line),
-            "%s [%s] enjoyment=%d/100; choices/14d=%d; choice_days=%d; status=%s\n",
+            "%.160s [%.24s] enjoyment=%d/100; choices/14d=%d; choice_days=%d; status=%.24s\n",
             target ? (const char *)target : "unknown",
             type ? (const char *)type : "activity",
             sqlite3_column_int(st, 2), sqlite3_column_int(st, 4),
             sqlite3_column_int(st, 5), status ? (const char *)status : "inactive");
-        if (n <= 0) continue;
+        if (n <= 0 || (size_t)n >= sizeof(line)) continue;
         if (len + (size_t)n + 1 > cap) {
             size_t next = cap * 2;
             while (next < len + (size_t)n + 1) next *= 2;
@@ -386,6 +392,19 @@ char *r2_addiction_report(void)
     }
     sqlite3_finalize(st);
     pthread_mutex_unlock(&addiction_lock);
-    if (!rows) snprintf(out, cap, "No repeated-interest records yet. A single enjoyable experience does not establish an addiction.\n");
+    if (!rows) {
+        snprintf(out, cap, "No repeated-interest records yet. A single enjoyable experience does not establish an addiction.\n");
+    } else if (omitted) {
+        const char *note = "Additional repeated-interest records omitted from chat context; full history remains stored.\n";
+        size_t note_len = strlen(note);
+        if (len + note_len + 1 > cap) {
+            char *grown = realloc(out, len + note_len + 1);
+            if (grown) { out = grown; cap = len + note_len + 1; }
+        }
+        if (len + note_len + 1 <= cap) {
+            memcpy(out + len, note, note_len);
+            out[len + note_len] = '\0';
+        }
+    }
     return out;
 }

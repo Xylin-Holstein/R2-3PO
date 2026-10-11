@@ -1,0 +1,21 @@
+name: Overnight permission regression
+
+on:
+  push:
+    branches:
+      - main
+      - r2-final-code-only-audit-2026-10-10
+  pull_request:
+    branches:
+      - main
+      - r2-final-code-only-audit-2026-10-10
+  workflow_dispatch:
+
+jobs:
+  permission-preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Test overnight permission probes and readiness gate
+        run: bash tests/test_overnight_permission_checks.sh

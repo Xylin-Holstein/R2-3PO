@@ -2,13 +2,15 @@
 
 R2-3PO is a C program with separate core, shell, diary, life-log, visual, eye, and hearing modules.
 
+For unattended overnight operation, boot-time activation, crash recovery, and sleep-inhibitor behavior, see [the overnight service guide](docs/overnight-service.md). The installer performs a database snapshot/integrity preflight before enabling the service. Do not run the systemd service and the interactive launcher at the same time.
+
 ## Build on Ubuntu/Debian
 
 Install the compiler and development libraries:
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y build-essential libcurl4-openssl-dev libsqlite3-dev libjson-c-dev libpulse-dev
+sudo apt-get install -y build-essential libcurl4-openssl-dev libsqlite3-dev libjson-c-dev libpulse-dev libfaketime ffmpeg vlc python3-vlc xdotool pulseaudio-utils python3-tk mpg123
 ```
 
 Compile the complete C application from the repository root:
@@ -46,14 +48,14 @@ You can also compile directly with the same source list and libraries:
 
 ```sh
 gcc -std=c11 -Wall -Wextra -O2 \
-  r2.c shell.c r2_diary.c Log.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c \
+  r2.c shell.c r2_diary.c Log.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c R2Sounds.c R2Reply.c \
   -o r2 \
   -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
 ```
 
 ## Compilation source inventory
 
-The build requires these ten C translation units:
+The build requires these thirteen C translation units:
 
 - `r2.c` — core
 - `shell.c` — command shell
@@ -61,12 +63,15 @@ The build requires these ten C translation units:
 - `Log.c` — factual Life Log chronology
 - `Reality.c` — persistent self-continuity, world state, room objects, needs, and inventory containers
 - `Addiction.c` — persistent enjoyment history and behavior-derived repeated-interest/addiction labels
+- `Reward.c` — experience/reward bookkeeping shared by memory and learning
 - `AlternateSelf.c` — persistent, explicitly hypothetical Choice Lab branches
 - `Visual.c` — vision-model integration
 - `Ears.c` — audio input
 - `Eyes.c` — visual input
+- `R2Sounds.c` — state-aware local sound-effect selection and playback
+- `R2Reply.c` — strips private control/reasoning markers from user-facing replies
 
-Their matching headers are included in the repository: `r2.h`, `shell.h`, `r2_diary.h`, `Log.h`, `Reality.h`, `Addiction.h`, `AlternateSelf.h`, `Visual.h`, `Ears.h`, and `Eyes.h`.
+Their matching headers are included in the repository: `r2.h`, `shell.h`, `r2_diary.h`, `Log.h`, `Reality.h`, `Addiction.h`, `Reward.h`, `AlternateSelf.h`, `Visual.h`, `Ears.h`, `Eyes.h`, `R2Sounds.h`, and `R2Reply.h`.
 
 GitHub Actions checks shell-script syntax and compiles this source set on pushes to the audit branch and the configured main branches. It also runs isolated smoke tests for file-authoritative money (seed, deletion, restart, deposit/withdrawal, purchase rollback, and cents) and the GBA launcher/lifecycle. These tests do not exercise Ollama, live audio/video devices, or the user's actual graphical desktop.
 
@@ -109,7 +114,7 @@ On startup, R2 creates these workspace directories if missing:
 - `fridge/` — fixed home fridge, with human-readable mirrors for the separate fridge inventory
 - `room/piggybank/` — bank-account mirror file (`account.txt`); SQLite remains authoritative
 
-The dedicated reality database stores current objects, needs, collection-memory events, food experiences, and learned preferences. The separate `r2_addictions.db` stores enjoyment updates and voluntary-choice history for foods and other activities. A high enjoyment score alone never creates an addiction label: the evaluator requires repeated choices across multiple days, and logs meaningful enjoyment/status changes to the Life Log. The shell commands `addictions`, `give <item> <quantity>`, `give money <quantity>`, and `gameboy verify` expose the habit history, creator gifts, and console verification. Creator gifts are recorded in the Life Log; ordinary gifts create tracked objects from nothing. `give money 5` explicitly grants five $1 bills in `Pockets/Wallet/`; it is a creator gift, so it changes the actual cash balance rather than creating generic inventory objects. The desktop Observer Log explicitly allowlists factual `creator_gift`, `enjoyment_changed`, and `addiction_status_changed` events; private thoughts and diary content remain excluded. The addiction database references target names and event evidence while ordinary searchable memory receives concise Life Log pointers through the existing integration. The fridge has its own independent `r2_fridge.db`; its stock is not stored in the room inventory database. If the fridge is completely empty, it generates one burger with configured fullness of 100/100 and energy bonus 10. R2 can inspect it with `fridge`, move one item into his pockets with `fridge take burger`, eat directly from it with `fridge eat burger`, or store a tracked inventory item with `fridge store burger`. World actions that add an item to or move an item into the `fridge` container write to the fridge database rather than the room-object database. The fridge is physically at home and is accessible only while R2 is home. The persistent location state is synchronized with the Reality database: while away, R2 can access only his portable `Pockets/` inventory and `Pockets/Wallet/`; room objects and fridge stock are inaccessible until he returns home. The physical folders `Pockets/` and `Pockets/Wallet/` mirror portable items and hold authoritative money files; legacy `.r2item` mirrors from lowercase `pockets/`, `pockets/wallet/`, `room/pockets/`, and `room/wallet/` are migrated non-destructively on startup. If an object is in R2's pockets, its `.r2item` file is placed in `Pockets/`; moving it elsewhere updates its mirror location. Current inventory stays exact even when the collection-memory record loses precision. On startup, R2 creates `room/food_metrics.xml` if it is missing. Put one XML entry per line inside the `<foods>` root, for example `<food name="burger" fullness="100" energy="10" ingredients="bread,beef,cheese" taste="savory, warm, salty" />`. `fullness` is the hunger reduction (0–100); `energy` is an optional energy bonus; `ingredients` is a comma-separated ingredient list; `taste` is an optional sensory description. These fields describe food, not a hard-coded like/dislike. If `eat <food>` has no explicit value, R2 looks up the food by name in this file and reports an error rather than guessing when no metric exists.
+The dedicated reality database stores current objects, needs, collection-memory events, food experiences, and learned preferences. The separate `r2_addictions.db` stores enjoyment updates and voluntary-choice history for foods and other activities. A high enjoyment score alone never creates an addiction label: the evaluator requires repeated choices across multiple days, and logs meaningful enjoyment/status changes to the Life Log. The shell commands `addictions`, `give <item> <quantity>`, `give money <quantity>`, and `gameboy verify` expose the habit history, creator gifts, and console verification. Creator gifts are recorded in the Life Log; ordinary gifts create tracked objects from nothing. `give money 5` explicitly grants five $1 bills in `Pockets/Wallet/`; it is a creator gift, so it changes the actual cash balance rather than creating generic inventory objects. The desktop Observer Log explicitly allowlists factual `creator_gift`, `enjoyment_changed`, and `addiction_status_changed` events; private thoughts and diary content remain excluded. The addiction database references target names and event evidence while ordinary searchable memory receives concise Life Log pointers through the existing integration. The fridge has its own independent `r2_fridge.db`; its stock is not stored in the room inventory database. If the fridge is completely empty, it stays empty; R2 must explicitly add or store food before he can eat it. R2 can inspect it with `fridge`, move one item into his pockets with `fridge take burger`, eat directly from it with `fridge eat burger`, or store a tracked inventory item with `fridge store burger`. World actions that add an item to or move an item into the `fridge` container write to the fridge database rather than the room-object database. The fridge is physically at home and is accessible only while R2 is home. The persistent location state is synchronized with the Reality database: while away, R2 can access only his portable `Pockets/` inventory and `Pockets/Wallet/`; room objects and fridge stock are inaccessible until he returns home. The physical folders `Pockets/` and `Pockets/Wallet/` mirror portable items and hold authoritative money files; legacy `.r2item` mirrors from lowercase `pockets/`, `pockets/wallet/`, `room/pockets/`, and `room/wallet/` are migrated non-destructively on startup. If an object is in R2's pockets, its `.r2item` file is placed in `Pockets/`; moving it elsewhere updates its mirror location. Current inventory stays exact even when the collection-memory record loses precision. On startup, R2 creates `room/food_metrics.xml` if it is missing. Put one XML entry per line inside the `<foods>` root, for example `<food name="burger" fullness="100" energy="10" ingredients="bread,beef,cheese" taste="savory, warm, salty" />`. `fullness` is the hunger reduction (0–100); `energy` is an optional energy bonus; `ingredients` is a comma-separated ingredient list; `taste` is an optional sensory description. These fields describe food, not a hard-coded like/dislike. If `eat <food>` has no explicit value, R2 looks up the food by name in this file and reports an error rather than guessing when no metric exists.
 
 Shell examples:
 
@@ -211,7 +216,42 @@ The CRT television is seeded as a persistent physical object in R2's Reality wor
 
 Run `bash install_tv.sh` from this repository to place the device files under `/home/x/R2_Home/room/TV/` and create the media directory `/home/x/R2_Home/VCR_Tapes/`. Open `room/TV/TV.desktop` from R2's room to launch the GUI. The installed `device.txt` is descriptive metadata; Reality remains authoritative. Set `R2_HOME`, `R2_TV_DIR`, `R2_VCR_MEDIA_DIR`, `R2_REALITY_DB`, or `R2_TV_SOCKET` to override default paths when running/installing in a test environment. The shell must be running for GUI controls to change Reality state.
 
-The built-in VCR is AV input 1. Place supported video files in `VCR_Tapes/`, then use the GUI's insert/play/pause/stop/eject controls. Tape position is saved in Reality and retained when a tape is ejected and reinserted. Playback depends on the local VLC/libVLC runtime. AV inputs 2–4 and RF channels 2–13 remain `NO SIGNAL` unless a named device has been explicitly connected to that input/channel. Unused RF channels stay unavailable; no static or snow-show is fabricated. TV power and source selection do not imply that R2 is watching and do not open Eyes or alter visual attention.
+The built-in VCR is AV input 1. Place supported video files in `VCR_Tapes/`, then use the GUI's insert/play/pause/stop/eject controls. Tape position is saved in Reality and retained when a tape is ejected and reinserted. Playback depends on the local VLC/libVLC runtime. When the VLC player actually starts, pauses, stops, ends, or errors, the GUI sends a bounded event through the local R2 socket into the Life Log; these are renderer-state records, not proof of what a person watched. AV inputs 2–4 and RF channels 2–13 remain `NO SIGNAL` unless a named device has been explicitly connected to that input/channel. Unused RF channels stay unavailable; no static or snow-show is fabricated. TV power and source selection do not imply that R2 is watching and do not open Eyes or alter visual attention.
 
 The automated tests cover read-only state display, control-command validation/socket transport, empty versus connected signal sources, persistent VCR position display, and installing the device files under a temporary `room/TV/` directory. They do not prove that VLC opens on the real desktop; verify that interactively on R2's machine.
+
+## Overnight service (start at boot and recover from crashes)
+
+For an unattended session, install the systemd service from the repository at its established location, `/home/x/R2_Home/R2`. This is separate from the interactive desktop launcher: service mode has no terminal prompt or Observer popup, but keeps the initialized R2 core, autonomous-thinking/diary workers, and local TV-control server alive until systemd stops it.
+
+Before installing, make sure the local Ollama installation has the required model. This project intentionally does not download models or update package indexes during service startup:
+
+```sh
+ollama pull gemma3:4b
+```
+
+Then, from the repository directory:
+
+```sh
+cd /home/x/R2_Home/R2
+bash tools/install_r2_overnight.sh
+```
+
+The installer refuses to rebuild while an R2 process is already running, prepares missing data-only folders as the `r2` account, then creates a private, consistent snapshot of all five SQLite databases and requires their integrity audit to pass before activation. It also checks existing database-file permissions. Only then does it compile the current source to a temporary executable (preserving the previous binary if compilation fails), install `r2-3po.service`, enable it at boot, and request immediate startup. If the snapshot or integrity audit fails, it stops before installing or starting the service.
+
+Useful operations:
+
+```sh
+sudo systemctl status r2-3po.service
+journalctl -u r2-3po.service -f
+sudo systemctl stop r2-3po.service
+sudo systemctl start r2-3po.service
+sudo systemctl disable r2-3po.service
+```
+
+The supervisor restarts unexpected exits, waits up to 60 seconds for the local Ollama API and `gemma3:4b`, and logs preflight failures to the journal. The runner uses the existing `libfaketime` installation to keep R2's private clock starting in 1999 and advancing continuously; it does not alter Linux's actual clock, run `apt-get update`, or pull models automatically. A sleep inhibitor requests that the host not suspend during the session; firmware, power loss, forced shutdown, and administrative overrides can still stop it.
+
+Sound assets remain host-local at `/home/x/R2_Home/R2_sounds/FX`. Service startup checks core prerequisites but does not prove speaker playback, camera permissions, microphone capture, or GUI/VLC integration. Verify those against the actual desktop/audio session after startup. Use `R2_Launch_Code.sh` for the existing interactive desktop shell and Observer window.
+
+**Activation boundary:** installing this service on GitHub does not activate it on the physical Linux host. Run the installer on that host, then check `systemctl status` and `journalctl` before relying on an overnight run.
 

@@ -4,6 +4,27 @@ R2_ROOT="/home/x/R2_Home"
 R2_SOURCE="$R2_ROOT/R2"
 R2_EXEC="$R2_ROOT/r2"
 
+# The interactive launcher and the overnight service share persistent databases.
+# Never start a second core against those same files.
+if command -v systemctl >/dev/null 2>&1 &&
+   systemctl is-active --quiet r2-3po.service 2>/dev/null; then
+    echo "ERROR: R2's overnight service is already running."
+    echo "Stop it with: sudo systemctl stop r2-3po.service"
+    echo "This prevents two R2 cores from writing the same databases concurrently."
+    exit 1
+fi
+
+# The service check alone does not catch a second interactive launcher.
+if ! command -v pgrep >/dev/null 2>&1; then
+    echo "ERROR: pgrep is required to check for an existing R2 core."
+    exit 1
+fi
+if pgrep -x r2 >/dev/null 2>&1; then
+    echo "ERROR: An R2 core is already running."
+    echo "Stop the existing R2 session before launching another; both would write the same databases."
+    exit 1
+fi
+
 echo "========================================"
 echo "        R2-3PO LAUNCH SEQUENCE"
 echo "========================================"
@@ -97,6 +118,12 @@ REQUIRED_FILES=(
     "$R2_SOURCE/Eyes.c"
     "$R2_SOURCE/Eyes.h"
 
+    "$R2_SOURCE/R2Sounds.c"
+    "$R2_SOURCE/R2Sounds.h"
+
+    "$R2_SOURCE/R2Reply.c"
+    "$R2_SOURCE/R2Reply.h"
+
     "$R2_SOURCE/AlternateSelf.c"
     "$R2_SOURCE/AlternateSelf.h"
 
@@ -118,6 +145,24 @@ for FILE in "${REQUIRED_FILES[@]}"; do
 done
 
 echo "All R2 source modules found."
+echo
+
+# Sound assets are read by the separate r2 Linux account. Check access as that
+# account now, so a /home permission mismatch is reported before conversation
+# markers silently fail. An absent collection is non-fatal to R2 itself.
+R2_FX_DIR="${R2_FX_DIR:-/home/x/R2_Home/R2_sounds/FX}"
+SOUND_AUDIT="$R2_SOURCE/tools/audit_r2_sound_assets.py"
+if [ -f "$SOUND_AUDIT" ]; then
+    if ! sudo -u r2 python3 "$SOUND_AUDIT" --root "$R2_FX_DIR"; then
+        echo "WARNING: r2 could not complete the sound asset inventory."
+        echo "R2 will still start; beep/whistle markers may have no matching audio."
+    fi
+elif sudo -u r2 bash -c 'test -d "$1" && test -r "$1" && find "$1" -maxdepth 1 -type f -iname "*.mp3" -print -quit | grep -q .' _ "$R2_FX_DIR"; then
+    echo "State-aware sound assets are readable by r2: $R2_FX_DIR"
+else
+    echo "WARNING: r2 cannot find readable MP3 effects in: $R2_FX_DIR"
+    echo "R2 will still start; beep/whistle markers may have no matching audio."
+fi
 echo
 
 echo "[2/4] Configuring R2 private clock..."
@@ -249,24 +294,39 @@ echo
 # The user's normal Linux environment is untouched.
 # ------------------------------------------------------------
 
-REAL_NOW=$(date '+%Y-%m-%d %H:%M:%S')
-
-CURRENT_MONTH=$(date '+%m')
-CURRENT_DAY=$(date '+%d')
-CURRENT_HOUR=$(date '+%H')
-CURRENT_MINUTE=$(date '+%M')
-CURRENT_SECOND=$(date '+%S')
+# Capture one host epoch so a midnight boundary cannot mix date fields.
+REAL_EPOCH="$(date '+%s')"
+if [[ ! "$REAL_EPOCH" =~ ^-?[0-9]+$ ]]; then
+    echo "ERROR: Could not read the real system epoch."
+    echo "R2 was NOT launched."
+    exit 1
+fi
+REAL_NOW="$(date -d "@$REAL_EPOCH" '+%Y-%m-%d %H:%M:%S')"
+CURRENT_MONTH="$(date -d "@$REAL_EPOCH" '+%m')"
+CURRENT_DAY="$(date -d "@$REAL_EPOCH" '+%d')"
+CURRENT_HOUR="$(date -d "@$REAL_EPOCH" '+%H')"
+CURRENT_MINUTE="$(date -d "@$REAL_EPOCH" '+%M')"
+CURRENT_SECOND="$(date -d "@$REAL_EPOCH" '+%S')"
 
 R2_START="1999-${CURRENT_MONTH}-${CURRENT_DAY} ${CURRENT_HOUR}:${CURRENT_MINUTE}:${CURRENT_SECOND}"
-
-REAL_EPOCH=$(date -d "$REAL_NOW" '+%s')
-R2_EPOCH=$(date -d "$R2_START" '+%s')
-
-if [ -z "$REAL_EPOCH" ] || [ -z "$R2_EPOCH" ]; then
+if ! R2_EPOCH="$(date -d "$R2_START" '+%s' 2>/dev/null)"; then
+    # 1999 was not a leap year. Map Feb 29 to Mar 1 instead of failing startup.
+    if [[ "${CURRENT_MONTH}${CURRENT_DAY}" == "0229" ]]; then
+        R2_START="1999-03-01 ${CURRENT_HOUR}:${CURRENT_MINUTE}:${CURRENT_SECOND}"
+        R2_EPOCH="$(date -d "$R2_START" '+%s')" || {
+            echo "ERROR: Could not calculate R2 virtual time."
+            echo "R2 was NOT launched."
+            exit 1
+        }
+    else
+        echo "ERROR: Could not calculate R2 virtual time."
+        echo "R2 was NOT launched."
+        exit 1
+    fi
+fi
+if [[ ! "$R2_EPOCH" =~ ^-?[0-9]+$ ]]; then
     echo "ERROR: Could not calculate R2 virtual time."
-    echo
     echo "R2 was NOT launched."
-    read -p "Press Enter to exit..."
     exit 1
 fi
 
@@ -306,6 +366,8 @@ gcc -std=c11 -Wall -Wextra -O2 \
     "$R2_SOURCE/Visual.c" \
     "$R2_SOURCE/Ears.c" \
     "$R2_SOURCE/Eyes.c" \
+    "$R2_SOURCE/R2Sounds.c" \
+    "$R2_SOURCE/R2Reply.c" \
     -o "$R2_EXEC" \
     -lcurl \
     -lsqlite3 \
@@ -349,6 +411,8 @@ echo "    AlternateSelf.c"
 echo "    Visual.c"
 echo "    Ears.c"
 echo "    Eyes.c"
+echo "    R2Sounds.c"
+echo "    R2Reply.c"
 echo
 
 echo "[4/4] Transitioning to Linux user: r2..."
@@ -388,6 +452,7 @@ sudo -u r2 \
     FAKETIME="${FAKETIME_OFFSET}" \
     FAKETIME_DONT_RESET=1 \
     R2_VISION_MODEL="gemma3:4b" \
+    R2_FX_DIR="$R2_FX_DIR" \
     "$R2_EXEC"
 
 status=$?

@@ -43,6 +43,7 @@
 #include <sys/un.h>
 #include <sys/stat.h>
 #include <pthread.h>
+#include <stdatomic.h>
 
 #include "shell.h"
 #include "r2.h"
@@ -70,7 +71,7 @@
    SHELL STATE
    ============================================================ */
 
-static volatile sig_atomic_t shell_shutdown = 0;
+static atomic_int shell_shutdown = ATOMIC_VAR_INIT(0);
 
 static int shell_running = 0;
 static int watch_running = 0;
@@ -79,14 +80,16 @@ static int watch_running = 0;
 static pthread_t tv_control_thread;
 static int tv_control_started = 0;
 static int tv_control_fd = -1;
-static volatile sig_atomic_t tv_control_stop = 0;
+static atomic_int tv_control_stop = ATOMIC_VAR_INIT(0);
 static char tv_control_path[sizeof(((struct sockaddr_un *)0)->sun_path)];
 
 static void *tv_control_server(void *unused)
 {
     (void)unused;
-    while (!tv_control_stop) {
-        int client = accept(tv_control_fd, NULL, NULL);
+    /* Keep a stable descriptor value while the main thread shuts the socket down. */
+    int server_fd = tv_control_fd;
+    while (!atomic_load(&tv_control_stop)) {
+        int client = accept(server_fd, NULL, NULL);
         if (client < 0) {
             if (errno == EINTR) continue;
             break;
@@ -130,6 +133,32 @@ static void *tv_control_server(void *unused)
             if (end != command + 5 && *end == '\0' && n >= 2 && n <= 13)
                 reply = r2_reality_tv_tune_rf((int)n) == 0 ? "OK RF channel tuned" : "ERROR RF tuning failed";
             else reply = "ERROR RF channel must be 2..13";
+        } else if (!strncmp(command, "media ", 6)) {
+            char *payload = command + 6;
+            char *separator = strchr(payload, '|');
+            if (separator) {
+                *separator = '\0';
+                const char *path = separator + 1;
+                const char *allowed_actions[] = {
+                    "vcr_playback_started", "vcr_playback_paused",
+                    "vcr_playback_stopped", "vcr_playback_ended",
+                    "vcr_playback_error"
+                };
+                int allowed = 0;
+                for (size_t i = 0; i < sizeof(allowed_actions) / sizeof(allowed_actions[0]); ++i)
+                    if (!strcmp(payload, allowed_actions[i])) { allowed = 1; break; }
+                if (allowed && path[0] == '/' && *path &&
+                    !strchr(path, '\n') && !strchr(path, '\r') &&
+                    strlen(path) < 1100) {
+                    reply = r2_log_media_event(payload, "media", path,
+                        "Observed from the CRT built-in VCR's VLC player; this records renderer state, not proof of what a person watched.") >= 0
+                        ? "OK media event recorded" : "ERROR could not record media event";
+                } else {
+                    reply = "ERROR invalid media event";
+                }
+            } else {
+                reply = "ERROR invalid media event";
+            }
         } else if (!strncmp(command, "vcr insert ", 11)) {
             const char *path = command + 11;
             reply = *path && r2_reality_tv_vcr_insert(path) == 0
@@ -150,7 +179,15 @@ static void *tv_control_server(void *unused)
             else reply = "ERROR invalid VCR position";
         }
 
-        (void)send(client, reply, strlen(reply), MSG_NOSIGNAL);
+        size_t reply_len = strlen(reply);
+        size_t reply_sent = 0;
+        while (reply_sent < reply_len) {
+            ssize_t sent = send(client, reply + reply_sent,
+                                reply_len - reply_sent, MSG_NOSIGNAL);
+            if (sent < 0 && errno == EINTR) continue;
+            if (sent <= 0) break;
+            reply_sent += (size_t)sent;
+        }
         free(status);
         close(client);
     }
@@ -195,7 +232,7 @@ static int tv_control_start(void)
         return -1;
     }
     tv_control_fd = fd;
-    tv_control_stop = 0;
+    atomic_store(&tv_control_stop, 0);
     if (pthread_create(&tv_control_thread, NULL, tv_control_server, NULL) != 0) {
         close(fd);
         tv_control_fd = -1;
@@ -209,7 +246,7 @@ static int tv_control_start(void)
 static void tv_control_stop_server(void)
 {
     if (!tv_control_started) return;
-    tv_control_stop = 1;
+    atomic_store(&tv_control_stop, 1);
     shutdown(tv_control_fd, SHUT_RDWR);
     close(tv_control_fd);
     tv_control_fd = -1;
@@ -366,7 +403,7 @@ static void shell_help(void)
         "  fridge [look]\n"
         "      Inspect stock in the separate persistent fridge database.\n"
         "  fridge take <food>\n"
-        "      Move one fridge item into R2's pockets; an empty fridge refills with a burger.\n"
+        "      Move one fridge item into R2's pockets; an empty fridge stays empty.\n"
         "  fridge eat <food>\n"
         "      Eat directly from fridge stock without carrying the food.\n"
         "  fridge store <food>\n"
@@ -2394,24 +2431,47 @@ static int shell_dispatch(char *input)
 
 int r2_shell_run(void)
 {
+    if (!atomic_is_lock_free(&shell_shutdown)) {
+        fprintf(stderr, "[R2 Shell] Atomic shutdown flag is not lock-free; refusing unsafe signal handling.\n");
+        return -1;
+    }
+
     char *line = NULL;
     size_t capacity = 0;
+    sigset_t service_signals, original_mask, wait_mask;
+    int service_signals_blocked = 0;
+
+    const char *service_mode_value = getenv("R2_SERVICE_MODE");
+    int service_mode = service_mode_value &&
+                       !strcmp(service_mode_value, "1");
+
+    /*
+     * Block termination signals before starting threads or installing handlers.
+     * In service mode, sigsuspend() atomically unblocks them while waiting, so
+     * a SIGTERM arriving between the loop condition and the wait cannot be lost.
+     */
+    if (service_mode) {
+        sigemptyset(&service_signals);
+        sigaddset(&service_signals, SIGINT);
+        sigaddset(&service_signals, SIGTERM);
+        if (sigprocmask(SIG_BLOCK, &service_signals, &original_mask) != 0) {
+            fprintf(stderr, "[R2 Shell] Could not prepare reliable service signal handling.\n");
+            return -1;
+        }
+        service_signals_blocked = 1;
+        wait_mask = original_mask;
+        sigdelset(&wait_mask, SIGINT);
+        sigdelset(&wait_mask, SIGTERM);
+    }
 
     shell_shutdown = 0;
     shell_running = 1;
 
+    signal(SIGINT, shell_signal_handler);
+    signal(SIGTERM, shell_signal_handler);
+
     if (tv_control_start() != 0)
         fprintf(stderr, "[TV] GUI control socket unavailable; shell TV commands remain available.\n");
-
-    signal(
-        SIGINT,
-        shell_signal_handler
-    );
-
-    signal(
-        SIGTERM,
-        shell_signal_handler
-    );
 
     shell_banner();
 
@@ -2420,6 +2480,10 @@ int r2_shell_run(void)
         !shell_shutdown &&
         !r2_is_shutting_down()
     ) {
+        if (service_mode) {
+            (void)sigsuspend(&wait_mask);
+            continue;
+        }
 
         shell_prompt();
 
@@ -2470,7 +2534,10 @@ int r2_shell_run(void)
     }
 
     tv_control_stop_server();
-        free(line);
+    free(line);
+
+    if (service_signals_blocked)
+        (void)sigprocmask(SIG_SETMASK, &original_mask, NULL);
 
     return 0;
 }
