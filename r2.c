@@ -2844,6 +2844,9 @@ static char *ollama_chat_with_limit(
         }
     }
 
+    /* system_override is serialized separately from msgs, so reserve its
+       bytes plus JSON/message framing overhead against the total payload cap. */
+    size_t payload_reserve = (system_override ? strlen(system_override) : 0) + 1024;
     size_t recent_count = 0;
     for (size_t i = count; i > 0 && recent_count < OLLAMA_MAX_RECENT_MESSAGES; --i) {
         size_t index = i - 1;
@@ -2854,8 +2857,8 @@ static char *ollama_chat_with_limit(
         size_t length = strlen(content);
         if (length > OLLAMA_MAX_MESSAGE_CHARS)
             length = OLLAMA_MAX_MESSAGE_CHARS;
-        if (total_chars >= OLLAMA_MAX_TOTAL_CHARS) break;
-        size_t remaining = OLLAMA_MAX_TOTAL_CHARS - total_chars;
+        if (total_chars + payload_reserve >= OLLAMA_MAX_TOTAL_CHARS) break;
+        size_t remaining = OLLAMA_MAX_TOTAL_CHARS - total_chars - payload_reserve;
         if (length > remaining) length = remaining;
         if (length == 0) continue;
         include[index] = 1;
