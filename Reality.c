@@ -1366,11 +1366,11 @@ static int migrate_reality_self_schema(void)
             return -1;
     }
     if (exec_sql(
-        "UPDATE r2_reality_self SET updated_at=CURRENT_TIMESTAMP "
-        "WHERE updated_at IS NULL OR updated_at='';"
         "INSERT OR IGNORE INTO r2_reality_self"
         "(id,hunger,satisfaction,seconds_since_meal,sleepiness,energy,last_tick) "
-        "VALUES(1,0,100,0,0,100,strftime('%s','now'));") != 0)
+        "VALUES(1,0,100,0,0,100,strftime('%s','now'));"
+        "UPDATE r2_reality_self SET updated_at=CURRENT_TIMESTAMP "
+        "WHERE updated_at IS NULL OR updated_at='';") != 0)
         return -1;
     return 0;
 }
