@@ -25,6 +25,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="r2-service-signal-") as temporary:
         base = Path(temporary)
         workspace = base / "workspace"
+        workspace.mkdir(parents=True, exist_ok=True)
         home = workspace / "R2"
         diary = workspace / "R2_Diary"
         binary = base / "r2-service-smoke"
