@@ -49,6 +49,7 @@ for label, source, needle in (
     ("diary link schema migration", diary, "diary_link_ensure_column(\"memory_indexed\""),
     ("Life Log schema migration", life_log, "static int migrate_legacy_log_schema(void)"),
     ("repeated-interest schema migration", addiction, "static int migrate_addiction_schema(void)"),
+    ("Alternate-Self schema migration", alternate_self, "static int migrate_altself_schema(void)"),
 ):
     if needle not in source:
         raise SystemExit(f"Missing backwards-compatibility safeguard: {label}")
