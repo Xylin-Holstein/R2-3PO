@@ -1319,6 +1319,62 @@ static int migrate_legacy_reality(void)
     return result;
 }
 
+static int reality_column_exists(const char *table, const char *column)
+{
+    char sql[256];
+    int n = snprintf(sql, sizeof(sql), "PRAGMA table_info(%s)", table);
+    if (n < 0 || (size_t)n >= sizeof(sql)) return 0;
+    sqlite3_stmt *st = NULL;
+    int found = 0;
+    if (sqlite3_prepare_v2(reality_db, sql, -1, &st, NULL) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            const unsigned char *name = sqlite3_column_text(st, 1);
+            if (name && !strcasecmp((const char *)name, column)) {
+                found = 1;
+                break;
+            }
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    return found;
+}
+
+static int reality_ensure_self_column(const char *column, const char *definition)
+{
+    if (reality_column_exists("r2_reality_self", column)) return 0;
+    char sql[512];
+    int n = snprintf(sql, sizeof(sql),
+                     "ALTER TABLE r2_reality_self ADD COLUMN %s %s;",
+                     column, definition);
+    if (n < 0 || (size_t)n >= sizeof(sql)) return -1;
+    return exec_sql(sql);
+}
+
+static int migrate_reality_self_schema(void)
+{
+    const char *columns[][2] = {
+        {"hunger", "REAL NOT NULL DEFAULT 0"},
+        {"satisfaction", "REAL NOT NULL DEFAULT 100"},
+        {"seconds_since_meal", "REAL NOT NULL DEFAULT 0"},
+        {"sleepiness", "REAL NOT NULL DEFAULT 0"},
+        {"energy", "REAL NOT NULL DEFAULT 100"},
+        {"last_tick", "INTEGER NOT NULL DEFAULT 0"},
+        {"updated_at", "TEXT NOT NULL DEFAULT ''"}
+    };
+    for (size_t i = 0; i < sizeof(columns) / sizeof(columns[0]); ++i) {
+        if (reality_ensure_self_column(columns[i][0], columns[i][1]) != 0)
+            return -1;
+    }
+    if (exec_sql(
+        "UPDATE r2_reality_self SET updated_at=CURRENT_TIMESTAMP "
+        "WHERE updated_at IS NULL OR updated_at='';"
+        "INSERT OR IGNORE INTO r2_reality_self"
+        "(id,hunger,satisfaction,seconds_since_meal,sleepiness,energy,last_tick) "
+        "VALUES(1,0,100,0,0,100,strftime('%s','now'));") != 0)
+        return -1;
+    return 0;
+}
+
 int r2_reality_init(void)
 {
     pthread_mutex_lock(&reality_lock);
@@ -1353,7 +1409,6 @@ int r2_reality_init(void)
         "CREATE TABLE IF NOT EXISTS r2_food_experience_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);"
         "INSERT OR IGNORE INTO r2_food_experience_meta(key,value) VALUES('schema_version','1');"
         "CREATE TABLE IF NOT EXISTS r2_reality_self (id INTEGER PRIMARY KEY CHECK(id=1), hunger REAL NOT NULL DEFAULT 0, satisfaction REAL NOT NULL DEFAULT 100, seconds_since_meal REAL NOT NULL DEFAULT 0, sleepiness REAL NOT NULL DEFAULT 0, energy REAL NOT NULL DEFAULT 100, last_tick INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
-        "INSERT OR IGNORE INTO r2_reality_self(id,hunger,seconds_since_meal,sleepiness,energy,last_tick) VALUES(1,0,0,0,100,strftime('%s','now'));"
         "CREATE TABLE IF NOT EXISTS r2_reality_self_facts (key TEXT PRIMARY KEY, value TEXT NOT NULL, evidence TEXT, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "CREATE TABLE IF NOT EXISTS r2_money_account (id INTEGER PRIMARY KEY CHECK(id=1),cash_cents INTEGER NOT NULL DEFAULT 0 CHECK(cash_cents>=0),bank_cents INTEGER NOT NULL DEFAULT 0 CHECK(bank_cents>=0),updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "INSERT OR IGNORE INTO r2_money_account(id,cash_cents,bank_cents) VALUES(1,0,0);"
@@ -1385,22 +1440,10 @@ int r2_reality_init(void)
         sqlite3_close(reality_db); reality_db = NULL;
         pthread_mutex_unlock(&reality_lock); return -1;
     }
-    /* Upgrade old persistent databases in place; preserve existing need state. */
-    int has_satisfaction = 0;
-    sqlite3_stmt *columns = NULL;
-    if (sqlite3_prepare_v2(reality_db, "PRAGMA table_info(r2_reality_self)", -1, &columns, NULL) == SQLITE_OK) {
-        while (sqlite3_step(columns) == SQLITE_ROW) {
-            const unsigned char *column_name = sqlite3_column_text(columns, 1);
-            if (column_name && !strcasecmp((const char *)column_name, "satisfaction")) {
-                has_satisfaction = 1;
-                break;
-            }
-        }
-    }
-    if (columns) sqlite3_finalize(columns);
-    if (!has_satisfaction && exec_sql(
-        "ALTER TABLE r2_reality_self ADD COLUMN satisfaction REAL NOT NULL DEFAULT 100") != 0) {
-        fprintf(stderr, "[R2 Reality] Could not add the satisfaction need to persistent state.\n");
+    /* Upgrade old persistent self-state schemas in place. Missing fields are
+       added with neutral defaults; existing hunger/energy/need values survive. */
+    if (migrate_reality_self_schema() != 0) {
+        fprintf(stderr, "[R2 Reality] Could not migrate persistent need-state schema.\n");
         sqlite3_close(reality_db); reality_db = NULL;
         pthread_mutex_unlock(&reality_lock); return -1;
     }
