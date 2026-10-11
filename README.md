@@ -10,7 +10,7 @@ Install the compiler and development libraries:
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y build-essential libcurl4-openssl-dev libsqlite3-dev libjson-c-dev libpulse-dev
+sudo apt-get install -y build-essential libcurl4-openssl-dev libsqlite3-dev libjson-c-dev libpulse-dev libfaketime ffmpeg vlc python3-vlc xdotool pulseaudio-utils python3-tk mpg123
 ```
 
 Compile the complete C application from the repository root:
