@@ -3249,6 +3249,34 @@ static char *ollama_chat_with_limit(
     if (system_budget > input_budget)
         system_budget = input_budget;
 
+    /*
+     * Under memory pressure, a long per-call override must not consume the
+     * entire system budget and silently evict R2's identity and live world
+     * context. Reserve a share for high-priority live context, cap the
+     * override, then give the core identity prompt the remaining space.
+     * At large contexts these caps do not reduce ordinary-sized prompts.
+     */
+    size_t reality_reserve = system_budget / 3;
+    if (reality_reserve > 6000)
+        reality_reserve = 6000;
+
+    size_t override_budget = system_budget / 4;
+    if (override_length > override_budget) {
+        override_length = override_budget;
+        if (system_override && json_object_array_length(arr) > 0) {
+            struct json_object *override_message = json_object_array_get_idx(arr, 0);
+            if (override_message) {
+                struct json_object *bounded_override =
+                    json_object_new_string_len(system_override, (int)override_length);
+                if (bounded_override)
+                    json_object_object_add(override_message, "content", bounded_override);
+            }
+        }
+    }
+
+    size_t identity_budget = system_budget > override_length + reality_reserve
+        ? system_budget - override_length - reality_reserve : 0;
+
     size_t total_chars = override_length;
     /*
      * Priority matters when the system-context budget is reached. Keep the
@@ -3285,6 +3313,9 @@ static char *ollama_chat_with_limit(
             size_t length = strlen(content);
             if (length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS)
                 length = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;
+            /* Keep identity instructions from consuming the reserved live-context share. */
+            if (message_priority == 0 && length > identity_budget)
+                length = identity_budget;
             /* Reserve a little system budget for pinned memory after the live snapshot. */
             if (message_priority == 1 && length > 6000)
                 length = 6000;
