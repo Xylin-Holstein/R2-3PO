@@ -89,6 +89,17 @@ class TVDisplaySmoke(unittest.TestCase):
         self.assertIn("if (sent < 0 && errno == EINTR) continue", source)
         self.assertIn("MSG_NOSIGNAL", source)
 
+    def test_tv_connect_parsers_reject_numeric_prefixes_and_overflow(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        shell = (root / "shell.c").read_text(encoding="utf-8")
+        core = (root / "r2.c").read_text(encoding="utf-8")
+        self.assertIn("strtol(parts[2], &end, 10)", shell)
+        self.assertIn("errno != ERANGE", shell)
+        self.assertIn("parsed >= INT_MIN && parsed <= INT_MAX", shell)
+        self.assertNotIn("atoi(parts[2])", shell)
+        self.assertIn("port >= INT_MIN && port <= INT_MAX", core)
+        self.assertIn("errno != ERANGE", core)
+
     def test_server_bridges_media_events_to_life_log(self) -> None:
         source = (Path(__file__).resolve().parents[1] / "shell.c").read_text(encoding="utf-8")
         self.assertIn('!strncmp(command, "media ", 6)', source)
