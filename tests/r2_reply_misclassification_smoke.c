@@ -40,6 +40,16 @@ int main(void)
                     "something else."),
                 "straight-apostrophe misclassification trigger works");
 
+    ok &= check(r2_reply_misclassifies_plain_text(mother_message,
+                    "I think you're trying to say that I'm making a mistake. "
+                    "Is that correct?"),
+                "fabricated intent guess plus confirmation is caught without garbled wording");
+
+    ok &= check(!r2_reply_misclassifies_plain_text(
+                    "Can you paraphrase what I meant in that long message?",
+                    "I think you're trying to say you want a bed. Is that correct?"),
+                "explicit paraphrase requests may receive a confirming interpretation");
+
     ok &= check(!r2_reply_misclassifies_plain_text(mother_message,
                     "I missed you too, Mom. A room with a bed and pockets "
                     "sounds exciting. What are you planning to put in the room?"),
