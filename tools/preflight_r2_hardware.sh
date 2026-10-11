@@ -190,19 +190,37 @@ elif have sudo && id r2 >/dev/null 2>&1; then
 fi
 sound_node_count=0
 sound_node_accessible=0
+sound_node_service_accessible=0
+service_audio_group_configured=0
+if [[ -r "$R2_SOURCE/deploy/r2-3po.service" ]] &&
+   grep -Eq '^[[:space:]]*SupplementaryGroups=.*audio' "$R2_SOURCE/deploy/r2-3po.service"; then
+  service_audio_group_configured=1
+fi
 for node in /dev/snd/*; do
   [[ -e "$node" ]] || continue
   sound_node_count=$((sound_node_count + 1))
-  if have sudo && id r2 >/dev/null 2>&1 &&
-     sudo -n -u r2 test -r "$node" && sudo -n -u r2 test -w "$node"; then
-    sound_node_accessible=$((sound_node_accessible + 1))
+  if have sudo && id r2 >/dev/null 2>&1; then
+    if sudo -n -u r2 test -r "$node" && sudo -n -u r2 test -w "$node"; then
+      sound_node_accessible=$((sound_node_accessible + 1))
+    fi
+    # Test the service's configured supplementary group without changing
+    # account membership or touching device state.
+    if [[ "$service_audio_group_configured" -eq 1 ]] &&
+       sudo -n -u r2 -g r2 -G audio test -r "$node" &&
+       sudo -n -u r2 -g r2 -G audio test -w "$node"; then
+      sound_node_service_accessible=$((sound_node_service_accessible + 1))
+    fi
   fi
 done
 if [[ "$sound_node_count" -gt 0 ]] && have sudo && id r2 >/dev/null 2>&1; then
-  if [[ "$sound_node_accessible" -gt 0 ]]; then
+  if [[ "$service_audio_group_configured" -eq 1 && "$sound_node_service_accessible" -gt 0 ]]; then
+    pass "R2 service's configured audio supplementary group can access $sound_node_service_accessible ALSA device node(s); actual playback/capture still needs a runtime test"
+  elif [[ "$sound_node_accessible" -gt 0 ]]; then
     pass "R2 runtime account can access $sound_node_accessible ALSA device node(s)"
+  elif [[ "$service_audio_group_configured" -eq 1 ]]; then
+    warn "service config grants the audio group, but access could not be verified for R2; direct ALSA playback/capture may fail."
   else
-    warn "R2 runtime account cannot be verified to access ALSA device nodes; direct ALSA playback/capture may fail."
+    warn "R2 runtime account cannot be verified to access ALSA device nodes; configure service-scoped audio access if direct ALSA playback/capture is intended."
   fi
 elif [[ "$sound_node_count" -eq 0 ]]; then
   printf '[INFO] no /dev/snd device nodes; PulseAudio/PipeWire socket access may still provide audio.\n'
