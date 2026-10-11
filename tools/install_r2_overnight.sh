@@ -47,7 +47,7 @@ rollback_previous_executable() {
         log "WARNING: no previous executable is available to roll back to; the failed service has been stopped."
         return 1
     fi
-    local restore_exec="$R2_ROOT/r2.restore.$"
+    local restore_exec="${R2_ROOT}/r2.restore.${BASHPID}"
     if [[ -e "$restore_exec" || -L "$restore_exec" ]]; then
         log "ERROR: refusing to overwrite existing rollback path: $restore_exec"
         return 1
@@ -191,7 +191,7 @@ if ! root_run systemctl enable --now r2-3po.service; then
 fi
 
 # Type=simple becomes active before ExecStart finishes its dependency checks.
-# Require the runner's post-model-check startup message as well as active systemd state.
+# Require a core-emitted readiness marker as well as active systemd state.
 if ! wait_for_core_ready "$STARTED_AT"; then
     root_run systemctl --no-pager --full status r2-3po.service || true
     root_run journalctl -u r2-3po.service -n 100 --no-pager || true
