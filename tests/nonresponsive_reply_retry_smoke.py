@@ -24,10 +24,6 @@ for phrase in (
     '"unable to understand your message"',
     '"that\'s a bit garbled"',
     '"that’s a bit garbled"',
-    '"i think you\'re trying to say"',
-    '"i think you’re trying to say"',
-    '"you are trying to say"',
-    '"is that what you mean"',
     "if (words < 5)",
     "Do not override a legitimate conversation about audio, noise, or gibberish.",
 ):
