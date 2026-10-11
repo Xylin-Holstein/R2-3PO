@@ -1095,10 +1095,9 @@ int r2_fridge_add_item(const char *name, const char *description, int quantity,
                        double fullness, double energy, const char *ingredients, const char *taste)
 {
     if (!name || !*name || strlen(name) > REALITY_MAX_TEXT || !fridge_db ||
-        !isfinite(fullness) || !isfinite(energy)) return -1;
-    if (quantity < 1) quantity = 1;
-    if (fullness < 0.0 || fullness > 100.0) fullness = 100.0;
-    if (energy < 0.0 || energy > 100.0) energy = 10.0;
+        quantity < 1 || !isfinite(fullness) || !isfinite(energy) ||
+        fullness < 0.0 || fullness > 100.0 ||
+        energy < 0.0 || energy > 100.0) return -1;
     pthread_mutex_lock(&fridge_lock);
     int seed_rc = fridge_seed_if_empty_locked();
     sqlite3_stmt *st = NULL;
@@ -1931,7 +1930,7 @@ char *r2_reality_context(void)
         "WORLD ACTIONS: Put one action on its own line. Use [WORLD] look to inspect the room; "
         "[WORLD] add|name|description|container|quantity to collect/add a stack (adds to an existing stack and records a collection memory); "
         "[WORLD] move|name|container to relocate an existing item without counting a new collection; [WORLD] remove|name to remove it; "
-        "[WORLD] eat|food|fullness_points (or auto for XML) to update hunger; "
+        "[WORLD] eat|food|auto to update hunger using the authoritative XML metric; "
         "[WORLD] sleep|hours to advance sleep recovery and trigger a private dream simulation; "
         "[WORLD] dream|description to record a reported dream; "
         "[WORLD] ratefood|food|-2..2|reason to rate the most recent unrated eating experience. "
@@ -1981,15 +1980,15 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
     char canonical_container[REALITY_MAX_TEXT + 1];
     canonical_container_name(container, canonical_container, sizeof(canonical_container));
     container = canonical_container;
+    if(quantity<1) quantity=1;
     if (!strcasecmp(container, "fridge")) {
-        if (!reality_is_home()) return -1;
+        if (!r2_reality_is_initialized() || !reality_is_home()) return -1;
         char ingredients[1024] = {0}, taste[1024] = {0};
+        double fullness = 0.0, energy = 0.0;
+        if (food_metric(name, &fullness, &energy) != 0) return -1;
         food_attributes(name, ingredients, sizeof(ingredients), taste, sizeof(taste));
-        double fullness = 100.0, energy = 10.0;
-        (void)food_metric(name, &fullness, &energy);
         return r2_fridge_add_item(name, description, quantity, fullness, energy, ingredients, taste);
     }
-    if(quantity<1) quantity=1;
     if(!r2_reality_is_initialized() || !container_accessible(container)) return -1;
     char old_container[REALITY_MAX_TEXT + 1] = {0};
     int total_quantity = quantity;
@@ -2074,9 +2073,9 @@ int r2_reality_move_item(const char *name,const char *container)
         pthread_mutex_unlock(&reality_lock);
         if (quantity < 1 || !container_accessible(old_container) || !container_accessible(container)) return -1;
         char ingredients[1024] = {0}, taste[1024] = {0};
+        double fullness = 0.0, energy = 0.0;
+        if (food_metric(name, &fullness, &energy) != 0) return -1;
         food_attributes(name, ingredients, sizeof(ingredients), taste, sizeof(taste));
-        double fullness = 100.0, energy = 10.0;
-        (void)food_metric(name, &fullness, &energy);
         int prior_fridge_quantity = 0;
         pthread_mutex_lock(&fridge_lock);
         sqlite3_stmt *prior_fridge = NULL;
