@@ -47,15 +47,20 @@
  * for current-turn evidence and learning context.
  *
  * Keep the full core prompt, current Reality, current-turn retrieved evidence,
- * and learning context in the same request. This remains bounded: system
- * messages share 32 KB, while the entire message-history payload is capped at
- * 60 KB. The higher limit fixes truncation; it does not make history unbounded.
+ * and learning context in the same request. Bound the serialized conversation
+ * more conservatively than the previous 60 KB cap: character count is only an
+ * approximation of token count, and dense text/logs can otherwise exceed the
+ * configured 16K model context and trigger slow or rejected requests.
+ *
+ * The 28 KB system budget still preserves the full core prompt and prioritizes
+ * current Reality and current-turn evidence; recent conversation is then capped
+ * separately. Full history remains in R2's own memory and Life Log.
  */
 #define OLLAMA_MAX_RECENT_MESSAGES 48
-#define OLLAMA_MAX_MESSAGE_CHARS 12000
+#define OLLAMA_MAX_MESSAGE_CHARS 10000
 #define OLLAMA_MAX_SYSTEM_MESSAGE_CHARS 20000
-#define OLLAMA_MAX_SYSTEM_TOTAL_CHARS 32000
-#define OLLAMA_MAX_TOTAL_CHARS 60000
+#define OLLAMA_MAX_SYSTEM_TOTAL_CHARS 28000
+#define OLLAMA_MAX_TOTAL_CHARS 48000
 /*
  * Match the bounded message payload with an explicit Ollama context window.
  * Without this, Ollama's server default can be smaller than the combined
