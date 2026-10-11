@@ -2960,11 +2960,13 @@ static char *ollama_chat_with_limit(
        keeping the full identity prompt ahead of historical context. Long user
        messages are truncated only at the global payload boundary, not by
        letting old pinned memories crowd the identity instructions out. */
-    size_t current_user_reserve = 3000;
-    size_t system_budget = input_budget > current_user_reserve + 1000
-        ? input_budget - current_user_reserve - 1000 : OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;
+    size_t current_user_reserve = 1500;
+    size_t system_budget = input_budget > current_user_reserve + 500
+        ? input_budget - current_user_reserve - 500 : input_budget;
     if (system_budget > OLLAMA_MAX_SYSTEM_TOTAL_CHARS)
         system_budget = OLLAMA_MAX_SYSTEM_TOTAL_CHARS;
+    if (system_budget > input_budget)
+        system_budget = input_budget;
 
     size_t total_chars = override_length;
     /*
