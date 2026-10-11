@@ -134,7 +134,7 @@ static pthread_mutex_t messages_lock =
 static pthread_mutex_t tasks_lock =
     PTHREAD_MUTEX_INITIALIZER;
 
-static volatile sig_atomic_t shutting_down = 0;
+static atomic_int shutting_down = ATOMIC_VAR_INIT(0);
 
 /* ============================================================
    CORE LIFECYCLE STATE
@@ -8061,6 +8061,12 @@ void r2_shutdown(void)
 
 int main(void)
 {
+    /* The signal handler updates this flag while worker threads may read it. */
+    if (!atomic_is_lock_free(&shutting_down)) {
+        fprintf(stderr, "[R2] Atomic shutdown flag is not lock-free; refusing unsafe signal handling.\n");
+        return 1;
+    }
+
     const char *service_mode = getenv("R2_SERVICE_MODE");
     if (service_mode && !strcmp(service_mode, "1")) {
         /* systemd captures pipes, not a terminal; flush each log line promptly. */
