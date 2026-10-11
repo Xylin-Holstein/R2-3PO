@@ -5648,6 +5648,15 @@ static void *autonomous_thinking(
 {
     (void)arg;
 
+    /*
+     * Autonomous reflection is background work, not a live user turn.
+     * Mark the entire worker as background so it never blocks a conversation
+     * behind the Ollama mutex; its requests try-lock and yield immediately
+     * when foreground conversation work arrives.
+     */
+    int previous_mode = ollama_background_mode;
+    ollama_background_mode = 1;
+
     while (!shutting_down && atomic_load(&diary_running)) {
 
         for (
@@ -5811,6 +5820,7 @@ static void *autonomous_thinking(
                         cycle_details);
     }
 
+    ollama_background_mode = previous_mode;
     return NULL;
 }
 
