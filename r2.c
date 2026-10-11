@@ -7185,7 +7185,11 @@ static int refresh_reality_context_message(void)
     (void)r2_reality_tick();
     char *context = r2_reality_context();
     char *learning = build_learning_context();
-    if (!context && !learning) return -1;
+    if (!context || !learning) {
+        free(context);
+        free(learning);
+        return -1; /* Preserve the last valid snapshot if refresh allocation fails. */
+    }
 
     pthread_mutex_lock(&messages_lock);
     for (size_t i = 0; i < messages.count; ) {
@@ -7206,8 +7210,8 @@ static int refresh_reality_context_message(void)
         }
         ++i;
     }
-    int reality_rc = context ? message_add("system", context) : -1;
-    int learning_rc = learning ? message_add("system", learning) : -1;
+    int reality_rc = message_add("system", context);
+    int learning_rc = message_add("system", learning);
     pthread_mutex_unlock(&messages_lock);
     free(context);
     free(learning);
