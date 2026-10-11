@@ -80,6 +80,39 @@ int main(void)
         fail("could not remove atomic-add regression trigger");
     sqlite3_close(atomic_db);
 
+    if (r2_reality_add_item("move_failure", "Must stay in pockets", "pockets", 1) != 0)
+        fail("could not create item for atomic-move regression");
+    if (sqlite3_open(atomic_path, &atomic_db) != SQLITE_OK)
+        fail("could not open Reality DB for atomic-move regression");
+    if (sqlite3_exec(atomic_db,
+        "CREATE TRIGGER fail_atomic_move BEFORE UPDATE OF container ON r2_reality_objects "
+        "WHEN NEW.name='move_failure' BEGIN SELECT RAISE(ABORT,'forced move regression failure'); END;",
+        NULL, NULL, NULL) != SQLITE_OK)
+        fail("could not install atomic-move failure trigger");
+    sqlite3_close(atomic_db);
+    if (r2_reality_move_item("move_failure", "atomic_move_container") == 0)
+        fail("move must fail when its object update fails");
+    if (sqlite3_open(atomic_path, &atomic_db) != SQLITE_OK)
+        fail("could not reopen Reality DB after atomic-move failure");
+    atomic_st = NULL;
+    if (sqlite3_prepare_v2(atomic_db,
+        "SELECT container FROM r2_reality_objects WHERE name='move_failure'",
+        -1, &atomic_st, NULL) != SQLITE_OK ||
+        sqlite3_step(atomic_st) != SQLITE_ROW ||
+        strcasecmp((const char *)sqlite3_column_text(atomic_st, 0), "pockets") != 0)
+        fail("failed move changed the object's authoritative container");
+    sqlite3_finalize(atomic_st);
+    atomic_st = NULL;
+    if (sqlite3_prepare_v2(atomic_db,
+        "SELECT COUNT(*) FROM r2_reality_containers WHERE name='atomic_move_container'",
+        -1, &atomic_st, NULL) != SQLITE_OK ||
+        sqlite3_step(atomic_st) != SQLITE_ROW || sqlite3_column_int(atomic_st, 0) != 0)
+        fail("failed move left behind a phantom destination container");
+    sqlite3_finalize(atomic_st);
+    if (sqlite3_exec(atomic_db, "DROP TRIGGER fail_atomic_move", NULL, NULL, NULL) != SQLITE_OK)
+        fail("could not remove atomic-move regression trigger");
+    sqlite3_close(atomic_db);
+
     if (r2_reality_sleep(NAN) == 0)
         fail("non-finite sleep duration must be rejected");
 
