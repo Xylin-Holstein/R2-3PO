@@ -39,6 +39,14 @@ if not re.search(
         "Autonomous reflection does not mark its model call as background work; "
         "it could block a live conversation."
     )
+if not re.search(
+    r"static void \*autonomous_thinking\([\s\S]{0,350}ollama_background_mode\s*=\s*1;",
+    core,
+):
+    raise SystemExit(
+        "Autonomous post-reflection extraction is not kept in background mode; "
+        "it could block a live conversation after the reflection itself yields."
+    )
 if "int previous_background_mode = ollama_background_mode;" not in reflection:
     raise SystemExit("Autonomous reflection must restore the thread's previous mode")
 
