@@ -74,6 +74,26 @@ sudo systemctl restart r2-3po.service
 
 Accepted values are 30–21,600 seconds (30 seconds to six hours); invalid values use the 45-minute default. This only changes how long R2 waits for a request, not inference speed.
 
+## Diagnose a conversation that answers the wrong message
+
+If R2 produces a reply that changes what you said, enable the opt-in prompt trace for one reproduction. This captures the **exact JSON request sent to Ollama**, including message roles/order, the active user message, system instructions, and retrieved memories. It does not change prompt content or model behavior; it is diagnostic evidence for finding the source of a bad response.
+
+First stop the overnight service and any other R2 process, then run the interactive launcher with tracing enabled:
+
+```sh
+sudo systemctl stop r2-3po.service
+export R2_OLLAMA_TRACE_PROMPTS=1
+/home/x/R2_Home/R2_Launch_Code.sh
+```
+
+Send one test message that demonstrates the failure. The terminal prints the private trace filename, normally under `/home/x/R2_Home/R2_Log/`. After that one reproduction, exit R2 and disable tracing:
+
+```sh
+unset R2_OLLAMA_TRACE_PROMPTS
+```
+
+Tracing is off by default. When enabled, each serialized request is saved to a new file with owner-only permissions (`0600`); existing files are never overwritten and symlinks are not followed. The trace contains private conversation history, retrieved memories, and your exact message. **Review and redact it before sharing**; do not post it publicly or leave tracing enabled during ordinary use. Once the trace is available, compare the actual current user message and preceding context against the generated reply to determine whether the distortion came from prompt assembly/context, the model itself, or response handling. Do not treat a successful build as proof that this semantic failure is resolved.
+
 ## Build, audit, and activate
 
 First exit any interactive R2 session. The service and interactive launcher share persistent SQLite databases.
