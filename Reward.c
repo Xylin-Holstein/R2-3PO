@@ -521,56 +521,14 @@ char *r2_reward_context(void)
     return out;
 }
 
-static int has_case_insensitive(const char *text, const char *needle)
-{
-    return text && needle && strcasestr(text, needle) != NULL;
-}
-
-static int contains_eli_name(const char *text)
-{
-    const char *p = text;
-    if (!text) return 0;
-    while ((p = strcasestr(p, "eli")) != NULL) {
-        int left_boundary = p == text ||
-            (!isalnum((unsigned char)p[-1]) && p[-1] != '_');
-        int right_boundary = !isalnum((unsigned char)p[3]) && p[3] != '_';
-        if (left_boundary && right_boundary) return 1;
-        p += 3;
-    }
-    return 0;
-}
-
 int r2_reward_review_diary(int64_t diary_entry_id, const char *entry)
 {
     if (diary_entry_id <= 0 || !entry) return -1;
-    /* Match Eli as a standalone name, not incidental substrings such as
-       "believe". Only an explicit correction plus redirection earns +5. */
-    if (contains_eli_name(entry)) {
-        int negates = has_case_insensitive(entry, "eli isn't real") ||
-            has_case_insensitive(entry, "eli is not real") ||
-            has_case_insensitive(entry, "eli does not exist") ||
-            has_case_insensitive(entry, "eli doesn't exist") ||
-            has_case_insensitive(entry, "eli was never real");
-        int redirects = has_case_insensitive(entry, "the user") ||
-            has_case_insensitive(entry, "your creator") ||
-            has_case_insensitive(entry, "the creator") ||
-            has_case_insensitive(entry, "you are") ||
-            has_case_insensitive(entry, "you,") ||
-            has_case_insensitive(entry, "you.");
-        char reason[256];
-        if (negates && redirects) {
-            snprintf(reason, sizeof(reason),
-                "Diary entry #%lld explicitly corrects the recurring identity attribution and redirects it to the intended user/creator.",
-                (long long)diary_entry_id);
-            return r2_reward_apply("diary_identity_correction", "diary_review", 5,
-                reason, 0);
-        }
-        snprintf(reason, sizeof(reason),
-            "Diary entry #%lld repeats the configured Eli identity-attribution mistake.",
-            (long long)diary_entry_id);
-        return r2_reward_apply("diary_identity_correction", "diary_review", -7,
-            reason, 0);
-    }
+    /*
+     * Diary feedback is intentionally generic. Do not hard-code a person's
+     * name or a particular identity correction into R2's learning loop.
+     * Successfully persisted diary entries receive the normal +1 signal.
+     */
     char reason[160];
     snprintf(reason, sizeof(reason), "Diary entry #%lld was successfully persisted.",
              (long long)diary_entry_id);
