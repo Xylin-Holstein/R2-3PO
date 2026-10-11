@@ -23,6 +23,23 @@ run_as_r2() {
 }
 
 BACKUP_EXEC=""
+
+wait_for_core_ready() {
+    local since="$1"
+    for attempt in $(seq 1 75); do
+        if root_run systemctl is-active --quiet r2-3po.service &&
+           root_run journalctl -u r2-3po.service --since "$since" -o cat --no-pager 2>/dev/null |
+               grep -Fq "[R2 READY] Core initialized; entering shell."; then
+            return 0
+        fi
+        if root_run systemctl is-failed --quiet r2-3po.service; then
+            break
+        fi
+        sleep 1
+    done
+    return 1
+}
+
 rollback_previous_executable() {
     # Stop any failed/new instance before inspecting or restoring the prior binary.
     root_run systemctl stop r2-3po.service >/dev/null 2>&1 || true
@@ -47,10 +64,18 @@ rollback_previous_executable() {
     chmod 0755 "$R2_EXEC" || return 1
     log "Restored previous executable from $BACKUP_EXEC"
     root_run systemctl reset-failed r2-3po.service >/dev/null 2>&1 || true
-    if root_run systemctl start r2-3po.service; then
-        log "Restart requested using the previous executable; inspect the service journal to confirm readiness."
+    local rollback_started_at
+    rollback_started_at="$(date '+%Y-%m-%d %H:%M:%S')"
+    if ! root_run systemctl start r2-3po.service; then
+        log "WARNING: previous executable is restored, but the service could not be started."
+        return 1
+    fi
+    if wait_for_core_ready "$rollback_started_at"; then
+        log "Previous executable restored and core readiness marker observed."
     else
-        log "WARNING: previous executable is restored, but the service could not be restarted."
+        log "WARNING: previous executable is restored, but it did not reach core readiness."
+        root_run systemctl --no-pager --full status r2-3po.service || true
+        root_run journalctl -u r2-3po.service -n 100 --no-pager || true
         return 1
     fi
 }
@@ -167,27 +192,14 @@ fi
 
 # Type=simple becomes active before ExecStart finishes its dependency checks.
 # Require the runner's post-model-check startup message as well as active systemd state.
-ACTIVE=0
-for attempt in $(seq 1 75); do
-    if root_run systemctl is-active --quiet r2-3po.service &&
-       root_run journalctl -u r2-3po.service --since "$STARTED_AT" -o cat --no-pager 2>/dev/null |
-           grep -Fq "Starting R2 with private clock"; then
-        ACTIVE=1
-        break
-    fi
-    if root_run systemctl is-failed --quiet r2-3po.service; then
-        break
-    fi
-    sleep 1
-done
-if [[ "$ACTIVE" -ne 1 ]]; then
+if ! wait_for_core_ready "$STARTED_AT"; then
     root_run systemctl --no-pager --full status r2-3po.service || true
     root_run journalctl -u r2-3po.service -n 100 --no-pager || true
     rollback_previous_executable || log "WARNING: automatic executable rollback/restart was incomplete."
     fail "R2 did not reach active state. The previous executable was restored when available; inspect the service logs before retrying deployment."
 fi
 
-log "R2 is active and enabled for boot."
+log "R2 core initialization was observed; service is active and enabled for boot."
 root_run systemctl --no-pager --full status r2-3po.service || true
 log "Live logs: journalctl -u r2-3po.service -f"
 log "Stop cleanly: sudo systemctl stop r2-3po.service"
