@@ -23,6 +23,7 @@ required = {
     "Autonomous reflection uses the background scheduler": "previous_background_mode = ollama_background_mode",
     "cgroup RAM reads distinguish zero from unreadable": "static unsigned long long read_uint_file(const char *path, int *valid)",
     "cgroup RAM exhaustion forces minimal headroom": "(!cgroup_used_valid || cgroup_used >= cgroup_max)",
+    "unlimited cgroup v1 sentinel is not treated as real headroom": "v1_max < (1ULL << 60)",
 }
 for label, needle in required.items():
     if needle not in core:
