@@ -115,6 +115,8 @@ static pthread_mutex_t ollama_request_lock = PTHREAD_MUTEX_INITIALIZER;
 /* Foreground conversations can interrupt background Ollama bookkeeping. */
 static atomic_int foreground_ollama_waiting = ATOMIC_VAR_INIT(0);
 static _Thread_local int ollama_background_mode = 0;
+/* Original user query for the active contextual conversation request. */
+static _Thread_local const char *ollama_authoritative_user_query = NULL;
 static pthread_mutex_t post_turn_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t post_turn_cond = PTHREAD_COND_INITIALIZER;
 static unsigned int post_turn_active = 0;
@@ -3009,16 +3011,50 @@ static char *ollama_chat_with_limit(
      * without ever sending the actual question back to the model.
      */
     size_t current_user_index = SIZE_MAX;
+    size_t fallback_user_index = SIZE_MAX;
+    const char *authoritative_query = ollama_authoritative_user_query;
     for (size_t i = count; i > 0; --i) {
         size_t index = i - 1;
-        if (msgs[index].role && !strcmp(msgs[index].role, "user")) {
+        if (!msgs[index].role || strcmp(msgs[index].role, "user") != 0)
+            continue;
+        if (fallback_user_index == SIZE_MAX)
+            fallback_user_index = index;
+
+        const char *content = msgs[index].content ? msgs[index].content : "";
+        if (authoritative_query && strcmp(content, authoritative_query) == 0) {
             current_user_index = index;
             break;
         }
+
+        /* Retrieval wraps the actual query with explicit boundary markers. */
+        if (authoritative_query && *authoritative_query) {
+            const char *begin_marker = "----- BEGIN CURRENT USER MESSAGE -----\n";
+            const char *end_marker = "----- END CURRENT USER MESSAGE -----";
+            const char *begin = strstr(content, begin_marker);
+            const char *end = begin
+                ? strstr(begin + strlen(begin_marker), end_marker) : NULL;
+            if (begin && end) {
+                begin += strlen(begin_marker);
+                size_t wrapped_length = (size_t)(end - begin);
+                if (wrapped_length == strlen(authoritative_query) &&
+                    memcmp(begin, authoritative_query, wrapped_length) == 0) {
+                    current_user_index = index;
+                    break;
+                }
+            }
+        }
     }
+    if (current_user_index == SIZE_MAX)
+        current_user_index = fallback_user_index;
 
     size_t current_user_reserve = 1500;
-    if (current_user_index != SIZE_MAX) {
+    if (authoritative_query && *authoritative_query) {
+        size_t query_length = strlen(authoritative_query);
+        if (query_length > OLLAMA_MAX_MESSAGE_CHARS)
+            query_length = OLLAMA_MAX_MESSAGE_CHARS;
+        if (query_length > current_user_reserve)
+            current_user_reserve = query_length;
+    } else if (current_user_index != SIZE_MAX) {
         const char *current_content = msgs[current_user_index].content
             ? msgs[current_user_index].content : "";
         size_t current_length = strlen(current_content);
@@ -3758,6 +3794,8 @@ static char *chat_with_relevant_memories(
 
     free(memory_context);
 
+    const char *previous_authoritative_query = ollama_authoritative_user_query;
+    ollama_authoritative_user_query = query;
     char *reply =
         ollama_chat_with_limit(
             copy,
@@ -3780,6 +3818,7 @@ static char *chat_with_relevant_memories(
             conversation_reply_token_budget(query),
             2700L
         );
+    ollama_authoritative_user_query = previous_authoritative_query;
 
     /* Ollama's content field can occasionally include private reasoning tags.
        Sanitize only the user-facing conversation result, not structured
