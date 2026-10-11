@@ -244,7 +244,7 @@ Ollama requests are serialized. Foreground conversations take priority over oppo
 
 If the text model returns a recognizable failure that labels an ordinary typed message as unintelligible audio/noise instead of answering it, R2 makes one bounded corrective attempt with the original conversation, retrieved context, and exact active user turn retained. Normal replies do not incur an extra model call. The retry is a targeted safeguard, not a general semantic guarantee. If the retry fails or repeats the same recognizable misclassification, R2 discards that draft and asks an honest clarification; real-world response quality must still be checked on the host.
 
-Foreground conversation and its corrective retry use a 45-minute request timeout by default. For especially slow local inference, set `R2_OLLAMA_TIMEOUT_SECONDS` before launching R2 to choose a timeout from 30 seconds up to 6 hours; for example, `export R2_OLLAMA_TIMEOUT_SECONDS=14400` allows up to four hours per request. Invalid values fall back to the default. This changes the wait limit, not model speed, and shutdown can still interrupt an in-flight request.
+Foreground conversation and its corrective retry allow up to four hours per request by default to accommodate very slow local inference. Set `R2_OLLAMA_TIMEOUT_SECONDS` before launching R2 to choose a timeout from 30 seconds up to 6 hours; for example, `export R2_OLLAMA_TIMEOUT_SECONDS=2700` sets a 45-minute limit. Invalid values fall back to the four-hour default. This changes the wait limit, not model speed, and shutdown can still interrupt an in-flight request.
 
 ## Overnight service (start at boot and recover from crashes)
 
