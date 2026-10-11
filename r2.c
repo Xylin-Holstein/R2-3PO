@@ -2767,14 +2767,14 @@ static char *ollama_chat_with_limit(
      * snapshot, then any other system/archive context. Otherwise old pinned
      * memory blocks can crowd the refreshed hunger/world state out entirely.
      */
-    for (int priority = 0; priority < 3 &&
+    for (int priority = 0; priority < 5 &&
          total_chars < OLLAMA_MAX_SYSTEM_TOTAL_CHARS; ++priority) {
         for (size_t i = 0; i < count &&
              total_chars < OLLAMA_MAX_SYSTEM_TOTAL_CHARS; ++i) {
             if (!msgs[i].role || strcmp(msgs[i].role, "system") != 0)
                 continue;
             const char *content = msgs[i].content ? msgs[i].content : "";
-            int message_priority = 2;
+            int message_priority = 4;
             if (!strncmp(content,
                          "============================================================\nIDENTITY AND PERSISTENT MEMORY",
                          strlen("============================================================\nIDENTITY AND PERSISTENT MEMORY")))
@@ -2782,16 +2782,20 @@ static char *ollama_chat_with_limit(
             else if (!strncmp(content, "PERSISTENT REALITY CONTEXT",
                               strlen("PERSISTENT REALITY CONTEXT")))
                 message_priority = 1;
+            else if (!strncmp(content, "CURRENT TURN RETRIEVED CONTEXT",
+                              strlen("CURRENT TURN RETRIEVED CONTEXT")))
+                message_priority = 2;
             else if (!strncmp(content, "PERSISTENT LEARNING CONTEXT",
                               strlen("PERSISTENT LEARNING CONTEXT")))
-                message_priority = 1;
+                message_priority = 3;
             if (message_priority != priority) continue;
 
             size_t length = strlen(content);
             if (length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS)
                 length = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;
-            /* Reserve a little system budget for pinned memory after the live snapshot. */
-            if (message_priority == 1 && length > 6000)
+            /* Bound large Reality, current-turn, and learning blocks so later
+               priority classes still receive a usable portion of the system budget. */
+            if (message_priority >= 1 && message_priority <= 3 && length > 6000)
                 length = 6000;
             size_t remaining = OLLAMA_MAX_SYSTEM_TOTAL_CHARS - total_chars;
             if (length > remaining) length = remaining;
