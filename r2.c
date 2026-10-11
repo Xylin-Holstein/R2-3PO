@@ -8374,9 +8374,13 @@ static char *r2_talk_impl(const char *message)
  */
 char *r2_talk(const char *message)
 {
+    /* Announce foreground intent before waiting for the turn lock. Background
+       inference/actions can then yield even while this caller is queued. */
+    atomic_fetch_add(&foreground_ollama_waiting, 1);
     pthread_mutex_lock(&conversation_turn_lock);
     char *reply = r2_talk_impl(message);
     pthread_mutex_unlock(&conversation_turn_lock);
+    atomic_fetch_sub(&foreground_ollama_waiting, 1);
     return reply;
 }
 
