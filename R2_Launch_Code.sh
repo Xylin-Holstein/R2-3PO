@@ -528,8 +528,22 @@ fi
 # START R2 WITH ITS PRIVATE CLOCK
 # ------------------------------------------------------------
 
-sudo -u r2 -g r2 -G "$R2_RUNTIME_GROUPS" \
+R2_UID="$(id -u r2)"
+R2_GID="$(id -g r2)"
+R2_HOME_DIR="$(getent passwd r2 | cut -d: -f6)"
+if [[ ! "$R2_UID" =~ ^[0-9]+$ || ! "$R2_GID" =~ ^[0-9]+$ || -z "$R2_HOME_DIR" ]]; then
+    echo "ERROR: Could not resolve the dedicated r2 account identity."
+    exit 1
+fi
+
+# Ubuntu sudo-rs does not support sudo's traditional -G option. Run setpriv
+# with elevated privilege only long enough to set supplementary groups, then
+# drop UID/GID before starting R2. No permanent account/group changes occur.
+sudo -n setpriv --reuid="$R2_UID" --regid="$R2_GID" --groups="$R2_RUNTIME_GROUPS" -- \
     env \
+    HOME="$R2_HOME_DIR" \
+    USER="r2" \
+    LOGNAME="r2" \
     DISPLAY="${DISPLAY:-}" \
     XAUTHORITY="${XAUTHORITY:-}" \
     LD_PRELOAD="$FAKETIME_LIB" \
