@@ -43,6 +43,8 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn("VLC or python3-vlc is unavailable", source)
         self.assertIn("Tkinter is unavailable", source)
         self.assertIn("/api/tags", source)
+        self.assertIn("--max-time 1", source)
+        self.assertIn("    sleep 1\ndone", source)
         self.assertIn("LD_PRELOAD", source)
         self.assertIn("FAKETIME_DONT_RESET=1", source)
         self.assertIn("R2_SERVICE_MODE=1", source)
