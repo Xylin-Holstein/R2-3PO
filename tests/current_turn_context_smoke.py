@@ -26,11 +26,12 @@ require(
 )
 require(
     'char *context_role = strdup("system");' in builder
-    and "memmove(&copy[user_index + 1], &copy[user_index]" in builder,
-    "retrieved evidence is inserted as a separate system message before the active user turn",
+    and "Insert after any leading system context, before dialogue begins." in builder
+    and "memmove(&copy[context_index + 1], &copy[context_index]" in builder,
+    "retrieved evidence is inserted with leading system context, never mid-dialogue",
 )
 require(
-    "copy[user_index].content = context_content;" in builder
+    "copy[context_index].content = context_content;" in builder
     and '"CURRENT USER MESSAGE (authoritative):' not in builder
     and "----- BEGIN CURRENT USER MESSAGE -----" not in builder,
     "the user's original text stays byte-for-byte intact instead of being wrapped in context",
