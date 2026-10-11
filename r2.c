@@ -7238,9 +7238,11 @@ static int autonomous_needs_action_still_needed(const char *action)
         ? strtod(hunger_field + strlen("Hunger: "), &hunger_end) : -1.0;
     double sleepiness = sleepiness_field
         ? strtod(sleepiness_field + strlen("Sleepiness: "), &sleepiness_end) : -1.0;
-    int valid_hunger = hunger_field && hunger_end != hunger_field + strlen("Hunger: ");
+    int valid_hunger = hunger_field &&
+        hunger_end != hunger_field + strlen("Hunger: ") && isfinite(hunger);
     int valid_sleepiness = sleepiness_field &&
-        sleepiness_end != sleepiness_field + strlen("Sleepiness: ");
+        sleepiness_end != sleepiness_field + strlen("Sleepiness: ") &&
+        isfinite(sleepiness);
     free(status);
 
     if (is_food_action)
