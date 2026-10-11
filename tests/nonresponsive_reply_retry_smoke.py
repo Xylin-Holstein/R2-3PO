@@ -46,7 +46,7 @@ require(
     "empty sanitized replies also receive one corrective retry",
 )
 require(
-    "r2_reply_misclassifies_plain_text(query, reply ? reply : \\"\\"))" in core,
+    'r2_reply_misclassifies_plain_text(query, reply ? reply : "")' in core,
     "recognized text misclassification triggers the retry",
 )
 require(
