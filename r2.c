@@ -3682,20 +3682,10 @@ static char *chat_with_relevant_memories(
     const char *query)
 {
     /*
-       Preserve the original conversational message structure.
-
-       Retrieved memories are temporary context for the current
-       exchange. They are NOT added as another conversational turn.
-
-       The old/current user message remains the actual user turn:
-           previous conversation
-           -> retrieved memory context inside that turn
-           -> current user message
-
-       This avoids creating an artificial consecutive USER message,
-       which can change how llama3 interprets the conversation and
-       can suppress natural conversational behavior.
-
+       Preserve the user's original message as an actual user turn.
+       Historical memory and Life Log evidence is a separate, bounded system
+       context message placed immediately before that user turn. Live Reality
+       is refreshed separately, and live visual evidence is never cached here.
        The permanent conversation is never modified by retrieval.
     */
 
