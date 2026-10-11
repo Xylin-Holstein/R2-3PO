@@ -61,6 +61,7 @@
 #define OLLAMA_MAX_SYSTEM_MESSAGE_CHARS 20000
 #define OLLAMA_MAX_SYSTEM_TOTAL_CHARS 28000
 #define OLLAMA_MAX_TOTAL_CHARS 48000
+#define OLLAMA_RECOVERY_MAX_TOTAL_CHARS 36000
 /*
  * Match the bounded message payload with an explicit Ollama context window.
  * Without this, Ollama's server default can be smaller than the combined
@@ -139,6 +140,8 @@ static pthread_mutex_t ollama_request_lock = PTHREAD_MUTEX_INITIALIZER;
 /* Foreground conversations can interrupt background Ollama bookkeeping. */
 static atomic_int foreground_ollama_waiting = ATOMIC_VAR_INIT(0);
 static _Thread_local int ollama_background_mode = 0;
+/* One smaller foreground retry can recover from oversized/slow inference prompts. */
+static _Thread_local int ollama_recovery_mode = 0;
 static pthread_mutex_t post_turn_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t post_turn_cond = PTHREAD_COND_INITIALIZER;
 static unsigned int post_turn_active = 0;
@@ -2797,6 +2800,8 @@ static char *ollama_chat_with_limit(
         return NULL;
     }
 
+    size_t max_total_chars = ollama_recovery_mode
+        ? OLLAMA_RECOVERY_MAX_TOTAL_CHARS : OLLAMA_MAX_TOTAL_CHARS;
     size_t total_chars = 0;
     /*
      * Priority matters when the system-context budget is reached. Keep the
@@ -2857,8 +2862,8 @@ static char *ollama_chat_with_limit(
         size_t length = strlen(content);
         if (length > OLLAMA_MAX_MESSAGE_CHARS)
             length = OLLAMA_MAX_MESSAGE_CHARS;
-        if (total_chars + payload_reserve >= OLLAMA_MAX_TOTAL_CHARS) break;
-        size_t remaining = OLLAMA_MAX_TOTAL_CHARS - total_chars - payload_reserve;
+        if (total_chars + payload_reserve >= max_total_chars) break;
+        size_t remaining = max_total_chars - total_chars - payload_reserve;
         if (length > remaining) length = remaining;
         if (length == 0) continue;
         include[index] = 1;
@@ -3488,6 +3493,10 @@ static char *chat_with_relevant_memories(
 
     free(memory_context);
 
+    int reply_tokens = conversation_reply_token_budget(query);
+    if (ollama_recovery_mode)
+        reply_tokens = reply_tokens > 512 ? reply_tokens / 2 : 256;
+
     char *reply =
         ollama_chat_with_limit(
             copy,
@@ -3508,7 +3517,7 @@ static char *chat_with_relevant_memories(
             "SOUND EFFECTS: Rarely, when a short nonverbal droid sound naturally adds meaning, you may include one hidden control marker: "
             "[R2_SOUND:beep:STATE] or [R2_SOUND:whistle:STATE]. Choose a state tag only when supported by this turn or current Reality evidence; the tag is a sound-selection hint, not a claim that R2 has a hidden emotional state. Use sleepy or hungry only when the current modeled need actually supports it; use alert for a concrete noteworthy event, greeting for a greeting, and curious/thinking only when the response genuinely reflects curiosity or deliberation. Do not infer a need from the topic alone, use sounds to imply an unsupported physical event, or force a tag onto routine replies. Prefer no marker when the fit is unclear. "
             "Do not emit a marker on routine replies, do not explain it, and never write a marker as visible prose. The runtime removes it and selects a matching existing named MP3.",
-            conversation_reply_token_budget(query),
+            reply_tokens,
             2700L
         );
 
@@ -7290,11 +7299,15 @@ static char *r2_talk_impl(const char *message)
         /* First generation failed. Refresh live Reality context and rebuild the
            memory/history-augmented prompt once before giving up on this turn. */
         r2_log_event(R2_LOG_SYSTEM, "conversation_generation_retry",
-                     "R2's first contextual response attempt failed; refreshing context and retrying once.",
-                     "The original user turn remains in memory; the refreshed attempt rebuilds relevant context from the current message and available memories.",
+                     "R2's first contextual response attempt failed; refreshing context and retrying once with a smaller request budget.",
+                     "The original user turn remains in memory; the retry keeps the full system-context priority order and current turn, while limiting recent-history payload and generated tokens.",
                      "r2_talk");
+        fprintf(stderr, "[R2 Ollama] First conversation attempt failed; retrying once with a reduced payload/output budget.\\n");
         (void)refresh_reality_context_message();
+        int previous_recovery_mode = ollama_recovery_mode;
+        ollama_recovery_mode = 1;
         reply = chat_with_relevant_memories(message);
+        ollama_recovery_mode = previous_recovery_mode;
     }
     if (!reply) {
         message_rollback_turn(message);
