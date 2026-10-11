@@ -21,6 +21,8 @@ required = {
     "Current-turn reserve prevents old context crowding it out": "size_t current_user_reserve = 1500;",
     "Live history has a byte ceiling": "#define MAX_LIVE_MESSAGE_BYTES (32U * 1024U * 1024U)",
     "Autonomous reflection uses the background scheduler": "previous_background_mode = ollama_background_mode",
+    "cgroup RAM reads distinguish zero from unreadable": "static unsigned long long read_uint_file(const char *path, int *valid)",
+    "cgroup RAM exhaustion forces minimal headroom": "(!cgroup_used_valid || cgroup_used >= cgroup_max)",
 }
 for label, needle in required.items():
     if needle not in core:
