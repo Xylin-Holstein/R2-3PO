@@ -58,8 +58,13 @@ try:
     with sqlite3.connect("file:" + path + "?mode=ro", uri=True, timeout=2) as db:
         row = db.execute("SELECT COALESCE(MAX(id), 0) FROM r2_log_events").fetchone()
         print(int(row[0] or 0))
+except sqlite3.OperationalError as exc:
+    if "no such table" in str(exc).lower():
+        print(0)
+    else:
+        sys.exit(1)
 except sqlite3.Error:
-    print(0)
+    sys.exit(1)
 ' "$R2_SOURCE/r2_memory.db"
 }
 
