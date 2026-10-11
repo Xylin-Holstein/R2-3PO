@@ -294,24 +294,39 @@ echo
 # The user's normal Linux environment is untouched.
 # ------------------------------------------------------------
 
-REAL_NOW=$(date '+%Y-%m-%d %H:%M:%S')
-
-CURRENT_MONTH=$(date '+%m')
-CURRENT_DAY=$(date '+%d')
-CURRENT_HOUR=$(date '+%H')
-CURRENT_MINUTE=$(date '+%M')
-CURRENT_SECOND=$(date '+%S')
+# Capture one host epoch so a midnight boundary cannot mix date fields.
+REAL_EPOCH="$(date '+%s')"
+if [[ ! "$REAL_EPOCH" =~ ^-?[0-9]+$ ]]; then
+    echo "ERROR: Could not read the real system epoch."
+    echo "R2 was NOT launched."
+    exit 1
+fi
+REAL_NOW="$(date -d "@$REAL_EPOCH" '+%Y-%m-%d %H:%M:%S')"
+CURRENT_MONTH="$(date -d "@$REAL_EPOCH" '+%m')"
+CURRENT_DAY="$(date -d "@$REAL_EPOCH" '+%d')"
+CURRENT_HOUR="$(date -d "@$REAL_EPOCH" '+%H')"
+CURRENT_MINUTE="$(date -d "@$REAL_EPOCH" '+%M')"
+CURRENT_SECOND="$(date -d "@$REAL_EPOCH" '+%S')"
 
 R2_START="1999-${CURRENT_MONTH}-${CURRENT_DAY} ${CURRENT_HOUR}:${CURRENT_MINUTE}:${CURRENT_SECOND}"
-
-REAL_EPOCH=$(date -d "$REAL_NOW" '+%s')
-R2_EPOCH=$(date -d "$R2_START" '+%s')
-
-if [ -z "$REAL_EPOCH" ] || [ -z "$R2_EPOCH" ]; then
+if ! R2_EPOCH="$(date -d "$R2_START" '+%s' 2>/dev/null)"; then
+    # 1999 was not a leap year. Map Feb 29 to Mar 1 instead of failing startup.
+    if [[ "${CURRENT_MONTH}${CURRENT_DAY}" == "0229" ]]; then
+        R2_START="1999-03-01 ${CURRENT_HOUR}:${CURRENT_MINUTE}:${CURRENT_SECOND}"
+        R2_EPOCH="$(date -d "$R2_START" '+%s')" || {
+            echo "ERROR: Could not calculate R2 virtual time."
+            echo "R2 was NOT launched."
+            exit 1
+        }
+    else
+        echo "ERROR: Could not calculate R2 virtual time."
+        echo "R2 was NOT launched."
+        exit 1
+    fi
+fi
+if [[ ! "$R2_EPOCH" =~ ^-?[0-9]+$ ]]; then
     echo "ERROR: Could not calculate R2 virtual time."
-    echo
     echo "R2 was NOT launched."
-    read -p "Press Enter to exit..."
     exit 1
 fi
 
