@@ -4263,7 +4263,7 @@ static int r2_history_keyword_is_low_signal(const char *word)
 
     static const char *const low_signal[] = {
         "hello", "hi", "hey", "r2", "speaking", "there", "here",
-        "actually", "really", "just", "also", "fully", "thing", "things"
+        "actually", "really", "just", "also", "fully", "know", "thing", "things"
     };
     for (size_t i = 0; i < sizeof(low_signal) / sizeof(low_signal[0]); ++i) {
         if (!strcasecmp(word, low_signal[i]))
