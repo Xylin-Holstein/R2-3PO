@@ -19,6 +19,7 @@
 #define MAX_TASK_OUTPUT 20000
 #define MAX_COMMAND 2000
 #define MAX_MESSAGES 2000
+#define MAX_LIVE_MESSAGE_BYTES (32U * 1024U * 1024U)
 
 /*
    Persistent memory architecture:
@@ -617,50 +618,55 @@ static int message_add_ex(
     }
 
     /*
-       When the conversation reaches MAX_MESSAGES, remove the
-       oldest NON-PINNED message.
-
-       The system prompt, archived historical context, and startup
-       memory context remain protected.
+       Bound live in-process history by both count and bytes. Pinned core
+       instructions/archive/memory are protected; old conversational turns
+       are evicted because the durable Life Log and persistent memory remain
+       the long-term record. This prevents large outputs from growing RAM
+       without bound over an overnight session.
     */
+    size_t live_bytes = 0;
+    for (size_t i = 0; i < messages.count; ++i) {
+        live_bytes += strlen(messages.items[i].role ? messages.items[i].role : "") + 1;
+        live_bytes += strlen(messages.items[i].content ? messages.items[i].content : "") + 1;
+    }
+    size_t new_bytes = strlen(role_copy) + strlen(content_copy) + 2;
+    if (new_bytes > MAX_LIVE_MESSAGE_BYTES) {
+        free(role_copy);
+        free(content_copy);
+        fprintf(stderr, "[R2 memory] Refusing a single live message larger than the %u-byte RAM guard.\n",
+                (unsigned)MAX_LIVE_MESSAGE_BYTES);
+        return -1;
+    }
 
-    if (messages.count >= MAX_MESSAGES) {
-
+    while (messages.count >= MAX_MESSAGES ||
+           live_bytes > MAX_LIVE_MESSAGE_BYTES - new_bytes) {
         size_t remove_index = SIZE_MAX;
-
-        for (size_t i = 0;
-             i < messages.count;
-             ++i) {
-
+        for (size_t i = 0; i < messages.count; ++i) {
             if (!messages.items[i].pinned) {
                 remove_index = i;
                 break;
             }
         }
 
-        /*
-           If absolutely everything is pinned, there is no safe
-           message to evict. Do not destroy architectural context.
-        */
+        /* Never evict architectural context to satisfy a memory cap. */
         if (remove_index == SIZE_MAX) {
             free(role_copy);
             free(content_copy);
+            fprintf(stderr, "[R2 memory] Pinned context already occupies the live-history budget; refusing another message.\n");
             return -1;
         }
 
+        live_bytes -= strlen(messages.items[remove_index].role ?
+                             messages.items[remove_index].role : "") + 1;
+        live_bytes -= strlen(messages.items[remove_index].content ?
+                             messages.items[remove_index].content : "") + 1;
         free(messages.items[remove_index].role);
         free(messages.items[remove_index].content);
-
         if (remove_index + 1 < messages.count) {
-
-            memmove(
-                messages.items + remove_index,
-                messages.items + remove_index + 1,
-                (messages.count - remove_index - 1) *
-                sizeof(Message)
-            );
+            memmove(messages.items + remove_index,
+                    messages.items + remove_index + 1,
+                    (messages.count - remove_index - 1) * sizeof(Message));
         }
-
         messages.count--;
     }
 
