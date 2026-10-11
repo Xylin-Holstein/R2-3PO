@@ -71,7 +71,7 @@
    SHELL STATE
    ============================================================ */
 
-static volatile sig_atomic_t shell_shutdown = 0;
+static atomic_int shell_shutdown = ATOMIC_VAR_INIT(0);
 
 static int shell_running = 0;
 static int watch_running = 0;
@@ -2397,6 +2397,11 @@ static int shell_dispatch(char *input)
 
 int r2_shell_run(void)
 {
+    if (!atomic_is_lock_free(&shell_shutdown)) {
+        fprintf(stderr, "[R2 Shell] Atomic shutdown flag is not lock-free; refusing unsafe signal handling.\n");
+        return -1;
+    }
+
     char *line = NULL;
     size_t capacity = 0;
     sigset_t service_signals, original_mask, wait_mask;
