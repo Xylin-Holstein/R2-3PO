@@ -7217,26 +7217,30 @@ static int autonomous_needs_action_allowed(const char *action)
            (command_len == 5 && !strncmp(command, "sleep", 5));
 }
 
-/* Re-check hunger immediately before executing a model-selected meal.
- * The model's prompt is a snapshot; foreground actions may have changed needs
- * while inference was running. Fail closed if authoritative status is unreadable. */
-static int autonomous_food_action_still_needed(const char *action)
+/* Re-check the authoritative need immediately before executing a model
+ * action. The prompt is only a snapshot; a foreground turn may have changed
+ * hunger or sleepiness while inference was running. Fail closed on missing state. */
+static int autonomous_needs_action_still_needed(const char *action)
 {
     if (!action) return 0;
     int is_food_action =
         strstr(action, "[WORLD] eat|") != NULL ||
         strstr(action, "[WORLD] fridge_eat|") != NULL;
-    if (!is_food_action) return 1;
+    int is_sleep_action = strstr(action, "[WORLD] sleep|") != NULL;
+    if (!is_food_action && !is_sleep_action) return 1;
 
     char *status = r2_reality_status();
     if (!status) return 0;
-    const char *field = strstr(status, "Hunger: ");
+    const char *label = is_food_action ? "Hunger: " : "Sleepiness: ";
+    const char *field = strstr(status, label);
     int needed = 0;
     if (field) {
-        field += strlen("Hunger: ");
+        field += strlen(label);
         char *end = NULL;
-        double hunger = strtod(field, &end);
-        if (end != field && hunger >= 50.0)
+        double value = strtod(field, &end);
+        if (end != field &&
+            ((is_food_action && value >= 50.0) ||
+             (is_sleep_action && value >= 85.0)))
             needed = 1;
     }
     free(status);
@@ -7321,9 +7325,9 @@ static void autonomous_needs_check(void)
                 r2_log_event(R2_LOG_WORLD, "autonomous_needs_yielded_to_conversation",
                              "Skipped an autonomous world action because a foreground conversation took priority.",
                              safe_action, "autonomous_needs_check");
-            } else if (!autonomous_food_action_still_needed(safe_action)) {
-                r2_log_event(R2_LOG_WORLD, "autonomous_needs_stale_food_action",
-                             "Ignored a model-selected meal because authoritative hunger no longer met the action threshold.",
+            } else if (!autonomous_needs_action_still_needed(safe_action)) {
+                r2_log_event(R2_LOG_WORLD, "autonomous_needs_stale_action",
+                             "Ignored a model-selected needs action because authoritative hunger or sleepiness no longer met its threshold.",
                              safe_action, "autonomous_needs_check");
                 pthread_mutex_unlock(&conversation_turn_lock);
             } else {
