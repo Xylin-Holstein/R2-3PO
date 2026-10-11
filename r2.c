@@ -41,11 +41,11 @@
 #define MIN_MEMORY_KEYWORD_LENGTH 3
 
 /* Bound prompts for the local Gemma 3 4B model: keep system instructions and recent turns. */
-#define OLLAMA_MAX_RECENT_MESSAGES 48
-#define OLLAMA_MAX_MESSAGE_CHARS 12000
-#define OLLAMA_MAX_SYSTEM_MESSAGE_CHARS 20000
-#define OLLAMA_MAX_SYSTEM_TOTAL_CHARS 32000
-#define OLLAMA_MAX_TOTAL_CHARS 60000
+#define OLLAMA_MAX_RECENT_MESSAGES 16
+#define OLLAMA_MAX_MESSAGE_CHARS 10000
+#define OLLAMA_MAX_SYSTEM_MESSAGE_CHARS 12000
+#define OLLAMA_MAX_SYSTEM_TOTAL_CHARS 20000
+#define OLLAMA_MAX_TOTAL_CHARS 36000
 #define OLLAMA_MAX_RESPONSE_BYTES (16U * 1024U * 1024U)
 
 #define OLLAMA_URL "http://127.0.0.1:11434/api/chat"
@@ -3518,8 +3518,8 @@ static char *ollama_chat_with_limit(
             if (message_priority == 0 && length > identity_budget)
                 length = identity_budget;
             /* Reserve a little system budget for pinned memory after the live snapshot. */
-            if (message_priority == 1 && length > 6000)
-                length = 6000;
+            if (message_priority == 1 && length > 4500)
+                length = 4500;
             size_t remaining = system_budget > total_chars ? system_budget - total_chars : 0;
             if (length > remaining) length = remaining;
             if (length == 0) continue;
@@ -3930,9 +3930,35 @@ static int conversation_reply_token_budget(const char *query)
 }
 
 /*
+ * Detect a clear speaker-identity reversal: the user addresses R2, but the
+ * reply addresses itself as "Hello R2". This is a deterministic symptom of
+ * answering from the wrong conversational perspective, not a semantic
+ * relevance classifier.
+ */
+static int r2_reply_reverses_greeting(const char *query, const char *reply)
+{
+    if (!query || !reply)
+        return 0;
+
+    while (*query && isspace((unsigned char)*query)) ++query;
+    while (*reply && isspace((unsigned char)*reply)) ++reply;
+
+    int user_greets_r2 =
+        !strncasecmp(query, "hello r2", 8) ||
+        !strncasecmp(query, "hi r2", 5) ||
+        !strncasecmp(query, "hey r2", 6);
+    int reply_greets_r2 =
+        !strncasecmp(reply, "hello r2", 8) ||
+        !strncasecmp(reply, "hi r2", 5) ||
+        !strncasecmp(reply, "hey r2", 6);
+
+    return user_greets_r2 && reply_greets_r2;
+}
+
+/*
  * Detect a narrow but damaging class of nonresponsive replies: treating
- * ordinary typed language as unintelligible, or confidently inventing a
- * paraphrase of the user's intent and asking them to confirm it.
+ * ordinary typed language as unintelligible, confidently inventing a
+ * paraphrase of the user's intent, or reversing who is speaking.
  * This is deliberately a phrase-based guard, not a semantic classifier;
  * recognized failures receive one bounded corrective retry.
  */
@@ -3940,6 +3966,9 @@ static int r2_reply_misclassifies_plain_text(const char *query, const char *repl
 {
     if (!query || !reply || strlen(query) < 24)
         return 0;
+
+    if (r2_reply_reverses_greeting(query, reply))
+        return 1;
 
     size_t words = 0;
     int in_word = 0;
@@ -4176,19 +4205,43 @@ static char *r2_retry_direct_answer(Message *messages_copy,
         return NULL;
 
     /*
-     * Preserve the complete R2 identity, reality, privacy, and response-style
-     * prompt during correction; do not inject a system role into dialogue.
+     * A corrective retry must not re-send the entire stale dialogue: the
+     * previous response may have been pulled off-topic by that history, and
+     * on CPU-only hardware a multi-thousand-token retry can take minutes.
+     * Keep only live Reality and focused retrieved evidence, if present,
+     * plus the exact authoritative user turn. The full R2 identity/privacy/
+     * style instructions remain in the system override.
      */
     char *retry_system_prompt = r2_build_retry_system_prompt();
     if (!retry_system_prompt)
         return NULL;
 
+    Message compact_messages[3];
+    size_t compact_count = 0;
+    for (size_t i = 0; i < message_count && compact_count < 2; ++i) {
+        const char *content = messages_copy[i].content;
+        if (!messages_copy[i].role || strcmp(messages_copy[i].role, "system") != 0 ||
+            !content)
+            continue;
+        if (!strncmp(content, "PERSISTENT REALITY CONTEXT",
+                      strlen("PERSISTENT REALITY CONTEXT")) ||
+            !strncmp(content, "CURRENT TURN RETRIEVED CONTEXT",
+                      strlen("CURRENT TURN RETRIEVED CONTEXT"))) {
+            compact_messages[compact_count++] = messages_copy[i];
+        }
+    }
+    compact_messages[compact_count++] = (Message) {
+        .role = "user",
+        .content = (char *)query,
+        .pinned = 0
+    };
+
     fprintf(stderr,
-            "[R2 Conversation] Correcting a misclassified text turn once while preserving the full conversation system prompt and active user turn.\n");
+            "[R2 Conversation] Correcting a nonresponsive turn with a compact current-message retry.\n");
     const char *previous_query = ollama_authoritative_user_query;
     ollama_authoritative_user_query = query;
     char *retry = ollama_chat_with_limit(
-        messages_copy, message_count, retry_system_prompt,
+        compact_messages, compact_count, retry_system_prompt,
         conversation_reply_token_budget(query),
         r2_conversation_timeout_seconds());
     ollama_authoritative_user_query = previous_query;
@@ -4202,8 +4255,8 @@ static char *r2_retry_direct_answer(Message *messages_copy,
  * user explicitly asks about prior conversations or remembered details.
  */
 #define R2_TURN_MEMORY_LIMIT 6
-#define R2_TURN_MEMORY_CHARS 7000
-#define R2_TURN_HISTORY_CHARS 4000
+#define R2_TURN_MEMORY_CHARS 3500
+#define R2_TURN_HISTORY_CHARS 1800
 #define R2_TURN_HISTORY_SEARCHES 2
 #define R2_RECALL_MEMORY_CHARS 14000
 #define R2_RECALL_HISTORY_CHARS 10000
