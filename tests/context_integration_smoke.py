@@ -33,10 +33,18 @@ refresh_end = core.find("\nstatic char *r2_talk_impl", refresh_start)
 if refresh_start < 0 or refresh_end < 0:
     raise SystemExit("Could not locate live conversation context refresh.")
 refresh = core[refresh_start:refresh_end]
-if "append_reality_context(NULL)" not in refresh:
-    raise SystemExit("Live chat turns are not receiving the unified Reality/reward/addiction context.")
-if "char *context = r2_reality_context()" in refresh:
-    raise SystemExit("Live chat is still bypassing the shared learning context.")
+if "char *context = r2_reality_context()" not in refresh or "build_learning_context()" not in refresh:
+    raise SystemExit("Live chat must refresh Reality and learning context as separate system messages.")
+if "append_reality_context(NULL)" in refresh:
+    raise SystemExit("Live chat must not combine unbounded Reality and learning context into one truncatable message.")
+learning_start = core.find("static char *build_learning_context(void)")
+learning_end = core.find("\n/* Refresh Reality and learning", learning_start)
+if learning_start < 0 or learning_end < 0:
+    raise SystemExit("Could not locate the bounded live learning-context builder.")
+learning = core[learning_start:learning_end]
+for source in ("r2_reward_context()", "r2_addiction_report()", "PERSISTENT LEARNING CONTEXT"):
+    if source not in learning:
+        raise SystemExit(f"Live learning context omits {source}")
 
 dream_start = core.find("int r2_sleep_and_dream(double hours)")
 dream_end = core.find("static void autonomous_needs_food_safeguard", dream_start)
