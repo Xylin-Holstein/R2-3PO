@@ -99,7 +99,7 @@ int main(void)
         "SELECT container FROM r2_reality_objects WHERE name='move_failure'",
         -1, &atomic_st, NULL) != SQLITE_OK ||
         sqlite3_step(atomic_st) != SQLITE_ROW ||
-        strcasecmp((const char *)sqlite3_column_text(atomic_st, 0), "pockets") != 0)
+        strcmp((const char *)sqlite3_column_text(atomic_st, 0), "pockets") != 0)
         fail("failed move changed the object's authoritative container");
     sqlite3_finalize(atomic_st);
     atomic_st = NULL;
