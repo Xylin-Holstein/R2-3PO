@@ -502,6 +502,35 @@ static int r2_workspace_path(
  * ============================================================
  */
 
+static int diary_link_column_exists(const char *column)
+{
+    sqlite3_stmt *st = NULL;
+    int found = 0;
+    if (sqlite3_prepare_v2(r2_diary_db, "PRAGMA table_info(r2_diary_entry_links)",
+                           -1, &st, NULL) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            const unsigned char *name = sqlite3_column_text(st, 1);
+            if (name && !strcasecmp((const char *)name, column)) {
+                found = 1;
+                break;
+            }
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    return found;
+}
+
+static int diary_link_ensure_column(const char *column, const char *definition)
+{
+    if (diary_link_column_exists(column)) return SQLITE_OK;
+    char sql[512];
+    int n = snprintf(sql, sizeof(sql),
+                     "ALTER TABLE r2_diary_entry_links ADD COLUMN %s %s;",
+                     column, definition);
+    if (n < 0 || (size_t)n >= sizeof(sql)) return SQLITE_TOOBIG;
+    return sqlite3_exec(r2_diary_db, sql, NULL, NULL, NULL);
+}
+
 int r2_diary_init(void)
 {
     int result;
@@ -690,15 +719,25 @@ int r2_diary_init(void)
         " log_event_id INTEGER,"
         " relationship TEXT NOT NULL DEFAULT 'reflection',"
         " linked_at TEXT NOT NULL,"
-        " memory_indexed INTEGER NOT NULL DEFAULT 0);"
-        "CREATE INDEX IF NOT EXISTS r2_diary_entry_links_event_idx "
-        "ON r2_diary_entry_links(log_event_id);",
+        " memory_indexed INTEGER NOT NULL DEFAULT 0);",
         NULL, NULL, &error_message
     );
     if (result != SQLITE_OK) {
         fprintf(stderr, "[R2 DIARY] Could not create diary linkage table: %s\n",
                 error_message ? error_message : "unknown error");
         sqlite3_free(error_message);
+        return -1;
+    }
+    if (diary_link_ensure_column("log_event_id", "INTEGER") != SQLITE_OK ||
+        diary_link_ensure_column("relationship", "TEXT NOT NULL DEFAULT 'reflection'") != SQLITE_OK ||
+        diary_link_ensure_column("linked_at", "TEXT NOT NULL DEFAULT ''") != SQLITE_OK ||
+        diary_link_ensure_column("memory_indexed", "INTEGER NOT NULL DEFAULT 0") != SQLITE_OK ||
+        sqlite3_exec(r2_diary_db,
+            "CREATE INDEX IF NOT EXISTS r2_diary_entry_links_event_idx "
+            "ON r2_diary_entry_links(log_event_id);",
+            NULL, NULL, NULL) != SQLITE_OK) {
+        fprintf(stderr, "[R2 DIARY] Could not migrate diary linkage schema: %s\n",
+                sqlite3_errmsg(r2_diary_db));
         return -1;
     }
 
