@@ -31,6 +31,9 @@ required = (
     'Observer.py',
     'tools/audit_r2_sound_assets.py',
     'tools/preflight_r2_hardware.sh',
+    'for tool in bash make gcc curl python3 sudo pgrep date find grep cmp',
+    'libfaketime.so.1 is missing',
+    'overnight service installation cannot proceed',
 )
 missing = [item for item in required if item not in script]
 if missing:
