@@ -3250,11 +3250,11 @@ static char *ollama_chat_with_limit(
     /*
      * A very long current turn cannot fit in every adaptive context, but it
      * must never cause the fallback to allocate the entire input window to
-     * system messages. Bound its reservation while retaining at least 1000
-     * characters for system context plus generation/tokenizer overhead.
+     * system messages. Keep at least 1000 characters for system context plus
+     * the existing 500-character safety margin when the window permits it.
      */
-    size_t max_user_reserve = input_budget > 1000
-        ? input_budget - 1000 : input_budget / 2;
+    size_t max_user_reserve = input_budget > 1500
+        ? input_budget - 1500 : input_budget / 2;
     if (current_user_reserve > max_user_reserve)
         current_user_reserve = max_user_reserve;
 
