@@ -84,7 +84,7 @@ class OvernightServiceTests(unittest.TestCase):
         source = (ROOT / "tools/install_r2_overnight.sh").read_text(encoding="utf-8")
         self.assertIn("r2_rewards.db", source)
         self.assertIn("r2_addictions.db", source)
-        self.assertIn("r2.new", source)
+        self.assertIn('TEMP_EXEC="${R2_ROOT}/r2.new.${BASHPID}"', source)
         self.assertIn('mv -f "$TEMP_EXEC" "$R2_EXEC"', source)
         self.assertIn('BACKUP_EXEC="$(mktemp "$R2_ROOT/r2.previous.XXXXXX")"', source)
         self.assertIn('cp "$R2_EXEC" "$BACKUP_EXEC"', source)
