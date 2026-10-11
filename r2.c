@@ -4288,6 +4288,29 @@ static char *r2_retry_direct_answer(Message *messages_copy,
 #define R2_RECALL_HISTORY_CHARS 10000
 #define R2_RECALL_HISTORY_SEARCHES 4
 
+/*
+ * Greeting/address tokens are useful for understanding the current turn,
+ * but poor Life Log search keys. Searching "hello" and "R2" first can pull
+ * unrelated old greetings into a message that actually discusses Mother,
+ * missing each other, a room, or objects. Keep those tokens in the real
+ * user message; only omit them from historical-event retrieval.
+ */
+static int r2_history_keyword_is_low_signal(const char *word)
+{
+    if (!word || !*word)
+        return 1;
+
+    static const char *const low_signal[] = {
+        "hello", "hi", "hey", "r2", "speaking", "there", "here",
+        "actually", "really", "just", "also", "fully", "thing", "things"
+    };
+    for (size_t i = 0; i < sizeof(low_signal) / sizeof(low_signal[0]); ++i) {
+        if (!strcasecmp(word, low_signal[i]))
+            return 1;
+    }
+    return 0;
+}
+
 static int r2_query_explicitly_requests_recall(const char *query)
 {
     if (!query || !*query)
@@ -4384,7 +4407,7 @@ static char *chat_with_relevant_memories(
 
         for (size_t k = 0; history && k < keyword_count &&
              searches < history_search_limit; ++k) {
-            if (!keywords[k][0] ||
+            if (r2_history_keyword_is_low_signal(keywords[k]) ||
                 !strcasecmp(keywords[k], "movie") ||
                 !strcasecmp(keywords[k], "video") ||
                 !strcasecmp(keywords[k], "watch") ||
