@@ -13,7 +13,7 @@ addiction = (ROOT / "Addiction.c").read_text(encoding="utf-8")
 alternate_self = (ROOT / "AlternateSelf.c").read_text(encoding="utf-8")
 
 required = {
-    "RAM-aware context selection": "static int ollama_context_tokens(void)",
+    "RAM-aware context selection": "int r2_ollama_context_tokens(void)",
     "Ollama receives explicit context length": '"num_ctx", json_object_new_int(num_ctx)',
     "Output budget is capped to context headroom": "if (num_predict > max_predict) num_predict = max_predict;",
     "Legacy memories are migrated additively": "static int migrate_memory_schema(void)",
@@ -25,6 +25,11 @@ required = {
 for label, needle in required.items():
     if needle not in core:
         raise SystemExit(f"Missing runtime headroom safeguard: {label}")
+
+if "int r2_ollama_context_tokens(void);" not in (ROOT / "r2.h").read_text(encoding="utf-8"):
+    raise SystemExit("Shared RAM-aware context sizing must be part of the core interface.")
+if "int num_ctx = r2_ollama_context_tokens();" not in visual:
+    raise SystemExit("Vision must use the shared RAM-aware context selector.")
 
 reflection_start = core.find("static void *autonomous_thinking(")
 reflection_end = core.find("/* ============================================================", reflection_start + 40)
