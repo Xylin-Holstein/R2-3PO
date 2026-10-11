@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 import signal
+import socket
+import sqlite3
 import subprocess
 import tempfile
 import time
@@ -74,6 +76,34 @@ def main() -> int:
                     process.kill()
                     process.wait(timeout=5)
                 raise AssertionError("R2 did not reach ONLINE in isolated service mode.\n" + startup_log[-12000:])
+
+            # Exercise the real Unix-socket -> C shell -> Life Log media bridge.
+            socket_path = home / "tv-control.sock"
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+                client.settimeout(3.0)
+                client.connect(str(socket_path))
+                client.sendall(b"media vcr_playback_started|/tmp/audit-film.mp4\\n")
+                response_chunks = []
+                while True:
+                    chunk = client.recv(4096)
+                    if not chunk:
+                        break
+                    response_chunks.append(chunk)
+            response = b"".join(response_chunks).decode("utf-8", errors="replace")
+            if not response.startswith("OK media event recorded"):
+                process.send_signal(signal.SIGTERM)
+                process.wait(timeout=20)
+                raise AssertionError(f"Media event socket command failed: {response!r}")
+
+            with sqlite3.connect(f"file:{home / 'r2_memory.db'}?mode=ro", uri=True, timeout=5.0) as db:
+                row = db.execute(
+                    "SELECT summary FROM r2_log_events WHERE event_type=? AND summary LIKE ? ORDER BY id DESC LIMIT 1",
+                    ("vcr_playback_started", "%/tmp/audit-film.mp4%"),
+                ).fetchone()
+            if row is None:
+                process.send_signal(signal.SIGTERM)
+                process.wait(timeout=20)
+                raise AssertionError("VCR playback event was not persisted to the Life Log.")
 
             process.send_signal(signal.SIGTERM)
             try:
