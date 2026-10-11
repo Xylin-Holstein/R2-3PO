@@ -1827,7 +1827,7 @@ char *r2_reality_context(void)
     char *out=malloc(n);
     if(out)snprintf(out,n,
         "PERSISTENT REALITY CONTEXT (authoritative database state; do not invent changes):\n"
-        "%s\n%s\n%s\n%s\n%s\nRECENT LIFE LOG EVIDENCE (events and observations; not automatically current):\n%s\nRECENT VISUAL EXPERIENCES (actual stored observations; not necessarily current):\n%s\nSELF-CONTINUITY FACTS:\n%s\nCOLLECTION MEMORIES (precision intentionally fades; not current inventory):\n%s\nLEARNED FOOD/INGREDIENT PREFERENCES (subjective scores):\n%s\nRECENT RATED FOOD EXPERIENCES:\n%s\nAVAILABLE FOOD METRICS:\n%s\n"
+        "%s\n%s\n%s\n%s\n%s\nRECENT LIFE LOG EVIDENCE (events and observations; not automatically current):\n%s\nRECENT VISUAL EXPERIENCES (actual stored observations; not necessarily current):\n%s\nRECENT SELF-CONTINUITY FACTS (up to 40 newest; older facts remain stored):\n%s\nCOLLECTION MEMORIES (precision intentionally fades; not current inventory):\n%s\nLEARNED FOOD/INGREDIENT PREFERENCES (top 24 by average rating; full history remains stored):\n%s\nRECENT RATED FOOD EXPERIENCES:\n%s\nAVAILABLE FOOD METRICS:\n%s\n"
         "WORLD ACTIONS: Put one action on its own line. Use [WORLD] look to inspect the room; "
         "[WORLD] add|name|description|container|quantity to collect/add a stack (adds to an existing stack and records a collection memory); "
         "[WORLD] move|name|container to relocate an existing item without counting a new collection; [WORLD] remove|name to remove it; "
