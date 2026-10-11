@@ -226,6 +226,12 @@ int main(void)
         fail("could not add zero-fullness tracked item to pockets");
     if (r2_reality_add_item("burger", "Explicit regression-test food", "pockets", 2) != 0)
         fail("could not add explicit tracked food to pockets");
+    if (r2_reality_add_item("unlisted_food", "No configured food metric", "pockets", 1) != 0)
+        fail("could not add an ordinary unlisted object to pockets");
+    if (r2_reality_add_item("unlisted_food", "No configured food metric", "fridge", 1) == 0)
+        fail("unlisted item must not become nutritious fridge stock by default");
+    if (r2_reality_move_item("unlisted_food", "fridge") == 0)
+        fail("moving an unconfigured item into the fridge must not invent nutrition");
     if (r2_reality_eat("zero_fullness", -1.0) == 0)
         fail("zero-fullness tracked stock must not count as a meal");
     if (r2_reality_eat("zero_fullness", 50.0) == 0)
@@ -289,6 +295,7 @@ int main(void)
     sqlite3_close(db);
     if (r2_reality_remove_item("burger") != 0) fail("could not remove remaining regression-test food");
     if (r2_reality_remove_item("zero_fullness") != 0) fail("could not remove zero-fullness regression item");
+    if (r2_reality_remove_item("unlisted_food") != 0) fail("could not remove unlisted-object regression item");
 
     /* Empty fridge is a real state, not a cue to spawn a burger. */
     if (r2_reality_set_location(1) != 0) fail("could not return simulated location home");
