@@ -3909,6 +3909,32 @@ static const char r2_conversation_system_prompt[] =
             "[R2_SOUND:beep:STATE] or [R2_SOUND:whistle:STATE]. Choose a state tag only when supported by this turn or current Reality evidence; the tag is a sound-selection hint, not a claim that R2 has a hidden emotional state. Use sleepy or hungry only when the current modeled need actually supports it; use alert for a concrete noteworthy event, greeting for a greeting, and curious/thinking only when the response genuinely reflects curiosity or deliberation. Do not infer a need from the topic alone, use sounds to imply an unsupported physical event, or force a tag onto routine replies. Prefer no marker when the fit is unclear. "
             "Do not emit a marker on routine replies, do not explain it, and never write a marker as visible prose. The runtime removes it and selects a matching existing named MP3.";
 
+static char *r2_build_retry_system_prompt(void)
+{
+    static const char retry_instruction[] =
+        "RESPONSE CORRECTION: The previous draft misclassified the user's typed "
+        "message as unintelligible. Do not describe ordinary typed language as "
+        "audio, noise, random sounds, gibberish, or data unless the user is "
+        "actually discussing those things. Read the exact latest user message "
+        "and answer its question, invitation, statement, or conversational intent "
+        "directly. Address the important parts of a multi-part message, including its social or "
+        "emotional meaning when present. Do not recast the user's words as something they supposedly "
+        "meant to say, or answer as if the user were you. Preserve speaker identity and who said what; never invent a paraphrase "
+        "that changes the user's meaning or attributes words to them that they did not say. "
+        "Use the supplied memories only when relevant. Do not narrate parsing or invent "
+        "a different scenario. If it is genuinely ambiguous, "
+        "ask one focused clarification. Return only the user-facing answer.";
+
+    size_t prompt_size = sizeof(r2_conversation_system_prompt) +
+                         sizeof(retry_instruction) + 2;
+    char *retry_system_prompt = malloc(prompt_size);
+    if (!retry_system_prompt)
+        return NULL;
+    snprintf(retry_system_prompt, prompt_size, "%s\\n\\n%s",
+             r2_conversation_system_prompt, retry_instruction);
+    return retry_system_prompt;
+}
+
 static char *r2_retry_direct_answer(Message *messages_copy,
                                     size_t message_count,
                                     const char *query)
@@ -3954,33 +3980,13 @@ static char *r2_retry_direct_answer(Message *messages_copy,
     if (user_index == SIZE_MAX)
         return NULL;
 
-    static const char retry_instruction[] =
-        "RESPONSE CORRECTION: The previous draft misclassified the user's typed "
-        "message as unintelligible. Do not describe ordinary typed language as "
-        "audio, noise, random sounds, gibberish, or data unless the user is "
-        "actually discussing those things. Read the exact latest user message "
-        "and answer its question, invitation, statement, or conversational intent "
-        "directly. Address the important parts of a multi-part message, including its social or "
-        "emotional meaning when present. Do not recast the user's words as something they supposedly "
-        "meant to say, or answer as if the user were you. Preserve speaker identity and who said what; never invent a paraphrase "
-        "that changes the user's meaning or attributes words to them that they did not say. "
-        "Use the supplied memories only when relevant. Do not narrate parsing or invent "
-        "a different scenario. If it is genuinely ambiguous, "
-        "ask one focused clarification. Return only the user-facing answer.";
-
     /*
-     * Keep the full R2 identity, reality, privacy, and response-style prompt on
-     * retries too. Previously the retry passed NULL as the system prompt, which
-     * silently dropped all of those rules and inserted a system-role message in
-     * the middle of the dialogue. Build one combined system prompt instead.
+     * Preserve the complete R2 identity, reality, privacy, and response-style
+     * prompt during correction; do not inject a system role into dialogue.
      */
-    size_t prompt_size = sizeof(r2_conversation_system_prompt) +
-                         sizeof(retry_instruction) + 2;
-    char *retry_system_prompt = malloc(prompt_size);
+    char *retry_system_prompt = r2_build_retry_system_prompt();
     if (!retry_system_prompt)
         return NULL;
-    snprintf(retry_system_prompt, prompt_size, "%s\n\n%s",
-             r2_conversation_system_prompt, retry_instruction);
 
     fprintf(stderr,
             "[R2 Conversation] Correcting a misclassified text turn once while preserving the full conversation system prompt and active user turn.\n");
