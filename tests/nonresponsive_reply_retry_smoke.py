@@ -65,9 +65,25 @@ require(
     'r2_reply_misclassifies_plain_text(query, reply ? reply : "")' in core,
     "recognized text misclassification triggers the retry",
 )
+fallback_start = core.find("static char *r2_validate_corrective_reply(")
+fallback_end = core.find("\\nstatic char *r2_retry_direct_answer(", fallback_start)
 require(
-    "Direct-answer retry produced no safe text." in core and "if (retry_after_sanitize_failure)" in core,
-    "failed corrective retry propagates an empty result to the existing recovery path",
+    fallback_start >= 0 and fallback_end > fallback_start,
+    "corrective retry result validation exists",
+)
+fallback = core[fallback_start:fallback_end]
+require(
+    "r2_reply_misclassifies_plain_text(query, retry_reply)" in fallback,
+    "a repeated misclassification is rejected after the retry",
+)
+require(
+    "couldn't form a reliable response" in fallback and
+    "which part you'd like me to respond to" in fallback,
+    "failed correction uses an honest clarification rather than repeating fabricated intent",
+)
+require(
+    "r2_validate_corrective_reply(query, retry_user_facing)" in core,
+    "sanitized retry result is validated before delivery",
 )
 require(
     "Do not reinterpret typed text as an audio stream, random sounds, or machine data" in core,
