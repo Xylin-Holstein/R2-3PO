@@ -155,3 +155,8 @@ After future source changes, stop R2 and rerun the installer so the executable i
 ## Verification boundary
 
 CI can compile the source and statically check the supervisor wiring, but it cannot verify the host's Linux permissions, installed Ollama model, actual SQLite contents, speaker/audio routing, camera access, or desktop power settings. After activation, verify `systemctl is-enabled r2-3po.service` and `systemctl is-active r2-3po.service`, inspect the journal for model/preflight/audio warnings, and test one real conversation with the local model. Separately, launch the interactive desktop session and verify speaker playback, explicit microphone listening, camera/Eyes input, the Observer window, and TV/VCR playback; the overnight systemd service is intentionally headless and is not proof that desktop GUI/audio devices work. Confirm shutdown/restart once and inspect the logs for clean lifecycle messages. The FX collection is a local runtime asset, not a repository folder.
+
+
+### CPU/GPU placement default
+
+Both the interactive launcher and systemd service leave layer placement to Ollama by default (`R2_OLLAMA_NUM_GPU=0`, which omits an explicit `num_gpu` option in the request). This supports CPU-only machines and lets Ollama choose a supported accelerator automatically. Only override `R2_OLLAMA_NUM_GPU` after verifying the host’s Ollama backend; `-1` is an explicit all-layers request, not the safe universal default.
