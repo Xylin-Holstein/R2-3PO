@@ -7,6 +7,10 @@ RUNNER="$ROOT/tools/r2_service_runner.sh"
 
 bash -n "$INSTALLER"
 bash -n "$RUNNER"
+if [[ ! -x "$INSTALLER" ]]; then
+    echo "ERROR: installer lost its executable bit in the Git tree." >&2
+    exit 1
+fi
 
 grep -Fq 'r2_can_write_dir "$path"' "$INSTALLER"
 grep -Fq 'core_online_after "$START_EVENT_ID"' "$INSTALLER"
