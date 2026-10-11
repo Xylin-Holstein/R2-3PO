@@ -28,6 +28,15 @@ for cleanup in ("free(base);", "free(reality);", "free(reward);", "free(addictio
 if core.count("append_reality_context(") < 3:
     raise SystemExit("Shared context is not wired into both reflection and conversation paths.")
 
+dream_start = core.find("int r2_sleep_and_dream(double hours)")
+dream_end = core.find("static void autonomous_needs_food_safeguard", dream_start)
+if dream_start < 0 or dream_end < 0:
+    raise SystemExit("Could not locate the private dream context path.")
+dream = core[dream_start:dream_end]
+for source in ("r2_reward_context()", "r2_addiction_report()", "LEARNED REINFORCEMENT CONTEXT", "REPEATED-INTEREST HISTORY"):
+    if source not in dream:
+        raise SystemExit(f"Private dream context omits {source}")
+
 for boundary in (
     "Imagined sensory details are predictions, not observations.",
     "Only a real experience or explicit user feedback may update an experiential preference.",
