@@ -914,8 +914,8 @@ static int fridge_migrate_schema(void)
     const char *columns[][2] = {
         {"description", "TEXT"},
         {"quantity", "INTEGER NOT NULL DEFAULT 1"},
-        {"fullness", "REAL NOT NULL DEFAULT 100"},
-        {"energy", "REAL NOT NULL DEFAULT 10"},
+        {"fullness", "REAL NOT NULL DEFAULT 0"},
+        {"energy", "REAL NOT NULL DEFAULT 0"},
         {"ingredients", "TEXT"},
         {"taste", "TEXT"},
         {"updated_at", "TEXT NOT NULL DEFAULT ''"}
@@ -962,7 +962,7 @@ static int fridge_init(void)
     sqlite3_busy_timeout(fridge_db, 5000);
     sqlite3_exec(fridge_db, "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;", NULL, NULL, NULL);
     rc = sqlite3_exec(fridge_db,
-        "CREATE TABLE IF NOT EXISTS r2_fridge_items(name TEXT PRIMARY KEY COLLATE NOCASE,description TEXT,quantity INTEGER NOT NULL CHECK(quantity>0),fullness REAL NOT NULL DEFAULT 100,energy REAL NOT NULL DEFAULT 10,ingredients TEXT,taste TEXT,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
+        "CREATE TABLE IF NOT EXISTS r2_fridge_items(name TEXT PRIMARY KEY COLLATE NOCASE,description TEXT,quantity INTEGER NOT NULL CHECK(quantity>0),fullness REAL NOT NULL DEFAULT 0,energy REAL NOT NULL DEFAULT 0,ingredients TEXT,taste TEXT,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "CREATE TABLE IF NOT EXISTS r2_fridge_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);"
         "INSERT OR IGNORE INTO r2_fridge_meta(key,value) VALUES('schema_version','1');",
         NULL, NULL, NULL);
