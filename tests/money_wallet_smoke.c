@@ -217,7 +217,9 @@ int main(void) {
     close(saved_stderr);
     rewind(captured_stderr);
     char captured_message[2048] = {0};
-    (void)fread(captured_message, 1, sizeof(captured_message) - 1, captured_stderr);
+    size_t captured_len = fread(captured_message, 1, sizeof(captured_message) - 1, captured_stderr);
+    assert(captured_len < sizeof(captured_message));
+    captured_message[captured_len] = '\0';
     fclose(captured_stderr);
     assert(strstr(captured_message, "CRITICAL: cash receipt failed") == NULL);
     assert(unlink(bad_money_path) == 0);
