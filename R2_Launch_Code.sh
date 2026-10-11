@@ -92,8 +92,12 @@ R2_DIRS=(
     "$R2_ROOT/fridge"
 )
 for DIR in "${R2_DIRS[@]}"; do
-    if ! mkdir -p "$DIR"; then
-        echo "ERROR: Could not create workspace directory: $DIR"
+    # Runtime-owned directories must be created as r2. Creating a missing
+    # directory as the desktop login user would leave it mode 0755 and
+    # unwritable by R2, causing SQLite/diary/world-state writes to fail later.
+    if ! sudo -n -u r2 mkdir -p "$DIR"; then
+        echo "ERROR: Could not create workspace directory as r2: $DIR"
+        echo "Check that r2 can traverse and write the workspace root."
         read -p "Press Enter to exit..."
         exit 1
     fi
