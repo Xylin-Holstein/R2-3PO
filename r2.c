@@ -609,6 +609,16 @@ static int message_add_ex(
     if (!role || !content)
         return -1;
 
+    /* Reject a single oversized message before duplicating it into live RAM. */
+    size_t role_length = strlen(role);
+    size_t content_length = strlen(content);
+    if (role_length > MAX_LIVE_MESSAGE_BYTES ||
+        content_length > MAX_LIVE_MESSAGE_BYTES ||
+        role_length + content_length + 2 > MAX_LIVE_MESSAGE_BYTES) {
+        fprintf(stderr, "[R2 memory] Refusing an oversized live message before copying it.\n");
+        return -1;
+    }
+
     char *role_copy = xstrdup(role);
     char *content_copy = xstrdup(content);
     if (!role_copy || !content_copy) {
@@ -629,7 +639,7 @@ static int message_add_ex(
         live_bytes += strlen(messages.items[i].role ? messages.items[i].role : "") + 1;
         live_bytes += strlen(messages.items[i].content ? messages.items[i].content : "") + 1;
     }
-    size_t new_bytes = strlen(role_copy) + strlen(content_copy) + 2;
+    size_t new_bytes = role_length + content_length + 2;
     if (new_bytes > MAX_LIVE_MESSAGE_BYTES) {
         free(role_copy);
         free(content_copy);
