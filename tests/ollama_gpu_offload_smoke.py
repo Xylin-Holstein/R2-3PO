@@ -30,7 +30,7 @@ if 'getenv("R2_OLLAMA_NUM_GPU")' not in visual or 'json_object_object_add(option
     raise SystemExit("Vision requests must use the same GPU layer policy as chat.")
 if "Environment=R2_OLLAMA_NUM_GPU=0" not in service:
     raise SystemExit("Overnight service must default to Ollama automatic placement.")
-if "leave remaining layers on CPU" not in readme or "100% CPU" not in readme:
-    raise SystemExit("Documentation must explain mixed placement and CPU-only diagnosis.")
+if "leaving layer placement to Ollama" not in readme or "100% CPU" not in readme:
+    raise SystemExit("Documentation must explain automatic placement and CPU-only diagnosis.")
 
 print("Ollama GPU offload configuration checks passed.")
