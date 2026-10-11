@@ -22,6 +22,10 @@ for phrase in (
     '"jumbled set of sounds"',
     '"appears to be gibberish"',
     '"unable to understand your message"',
+    '"that\'s a bit garbled"',
+    '"i think you\'re trying to say"',
+    '"you are trying to say"',
+    '"is that what you mean"',
     "if (words < 5)",
     "Do not override a legitimate conversation about audio, noise, or gibberish.",
 ):
@@ -33,6 +37,8 @@ require(start >= 0 and end > start, "corrective retry helper exists")
 retry = core[start:end]
 for phrase, message in (
     ("RESPONSE CORRECTION:", "retry adds a direct-answer correction instruction"),
+    ("Preserve speaker identity and who said what", "retry protects speaker identity and the user's stated meaning"),
+    ("attributes words to them that they did not say", "retry forbids fabricated paraphrases"),
     ("messages_copy[index].content, query", "retry locates the actual user turn"),
     ('xstrdup("system")', "retry inserts a temporary system instruction"),
     ("ollama_authoritative_user_query = query;", "retry preserves active-turn identity"),
