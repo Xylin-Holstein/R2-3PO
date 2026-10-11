@@ -3686,6 +3686,167 @@ static int conversation_reply_token_budget(const char *query)
     return 768;
 }
 
+/*
+ * Detect the narrow but damaging failure where the model treats an ordinary
+ * typed sentence as unintelligible audio/noise instead of answering it.
+ * This is deliberately a phrase-based guard, not a semantic classifier: only
+ * obvious input-misclassification language triggers one bounded retry.
+ */
+static int r2_reply_misclassifies_plain_text(const char *query, const char *reply)
+{
+    if (!query || !reply || strlen(query) < 24)
+        return 0;
+
+    size_t words = 0;
+    int in_word = 0;
+    for (const unsigned char *p = (const unsigned char *)query; *p; ++p) {
+        if (isalnum(*p)) {
+            if (!in_word) ++words;
+            in_word = 1;
+        } else {
+            in_word = 0;
+        }
+    }
+    if (words < 5)
+        return 0;
+
+    /* Do not override a legitimate conversation about audio, noise, or gibberish. */
+    static const char *const topic_terms[] = {
+        "audio", "sound", "sounds", "noise", "signal", "gibberish",
+        "unintelligible", "jumbled", "transcribe", "transcription"
+    };
+    for (size_t i = 0; i < sizeof(topic_terms) / sizeof(topic_terms[0]); ++i) {
+        if (strcasestr(query, topic_terms[i]))
+            return 0;
+    }
+
+    static const char *const failure_phrases[] = {
+        "jumbled set of sounds",
+        "jumbled set of words",
+        "appears to be gibberish",
+        "appears to be nonsense",
+        "your message is unintelligible",
+        "message is unintelligible",
+        "unable to understand your message",
+        "cannot understand your message",
+        "can't understand what you're saying",
+        "cannot make sense of your message",
+        "can't make sense of your message",
+        "not a coherent question",
+        "random assortment of sounds",
+        "random string of words"
+    };
+    for (size_t i = 0; i < sizeof(failure_phrases) / sizeof(failure_phrases[0]); ++i) {
+        if (strcasestr(reply, failure_phrases[i]))
+            return 1;
+    }
+    return 0;
+}
+
+/*
+ * Retry one clear misclassification with a short system message immediately
+ * before the active user turn. The original history and retrieved context are
+ * retained; only the bad draft is discarded. The retry is bounded to one call.
+ */
+static char *r2_retry_direct_answer(Message *messages_copy,
+                                    size_t message_count,
+                                    const char *query)
+{
+    if (!messages_copy || !message_count || !query)
+        return NULL;
+
+    size_t user_index = SIZE_MAX;
+    for (size_t i = message_count; i > 0; --i) {
+        size_t index = i - 1;
+        if (messages_copy[index].role &&
+            strcmp(messages_copy[index].role, "user") == 0 &&
+            messages_copy[index].content &&
+            strcmp(messages_copy[index].content, query) == 0) {
+            user_index = index;
+            break;
+        }
+    }
+    if (user_index == SIZE_MAX) {
+        /* The retrieval layer may have wrapped the original text in markers. */
+        for (size_t i = message_count; i > 0; --i) {
+            size_t index = i - 1;
+            const char *content = messages_copy[index].content;
+            const char *begin_marker = "----- BEGIN CURRENT USER MESSAGE -----\n";
+            const char *end_marker = "----- END CURRENT USER MESSAGE -----";
+            if (!messages_copy[index].role ||
+                strcmp(messages_copy[index].role, "user") != 0 ||
+                !content)
+                continue;
+            const char *begin = strstr(content, begin_marker);
+            const char *end = begin ? strstr(begin + strlen(begin_marker), end_marker) : NULL;
+            if (begin && end) {
+                begin += strlen(begin_marker);
+                size_t length = (size_t)(end - begin);
+                if (length && begin[length - 1] == '\n') --length;
+                if (length == strlen(query) && memcmp(begin, query, length) == 0) {
+                    user_index = index;
+                    break;
+                }
+            }
+        }
+    }
+    if (user_index == SIZE_MAX)
+        return NULL;
+
+    static const char retry_instruction[] =
+        "RESPONSE CORRECTION: The previous draft misclassified the user's typed "
+        "message as unintelligible. Do not describe ordinary typed language as "
+        "audio, noise, random sounds, gibberish, or data unless the user is "
+        "actually discussing those things. Read the exact latest user message "
+        "and answer its question, invitation, statement, or conversational intent "
+        "directly. Use the supplied memories only when relevant. Do not narrate "
+        "parsing or invent a different scenario. If it is genuinely ambiguous, "
+        "ask one focused clarification. Return only the user-facing answer.";
+
+    Message *retry_messages = calloc(message_count + 1, sizeof(*retry_messages));
+    if (!retry_messages)
+        return NULL;
+
+    int failed = 0;
+    for (size_t source = 0, target = 0; source < message_count; ++source, ++target) {
+        if (target == user_index) {
+            retry_messages[target].role = xstrdup("system");
+            retry_messages[target].content = xstrdup(retry_instruction);
+            retry_messages[target].pinned = 0;
+            if (!retry_messages[target].role || !retry_messages[target].content) {
+                failed = 1;
+                break;
+            }
+            ++target;
+        }
+        retry_messages[target].role = xstrdup(messages_copy[source].role);
+        retry_messages[target].content = xstrdup(messages_copy[source].content);
+        retry_messages[target].pinned = messages_copy[source].pinned;
+        if (!retry_messages[target].role || !retry_messages[target].content) {
+            failed = 1;
+            break;
+        }
+    }
+
+    char *retry = NULL;
+    if (!failed) {
+        fprintf(stderr, "[R2 Conversation] Model misclassified a clear text turn; retrying once with the active user turn preserved.\n");
+        const char *previous_query = ollama_authoritative_user_query;
+        ollama_authoritative_user_query = query;
+        retry = ollama_chat_with_limit(
+            retry_messages, message_count + 1, NULL,
+            conversation_reply_token_budget(query), 2700L);
+        ollama_authoritative_user_query = previous_query;
+    }
+
+    for (size_t i = 0; i < message_count + 1; ++i) {
+        free(retry_messages[i].role);
+        free(retry_messages[i].content);
+    }
+    free(retry_messages);
+    return retry;
+}
+
 static char *chat_with_relevant_memories(
     const char *query)
 {
@@ -3995,6 +4156,7 @@ static char *chat_with_relevant_memories(
             "INTERPRETATION: Treat ordinary, grammatical user language as meaningful, "
             "including messages that combine several topics or refer to personal context. "
             "Do not call an intelligible message gibberish merely because a detail is unfamiliar. "
+            "Do not reinterpret typed text as an audio stream, random sounds, or machine data unless the user is actually discussing audio, sound, signals, or transcription. "
             "Do not replace a normal question or invitation with an analysis of the wording or "
             "a claim that the user is asking whether you are yourself. Answer the clear intent "
             "first; if a genuinely necessary detail remains unclear, ask one focused question. "
@@ -4023,6 +4185,29 @@ static char *chat_with_relevant_memories(
         reply = user_facing;
         if (!reply)
             fprintf(stderr, "[R2 Ollama] Reply contained no safe user-facing text after sanitization; retrying the conversation turn.\n");
+    }
+
+    /*
+     * Protect ordinary conversation from a known class of small-model failure:
+     * treating a clear typed message as a jumble of sounds instead of replying.
+     * Only this explicit failure class gets one extra inference call; normal
+     * turns keep their existing latency and token budget.
+     */
+    if (r2_reply_misclassifies_plain_text(query, reply ? reply : "")) {
+        char *retry = r2_retry_direct_answer(copy, base_count, query);
+        if (retry) {
+            char *retry_user_facing = r2_reply_sanitize(retry);
+            free(retry);
+            if (retry_user_facing && *retry_user_facing) {
+                free(reply);
+                reply = retry_user_facing;
+            } else {
+                free(retry_user_facing);
+                fprintf(stderr, "[R2 Conversation] Direct-answer retry produced no safe text; retaining original draft.\n");
+            }
+        } else {
+            fprintf(stderr, "[R2 Conversation] Direct-answer retry could not be completed; retaining original draft.\n");
+        }
     }
 
     for (
