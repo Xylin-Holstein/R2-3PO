@@ -49,7 +49,7 @@ if pgrep -x r2 >/dev/null 2>&1; then
     fail "an R2 process is already running. Shut it down before rebuilding so its executable and databases are not disturbed."
 fi
 
-# The existing design stores SQLite databases inside R2/ alongside source code.
+# The existing design stores five SQLite databases inside R2/ alongside source code.
 # The root and source directory must already be writable; create missing data-only
 # folders as r2 so first-run setup does not leave them owned by the desktop account.
 for path in "$R2_ROOT" "$R2_SOURCE"; do
