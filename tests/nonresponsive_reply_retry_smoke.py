@@ -127,7 +127,7 @@ require(
     "Life Log retrieval has a dedicated low-signal keyword filter",
 )
 history_filter = core[history_filter_start:history_filter_end]
-for token in ('"hello"', '"hi"', '"hey"', '"r2"', '"speaking"'):
+for token in ('"hello"', '"hi"', '"hey"', '"r2"', '"speaking"', '"know"'):
     require(
         token in history_filter,
         f"history retrieval skips low-signal greeting/address token {token}",
