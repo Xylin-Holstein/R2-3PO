@@ -24,6 +24,68 @@ static int valid_target(const char *s)
     return s && *s && strlen(s) <= 256;
 }
 
+static int addiction_column_exists(const char *table, const char *column)
+{
+    char sql[256];
+    int n = snprintf(sql, sizeof(sql), "PRAGMA table_info(%s)", table);
+    if (n < 0 || (size_t)n >= sizeof(sql)) return 0;
+    sqlite3_stmt *st = NULL;
+    int found = 0;
+    if (sqlite3_prepare_v2(addiction_db, sql, -1, &st, NULL) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            const unsigned char *name = sqlite3_column_text(st, 1);
+            if (name && !strcasecmp((const char *)name, column)) {
+                found = 1;
+                break;
+            }
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    return found;
+}
+
+static int addiction_ensure_column(const char *table, const char *column,
+                                   const char *definition)
+{
+    if (addiction_column_exists(table, column)) return SQLITE_OK;
+    char sql[512];
+    int n = snprintf(sql, sizeof(sql), "ALTER TABLE %s ADD COLUMN %s %s;",
+                     table, column, definition);
+    if (n < 0 || (size_t)n >= sizeof(sql)) return SQLITE_TOOBIG;
+    return sqlite3_exec(addiction_db, sql, NULL, NULL, NULL);
+}
+
+static int migrate_addiction_schema(void)
+{
+    static const char *const columns[][3] = {
+        {"addiction_targets","target_type","TEXT NOT NULL DEFAULT 'activity'"},
+        {"addiction_targets","enjoyment","INTEGER NOT NULL DEFAULT 50"},
+        {"addiction_targets","status","TEXT NOT NULL DEFAULT 'inactive'"},
+        {"addiction_targets","first_seen","INTEGER NOT NULL DEFAULT 0"},
+        {"addiction_targets","last_chosen","INTEGER"},
+        {"addiction_targets","updated_at","INTEGER NOT NULL DEFAULT 0"},
+        {"addiction_events","target","TEXT NOT NULL DEFAULT ''"},
+        {"addiction_events","event_kind","TEXT NOT NULL DEFAULT 'choice'"},
+        {"addiction_events","enjoyment","INTEGER NOT NULL DEFAULT 50"},
+        {"addiction_events","source","TEXT NOT NULL DEFAULT 'unknown'"},
+        {"addiction_events","details","TEXT NOT NULL DEFAULT ''"},
+        {"addiction_events","occurred_at","INTEGER NOT NULL DEFAULT 0"}
+    };
+    for (size_t i = 0; i < sizeof(columns) / sizeof(columns[0]); ++i) {
+        if (addiction_ensure_column(columns[i][0], columns[i][1],
+                                    columns[i][2]) != SQLITE_OK) {
+            fprintf(stderr, "[R2 Addiction] Could not migrate %s.%s: %s\n",
+                    columns[i][0], columns[i][1], sqlite3_errmsg(addiction_db));
+            return -1;
+        }
+    }
+    return sqlite3_exec(addiction_db,
+        "CREATE INDEX IF NOT EXISTS addiction_events_target_time "
+        "ON addiction_events(target,occurred_at);"
+        "PRAGMA user_version=1;",
+        NULL, NULL, NULL) == SQLITE_OK ? 0 : -1;
+}
+
 static int ensure_db_locked(void)
 {
     if (addiction_db) return 0;
@@ -56,12 +118,15 @@ static int ensure_db_locked(void)
         " source TEXT NOT NULL DEFAULT 'unknown',"
         " details TEXT NOT NULL DEFAULT '',"
         " occurred_at INTEGER NOT NULL);"
-        "CREATE INDEX IF NOT EXISTS addiction_events_target_time "
-        " ON addiction_events(target,occurred_at);"
-        "PRAGMA user_version=1;",
+
         NULL, NULL, NULL) != SQLITE_OK) {
         fprintf(stderr, "[R2 Addiction] Could not create schema: %s\n",
                 sqlite3_errmsg(addiction_db));
+        sqlite3_close(addiction_db);
+        addiction_db = NULL;
+        return -1;
+    }
+    if (migrate_addiction_schema() != 0) {
         sqlite3_close(addiction_db);
         addiction_db = NULL;
         return -1;
