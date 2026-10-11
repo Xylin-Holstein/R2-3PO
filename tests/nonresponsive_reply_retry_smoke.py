@@ -65,5 +65,17 @@ require(
     "Do not reinterpret typed text as an audio stream, random sounds, or machine data" in core,
     "primary conversation prompt discourages typed-text misclassification",
 )
+require(
+    "address each important part instead of fixating on one phrase" in core,
+    "primary prompt instructs R2 to handle multi-part messages",
+)
+require(
+    "acknowledge that social meaning" in core,
+    "primary prompt preserves emotional and social intent",
+)
+require(
+    "do not answer as though the user were you" in core,
+    "primary prompt forbids swapping the user's identity with R2",
+)
 
 print("Nonresponsive text retry smoke passed.")
