@@ -2983,8 +2983,9 @@ int r2_ollama_vision_request_should_abort(void)
 /* Estimate safe Ollama context from host and container memory headroom.
    Context size controls KV-cache allocation; blindly asking for a huge window
    on a constrained host can evict other work or trigger OOM. */
-static unsigned long long read_uint_file(const char *path)
+static unsigned long long read_uint_file(const char *path, int *valid)
 {
+    if (valid) *valid = 0;
     FILE *f = fopen(path, "r");
     if (!f) return 0;
     char buffer[128];
@@ -2993,11 +2994,19 @@ static unsigned long long read_uint_file(const char *path)
         return 0;
     }
     fclose(f);
-    if (!strncmp(buffer, "max", 3)) return 0;
+
+    /* cgroup v2 uses the literal "max" for an unlimited limit. */
+    if (!strncmp(buffer, "max", 3)) {
+        if (valid) *valid = 1;
+        return 0;
+    }
+
     errno = 0;
     char *end = NULL;
     unsigned long long value = strtoull(buffer, &end, 10);
-    return (errno || end == buffer) ? 0 : value;
+    if (errno || end == buffer) return 0;
+    if (valid) *valid = 1;
+    return value;
 }
 
 static unsigned long long available_memory_bytes(void)
@@ -3016,27 +3025,44 @@ static unsigned long long available_memory_bytes(void)
         fclose(f);
     }
 
-    unsigned long long cgroup_max = read_uint_file("/sys/fs/cgroup/memory.max");
-    unsigned long long cgroup_used = read_uint_file("/sys/fs/cgroup/memory.current");
-    if (cgroup_max && cgroup_used && cgroup_max > cgroup_used) {
-        unsigned long long cgroup_available = cgroup_max - cgroup_used;
+    int cgroup_max_valid = 0;
+    int cgroup_used_valid = 0;
+    unsigned long long cgroup_max =
+        read_uint_file("/sys/fs/cgroup/memory.max", &cgroup_max_valid);
+    unsigned long long cgroup_used =
+        read_uint_file("/sys/fs/cgroup/memory.current", &cgroup_used_valid);
+
+    if (cgroup_max_valid && cgroup_max > 0) {
+        /*
+         * A valid zero usage is real data, not a failed read. If usage cannot
+         * be read or the cgroup is already at its limit, report almost no
+         * headroom so context sizing chooses its smallest safe tier.
+         */
+        unsigned long long cgroup_available =
+            (!cgroup_used_valid || cgroup_used >= cgroup_max)
+                ? 1ULL : cgroup_max - cgroup_used;
         if (!host_available || cgroup_available < host_available)
             host_available = cgroup_available;
     }
-    /* Older cgroup v1 deployments use these paths. */
-    if (!host_available) host_available = 0;
-    if (!cgroup_max) {
-        unsigned long long v1_max = read_uint_file("/sys/fs/cgroup/memory/memory.limit_in_bytes");
-        unsigned long long v1_used = read_uint_file("/sys/fs/cgroup/memory/memory.usage_in_bytes");
-        if (v1_max && v1_used && v1_max > v1_used) {
-            unsigned long long v1_available = v1_max - v1_used;
+
+    /* Older cgroup v1 deployments use these paths when v2 is unavailable. */
+    if (!cgroup_max_valid) {
+        int v1_max_valid = 0;
+        int v1_used_valid = 0;
+        unsigned long long v1_max = read_uint_file(
+            "/sys/fs/cgroup/memory/memory.limit_in_bytes", &v1_max_valid);
+        unsigned long long v1_used = read_uint_file(
+            "/sys/fs/cgroup/memory/memory.usage_in_bytes", &v1_used_valid);
+        if (v1_max_valid && v1_max > 0) {
+            unsigned long long v1_available =
+                (!v1_used_valid || v1_used >= v1_max)
+                    ? 1ULL : v1_max - v1_used;
             if (!host_available || v1_available < host_available)
                 host_available = v1_available;
         }
     }
     return host_available;
 }
-
 int r2_ollama_context_tokens(void)
 {
     const unsigned long long GiB = 1024ULL * 1024ULL * 1024ULL;
