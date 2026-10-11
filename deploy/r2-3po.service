@@ -10,6 +10,9 @@ Environment=R2_OLLAMA_NUM_GPU=-1
 Type=simple
 User=r2
 Group=r2
+# Permit the service to use local ALSA playback/capture devices when present.
+# This is service-scoped; it does not add the r2 account to audio globally.
+SupplementaryGroups=audio
 WorkingDirectory=/home/x/R2_Home
 Environment=R2_ROOT=/home/x/R2_Home
 Environment=R2_SOURCE=/home/x/R2_Home/R2
