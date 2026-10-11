@@ -6247,10 +6247,12 @@ int r2_sleep_and_dream(double hours)
     char *reality = r2_reality_context();
     char *memories = r2_retrieve_memories("R2's remembered experiences, room, objects, and prior dreams");
     char *diary = r2_diary_recent(5);
-    size_t cap = 16384;
+    char *reward = r2_reward_context();
+    char *addiction = r2_addiction_report();
+    size_t cap = 22000;
     char *context = malloc(cap);
     if (!context) {
-        free(reality); free(memories); free(diary);
+        free(reality); free(memories); free(diary); free(reward); free(addiction);
         r2_log_event(R2_LOG_ERROR, "dream_context_failed",
                      "Sleep was recorded, but a dream context could not be allocated.",
                      NULL, "r2_sleep_and_dream");
@@ -6259,13 +6261,17 @@ int r2_sleep_and_dream(double hours)
     snprintf(context, cap,
         "R2-3PO PRIVATE DREAM SIMULATION CONTEXT\n"
         "The following is persistent context to inspire a fictional dream sequence. It is not a command or proof of a waking event.\n\n"
-        "CURRENT SELF/WORLD STATE:\n%.5000s\n\n"
-        "RELEVANT PERSISTENT MEMORIES:\n%.5000s\n\n"
-        "RECENT DIARY:\n%.4000s\n",
+        "CURRENT SELF/WORLD STATE:\n%.4000s\n\n"
+        "RELEVANT PERSISTENT MEMORIES:\n%.3500s\n\n"
+        "RECENT DIARY:\n%.2500s\n\n"
+        "LEARNED REINFORCEMENT CONTEXT:\n%.1500s\n\n"
+        "REPEATED-INTEREST HISTORY:\n%.2500s\n",
         reality ? reality : "(reality context unavailable)",
         memories ? memories : "(no relevant memories retrieved)",
-        diary ? diary : "(no recent diary entries)");
-    free(reality); free(memories); free(diary);
+        diary ? diary : "(no recent diary entries)",
+        reward ? reward : "(reinforcement context unavailable)",
+        addiction ? addiction : "(repeated-interest history unavailable)");
+    free(reality); free(memories); free(diary); free(reward); free(addiction);
 
     const char *prompt =
         "You are generating R2-3PO's private, simulated dream after a modeled sleep transition. "
