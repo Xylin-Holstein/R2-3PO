@@ -2085,13 +2085,17 @@ static int shell_needs(const char *command)
         char *sep = strchr(copy, '|');
         char *food = copy;
         double fullness = -1.0;
+        int fullness_valid = 1;
         if (sep) {
             *sep = '\0';
-            fullness = atof(reality_trim(sep + 1));
+            fullness_valid = shell_parse_amount(reality_trim(sep + 1), &fullness) &&
+                             fullness >= 0.0 && fullness <= 100.0;
         }
         food = reality_trim(food);
         if (!*food) {
             printf("Usage: eat <food> [| <fullness 0-100>]\n");
+        } else if (!fullness_valid) {
+            printf("Fullness must be a finite number from 0 to 100.\n");
         } else {
             int rc = r2_eat_and_learn(food, fullness);
             printf(rc == 0 ? "[R2 Reality] Food and hunger state updated.\n" :
@@ -2101,7 +2105,11 @@ static int shell_needs(const char *command)
         return 1;
     }
     if (shell_starts_with(command, "sleep ")) {
-        double hours = atof(command + 6);
+        double hours = 0.0;
+        if (!shell_parse_amount(command + 6, &hours) || hours <= 0.0 || hours > 48.0) {
+            printf("[R2 Reality] Sleep duration must be a finite number greater than 0 and at most 48 hours.\n");
+            return 1;
+        }
         int rc = r2_sleep_and_dream(hours);
         printf(rc == 0 ? "[R2 Reality] Sleep transition persisted; dream simulation was attempted.\n" :
                          "[R2 Reality] Sleep update failed; use a duration from 0 to 48 hours.\n");
