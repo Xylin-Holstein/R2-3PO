@@ -110,6 +110,14 @@ require(
     and "conversation_reply_token_budget(query)" in core,
     "ordinary replies use a bounded, task-sensitive generation budget",
 )
+
+require(
+    "R2_OLLAMA_CONTEXT_TOKENS 16384" in core
+    and 'json_object_object_add(options, "num_ctx"' in core
+    and "R2_OLLAMA_PROMPT_BATCH 256" in core
+    and 'json_object_object_add(options, "num_batch"' in core,
+    "every Ollama request uses an explicit bounded 16K context and modest prompt batch",
+)
 require(
     "Lead with the direct answer." in core
     and "Do not become terse at the cost of correctness" in core,
