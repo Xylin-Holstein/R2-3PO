@@ -224,7 +224,7 @@ The automated tests cover read-only state display, control-command validation/so
 
 R2 does not force Ollama to use CPU-only inference. Ollama normally detects supported GPU hardware and chooses an available placement; `ollama ps` reports the active processor split. If it reports `100% CPU`, Ollama is not currently offloading model layers to a GPU. That is usually a host-side GPU discovery, driver/backend, permissions, or unsupported-hardware issue; a C request option cannot make an unsupported GPU usable.
 
-The interactive launcher defaults `R2_OLLAMA_NUM_GPU=20` to request a partial GPU layer offload for `gemma3:4b`, leaving remaining layers on CPU when the Ollama GPU backend is available. Override it in the launch environment if the installed GPU/VRAM needs a different count. Set it to `0` to return to Ollama's automatic placement. This setting requests an offload count; it does not guarantee GPU use if the driver/backend cannot discover the GPU.
+The interactive launcher and overnight service default `R2_OLLAMA_NUM_GPU=-1`, asking Ollama to offload as many model layers as fit on the GPU and leave remaining layers on CPU. Override it in the launch environment if needed. Set it to `0` to return to Ollama's automatic placement, or use a positive integer to request a specific layer count. This setting does not guarantee GPU use if the driver/backend cannot discover the GPU.
 
 Check the actual result after R2 starts generating:
 
