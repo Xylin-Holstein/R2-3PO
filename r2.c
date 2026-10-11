@@ -3992,6 +3992,7 @@ static char *r2_retry_direct_answer(Message *messages_copy,
         r2_conversation_timeout_seconds());
     ollama_authoritative_user_query = previous_query;
     free(retry_system_prompt);
+    return retry;
 }
 
 static char *chat_with_relevant_memories(
