@@ -22,7 +22,6 @@ for token, message in (
     ("context_cache_invalidate();", "writes invalidate cached evidence"),
     ("context_cache_store(query ? query : \"\", MAX_RELEVANT_MEMORIES,", "persistent-memory query results are cached in RAM"),
     ("context_cache_get(query ? query : \"\",", "the conversation path reuses cached persistent-memory results"),
-    (core.find("context_cache_store(query ? query : \"\", MAX_RELEVANT_MEMORIES,") < core.find("Conversation continuity: the Life Log"), "Life Log history is searched fresh after the cached memory lookup"),
     ("char *visual_context = NULL;", "live visual context is still assembled separately on each turn"),
     ("char *context = r2_reality_context();", "Reality remains refreshed rather than served from historical cache"),
     ("prompt_tokens=%lld prompt_s=%.3f", "inference logs include prompt processing metrics"),
@@ -31,4 +30,8 @@ for token, message in (
 ):
     require(token in core, message)
 
+require(
+    core.find("context_cache_store(query ? query : \\"\\", MAX_RELEVANT_MEMORIES,") < core.find("Conversation continuity: the Life Log"),
+    "Life Log history is searched fresh after the cached memory lookup",
+)
 print("RAM context cache and hardware telemetry smoke passed.")
