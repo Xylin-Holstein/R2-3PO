@@ -5878,6 +5878,9 @@ static void *autonomous_thinking(
     void *arg)
 {
     (void)arg;
+    /* Every model call made by this worker, including post-reflection
+       extraction, is background work and must yield to live conversation. */
+    ollama_background_mode = 1;
 
     while (!shutting_down && atomic_load(&diary_running)) {
 
