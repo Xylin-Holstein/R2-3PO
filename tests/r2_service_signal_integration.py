@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run R2 in isolated service mode and verify SIGTERM causes a clean exit."""
+"""Run R2 in isolated service mode and verify media logging and SIGTERM shutdown."""
 from __future__ import annotations
 
 import os
@@ -30,6 +30,7 @@ def main() -> int:
         workspace.mkdir(parents=True, exist_ok=True)
         home = workspace / "R2"
         diary = workspace / "R2_Diary"
+        memory_db = home / "r2_memory.db"
         binary = base / "r2-service-smoke"
         log_path = base / "r2-service.log"
 
@@ -37,7 +38,7 @@ def main() -> int:
             f'-DR2_ROOT="{workspace}"',
             f'-DR2_HOME="{home}"',
             f'-DR2_WORKSPACE="{workspace}"',
-            f'-DR2_DIARY_DATABASE="{home / "r2_memory.db"}"',
+            f'-DR2_DIARY_DATABASE="{memory_db}"',
             f'-DR2_DIARY_DIR="{diary}"',
         ]
         compile_command = [
@@ -51,7 +52,6 @@ def main() -> int:
         env = os.environ.copy()
         env["R2_SERVICE_MODE"] = "1"
         env["R2_FX_DIR"] = str(base / "FX")
-        env["R2_HOME"] = str(home)
         env["R2_TV_SOCKET"] = str(home / "tv-control.sock")
 
         with log_path.open("w", encoding="utf-8") as log:
@@ -59,66 +59,79 @@ def main() -> int:
                 [str(binary)], cwd=workspace, env=env,
                 stdout=log, stderr=subprocess.STDOUT,
             )
-            deadline = time.monotonic() + 30
-            while time.monotonic() < deadline:
-                if process.poll() is not None:
-                    break
-                try:
-                    if "R2-3PO ONLINE" in log_path.read_text(encoding="utf-8", errors="replace"):
+            return_code = None
+            try:
+                deadline = time.monotonic() + 30
+                while time.monotonic() < deadline:
+                    if process.poll() is not None:
                         break
-                except OSError:
-                    pass
-                time.sleep(0.1)
+                    try:
+                        if "R2-3PO ONLINE" in log_path.read_text(
+                            encoding="utf-8", errors="replace"
+                        ):
+                            break
+                    except OSError:
+                        pass
+                    time.sleep(0.1)
 
-            startup_log = log_path.read_text(encoding="utf-8", errors="replace")
-            if "R2-3PO ONLINE" not in startup_log:
+                startup_log = log_path.read_text(encoding="utf-8", errors="replace")
+                if "R2-3PO ONLINE" not in startup_log:
+                    raise AssertionError(
+                        "R2 did not reach ONLINE in isolated service mode.\n"
+                        + startup_log[-12000:]
+                    )
+
+                # Exercise the real Unix-socket -> C shell -> Life Log media bridge.
+                socket_path = home / "tv-control.sock"
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+                    client.settimeout(3.0)
+                    client.connect(str(socket_path))
+                    client.sendall(b"media vcr_playback_started|/tmp/audit-film.mp4\n")
+                    response_chunks = []
+                    while True:
+                        chunk = client.recv(4096)
+                        if not chunk:
+                            break
+                        response_chunks.append(chunk)
+                response = b"".join(response_chunks).decode("utf-8", errors="replace")
+                if not response.startswith("OK media event recorded"):
+                    raise AssertionError(f"Media event socket command failed: {response!r}")
+
+                with sqlite3.connect(
+                    f"file:{memory_db}?mode=ro", uri=True, timeout=5.0
+                ) as db:
+                    row = db.execute(
+                        "SELECT summary FROM r2_log_events "
+                        "WHERE event_type=? AND summary LIKE ? ORDER BY id DESC LIMIT 1",
+                        ("vcr_playback_started", "%/tmp/audit-film.mp4%"),
+                    ).fetchone()
+                if row is None:
+                    raise AssertionError(
+                        "VCR playback event was not persisted to the Life Log."
+                    )
+            finally:
                 if process.poll() is None:
+                    try:
+                        process.send_signal(signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
+                try:
+                    return_code = process.wait(timeout=20)
+                except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait(timeout=5)
-                raise AssertionError("R2 did not reach ONLINE in isolated service mode.\n" + startup_log[-12000:])
-
-            # Exercise the real Unix-socket -> C shell -> Life Log media bridge.
-            socket_path = home / "tv-control.sock"
-            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-                client.settimeout(3.0)
-                client.connect(str(socket_path))
-                client.sendall(b"media vcr_playback_started|/tmp/audit-film.mp4\\n")
-                response_chunks = []
-                while True:
-                    chunk = client.recv(4096)
-                    if not chunk:
-                        break
-                    response_chunks.append(chunk)
-            response = b"".join(response_chunks).decode("utf-8", errors="replace")
-            if not response.startswith("OK media event recorded"):
-                process.send_signal(signal.SIGTERM)
-                process.wait(timeout=20)
-                raise AssertionError(f"Media event socket command failed: {response!r}")
-
-            with sqlite3.connect(f"file:{home / 'r2_memory.db'}?mode=ro", uri=True, timeout=5.0) as db:
-                row = db.execute(
-                    "SELECT summary FROM r2_log_events WHERE event_type=? AND summary LIKE ? ORDER BY id DESC LIMIT 1",
-                    ("vcr_playback_started", "%/tmp/audit-film.mp4%"),
-                ).fetchone()
-            if row is None:
-                process.send_signal(signal.SIGTERM)
-                process.wait(timeout=20)
-                raise AssertionError("VCR playback event was not persisted to the Life Log.")
-
-            process.send_signal(signal.SIGTERM)
-            try:
-                return_code = process.wait(timeout=20)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=5)
-                raise AssertionError("R2 did not shut down after SIGTERM; possible lost signal or shutdown deadlock.")
+                    raise AssertionError(
+                        "R2 did not shut down after SIGTERM; possible lost signal or shutdown deadlock."
+                    )
 
         final_log = log_path.read_text(encoding="utf-8", errors="replace")
         if return_code != 0:
             raise AssertionError(f"R2 exited with status {return_code}.\n{final_log[-12000:]}")
         if "[R2-3PO shut down.]" not in final_log:
-            raise AssertionError("R2 exited without its clean-shutdown marker.\n" + final_log[-12000:])
-        print("PASS: isolated R2 reached ONLINE and shut down cleanly on SIGTERM.")
+            raise AssertionError(
+                "R2 exited without its clean-shutdown marker.\n" + final_log[-12000:]
+            )
+        print("PASS: R2 reached ONLINE, logged a media event, and shut down cleanly on SIGTERM.")
     return 0
 
 
