@@ -43,9 +43,9 @@
 /* Bound prompts for the local Gemma 3 4B model: keep system instructions and recent turns. */
 #define OLLAMA_MAX_RECENT_MESSAGES 12
 #define OLLAMA_MAX_MESSAGE_CHARS 8000
-#define OLLAMA_MAX_SYSTEM_MESSAGE_CHARS 10000
-#define OLLAMA_MAX_SYSTEM_TOTAL_CHARS 16000
-#define OLLAMA_MAX_TOTAL_CHARS 24000
+#define OLLAMA_MAX_SYSTEM_MESSAGE_CHARS 20000
+#define OLLAMA_MAX_SYSTEM_TOTAL_CHARS 32000
+#define OLLAMA_MAX_TOTAL_CHARS 36000
 #define OLLAMA_MAX_RESPONSE_BYTES (16U * 1024U * 1024U)
 
 #define OLLAMA_URL "http://127.0.0.1:11434/api/chat"
@@ -3476,8 +3476,6 @@ static char *ollama_chat_with_limit(
 
     size_t identity_budget = system_budget > override_length + reality_reserve
         ? system_budget - override_length - reality_reserve : 0;
-    if (identity_budget > 4000)
-        identity_budget = 4000;
 
     size_t total_chars = override_length;
     /*
