@@ -110,6 +110,14 @@ require(
     and "conversation_reply_token_budget(query)" in core,
     "ordinary replies use a bounded, task-sensitive generation budget",
 )
+
+require(
+    "R2_OLLAMA_CONTEXT_TOKENS 16384" in core
+    and 'json_object_object_add(options, "num_ctx"' in core
+    and "R2_OLLAMA_PROMPT_BATCH 256" in core
+    and 'json_object_object_add(options, "num_batch"' in core,
+    "every Ollama request uses an explicit bounded 16K context and modest prompt batch",
+)
 require(
     "Lead with the direct answer." in core
     and "Do not become terse at the cost of correctness" in core,
@@ -196,6 +204,13 @@ require(
     and "does not change physical Reality" in shell
     and 'r2_reality_' not in shell[shell.find("static const char *shell_gameboy_json_string"):shell.find("static int shell_gameboy(const char *arg)")],
     "synced game events remain virtual and never mutate physical Reality",
+)
+
+require(
+    "ollama_background_mode = 1;" in core
+    and "ollama_background_mode = previous_mode;" in core
+    and "Autonomous reflection is background work" in core,
+    "autonomous reflection yields to live conversation requests",
 )
 
 print("Gemma 3 unified-model contract checks passed.")
