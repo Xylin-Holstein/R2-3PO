@@ -292,7 +292,7 @@ static int money_initialize_files(int previously_seeded)
             /* Once physical files have been authoritative, an empty wallet
                remains empty. A stale SQLite summary must never respawn cash. */
         } else if (!previously_seeded) {
-            if (money_set_dir_balance(wallet, 500) != 0) return -1;
+            if (money_set_dir_balance(wallet, 500, NULL) != 0) return -1;
         } else {
             /* First migration from a legacy database only: preserve its
                remaining balance before physical files become authoritative. */
@@ -311,8 +311,8 @@ static int money_initialize_files(int previously_seeded)
             sqlite3_int64 cash = sqlite3_column_int64(st, 0);
             sqlite3_int64 bank = sqlite3_column_int64(st, 1);
             sqlite3_finalize(st);
-            if (money_set_dir_balance(wallet, cash) != 0 ||
-                money_set_dir_balance(piggybank, bank) != 0) return -1;
+            if (money_set_dir_balance(wallet, cash, NULL) != 0 ||
+                money_set_dir_balance(piggybank, bank, NULL) != 0) return -1;
         }
     }
     return exec_sql(
