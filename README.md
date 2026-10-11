@@ -200,7 +200,7 @@ The reinforcement engine uses a dedicated `r2_rewards.db` ledger under `R2/`; it
 
 Positive signals are capped at +1 through +5 points. Corrective signals are capped at -7 points, and the temporary enjoyment modifier decays over 30 minutes. This modifier is separate from persistent food preferences, so a mistake does not permanently teach R2 to dislike an activity. Each reward row stores its linked Life Log event ID and memory-indexing status; startup retries interrupted links without duplicating an already-created event. Reinforcement summaries are bridged to the Life Log, searchable memory pointers, and Observer's existing public enjoyment-change allowlist; private diary prose is never copied into reward-event details. Rewarded voluntary activities may also inform the existing Addiction/habit evaluator through its public API.
 
-Diary review includes one narrow continuity correction rule for the currently tracked identity-attribution mistake: a diary that explicitly says Eli is not real and redirects identity to the user/creator earns +5; a diary that mentions Eli without that correction receives -7; other successfully persisted diary entries earn +1. This is a simple phrase-based rule, not a general semantic judge, and should be expanded only with testable correction patterns. Reward points are simulated feedback, not a measure of R2's worth or consciousness.
+Each successfully persisted diary entry receives the normal +1 feedback signal. Diary rewards do not hard-code a person's name or a particular identity correction; corrections should be learned from general experience and validation rather than a name-specific phrase rule. Reward points are simulated feedback, not a measure of R2's worth or consciousness.
 
 
 Money is backed by individual files in `Pockets/Wallet` and `room/piggybank`: each `money`/`money(N)` file represents $1, `change.txt` represents cents, and SQLite/account text are derived summaries. The five-dollar wallet grant occurs once only; deleting or spending a money file does not cause it to be recreated.
@@ -219,6 +219,20 @@ Run `bash install_tv.sh` from this repository to place the device files under `/
 The built-in VCR is AV input 1. Place supported video files in `VCR_Tapes/`, then use the GUI's insert/play/pause/stop/eject controls. Tape position is saved in Reality and retained when a tape is ejected and reinserted. Playback depends on the local VLC/libVLC runtime. When the VLC player actually starts, pauses, stops, ends, or errors, the GUI sends a bounded event through the local R2 socket into the Life Log; these are renderer-state records, not proof of what a person watched. AV inputs 2–4 and RF channels 2–13 remain `NO SIGNAL` unless a named device has been explicitly connected to that input/channel. Unused RF channels stay unavailable; no static or snow-show is fabricated. TV power and source selection do not imply that R2 is watching and do not open Eyes or alter visual attention.
 
 The automated tests cover read-only state display, control-command validation/socket transport, empty versus connected signal sources, persistent VCR position display, and installing the device files under a temporary `room/TV/` directory. They do not prove that VLC opens on the real desktop; verify that interactively on R2's machine.
+
+## Ollama CPU/GPU placement
+
+R2 does not force Ollama to use CPU-only inference. Ollama normally detects supported GPU hardware and chooses an available placement; `ollama ps` reports the active processor split. If it reports `100% CPU`, Ollama is not currently offloading model layers to a GPU. That is usually a host-side GPU discovery, driver/backend, permissions, or unsupported-hardware issue; a C request option cannot make an unsupported GPU usable.
+
+The interactive launcher defaults `R2_OLLAMA_NUM_GPU=20` to request a partial GPU layer offload for `gemma3:4b`, leaving remaining layers on CPU when the Ollama GPU backend is available. Override it in the launch environment if the installed GPU/VRAM needs a different count. Set it to `0` to return to Ollama's automatic placement. This setting requests an offload count; it does not guarantee GPU use if the driver/backend cannot discover the GPU.
+
+Check the actual result after R2 starts generating:
+
+```sh
+ollama ps
+```
+
+For NVIDIA, check `nvidia-smi` and the Ollama service log; for AMD, check the installed ROCm/Vulkan backend and device permissions. See the [Ollama GPU guide](https://docs.ollama.com/gpu) and [troubleshooting guide](https://docs.ollama.com/troubleshooting). A successful configuration should show a CPU/GPU split in `ollama ps` rather than `100% CPU`.
 
 ## Overnight service (start at boot and recover from crashes)
 
