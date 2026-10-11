@@ -58,6 +58,15 @@ int main(void)
           "\n  <food name=\"nan_energy\" fullness=\"20\" energy=\"nan\" />\n",
           metrics);
     if (fclose(metrics) != 0) fail("could not close temporary food metrics fixture");
+    if (r2_fridge_add_item("invalid_negative_metric", "invalid test stock", 1,
+                           -1.0, 10.0, NULL, NULL) == 0)
+        fail("fridge API must reject negative fullness instead of substituting defaults");
+    if (r2_fridge_add_item("invalid_energy_metric", "invalid test stock", 1,
+                           50.0, 101.0, NULL, NULL) == 0)
+        fail("fridge API must reject out-of-range energy instead of substituting defaults");
+    if (r2_fridge_add_item("invalid_quantity", "invalid test stock", 0,
+                           50.0, 10.0, NULL, NULL) == 0)
+        fail("direct fridge API must reject a non-positive stock quantity");
     if (r2_reality_eat("nan_fullness", -1.0) == 0)
         fail("non-finite fullness metric must be rejected instead of corrupting needs");
 
