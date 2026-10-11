@@ -766,19 +766,24 @@ static void fridge_mirror_remove(const char *name)
     char path[2048];
     if (fridge_mirror_path(name, path, sizeof(path)) == 0) (void)unlink(path);
 }
-static void fridge_mirror_write(const char *name, const char *description, int quantity,
-                                double fullness, double energy)
+static int fridge_mirror_write(const char *name, const char *description, int quantity,
+                               double fullness, double energy)
 {
     char path[2048], temp[2100];
-    if (fridge_mirror_path(name, path, sizeof(path)) != 0) return;
-    snprintf(temp, sizeof(temp), "%s.tmp.%ld", path, (long)getpid());
+    if (fridge_mirror_path(name, path, sizeof(path)) != 0) return -1;
+    int n = snprintf(temp, sizeof(temp), "%s.tmp.%ld", path, (long)getpid());
+    if (n <= 0 || (size_t)n >= sizeof(temp)) return -1;
     FILE *fp = fopen(temp, "w");
-    if (!fp) return;
+    if (!fp) return -1;
     int failed = fprintf(fp, "name=%s\ndescription=%s\nquantity=%d\ncontainer=fridge\nfullness=%.1f\nenergy=%.1f\n",
                          name, description ? description : "", quantity, fullness, energy) < 0;
     if (fclose(fp) != 0) failed = 1;
     if (!failed && rename(temp, path) != 0) failed = 1;
-    if (failed) (void)unlink(temp);
+    if (failed) {
+        (void)unlink(temp);
+        return -1;
+    }
+    return 0;
 }
 /* Empty inventory is a valid world state. Never manufacture food to
  * make the fridge appear populated: only explicit inventory additions may
