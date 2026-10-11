@@ -3783,10 +3783,11 @@ static int conversation_reply_token_budget(const char *query)
 }
 
 /*
- * Detect the narrow but damaging failure where the model treats an ordinary
- * typed sentence as unintelligible audio/noise instead of answering it.
- * This is deliberately a phrase-based guard, not a semantic classifier: only
- * obvious input-misclassification language triggers one bounded retry.
+ * Detect a narrow but damaging class of nonresponsive replies: treating
+ * ordinary typed language as unintelligible, or confidently inventing a
+ * paraphrase of the user's intent and asking them to confirm it.
+ * This is deliberately a phrase-based guard, not a semantic classifier;
+ * recognized failures receive one bounded corrective retry.
  */
 static int r2_reply_misclassifies_plain_text(const char *query, const char *reply)
 {
