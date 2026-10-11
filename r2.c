@@ -4207,10 +4207,18 @@ static char *chat_with_relevant_memories(
                 reply = retry_user_facing;
             } else {
                 free(retry_user_facing);
-                fprintf(stderr, "[R2 Conversation] Direct-answer retry produced no safe text; retaining original draft.\n");
+                fprintf(stderr, "[R2 Conversation] Direct-answer retry produced no safe text.\n");
+                if (retry_after_sanitize_failure) {
+                    free(reply);
+                    reply = NULL;
+                }
             }
         } else {
-            fprintf(stderr, "[R2 Conversation] Direct-answer retry could not be completed; retaining original draft.\n");
+            fprintf(stderr, "[R2 Conversation] Direct-answer retry could not be completed.\n");
+            if (retry_after_sanitize_failure) {
+                free(reply);
+                reply = NULL;
+            }
         }
     }
 
