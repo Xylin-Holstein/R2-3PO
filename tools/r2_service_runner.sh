@@ -42,6 +42,19 @@ command -v curl >/dev/null 2>&1 || fail "curl is required to check the local Oll
 command -v python3 >/dev/null 2>&1 || fail "python3 is required for the local Ollama model preflight."
 command -v date >/dev/null 2>&1 || fail "date is required for R2's private clock."
 
+# Missing sensory/media helpers should be visible in the journal instead of
+# silently making a subsystem appear operational when its runtime is absent.
+for helper in ffmpeg ffprobe pactl xdotool; do
+    if ! command -v "$helper" >/dev/null 2>&1; then
+        log "WARNING: $helper is unavailable; related Eyes/Ears/VLC/controller features may be degraded."
+    fi
+done
+if ! command -v mpg123 >/dev/null 2>&1 &&
+   ! command -v ffplay >/dev/null 2>&1 &&
+   ! command -v mpv >/dev/null 2>&1; then
+    log "WARNING: no local MP3 player (mpg123, ffplay, or mpv) is installed; beep/whistle playback cannot work."
+fi
+
 FAKETIME_LIB="${R2_FAKETIME_LIB:-}"
 if [[ -z "$FAKETIME_LIB" ]]; then
     for candidate in \
