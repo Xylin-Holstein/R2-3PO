@@ -36,6 +36,10 @@ require(
     "the user's original text stays byte-for-byte intact instead of being wrapped in context",
 )
 require(
+    'message_priority = 1;' in core[core.find('"CURRENT TURN RETRIEVED CONTEXT"') - 120:core.find('"CURRENT TURN RETRIEVED CONTEXT"') + 180],
+    "relevant turn context is prioritized after live Reality/learning and before archive history",
+)
+require(
     "Do not call an intelligible message gibberish" in builder
     and "Do not replace a normal question or invitation with an analysis of the wording" in builder,
     "the inference instructions prioritize ordinary conversational intent",
