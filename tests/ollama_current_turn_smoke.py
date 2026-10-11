@@ -13,12 +13,15 @@ builder = core[start:end]
 
 required = (
     "size_t current_user_index = SIZE_MAX;",
-    'if (msgs[index].role && !strcmp(msgs[index].role, "user"))',
+    'if (!msgs[index].role || strcmp(msgs[index].role, "user") != 0)',
     '"----- BEGIN CURRENT USER MESSAGE -----\\n"',
     '"----- END CURRENT USER MESSAGE -----"',
     "include[current_user_index] = 1;",
     "limits[current_user_index] = length;",
     "size_t remaining = input_budget - total_chars;",
+    "const char *authoritative_query = ollama_authoritative_user_query;",
+    "strcmp(content, authoritative_query) == 0",
+    "memcmp(begin, authoritative_query, wrapped_length) == 0",
 )
 for needle in required:
     if needle not in builder:
@@ -35,5 +38,12 @@ if "if (include[index]) continue;" not in builder:
     raise SystemExit("Recent-history selection must not duplicate the explicitly included user turn.")
 if "if (length > OLLAMA_MAX_MESSAGE_CHARS)" not in builder:
     raise SystemExit("The explicit current turn must retain the per-message safety cap.")
+
+if "static _Thread_local const char *ollama_authoritative_user_query = NULL;" not in core:
+    raise SystemExit("The active user query must be tracked per thread, not in shared global state.")
+if "ollama_authoritative_user_query = query;" not in core:
+    raise SystemExit("Conversation inference must pass the authoritative user query into payload selection.")
+if "ollama_authoritative_user_query = previous_authoritative_query;" not in core:
+    raise SystemExit("The authoritative query binding must be restored after inference.")
 
 print("Ollama current-turn retention smoke passed.")
