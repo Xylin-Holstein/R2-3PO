@@ -7291,6 +7291,8 @@ static void autonomous_needs_check(void)
                 !shutting_down &&
                 pthread_mutex_trylock(&conversation_turn_lock) == 0;
             if (!autonomous_needs_action_allowed(safe_action)) {
+                if (turn_guard_locked)
+                    pthread_mutex_unlock(&conversation_turn_lock);
                 r2_log_event(R2_LOG_WORLD, "autonomous_needs_action_rejected",
                              "Rejected an autonomous needs action outside the eat, fridge_eat, and sleep allowlist.",
                              safe_action, "autonomous_needs_check");
