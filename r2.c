@@ -3302,11 +3302,12 @@ static char *ollama_chat_with_limit(
     size_t total_chars = override_length;
     /*
      * Priority matters when the system-context budget is reached. Keep the
-     * core identity/personality prompt first, then the newest canonical Reality
-     * snapshot, then any other system/archive context. Otherwise old pinned
-     * memory blocks can crowd the refreshed hunger/world state out entirely.
+     * core identity/personality prompt first, then live Reality, then context
+     * retrieved specifically for the active turn, then persistent learning and
+     * other context, and finally archive history. Otherwise older pinned
+     * memory blocks can crowd the current world state or relevant evidence out.
      */
-    for (int priority = 0; priority < 4 &&
+    for (int priority = 0; priority < 5 &&
          total_chars < system_budget; ++priority) {
         for (size_t i = 0; i < count &&
              total_chars < system_budget; ++i) {
@@ -3321,15 +3322,15 @@ static char *ollama_chat_with_limit(
             else if (!strncmp(content, "PERSISTENT REALITY CONTEXT",
                               strlen("PERSISTENT REALITY CONTEXT")))
                 message_priority = 1;
-            else if (!strncmp(content, "PERSISTENT LEARNING CONTEXT",
-                              strlen("PERSISTENT LEARNING CONTEXT")))
-                message_priority = 1;
             else if (!strncmp(content, "CURRENT TURN RETRIEVED CONTEXT",
                               strlen("CURRENT TURN RETRIEVED CONTEXT")))
-                message_priority = 1;
+                message_priority = 2;
+            else if (!strncmp(content, "PERSISTENT LEARNING CONTEXT",
+                              strlen("PERSISTENT LEARNING CONTEXT")))
+                message_priority = 3;
             else if (!strncmp(content, "PAST CONVERSATION ARCHIVE — CONTEXT ONLY.",
                               strlen("PAST CONVERSATION ARCHIVE — CONTEXT ONLY.")))
-                message_priority = 3;
+                message_priority = 4;
             if (message_priority != priority) continue;
 
             size_t length = strlen(content);
