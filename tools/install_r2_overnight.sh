@@ -174,7 +174,7 @@ fi
 
 mv -f "$TEMP_EXEC" "$R2_EXEC"
 root_run chown r2:r2 "$R2_EXEC"
-chmod 0755 "$R2_EXEC"
+root_run chmod 0755 "$R2_EXEC"
 
 # Install only the launcher and unit. The FX collection stays on the host at R2_sounds/FX.
 chmod 0755 "$RUNNER_SOURCE"
