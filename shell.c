@@ -133,6 +133,32 @@ static void *tv_control_server(void *unused)
             if (end != command + 5 && *end == '\0' && n >= 2 && n <= 13)
                 reply = r2_reality_tv_tune_rf((int)n) == 0 ? "OK RF channel tuned" : "ERROR RF tuning failed";
             else reply = "ERROR RF channel must be 2..13";
+        } else if (!strncmp(command, "media ", 6)) {
+            char *payload = command + 6;
+            char *separator = strchr(payload, '|');
+            if (separator) {
+                *separator = '\0';
+                const char *path = separator + 1;
+                const char *allowed_actions[] = {
+                    "vcr_playback_started", "vcr_playback_paused",
+                    "vcr_playback_stopped", "vcr_playback_ended",
+                    "vcr_playback_error"
+                };
+                int allowed = 0;
+                for (size_t i = 0; i < sizeof(allowed_actions) / sizeof(allowed_actions[0]); ++i)
+                    if (!strcmp(payload, allowed_actions[i])) { allowed = 1; break; }
+                if (allowed && path[0] == '/' && *path &&
+                    !strchr(path, '\n') && !strchr(path, '\r') &&
+                    strlen(path) < 1100) {
+                    reply = r2_log_media_event(payload, "video", path,
+                        "Observed from the CRT built-in VCR's VLC player; this records renderer state, not proof of what a person watched.") >= 0
+                        ? "OK media event recorded" : "ERROR could not record media event";
+                } else {
+                    reply = "ERROR invalid media event";
+                }
+            } else {
+                reply = "ERROR invalid media event";
+            }
         } else if (!strncmp(command, "vcr insert ", 11)) {
             const char *path = command + 11;
             reply = *path && r2_reality_tv_vcr_insert(path) == 0
