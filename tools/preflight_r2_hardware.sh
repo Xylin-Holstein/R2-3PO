@@ -106,14 +106,63 @@ section "Audio, microphone, camera, TV, and emulator"
 if have mpg123 || have ffplay || have mpv; then pass "supported local MP3 playback process available"
 else warn "no mpg123/ffplay/mpv; sound effects will not play."; fi
 if have pactl; then
-  if pactl info >/dev/null 2>&1; then pass "current user's audio server responds"
-  else warn "current user's PulseAudio/PipeWire server is unreachable."; fi
-else warn "pactl missing; audio routing cannot be checked."; fi
+  if pactl info >/dev/null 2>&1; then pass "desktop user's PulseAudio/PipeWire server responds"
+  else warn "desktop user's PulseAudio/PipeWire server is unreachable."; fi
+  if have sudo && id r2 >/dev/null 2>&1; then
+    if sudo -n -u r2 pactl info >/dev/null 2>&1; then
+      pass "R2 runtime account can connect to its default PulseAudio/PipeWire server"
+    else
+      warn "R2 runtime account cannot connect to its default PulseAudio/PipeWire server; desktop audio working for your login does not prove R2 can play sounds or capture monitor audio."
+    fi
+  fi
+else warn "pactl missing; PulseAudio/PipeWire routing cannot be checked."; fi
 if have arecord; then arecord -l 2>&1 | sed 's/^/  /' || true; else warn "arecord missing; cannot enumerate microphone devices."; fi
 if have aplay; then aplay -l 2>&1 | sed 's/^/  /' || true; else warn "aplay missing; cannot enumerate ALSA output devices."; fi
 camera_count=0
-for camera in /dev/video*; do [[ -e "$camera" ]] || continue; camera_count=$((camera_count + 1)); printf '[INFO] camera: %s\n' "$camera"; done
-if [[ "$camera_count" -eq 0 ]]; then warn "no /dev/video* camera detected; verify the configured Eyes source."; fi
+camera_accessible=0
+for camera in /dev/video*; do
+  [[ -e "$camera" ]] || continue
+  camera_count=$((camera_count + 1))
+  printf '[INFO] camera: %s\n' "$camera"
+  if [[ -r "$camera" && -w "$camera" ]]; then
+    pass "current user can read/write $camera"
+  else
+    warn "current user cannot read/write $camera; camera capture may fail."
+  fi
+  if have sudo && id r2 >/dev/null 2>&1; then
+    if sudo -n -u r2 test -r "$camera" && sudo -n -u r2 test -w "$camera"; then
+      camera_accessible=$((camera_accessible + 1))
+    fi
+  fi
+done
+if [[ "$camera_count" -eq 0 ]]; then
+  warn "no /dev/video* camera detected; verify the configured Eyes source."
+elif have sudo && id r2 >/dev/null 2>&1; then
+  if [[ "$camera_accessible" -gt 0 ]]; then
+    pass "R2 runtime account can read/write $camera_accessible camera device(s)"
+  else
+    warn "R2 runtime account access to camera devices could not be verified; webcam capture may fail even if the desktop user can use the camera."
+  fi
+fi
+sound_node_count=0
+sound_node_accessible=0
+for node in /dev/snd/*; do
+  [[ -e "$node" ]] || continue
+  sound_node_count=$((sound_node_count + 1))
+  if have sudo && id r2 >/dev/null 2>&1 &&
+     sudo -n -u r2 test -r "$node" && sudo -n -u r2 test -w "$node"; then
+    sound_node_accessible=$((sound_node_accessible + 1))
+  fi
+done
+if [[ "$sound_node_count" -gt 0 ]] && have sudo && id r2 >/dev/null 2>&1; then
+  if [[ "$sound_node_accessible" -gt 0 ]]; then
+    pass "R2 runtime account can access $sound_node_accessible ALSA device node(s)"
+  else
+    warn "R2 runtime account cannot be verified to access ALSA device nodes; direct ALSA playback/capture may fail."
+  fi
+elif [[ "$sound_node_count" -eq 0 ]]; then
+  printf '[INFO] no /dev/snd device nodes; PulseAudio/PipeWire socket access may still provide audio.\n'
+fi
 for tool in ffmpeg ffprobe xdotool; do if have "$tool"; then pass "$tool available"; else warn "$tool missing; related media/controller feature may be degraded."; fi; done
 if python3 -c 'import vlc, tkinter' >/dev/null 2>&1; then pass "Python VLC and Tkinter import"; else warn "Python VLC/Tkinter import failed; TV/VCR or Observer GUI may not open."; fi
 if [[ -x /usr/games/mgba-qt ]]; then pass "mGBA Qt emulator available"; else warn "mGBA Qt not found at /usr/games/mgba-qt; configure R2_MGBA_EXECUTABLE if installed elsewhere."; fi
