@@ -7231,20 +7231,31 @@ static int autonomous_needs_action_still_needed(const char *action)
 
     char *status = r2_reality_status();
     if (!status) return 0;
-    const char *label = is_food_action ? "Hunger: " : "Sleepiness: ";
-    const char *field = strstr(status, label);
-    int needed = 0;
-    if (field) {
-        field += strlen(label);
-        char *end = NULL;
-        double value = strtod(field, &end);
-        if (end != field &&
-            ((is_food_action && value >= 50.0) ||
-             (is_sleep_action && value >= 85.0)))
-            needed = 1;
-    }
+    const char *hunger_field = strstr(status, "Hunger: ");
+    const char *sleepiness_field = strstr(status, "Sleepiness: ");
+    char *hunger_end = NULL, *sleepiness_end = NULL;
+    double hunger = hunger_field
+        ? strtod(hunger_field + strlen("Hunger: "), &hunger_end) : -1.0;
+    double sleepiness = sleepiness_field
+        ? strtod(sleepiness_field + strlen("Sleepiness: "), &sleepiness_end) : -1.0;
+    int valid_hunger = hunger_field && hunger_end != hunger_field + strlen("Hunger: ");
+    int valid_sleepiness = sleepiness_field &&
+        sleepiness_end != sleepiness_field + strlen("Sleepiness: ");
     free(status);
-    return needed;
+
+    if (is_food_action)
+        return valid_hunger && hunger >= 50.0;
+    if (!valid_hunger || !valid_sleepiness || sleepiness < 85.0)
+        return 0;
+
+    /* Do not sleep through a currently satisfiable urgent hunger need.
+       Unknown inventory is treated conservatively: defer the sleep action. */
+    if (hunger >= 50.0) {
+        int food_available = r2_reality_autonomous_food_available();
+        if (food_available != 0)
+            return 0;
+    }
+    return 1;
 }
 
 /* Autonomous needs checks are deliberately limited to [WORLD] actions. They
