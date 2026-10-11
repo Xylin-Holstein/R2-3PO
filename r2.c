@@ -3036,6 +3036,9 @@ static char *ollama_chat_with_limit(
             if (begin && end) {
                 begin += strlen(begin_marker);
                 size_t wrapped_length = (size_t)(end - begin);
+                /* The wrapper adds one newline after the verbatim user text. */
+                if (wrapped_length && begin[wrapped_length - 1] == '\n')
+                    --wrapped_length;
                 if (wrapped_length == strlen(authoritative_query) &&
                     memcmp(begin, authoritative_query, wrapped_length) == 0) {
                     current_user_index = index;
