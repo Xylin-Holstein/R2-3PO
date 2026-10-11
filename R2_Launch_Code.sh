@@ -71,6 +71,44 @@ done
 echo "Workspace directories are ready."
 echo
 
+# Fail early when the local multimodal model is unavailable. Do not compile or
+# launch a robot that cannot answer; this check is local-only and read-only.
+echo "[preflight] Checking the local Ollama API and required model..."
+if ! python3 - <<'PY'
+import json
+import sys
+import urllib.error
+import urllib.request
+
+url = "http://127.0.0.1:11434/api/tags"
+try:
+    with urllib.request.urlopen(url, timeout=4) as response:
+        data = json.load(response)
+except (OSError, ValueError, urllib.error.URLError) as exc:
+    print(f"ERROR: Local Ollama API is unavailable: {exc}", file=sys.stderr)
+    sys.exit(1)
+
+models = data.get("models", [])
+if not any(
+    model.get("name") == "gemma3:4b"
+    or model.get("name", "").startswith("gemma3:4b-")
+    for model in models
+):
+    print("ERROR: required local model gemma3:4b is not installed.", file=sys.stderr)
+    sys.exit(1)
+print("Local Ollama API is responding; gemma3:4b is installed.")
+PY
+then
+    echo
+    echo "R2 was NOT launched."
+    echo "Start the local Ollama service and ensure 'ollama list' includes gemma3:4b."
+    echo "If the model is missing, run: ollama pull gemma3:4b"
+    echo "Then launch R2 again."
+    read -p "Press Enter to exit..."
+    exit 1
+fi
+echo
+
 # TV.py and install_tv.sh should be copied into R2/ with the other downloaded
 # source files. Install if missing, or refresh the installed GUI if the source
 # has changed. The installer creates room/TV/ and VCR_Tapes/ at their canonical paths.
