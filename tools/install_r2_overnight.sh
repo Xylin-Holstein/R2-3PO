@@ -8,7 +8,7 @@ R2_EXEC="$R2_ROOT/r2"
 UNIT_SOURCE="$R2_SOURCE/deploy/r2-3po.service"
 RUNNER_SOURCE="$R2_SOURCE/tools/r2_service_runner.sh"
 UNIT_DEST="/etc/systemd/system/r2-3po.service"
-TEMP_EXEC="$R2_ROOT/r2.new"
+TEMP_EXEC="${R2_ROOT}/r2.new.${BASHPID}"
 
 log() { printf '[R2 installer] %s\n' "$*"; }
 fail() { log "ERROR: $*"; exit 1; }
