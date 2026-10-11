@@ -19,7 +19,7 @@ for needle in required:
     if needle not in core:
         raise SystemExit(f"Missing configurable GPU layer behavior: {needle}")
 
-if 'R2_OLLAMA_NUM_GPU:-1' not in launcher:
+if 'R2_OLLAMA_NUM_GPU:--1' not in launcher:
     raise SystemExit("Interactive launcher must request max-fit GPU offload by default.")
 if 'R2_OLLAMA_NUM_GPU="${R2_OLLAMA_NUM_GPU}"' not in launcher:
     raise SystemExit("Interactive launcher must pass the GPU offload setting through sudo's sanitized environment.")
