@@ -97,6 +97,7 @@
 #include "AlternateSelf.h"
 #include "Visual.h"
 #include "Reward.h"
+#include "Addiction.h"
 
 
 /* ============================================================
@@ -6136,23 +6137,28 @@ static char *append_reality_context(char *base)
 {
     char *reality = r2_reality_context();
     char *reward = r2_reward_context();
+    char *addiction = r2_addiction_report();
     size_t base_n = base ? strlen(base) : 0;
     size_t reality_n = reality ? strlen(reality) : 0;
     size_t reward_n = reward ? strlen(reward) : 0;
-    if (!base && !reality && !reward) return NULL;
-    size_t n = base_n + reality_n + reward_n + 128;
+    size_t addiction_n = addiction ? strlen(addiction) : 0;
+    if (!base && !reality && !reward && !addiction) return NULL;
+    size_t n = base_n + reality_n + reward_n + addiction_n + 160;
     char *combined = malloc(n);
     if (combined) {
-        snprintf(combined, n, "%s%s%s%s%s",
+        snprintf(combined, n, "%s%s%s%s%s%s%s",
             base ? base : "",
             base_n && reality_n ? "\n\n" : "",
             reality ? reality : "",
             (base_n || reality_n) && reward_n ? "\n\n" : "",
-            reward ? reward : "");
+            reward ? reward : "",
+            (base_n || reality_n || reward_n) && addiction_n ? "\n\n" : "",
+            addiction ? addiction : "");
     }
     free(base);
     free(reality);
     free(reward);
+    free(addiction);
     return combined;
 }
 
