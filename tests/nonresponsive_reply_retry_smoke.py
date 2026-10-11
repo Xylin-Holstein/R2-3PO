@@ -105,6 +105,19 @@ require(
     "primary prompt forbids swapping the user's identity with R2",
 )
 require(
+    "R2_TURN_MEMORY_LIMIT 6" in core and "R2_RECALL_HISTORY_SEARCHES 4" in core,
+    "ordinary dialogue uses focused retrieval while explicit recall expands it",
+)
+require(
+    "r2_query_explicitly_requests_recall(query)" in core,
+    "retrieval breadth is selected from the user's actual request",
+)
+require(
+    "Insert after any leading system context, before dialogue begins." in core and
+    "memmove(&copy[context_index + 1], &copy[context_index]" in core,
+    "retrieved context is not injected between prior dialogue and the current user turn",
+)
+require(
     'getenv("R2_OLLAMA_TRACE_PROMPTS")' in core,
     "prompt tracing is disabled unless explicitly opted into",
 )
