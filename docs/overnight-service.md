@@ -43,6 +43,37 @@ Run these on the R2 Linux machine, not on GitHub.
 
    If a check fails, correct the existing owner/group/ACL deliberately before continuing. The core stores its five SQLite databases under `R2/` (`r2_memory.db`, `r2_reality.db`, `r2_fridge.db`, `r2_rewards.db`, and `r2_addictions.db`), so account `r2` needs read/write access to that directory and its existing database files.
 
+## Optional longer local inference timeout
+
+Foreground chat uses a 45-minute request timeout by default. To allow up to four hours per request in the interactive launcher, export the setting before starting it:
+
+```sh
+export R2_OLLAMA_TIMEOUT_SECONDS=14400
+/home/x/R2_Home/R2_Launch_Code.sh
+```
+
+The launcher forwards this setting to the dedicated `r2` process. For the overnight systemd service, use a service override instead because systemd does not inherit an interactive shell's exported variables:
+
+```sh
+sudo systemctl edit r2-3po.service
+```
+
+Add these lines in the editor:
+
+```ini
+[Service]
+Environment=R2_OLLAMA_TIMEOUT_SECONDS=14400
+```
+
+Then apply the override and restart the service:
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl restart r2-3po.service
+```
+
+Accepted values are 30–21,600 seconds (30 seconds to six hours); invalid values use the 45-minute default. This only changes how long R2 waits for a request, not inference speed.
+
 ## Build, audit, and activate
 
 First exit any interactive R2 session. The service and interactive launcher share persistent SQLite databases.
