@@ -131,3 +131,8 @@ jobs:
 
       - name: Compile R2 with the same sources and flags as the launcher
         run: make clean all CFLAGS="-std=c11 -Wall -Wextra -Werror -O2"
+
+      - name: Run isolated overnight SIGTERM lifecycle integration
+        run: |
+          python3 -m py_compile tests/r2_service_signal_integration.py
+          python3 tests/r2_service_signal_integration.py
