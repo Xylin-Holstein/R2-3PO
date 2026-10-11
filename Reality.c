@@ -941,16 +941,17 @@ static int fridge_migrate_schema(void)
     }
 
     if (!had_quantity) {
-        if (fridge_column_exists("qty") &&
-            sqlite3_exec(fridge_db,
+        if (fridge_column_exists("qty")) {
+            if (sqlite3_exec(fridge_db,
                 "UPDATE r2_fridge_items SET quantity=qty WHERE qty IS NOT NULL",
                 NULL, NULL, NULL) != SQLITE_OK)
-            return SQLITE_ERROR;
-        else if (fridge_column_exists("amount") &&
-            sqlite3_exec(fridge_db,
+                return SQLITE_ERROR;
+        } else if (fridge_column_exists("amount")) {
+            if (sqlite3_exec(fridge_db,
                 "UPDATE r2_fridge_items SET quantity=amount WHERE amount IS NOT NULL",
                 NULL, NULL, NULL) != SQLITE_OK)
-            return SQLITE_ERROR;
+                return SQLITE_ERROR;
+        }
     }
     if (sqlite3_exec(fridge_db,
         "UPDATE r2_fridge_items SET updated_at=CURRENT_TIMESTAMP "
