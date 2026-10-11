@@ -1373,8 +1373,19 @@ static void shell_tv(const char *argument)
         char *parts[3] = {0}; int count = 0; char *save = NULL;
         for (char *p = strtok_r(copy, "|", &save); p && count < 3; p = strtok_r(NULL, "|", &save))
             parts[count++] = reality_trim(p);
-        int port = count >= 3 ? atoi(parts[2]) : 0;
-        int rc = count == 3 ? r2_reality_tv_connect(parts[0], parts[1], port) : -1;
+        int port = 0, valid_port = 0;
+        if (count == 3) {
+            char *end = NULL;
+            errno = 0;
+            long parsed = strtol(parts[2], &end, 10);
+            if (errno != ERANGE && end != parts[2] && end && !*end &&
+                parsed >= INT_MIN && parsed <= INT_MAX) {
+                port = (int)parsed;
+                valid_port = 1;
+            }
+        }
+        int rc = count == 3 && valid_port
+            ? r2_reality_tv_connect(parts[0], parts[1], port) : -1;
         if (rc == 0) printf("[TV] Connected %s to %s %d.\n", parts[0], parts[1], port);
         else printf("Usage: tv connect <device name> | input/RF | <port/channel> (AV inputs 2..4, RF channels 2..13).\n");
         free(copy);
