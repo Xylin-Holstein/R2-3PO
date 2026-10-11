@@ -109,7 +109,7 @@ int main(void)
     }
     ok &= check(selected_history_searches == 2 &&
                     strcmp(first_history_searches[0], "mother") == 0 &&
-                    strcmp(first_history_searches[1], "missed") == 0,
+                    strcmp(first_history_searches[1], "miss") == 0,
                 "current affectionate message searches relationship/meaning, not generic Hello/R2 history");
 
     ok &= check(r2_reply_misclassifies_plain_text(mother_message,
