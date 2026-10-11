@@ -335,12 +335,13 @@ class CRTDisplay:
             self._last_transport = transport
         self._save_vcr_position()
 
-    def _send_media_event(self, action: str, path: str) -> None:
+    def _send_media_event(self, action: str, path: str) -> bool:
         try:
             send_control_command(f"media {action}|{path}")
+            return True
         except (OSError, RuntimeError, ValueError):
             # The player must remain usable if the Life Log socket is unavailable.
-            pass
+            return False
 
     def _record_playback_state(self, path: str | None) -> None:
         previous = self._last_logged_vlc_state
@@ -379,15 +380,15 @@ class CRTDisplay:
         if previous is None or previous[0] != path:
             # Establish a baseline for loaded-but-not-playing media. Do not log
             # a false stop/pause event just because a tape was inserted.
-            if state_name != "playing":
+            if state_name not in ("playing", "error"):
                 self._last_logged_vlc_state = (path, state_name)
                 return
-        elif state_name != "playing" and previous[1] != "playing":
+        elif state_name != "playing" and previous[1] != "playing" and state_name != "error":
             self._last_logged_vlc_state = (path, state_name)
             return
 
-        self._send_media_event(action, path)
-        self._last_logged_vlc_state = (path, state_name)
+        if self._send_media_event(action, path):
+            self._last_logged_vlc_state = (path, state_name)
 
     def display_opened(self) -> None:
         try:
