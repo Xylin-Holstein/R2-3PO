@@ -5,6 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 script = (ROOT / "tools/preflight_r2_hardware.sh").read_text(encoding="utf-8")
 launcher = (ROOT / "R2_Launch_Code.sh").read_text(encoding="utf-8")
+service = (ROOT / "deploy/r2-3po.service").read_text(encoding="utf-8")
 required = (
     'set -uo pipefail',
     'R2_ROOT="${R2_ROOT:-/home/x/R2_Home}"',
@@ -17,7 +18,7 @@ required = (
     'r2_rewards.db', 'r2_addictions.db',
     'pactl', 'sudo -n -u r2 pactl info',
     '/dev/video*', 'R2 runtime account can read/write',
-    '/dev/snd/*', 'SupplementaryGroups=audio',
+    '/dev/snd/*',
     "R2 service's configured audio supplementary group can access", 'mGBA Qt emulator',
     'stop it before installation or database preflight',
     'sudo -n -u r2 test -r "$R2_FX_DIR"',
@@ -42,6 +43,8 @@ required = (
 missing = [item for item in required if item not in script]
 if missing:
     raise SystemExit(f"preflight contract missing expected checks: {missing}")
+if "SupplementaryGroups=audio" not in service:
+    raise SystemExit("R2 service must receive service-scoped ALSA access through the audio group")
 for forbidden in ('chmod 777', 'systemctl enable', 'systemctl start',
                   'systemctl stop', 'make clean all', 'rm -f'):
     if forbidden in script:
