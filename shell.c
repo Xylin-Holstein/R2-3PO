@@ -35,6 +35,7 @@
 #include <signal.h>
 #include <errno.h>
 #include <math.h>
+#include <limits.h>
 #include <ctype.h>
 #include <time.h>
 #include <sys/types.h>
@@ -1437,9 +1438,23 @@ static int shell_reality(const char *argument)
         } else {
             const char *desc = n >= 2 ? parts[1] : "An object in R2's persistent room.";
             const char *container = n >= 3 && *parts[2] ? parts[2] : "room";
-            int quantity = n >= 4 ? atoi(parts[3]) : 1;
-            int rc = r2_reality_add_item(parts[0], desc, container, quantity);
-            printf(rc == 0 ? "[R2 Reality] Item recorded.\n" : "[R2 Reality] Item could not be recorded.\n");
+            int quantity = 1, quantity_valid = 1;
+            if (n >= 4) {
+                char *end = NULL;
+                errno = 0;
+                long parsed = strtol(parts[3], &end, 10);
+                if (errno == ERANGE || end == parts[3] || !end || *end ||
+                    parsed < 1 || parsed > INT_MAX)
+                    quantity_valid = 0;
+                else
+                    quantity = (int)parsed;
+            }
+            if (!quantity_valid) {
+                printf("[R2 Reality] Quantity must be a positive whole number.\\n");
+            } else {
+                int rc = r2_reality_add_item(parts[0], desc, container, quantity);
+                printf(rc == 0 ? "[R2 Reality] Item recorded.\\n" : "[R2 Reality] Item could not be recorded.\\n");
+            }
         }
         free(copy);
         return 1;
