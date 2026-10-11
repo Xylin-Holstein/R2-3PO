@@ -2764,8 +2764,9 @@ static char *ollama_chat_with_limit(
     /*
      * Priority matters when the system-context budget is reached. Keep the
      * core identity/personality prompt first, then the newest canonical Reality
-     * snapshot, then any other system/archive context. Otherwise old pinned
-     * memory blocks can crowd the refreshed hunger/world state out entirely.
+     * snapshot, then current-turn retrieved evidence, then learning context and
+     * older system/archive context. Old pinned memories must not crowd out the
+     * user's current message or its relevant evidence.
      */
     for (int priority = 0; priority < 5 &&
          total_chars < OLLAMA_MAX_SYSTEM_TOTAL_CHARS; ++priority) {
