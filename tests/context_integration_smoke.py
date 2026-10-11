@@ -47,6 +47,12 @@ for boundary in (
 
 if "Only listed stock exists" not in reality:
     raise SystemExit("Authoritative fridge inventory is not represented in Reality context.")
+if "r2_reality_self_facts ORDER BY updated_at DESC LIMIT 40" not in reality:
+    raise SystemExit("Self-fact context is not bounded for long-running sessions.")
+if "ORDER BY satisfaction_sum*1.0/rating_count DESC LIMIT 24" not in reality:
+    raise SystemExit("Ingredient-preference context is not bounded.")
+if "older facts remain stored" not in reality or "full history remains stored" not in reality:
+    raise SystemExit("Bounded context must disclose that older persistent facts remain in storage.")
 
 if "ORDER BY t.updated_at DESC LIMIT 17" not in addiction or "if (rows >= 16)" not in addiction:
     raise SystemExit("Addiction context must remain bounded for long-running prompt stability.")
