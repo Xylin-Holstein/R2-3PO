@@ -39,6 +39,8 @@ required = (
     'for tool in bash make gcc curl python3 sudo setpriv pgrep date find grep cmp',
     'run_as_r2_with_audio_group()',
     'sudo -n setpriv --reuid="$uid" --regid="$gid" --groups="$groups" -- "$@"',
+    'bash -c \'builtin test "$@"\' r2-preflight-test "$@"',
+    '/usr/bin/test -w incorrectly reports these ACL-writable paths',
     'libfaketime.so.1 is missing',
     'sudo apt-get update && sudo apt-get install -y ffmpeg',
     'sudo apt-get update && sudo apt-get install -y pulseaudio-utils',
