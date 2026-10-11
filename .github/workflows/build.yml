@@ -77,6 +77,11 @@ jobs:
           python3 -m py_compile Observer.py tests/observer_filter_smoke.py
           python3 tests/observer_filter_smoke.py
 
+      - name: Check local Ollama readiness probe without network access
+        run: |
+          python3 -m py_compile tools/preflight_ollama_model.py tests/ollama_preflight_smoke.py
+          python3 tests/ollama_preflight_smoke.py
+
       - name: Check unified Gemma 3 conversation and vision wiring
         run: python3 tests/gemma3_model_smoke.py
 
