@@ -1167,7 +1167,7 @@ int r2_fridge_take(const char *food)
 {
     if (!food || !*food || !fridge_db || !r2_reality_is_initialized() || !reality_is_home()) return -1;
     char desc[REALITY_MAX_TEXT + 1] = {0}, ingredients[1024] = {0}, taste[1024] = {0};
-    int qty = 0; double fullness = 100.0, energy = 10.0;
+    int qty = 0; double fullness = 0.0, energy = 0.0;
     pthread_mutex_lock(&fridge_lock);
     int rc = fridge_seed_if_empty_locked();
     if (rc == 0) rc = fridge_change_one(food, desc, sizeof(desc), &qty, &fullness, &energy,
@@ -1203,7 +1203,7 @@ int r2_reality_fridge_eat(const char *food, double fullness)
     (void)fullness;
     if (!food || !*food || !fridge_db || !r2_reality_is_initialized() || !reality_is_home()) return -1;
     char desc[REALITY_MAX_TEXT + 1] = {0}, ingredients[1024] = {0}, taste[1024] = {0};
-    int qty = 0; double stored_fullness = 100.0, energy = 10.0;
+    int qty = 0; double stored_fullness = 0.0, energy = 0.0;
     pthread_mutex_lock(&fridge_lock);
     int rc = fridge_seed_if_empty_locked();
     if (rc == 0) rc = fridge_change_one(food, desc, sizeof(desc), &qty, &stored_fullness, &energy,
