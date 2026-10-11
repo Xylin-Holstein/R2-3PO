@@ -4119,6 +4119,66 @@ static char *r2_retry_direct_answer(Message *messages_copy,
     return retry;
 }
 
+/*
+ * Keep routine dialogue focused instead of sending a broad memory dump to a
+ * small local model on every turn. Full recall remains available when the
+ * user explicitly asks about prior conversations or remembered details.
+ */
+#define R2_TURN_MEMORY_LIMIT 6
+#define R2_TURN_MEMORY_CHARS 7000
+#define R2_TURN_HISTORY_CHARS 4000
+#define R2_TURN_HISTORY_SEARCHES 2
+#define R2_RECALL_MEMORY_CHARS 14000
+#define R2_RECALL_HISTORY_CHARS 10000
+#define R2_RECALL_HISTORY_SEARCHES 4
+
+static int r2_query_explicitly_requests_recall(const char *query)
+{
+    if (!query || !*query)
+        return 0;
+
+    static const char *const recall_phrases[] = {
+        "what do you remember",
+        "what did i tell you",
+        "what have i told you",
+        "what did we talk about",
+        "what have we discussed",
+        "what did i say",
+        "what was i saying",
+        "do you remember",
+        "can you remember",
+        "remember when",
+        "previous conversation",
+        "earlier conversation",
+        "last time we",
+        "search my memories",
+        "look through my memories",
+        "recall our conversation"
+    };
+    for (size_t i = 0; i < sizeof(recall_phrases) / sizeof(recall_phrases[0]); ++i) {
+        if (strcasestr(query, recall_phrases[i]))
+            return 1;
+    }
+    return 0;
+}
+
+/* Clip only at a record boundary when possible, so a memory is not half-sent. */
+static void r2_bound_context_records(char *context, size_t max_chars)
+{
+    if (!context || max_chars == 0)
+        return;
+    size_t length = strlen(context);
+    if (length <= max_chars)
+        return;
+
+    size_t cut = max_chars;
+    while (cut > 0 && context[cut] != '\n')
+        --cut;
+    if (cut == 0)
+        cut = max_chars;
+    context[cut] = '\0';
+}
+
 static char *chat_with_relevant_memories(
     const char *query)
 {
@@ -4130,22 +4190,28 @@ static char *chat_with_relevant_memories(
        The permanent conversation is never modified by retrieval.
     */
 
-    char *memory_context = context_cache_get(query ? query : "",
-                                                   MAX_RELEVANT_MEMORIES);
+    int explicit_recall = r2_query_explicitly_requests_recall(query);
+    int memory_limit = explicit_recall ? MAX_RELEVANT_MEMORIES
+                                       : R2_TURN_MEMORY_LIMIT;
+    size_t memory_char_limit = explicit_recall ? R2_RECALL_MEMORY_CHARS
+                                               : R2_TURN_MEMORY_CHARS;
+    size_t history_char_limit = explicit_recall ? R2_RECALL_HISTORY_CHARS
+                                                : R2_TURN_HISTORY_CHARS;
+    int history_search_limit = explicit_recall ? R2_RECALL_HISTORY_SEARCHES
+                                               : R2_TURN_HISTORY_SEARCHES;
+
+    char *memory_context = context_cache_get(query ? query : "", memory_limit);
     if (!memory_context) {
-        memory_context = get_relevant_memories(
-            query ? query : "",
-            MAX_RELEVANT_MEMORIES
-        );
+        memory_context = get_relevant_memories(query ? query : "", memory_limit);
         if (!memory_context)
             memory_context = xstrdup("");
         if (!memory_context)
             return NULL;
-        context_cache_store(query ? query : "", MAX_RELEVANT_MEMORIES,
-                            memory_context);
+        context_cache_store(query ? query : "", memory_limit, memory_context);
     } else {
-        fprintf(stderr, "[R2 Context] Reused persistent-memory retrieval from RAM cache.\n");
+        fprintf(stderr, "[R2 Context] Reused persistent-memory retrieval from RAM cache.\\n");
     }
+    r2_bound_context_records(memory_context, memory_char_limit);
 
     /*
        Conversation continuity: the Life Log retains complete historical
@@ -4160,7 +4226,8 @@ static char *chat_with_relevant_memories(
         size_t history_length = 0;
         int searches = 0;
 
-        for (size_t k = 0; history && k < keyword_count && searches < 4; ++k) {
+        for (size_t k = 0; history && k < keyword_count &&
+             searches < history_search_limit; ++k) {
             if (!keywords[k][0] ||
                 !strcasecmp(keywords[k], "movie") ||
                 !strcasecmp(keywords[k], "video") ||
@@ -4183,8 +4250,15 @@ static char *chat_with_relevant_memories(
             }
 
             size_t found_length = strlen(found);
-            if (found_length > 3500) found_length = 3500;
-            if (history_length + found_length + 2 > 10000) {
+            size_t found_limit = explicit_recall ? 3500 : 1800;
+            if (found_length > found_limit) {
+                found_length = found_limit;
+                while (found_length > 0 && found[found_length - 1] != '\n')
+                    --found_length;
+                if (found_length == 0)
+                    found_length = found_limit;
+            }
+            if (history_length + found_length + 2 > history_char_limit) {
                 free(found);
                 break;
             }
@@ -4220,6 +4294,13 @@ static char *chat_with_relevant_memories(
         }
         free(history);
     }
+
+    fprintf(stderr,
+            "[R2 Context] Turn retrieval profile=%s memory_limit=%d memory_chars=%zu history_search_limit=%d history_chars=%zu.\\n",
+            explicit_recall ? "explicit-recall" : "focused",
+            memory_limit, strlen(memory_context), history_search_limit,
+            history_char_limit);
+
     /*
      * Perception is available during ordinary conversation, not only
      * when the user explicitly asks about vision. If Eyes is already
