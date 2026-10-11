@@ -78,7 +78,15 @@ CURRENT_HOUR="$(date -d "@$REAL_EPOCH" '+%H')"
 CURRENT_MINUTE="$(date -d "@$REAL_EPOCH" '+%M')"
 CURRENT_SECOND="$(date -d "@$REAL_EPOCH" '+%S')"
 R2_START="1999-${CURRENT_MONTH}-${CURRENT_DAY} ${CURRENT_HOUR}:${CURRENT_MINUTE}:${CURRENT_SECOND}"
-R2_EPOCH="$(date -d "$R2_START" '+%s')" || fail "could not calculate R2's private clock."
+if ! R2_EPOCH="$(date -d "$R2_START" '+%s' 2>/dev/null)"; then
+    # 1999 was not a leap year. Map Feb 29 to Mar 1 instead of failing startup.
+    if [[ "$CURRENT_MONTH$CURRENT_DAY" == "0229" ]]; then
+        R2_START="1999-03-01 ${CURRENT_HOUR}:${CURRENT_MINUTE}:${CURRENT_SECOND}"
+        R2_EPOCH="$(date -d "$R2_START" '+%s')" || fail "could not calculate R2's private clock."
+    else
+        fail "could not calculate R2's private clock."
+    fi
+fi
 [[ "$REAL_EPOCH" =~ ^-?[0-9]+$ && "$R2_EPOCH" =~ ^-?[0-9]+$ ]] || fail "could not calculate R2's private clock."
 FAKETIME_OFFSET=$((R2_EPOCH - REAL_EPOCH))
 
