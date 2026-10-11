@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "Reality.h"
+#include <sqlite3.h>
 #include <assert.h>
 #include <dirent.h>
 #include <stdio.h>
@@ -49,6 +50,93 @@ static void clear_money_files(const char *dir) {
     }
     closedir(dp);
 }
+
+static void create_legacy_reality_and_fridge_databases(void)
+{
+    char home[1200], path[1500];
+    snprintf(home, sizeof(home), "%s/R2", R2_ROOT);
+    assert(mkdir(home, 0755) == 0);
+
+    snprintf(path, sizeof(path), "%s/r2_reality.db", home);
+    sqlite3 *legacy = NULL;
+    assert(sqlite3_open(path, &legacy) == SQLITE_OK);
+    char *error = NULL;
+    int rc = sqlite3_exec(legacy,
+        "CREATE TABLE r2_reality_self ("
+        "id INTEGER PRIMARY KEY CHECK(id=1),"
+        "hunger REAL NOT NULL DEFAULT 0,"
+        "last_tick INTEGER NOT NULL DEFAULT 0);"
+        "INSERT INTO r2_reality_self(id,hunger,last_tick) "
+        "VALUES(1,17.5,strftime('%s','now'));",
+        NULL, NULL, &error);
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "Could not create legacy Reality fixture: %s\n",
+                error ? error : sqlite3_errmsg(legacy));
+        sqlite3_free(error);
+        sqlite3_close(legacy);
+        abort();
+    }
+    sqlite3_close(legacy);
+
+    snprintf(path, sizeof(path), "%s/r2_fridge.db", home);
+    legacy = NULL;
+    assert(sqlite3_open(path, &legacy) == SQLITE_OK);
+    error = NULL;
+    rc = sqlite3_exec(legacy,
+        "CREATE TABLE r2_fridge_items ("
+        "name TEXT PRIMARY KEY COLLATE NOCASE,"
+        "description TEXT,"
+        "qty INTEGER);"
+        "INSERT INTO r2_fridge_items(name,description,qty) "
+        "VALUES('legacy snack','Pre-existing user stock',3);",
+        NULL, NULL, &error);
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "Could not create legacy fridge fixture: %s\n",
+                error ? error : sqlite3_errmsg(legacy));
+        sqlite3_free(error);
+        sqlite3_close(legacy);
+        abort();
+    }
+    sqlite3_close(legacy);
+}
+
+static void assert_legacy_reality_and_fridge_preserved(void)
+{
+    char path[1500];
+    snprintf(path, sizeof(path), "%s/R2/r2_reality.db", R2_ROOT);
+    sqlite3 *check = NULL;
+    assert(sqlite3_open(path, &check) == SQLITE_OK);
+    sqlite3_stmt *st = NULL;
+    assert(sqlite3_prepare_v2(check,
+        "SELECT hunger,satisfaction,seconds_since_meal,sleepiness,energy,last_tick,updated_at "
+        "FROM r2_reality_self WHERE id=1", -1, &st, NULL) == SQLITE_OK);
+    assert(sqlite3_step(st) == SQLITE_ROW);
+    double hunger = sqlite3_column_double(st, 0);
+    assert(hunger >= 17.5 && hunger < 25.0);
+    assert(sqlite3_column_double(st, 1) >= 0.0);
+    assert(sqlite3_column_double(st, 2) >= 0.0);
+    assert(sqlite3_column_double(st, 3) >= 0.0);
+    assert(sqlite3_column_double(st, 4) >= 0.0);
+    assert(sqlite3_column_int64(st, 5) > 0);
+    const unsigned char *updated = sqlite3_column_text(st, 6);
+    assert(updated && *updated);
+    sqlite3_finalize(st);
+    sqlite3_close(check);
+
+    snprintf(path, sizeof(path), "%s/R2/r2_fridge.db", R2_ROOT);
+    assert(sqlite3_open(path, &check) == SQLITE_OK);
+    assert(sqlite3_prepare_v2(check,
+        "SELECT quantity,fullness,energy,updated_at FROM r2_fridge_items "
+        "WHERE name='legacy snack'", -1, &st, NULL) == SQLITE_OK);
+    assert(sqlite3_step(st) == SQLITE_ROW);
+    assert(sqlite3_column_int(st, 0) == 3);
+    assert(sqlite3_column_double(st, 1) == 100.0);
+    assert(sqlite3_column_double(st, 2) == 10.0);
+    updated = sqlite3_column_text(st, 3);
+    assert(updated && *updated);
+    sqlite3_finalize(st);
+    sqlite3_close(check);
+}
 int main(void) {
     char wallet[1024],bank[1024],bill[1200];
     snprintf(wallet,sizeof(wallet),"%s/Pockets/Wallet",R2_ROOT);
@@ -76,7 +164,9 @@ int main(void) {
     lf=fopen(migrated,"w"); assert(lf); fputs("legacy wallet item\n",lf); fclose(lf);
     snprintf(migrated,sizeof(migrated),"%s/cash.txt",legacy_wallet);
     lf=fopen(migrated,"w"); assert(lf); fputs("cash=999.00\n",lf); fclose(lf);
+    create_legacy_reality_and_fridge_databases();
     assert(r2_reality_init()==0);
+    assert_legacy_reality_and_fridge_preserved();
     /* The CRT is persistent room furnishing; Reality, not the GUI, owns its state. */
     char *room_items=r2_reality_list("room");
     assert(room_items && strstr(room_items,"TV"));
