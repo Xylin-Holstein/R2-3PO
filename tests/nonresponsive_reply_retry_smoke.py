@@ -42,10 +42,13 @@ for phrase, message in (
     ("Preserve speaker identity and who said what", "retry protects speaker identity and the user's stated meaning"),
     ("attributes words to them that they did not say", "retry forbids fabricated paraphrases"),
     ("messages_copy[index].content, query", "retry locates the actual user turn"),
-    ('xstrdup("system")', "retry inserts a temporary system instruction"),
+    ("r2_conversation_system_prompt", "full R2 system prompt is shared with the retry"),
+    ("snprintf(retry_system_prompt, prompt_size, \"%s\\n\\n%s\"", "retry appends correction without dropping core instructions"),
+    ("messages_copy, message_count, retry_system_prompt", "retry uses the original history and combined system prompt"),
     ("ollama_authoritative_user_query = query;", "retry preserves active-turn identity"),
     ("conversation_reply_token_budget(query)", "retry respects the normal response budget"),
-    ("retry_messages, message_count + 1", "retry retains history and retrieved context"),
+    ("r2_conversation_system_prompt, retry_instruction", "retry combines identity and correction instructions"),
+    ("ollama_chat_with_limit(\n        messages_copy, message_count, retry_system_prompt", "retry does not inject a system message into the middle of dialogue"),
 ):
     require(phrase in retry, message)
 
