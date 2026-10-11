@@ -384,6 +384,14 @@ int main(void)
     if (energy < 89.0 || energy > 91.0) fail("energy should fall about 10 points per hour");
     if (satisfaction < 23.5 || satisfaction > 25.0) fail("satisfaction should decay independently at the configured modeled rate");
 
+    if (r2_reality_sleep(8.0) != 0) fail("eight-hour sleep transition failed");
+    read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
+    if (hunger > 0.1) fail("eight modeled hours without food should drain the fullness meter to zero");
+    if (satisfaction > 0.1) fail("eight modeled hours without a qualifying meal should deplete satiety to zero");
+    if (sleepiness > 1.0) fail("eight hours of sleep should restore sleepiness to zero");
+    if (energy < 89.0 || energy > 91.0) fail("sleep should restore energy without exceeding its cap");
+    if (since_meal < 32300.0 || since_meal > 32500.0) fail("sleep must advance elapsed time since meal");
+
     /* Three modeled hours without food should drain the fullness meter to
        zero; this directly guards the intended time scale. */
     if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality DB for three-hour fullness test");
@@ -397,14 +405,6 @@ int main(void)
     if (r2_reality_tick() != 0) fail("three-hour fullness tick failed");
     read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
     if (hunger > 0.1) fail("fullness should reach zero after roughly three modeled hours without food");
-
-    if (r2_reality_sleep(8.0) != 0) fail("eight-hour sleep transition failed");
-    read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
-    if (hunger > 0.1) fail("eight modeled hours without food should drain the fullness meter to zero");
-    if (satisfaction > 0.1) fail("eight modeled hours without a qualifying meal should deplete satiety to zero");
-    if (sleepiness > 1.0) fail("eight hours of sleep should restore sleepiness to zero");
-    if (energy < 89.0 || energy > 91.0) fail("sleep should restore energy without exceeding its cap");
-    if (since_meal < 32300.0 || since_meal > 32500.0) fail("sleep must advance elapsed time since meal");
 
     /* Make the fridge's first-choice item explicit so the end-to-end test
        can prove one unit is consumed, not merely that hunger was reset. */
