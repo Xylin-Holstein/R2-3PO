@@ -7190,9 +7190,7 @@ static void autonomous_needs_food_safeguard(void)
     pthread_mutex_unlock(&conversation_turn_lock);
 }
 
-/* Re-check hunger immediately before executing a model-selected meal.
- * The model's prompt is a snapshot; foreground actions may have changed needs
- * while inference was running. Fail closed if authoritative status is unreadable. */
+/* Keep the autonomous controller on the smallest safe action allowlist. */
 static int autonomous_needs_action_allowed(const char *action)
 {
     if (!action || strncmp(action, "[WORLD] ", 8) != 0)
