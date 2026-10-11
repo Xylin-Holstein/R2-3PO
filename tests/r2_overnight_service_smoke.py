@@ -38,6 +38,8 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn("r2_fridge.db", source)
         self.assertIn("r2_rewards.db", source)
         self.assertIn("r2_addictions.db", source)
+        self.assertIn("for helper in ffmpeg ffprobe pactl xdotool", source)
+        self.assertIn("no local MP3 player", source)
         self.assertIn("/api/tags", source)
         self.assertIn("LD_PRELOAD", source)
         self.assertIn("FAKETIME_DONT_RESET=1", source)
