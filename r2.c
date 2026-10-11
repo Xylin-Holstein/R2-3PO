@@ -7161,7 +7161,8 @@ static int refresh_reality_context_message(void)
 {
     if (!r2_reality_is_initialized()) return 0;
     (void)r2_reality_tick();
-    char *context = r2_reality_context();
+    /* Every chat turn receives Reality plus persistent reward and interest history. */
+    char *context = append_reality_context(NULL);
     if (!context) return -1;
 
     pthread_mutex_lock(&messages_lock);
