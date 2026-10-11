@@ -2,7 +2,8 @@
 """Safety/coverage contract for the non-destructive hardware preflight."""
 from pathlib import Path
 
-script = Path("tools/preflight_r2_hardware.sh").read_text(encoding="utf-8")
+ROOT = Path(__file__).resolve().parents[1]
+script = (ROOT / "tools/preflight_r2_hardware.sh").read_text(encoding="utf-8")
 required = (
     'set -uo pipefail',
     'R2_ROOT="${R2_ROOT:-/home/x/R2_Home}"',
