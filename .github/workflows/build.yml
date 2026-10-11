@@ -36,6 +36,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential libcurl4-openssl-dev libsqlite3-dev libjson-c-dev libpulse-dev python3-tk
 
+      - name: Check consistent strict build configuration
+        run: |
+          python3 -m py_compile tests/build_configuration_smoke.py
+          python3 tests/build_configuration_smoke.py
+
       - name: Check every shell script for syntax errors
         run: find . -type f -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
 
