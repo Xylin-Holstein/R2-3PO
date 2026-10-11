@@ -22,9 +22,10 @@ helper_end = source.index("\n/* Autonomous needs checks are deliberately limited
 food_guard = source[helper_start:helper_end]
 assert 'strstr(action, "[WORLD] eat|")' in food_guard
 assert 'strstr(action, "[WORLD] fridge_eat|")' in food_guard
-assert 'double value = strtod(field, &end);' in food_guard
+assert 'double hunger = hunger_field' in food_guard
+assert 'double sleepiness = sleepiness_field' in food_guard
 assert "hunger >= 50.0" in food_guard
-assert "sleepiness >= 85.0" in food_guard
+assert "sleepiness < 85.0" in food_guard
 assert 'strstr(action, "[WORLD] sleep|")' in food_guard
 assert "r2_reality_autonomous_food_available()" in food_guard
 assert "if (food_available != 0)" in food_guard
