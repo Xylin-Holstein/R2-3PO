@@ -1623,6 +1623,8 @@ static size_t extract_memory_keywords(
         return 0;
 
     char *copy = xstrdup(text);
+    if (!copy)
+        return 0;
 
     for (char *p = copy;
          *p && count < MAX_MEMORY_KEYWORDS;
