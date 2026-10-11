@@ -56,6 +56,8 @@ class OvernightServiceTests(unittest.TestCase):
 
     def test_installer_is_non_destructive_and_does_not_update_apt(self):
         source = (ROOT / "tools/install_r2_overnight.sh").read_text(encoding="utf-8")
+        self.assertIn("r2_rewards.db", source)
+        self.assertIn("r2_addictions.db", source)
         self.assertIn("r2.new", source)
         self.assertIn('mv -f "$TEMP_EXEC" "$R2_EXEC"', source)
         self.assertIn("systemctl enable --now r2-3po.service", source)
