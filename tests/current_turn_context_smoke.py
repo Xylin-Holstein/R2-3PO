@@ -36,7 +36,7 @@ require(
     and "----- BEGIN CURRENT USER MESSAGE -----" not in builder,
     "the user's original text stays byte-for-byte intact instead of being wrapped in context",
 )
-budget_start = core.find("/*\\n     * Priority matters when the system-context budget is reached.")
+budget_start = core.find("/*\n     * Priority matters when the system-context budget is reached.")
 budget_end = core.find("size_t length = strlen(content);", budget_start + 1) if budget_start >= 0 else -1
 budget_logic = core[budget_start:budget_end] if budget_end > budget_start else ""
 reality_start = budget_logic.find('"PERSISTENT REALITY CONTEXT"')
