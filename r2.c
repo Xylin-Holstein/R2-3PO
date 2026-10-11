@@ -3189,6 +3189,39 @@ static void ollama_trace_prompt_if_enabled(const char *payload)
             path);
 }
 
+/*
+ * Ollama conversation history may contain refreshed Reality/learning system
+ * messages appended after earlier dialogue. Serialize every included system
+ * message before any user/assistant turn, preserving order within each group.
+ * System instructions/context appearing mid-dialogue can confuse chat templates
+ * and make a small model answer the wrong speaker or ignore the active turn.
+ */
+static size_t r2_order_inference_messages(const Message *msgs,
+                                         const unsigned char *include,
+                                         size_t count,
+                                         size_t *order,
+                                         size_t capacity)
+{
+    if (!msgs || !include || !order)
+        return 0;
+
+    size_t used = 0;
+    for (int system_pass = 1; system_pass >= 0; --system_pass) {
+        for (size_t i = 0; i < count; ++i) {
+            if (!include[i])
+                continue;
+            int is_system = msgs[i].role &&
+                            strcmp(msgs[i].role, "system") == 0;
+            if (is_system != system_pass)
+                continue;
+            if (used >= capacity)
+                return used;
+            order[used++] = i;
+        }
+    }
+    return used;
+}
+
 static char *ollama_chat_with_limit(
     Message *msgs,
     size_t count,
@@ -3505,8 +3538,18 @@ static char *ollama_chat_with_limit(
         ++recent_count;
     }
 
-    for (size_t i = 0; i < count; ++i) {
-        if (!include[i]) continue;
+    size_t *message_order = count ? calloc(count, sizeof(*message_order)) : NULL;
+    if (count && !message_order) {
+        free(include);
+        free(limits);
+        json_object_put(arr);
+        json_object_put(root);
+        return NULL;
+    }
+    size_t ordered_count = r2_order_inference_messages(
+        msgs, include, count, message_order, count);
+    for (size_t pos = 0; pos < ordered_count; ++pos) {
+        size_t i = message_order[pos];
         struct json_object *m = json_object_new_object();
         if (!m) continue;
         const char *role = msgs[i].role ? msgs[i].role : "user";
@@ -3516,6 +3559,7 @@ static char *ollama_chat_with_limit(
                                json_object_new_string_len(content, (int)limits[i]));
         json_object_array_add(arr, m);
     }
+    free(message_order);
     free(include);
     free(limits);
     json_object_object_add(root, "messages", arr);
