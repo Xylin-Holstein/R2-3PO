@@ -230,19 +230,18 @@ int main(void)
     assert(r2_diary_write("New reflection connected to history.") == 0);
     assert(scalar_int("SELECT COUNT(*) FROM diary_entries;") == 2);
 
-    /* The correction earns +5; repeating the configured identity error earns
-       -7. Only the decision and short reason are logged, never diary prose. */
-    assert(r2_reward_review_diary(100, "Eli isn't real; you are the intended person.") == 0);
-    assert(r2_reward_review_diary(101, "I keep calling the creator Eli.") == 0);
+    /* Diary review applies generic +1 feedback without name-specific rules. */
+    assert(r2_reward_review_diary(100, "I learned something from this experience.") == 0);
+    assert(r2_reward_review_diary(101, "I will reflect on what happened.") == 0);
     assert(r2_reward_review_diary(102, "I believe learning takes time.") == 0);
-    assert(reward_total() == 1);
+    assert(reward_total() == 5);
     assert(reward_link_count() == 5);
     assert(reward_memory_count() == 5);
     assert(r2_reward_reconnect_history(10) == 0);
     assert(scalar_int("SELECT COUNT(*) FROM r2_log_events "
                       "WHERE event_type='enjoyment_changed';") == 5);
-    assert(r2_reward_current_modifier("diary_identity_correction") <= 0);
-    assert(r2_reward_current_modifier("diary_identity_correction") >= -14);
+    assert(r2_reward_current_modifier("diary_writing") >= 0);
+    assert(r2_reward_current_modifier("diary_writing") <= 2);
     assert(scalar_int("SELECT COUNT(*) FROM r2_diary_entry_links "
                       "WHERE log_event_id IS NOT NULL;") == 2);
     assert(scalar_int("SELECT COUNT(*) FROM r2_diary_entry_links "
@@ -254,12 +253,6 @@ int main(void)
     assert(scalar_int("SELECT COUNT(*) FROM r2_log_events "
                       "WHERE details LIKE '%Legacy diary entry about learning%' "
                       "OR summary LIKE '%Legacy diary entry about learning%';") == 0);
-    assert(scalar_int("SELECT COUNT(*) FROM r2_log_events "
-                      "WHERE details LIKE '%Eli isn''t real%' "
-                      "OR summary LIKE '%Eli isn''t real%' "
-                      "OR details LIKE '%I keep calling the creator Eli%' "
-                      "OR summary LIKE '%I keep calling the creator Eli%';") == 0);
-
     context = r2_diary_build_reflection_context(10);
     assert(context != NULL);
     assert(strstr(context, "Legacy diary entry about learning.") != NULL);
