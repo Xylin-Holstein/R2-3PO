@@ -136,8 +136,11 @@ int main(void)
     seed_legacy_fridge_schema();
     if (r2_reality_init() != 0) fail("Reality initialization failed");
     verify_legacy_fridge_migration();
-    read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
-    if (hunger < 99.9 || hunger > 100.0)
+    double initial_hunger, initial_sleepiness, initial_energy;
+    double initial_satisfaction, initial_since_meal;
+    read_needs(&initial_hunger, &initial_sleepiness, &initial_energy,
+               &initial_satisfaction, &initial_since_meal);
+    if (initial_hunger < 99.9 || initial_hunger > 100.0)
         fail("fresh R2 state should start at full modeled satiety after the one-time semantics migration");
     if (r2_reality_add_item("invalid_quantity", "Invalid quantity test", "pockets", 0) == 0)
         fail("Reality API must reject non-positive quantities rather than converting them to one");
