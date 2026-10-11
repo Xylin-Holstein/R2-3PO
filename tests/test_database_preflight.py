@@ -145,6 +145,21 @@ class DatabasePreflightTests(unittest.TestCase):
             self.assertIsNotNone(report["error"])
 
 
+    def test_snapshot_covers_all_five_persistent_database_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "source"
+            snapshots = Path(directory) / "snapshots"
+            root.mkdir()
+            for name in audit.DATABASES:
+                sqlite3.connect(root / name).close()
+
+            created = audit.create_snapshot_set(root, snapshots)
+
+            self.assertEqual({path.name for path in created}, set(audit.DATABASES))
+            self.assertEqual(len(created), 5)
+            report = audit.audit_root(snapshots)
+            self.assertEqual(report["summary"]["missing"], [])
+
     def test_cli_fails_preflight_when_expected_databases_are_missing(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -155,6 +170,8 @@ class DatabasePreflightTests(unittest.TestCase):
                 self.assertEqual(audit.main(), 2)
             self.assertIn("MISSING  r2_fridge.db", output.getvalue())
             self.assertIn("MISSING  r2_memory.db", output.getvalue())
+            self.assertIn("MISSING  r2_rewards.db", output.getvalue())
+            self.assertIn("MISSING  r2_addictions.db", output.getvalue())
 
 
 if __name__ == "__main__":
