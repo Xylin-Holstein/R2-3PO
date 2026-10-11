@@ -33,7 +33,7 @@ assert "if (!status) return 0;" in food_guard
 assert "if (!autonomous_needs_action_still_needed(safe_action))" in function
 assert "autonomous_needs_stale_action" in function
 
-assert "int food_action_succeeded = 0;" in function
+assert "food_action_succeeded" not in function
 assert "int world_action_succeeded = 0;" in function
 assert "process_tools_with_status(safe_action, &action_succeeded)" in function
 assert "world_action_succeeded = action_succeeded;" in function
