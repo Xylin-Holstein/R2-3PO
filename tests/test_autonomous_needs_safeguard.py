@@ -49,6 +49,13 @@ assert "ollama_foreground_turn_mode = previous_turn_mode;" in talk_wrapper
 assert "(atomic_load(&foreground_conversation_waiting) > 0 &&" in source
 assert "!ollama_foreground_turn_mode" in source
 
+worker_start = source.index("static void *post_turn_worker(void *opaque)\\n{")
+worker_end = source.index("\\n/* These model-assisted bookkeeping tasks", worker_start)
+worker = source[worker_start:worker_end]
+assert "while (!shutting_down" in worker
+assert "atomic_load(&foreground_conversation_waiting) > 0" in worker
+assert worker.index("atomic_load(&foreground_conversation_waiting) > 0") < worker.index("log_structured_self_report")
+
 safeguard_start = source.index("static void autonomous_needs_food_safeguard(void)\n{")
 assert "pthread_mutex_trylock(&conversation_turn_lock) != 0" in source[safeguard_start:start]
 
