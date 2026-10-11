@@ -2,6 +2,7 @@
 
 #include <sqlite3.h>
 #include <math.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -45,6 +46,23 @@ int main(void)
     if (r2_reality_init() != 0) fail("Reality initialization failed");
     if (r2_reality_add_item("invalid_quantity", "Invalid quantity test", "pockets", 0) == 0)
         fail("Reality API must reject non-positive quantities rather than converting them to one");
+    if (r2_reality_add_item("overflow_stack", "Quantity boundary test", "pockets", INT_MAX) != 0)
+        fail("Reality API should accept a representable maximum stack");
+    if (r2_reality_add_item("overflow_stack", "Quantity boundary test", "pockets", 1) == 0)
+        fail("Reality API must reject a stack addition that overflows its int mirror quantity");
+    if (sqlite3_open(R2_HOME "/r2_reality.db", &atomic_db) != SQLITE_OK)
+        fail("could not query quantity overflow regression");
+    sqlite3_stmt *overflow_st = NULL;
+    if (sqlite3_prepare_v2(atomic_db,
+        "SELECT quantity FROM r2_reality_objects WHERE name='overflow_stack'",
+        -1, &overflow_st, NULL) != SQLITE_OK ||
+        sqlite3_step(overflow_st) != SQLITE_ROW ||
+        sqlite3_column_int64(overflow_st, 0) != INT_MAX)
+        fail("overflowing stack addition changed authoritative quantity");
+    sqlite3_finalize(overflow_st);
+    sqlite3_close(atomic_db);
+    if (r2_reality_remove_item("overflow_stack") != 0)
+        fail("could not clean up quantity overflow fixture");
 
     /* Force a secondary persistence failure and verify the primary object,
        its container, and its collection memory are rolled back together. */
