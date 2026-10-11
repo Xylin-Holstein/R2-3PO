@@ -75,18 +75,14 @@ if [[ -z "$FAKETIME_LIB" ]]; then
 fi
 [[ -n "$FAKETIME_LIB" && -r "$FAKETIME_LIB" ]] || fail "libfaketime.so.1 not found. Install libfaketime outside R2's virtual-time environment; do not update package indexes from this launcher."
 
-# Wait briefly for Ollama after boot/restart. Do not download models or contact the internet.
-log "Waiting for the local Ollama API..."
-OLLAMA_READY=0
-for ((attempt=1; attempt<=30; attempt++)); do
-    if curl --silent --show-error --fail --max-time 1 "$OLLAMA_TAGS_URL" 2>/dev/null |
-        python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if any(x.get("name")=="gemma3:4b" or x.get("name","").startswith("gemma3:4b-") for x in d.get("models",[])) else 3)' >/dev/null 2>&1; then
-        OLLAMA_READY=1
-        break
-    fi
-    sleep 1
-done
-[[ "$OLLAMA_READY" -eq 1 ]] || fail "Ollama did not become ready with gemma3:4b after 60 seconds. Start Ollama and make sure 'ollama list' contains gemma3:4b; service will retry automatically."
+# Wait for the local model and verify one actual generation before entering the core.
+# This is localhost-only; no model downloads or external network requests occur.
+[[ -r "$R2_SOURCE/tools/preflight_ollama_model.py" ]] ||
+    fail "shared Ollama inference preflight is missing: $R2_SOURCE/tools/preflight_ollama_model.py"
+log "Waiting for local Gemma model availability and a real chat completion..."
+if ! python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 60 --timeout 180; then
+    fail "Ollama did not complete a real gemma3:4b chat preflight. Check the local model/server; systemd will retry automatically."
+fi
 
 # Preserve the established private, continuously advancing 1999 clock. The host clock is untouched.
 # Capture the host epoch once so a midnight boundary cannot mix two dates.
