@@ -41,11 +41,11 @@
 #define MIN_MEMORY_KEYWORD_LENGTH 3
 
 /* Bound prompts for the local Gemma 3 4B model: keep system instructions and recent turns. */
-#define OLLAMA_MAX_RECENT_MESSAGES 16
-#define OLLAMA_MAX_MESSAGE_CHARS 10000
-#define OLLAMA_MAX_SYSTEM_MESSAGE_CHARS 12000
-#define OLLAMA_MAX_SYSTEM_TOTAL_CHARS 20000
-#define OLLAMA_MAX_TOTAL_CHARS 36000
+#define OLLAMA_MAX_RECENT_MESSAGES 12
+#define OLLAMA_MAX_MESSAGE_CHARS 8000
+#define OLLAMA_MAX_SYSTEM_MESSAGE_CHARS 10000
+#define OLLAMA_MAX_SYSTEM_TOTAL_CHARS 16000
+#define OLLAMA_MAX_TOTAL_CHARS 24000
 #define OLLAMA_MAX_RESPONSE_BYTES (16U * 1024U * 1024U)
 
 #define OLLAMA_URL "http://127.0.0.1:11434/api/chat"
@@ -3451,8 +3451,8 @@ static char *ollama_chat_with_limit(
      * At large contexts these caps do not reduce ordinary-sized prompts.
      */
     size_t reality_reserve = system_budget / 3;
-    if (reality_reserve > 6000)
-        reality_reserve = 6000;
+    if (reality_reserve > 3000)
+        reality_reserve = 3000;
 
     size_t override_budget = system_budget / 4;
     if (override_length > override_budget) {
@@ -3476,6 +3476,8 @@ static char *ollama_chat_with_limit(
 
     size_t identity_budget = system_budget > override_length + reality_reserve
         ? system_budget - override_length - reality_reserve : 0;
+    if (identity_budget > 4000)
+        identity_budget = 4000;
 
     size_t total_chars = override_length;
     /*
@@ -3518,8 +3520,8 @@ static char *ollama_chat_with_limit(
             if (message_priority == 0 && length > identity_budget)
                 length = identity_budget;
             /* Reserve a little system budget for pinned memory after the live snapshot. */
-            if (message_priority == 1 && length > 4500)
-                length = 4500;
+            if (message_priority == 1 && length > 3000)
+                length = 3000;
             size_t remaining = system_budget > total_chars ? system_budget - total_chars : 0;
             if (length > remaining) length = remaining;
             if (length == 0) continue;
@@ -4255,8 +4257,8 @@ static char *r2_retry_direct_answer(Message *messages_copy,
  * user explicitly asks about prior conversations or remembered details.
  */
 #define R2_TURN_MEMORY_LIMIT 6
-#define R2_TURN_MEMORY_CHARS 3500
-#define R2_TURN_HISTORY_CHARS 1800
+#define R2_TURN_MEMORY_CHARS 2000
+#define R2_TURN_HISTORY_CHARS 1000
 #define R2_TURN_HISTORY_SEARCHES 2
 #define R2_RECALL_MEMORY_CHARS 14000
 #define R2_RECALL_HISTORY_CHARS 10000
