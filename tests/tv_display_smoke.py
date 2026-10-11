@@ -92,7 +92,7 @@ class TVDisplaySmoke(unittest.TestCase):
     def test_server_bridges_media_events_to_life_log(self) -> None:
         source = (Path(__file__).resolve().parents[1] / "shell.c").read_text(encoding="utf-8")
         self.assertIn('!strncmp(command, "media ", 6)', source)
-        self.assertIn('r2_log_media_event(payload, "video", path', source)
+        self.assertIn('r2_log_media_event(payload, "media", path', source)
         self.assertIn('"vcr_playback_started"', source)
         self.assertIn('"vcr_playback_error"', source)
 
