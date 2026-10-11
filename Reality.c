@@ -142,8 +142,10 @@ static int money_create_bill(const char *dir)
     }
     return -1;
 }
-static int money_set_dir_balance(const char *dir, sqlite3_int64 cents)
+static int money_set_dir_balance(const char *dir, sqlite3_int64 cents,
+                                  int *changed)
 {
+    if (changed) *changed = 0;
     if (cents < 0 || cents > 100000000LL || ensure_dir_tree(dir) != 0) return -1;
 
     /* Preflight every authoritative money path before deleting anything.
@@ -183,12 +185,15 @@ static int money_set_dir_balance(const char *dir, sqlite3_int64 cents)
             continue;
         }
         if (!S_ISREG(st.st_mode) || unlink(path) != 0) { result = -1; break; }
+        if (changed) *changed = 1;
     }
     closedir(dp);
     if (result != 0) return -1;
 
-    for (sqlite3_int64 i = 0; i < cents / 100; ++i)
+    for (sqlite3_int64 i = 0; i < cents / 100; ++i) {
         if (money_create_bill(dir) != 0) return -1;
+        if (changed) *changed = 1;
+    }
     int change = (int)(cents % 100);
     if (change) {
         char path[2048], tmp[2100];
@@ -206,6 +211,7 @@ static int money_set_dir_balance(const char *dir, sqlite3_int64 cents)
         if (fclose(fp) != 0) bad = 1;
         if (!bad && rename(tmp, path) != 0) bad = 1;
         if (bad) { (void)unlink(tmp); return -1; }
+        if (changed) *changed = 1;
     }
     return 0;
 }
