@@ -77,13 +77,13 @@ int main(void)
                     observed_bad_reply),
                 "observed fabricated paraphrase triggers corrective retry");
 
-    ok &= check(r2_history_keyword_is_low_signal("hello") &&
-                    r2_history_keyword_is_low_signal("r2") &&
-                    r2_history_keyword_is_low_signal("speaking"),
+    ok &= check(r2_keyword_is_low_signal("hello") &&
+                    r2_keyword_is_low_signal("r2") &&
+                    r2_keyword_is_low_signal("speaking"),
                 "Life Log retrieval ignores low-signal greeting/address tokens");
-    ok &= check(!r2_history_keyword_is_low_signal("mother") &&
-                    !r2_history_keyword_is_low_signal("room") &&
-                    !r2_history_keyword_is_low_signal("pockets"),
+    ok &= check(!r2_keyword_is_low_signal("mother") &&
+                    !r2_keyword_is_low_signal("room") &&
+                    !r2_keyword_is_low_signal("pockets"),
                 "Life Log retrieval preserves relationship and concrete-topic keywords");
 
     char history_keywords[MAX_MEMORY_KEYWORDS][64] = { { 0 } };
@@ -93,7 +93,7 @@ int main(void)
     size_t selected_history_searches = 0;
     for (size_t i = 0; i < history_keyword_count &&
          selected_history_searches < 2; ++i) {
-        if (r2_history_keyword_is_low_signal(history_keywords[i]) ||
+        if (r2_keyword_is_low_signal(history_keywords[i]) ||
             !strcasecmp(history_keywords[i], "movie") ||
             !strcasecmp(history_keywords[i], "video") ||
             !strcasecmp(history_keywords[i], "watch") ||
@@ -111,6 +111,14 @@ int main(void)
                     strcmp(first_history_searches[0], "mother") == 0 &&
                     strcmp(first_history_searches[1], "miss") == 0,
                 "current affectionate message searches relationship/meaning, not generic Hello/R2 history");
+    int has_pockets_keyword = 0, has_mom_alias = 0, has_low_signal_keyword = 0;
+    for (size_t i = 0; i < history_keyword_count; ++i) {
+        if (!strcmp(history_keywords[i], "pockets")) has_pockets_keyword = 1;
+        if (!strcmp(history_keywords[i], "mom")) has_mom_alias = 1;
+        if (r2_keyword_is_low_signal(history_keywords[i])) has_low_signal_keyword = 1;
+    }
+    ok &= check(has_pockets_keyword && has_mom_alias && !has_low_signal_keyword,
+                "memory keyword budget retains concrete pocket topic and relationship aliases instead of filler");
 
     ok &= check(r2_reply_misclassifies_plain_text(mother_message,
                     "That's a bit garbled, but I think you're trying to say "
