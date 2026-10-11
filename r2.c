@@ -890,7 +890,7 @@ static int migrate_memory_schema(void)
         {"updated", "modified", "last_updated", "updated_utc"};
 
     if (db_ensure_column("memories", "memory", "TEXT NOT NULL DEFAULT ''") != 0 ||
-        db_ensure_column("memories", "category", "TEXT NOT NULL DEFAULT 'other'") != 0 ||
+        db_ensure_column("memories", "category", "TEXT NOT NULL DEFAULT ''") != 0 ||
         db_ensure_column("memories", "created_at", "TEXT NOT NULL DEFAULT ''") != 0 ||
         db_ensure_column("memories", "updated_at", "TEXT NOT NULL DEFAULT ''") != 0)
         return -1;
@@ -904,7 +904,8 @@ static int migrate_memory_schema(void)
                                   "CURRENT_TIMESTAMP") != 0 ||
         db_backfill_memory_column("updated_at", updated_aliases,
                                   sizeof(updated_aliases) / sizeof(updated_aliases[0]),
-                                  "CURRENT_TIMESTAMP") != 0)
+                                  "CURRENT_TIMESTAMP") != 0 ||
+        db_exec("UPDATE memories SET category='other' WHERE category IS NULL OR category='';") != 0)
         return -1;
 
     return db_exec("CREATE INDEX IF NOT EXISTS idx_memories_category_updated "
