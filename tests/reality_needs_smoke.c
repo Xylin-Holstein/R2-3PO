@@ -204,6 +204,34 @@ int main(void)
     if (r2_fridge_add_item("invalid_quantity", "invalid test stock", 0,
                            50.0, 10.0, NULL, NULL) == 0)
         fail("direct fridge API must reject a non-positive stock quantity");
+    if (r2_fridge_add_item("overflow_fridge", "Quantity boundary test", INT_MAX,
+                           20.0, 2.0, "", "") != 0)
+        fail("fridge API should accept a representable maximum stock quantity");
+    if (r2_fridge_add_item("overflow_fridge", "Quantity boundary test", 1,
+                           20.0, 2.0, "", "") == 0)
+        fail("fridge API must reject a stock quantity overflow");
+    char fridge_overflow_path[1024];
+    snprintf(fridge_overflow_path, sizeof(fridge_overflow_path), "%s/r2_fridge.db", R2_HOME);
+    sqlite3 *fridge_overflow_db = NULL;
+    sqlite3_stmt *fridge_overflow_st = NULL;
+    if (sqlite3_open(fridge_overflow_path, &fridge_overflow_db) != SQLITE_OK)
+        fail("could not query fridge quantity overflow regression");
+    if (sqlite3_prepare_v2(fridge_overflow_db,
+        "SELECT quantity FROM r2_fridge_items WHERE name='overflow_fridge'",
+        -1, &fridge_overflow_st, NULL) != SQLITE_OK ||
+        sqlite3_step(fridge_overflow_st) != SQLITE_ROW ||
+        sqlite3_column_int64(fridge_overflow_st, 0) != INT_MAX)
+        fail("overflowing fridge addition changed authoritative stock quantity");
+    sqlite3_finalize(fridge_overflow_st);
+    if (sqlite3_exec(fridge_overflow_db,
+        "DELETE FROM r2_fridge_items WHERE name='overflow_fridge'",
+        NULL, NULL, NULL) != SQLITE_OK)
+        fail("could not clean up fridge quantity overflow fixture");
+    sqlite3_close(fridge_overflow_db);
+    char fridge_overflow_mirror[1200];
+    snprintf(fridge_overflow_mirror, sizeof(fridge_overflow_mirror),
+             "%s/fridge/overflow_fridge.r2item", R2_ROOT);
+    (void)unlink(fridge_overflow_mirror);
     if (r2_reality_eat("nan_fullness", -1.0) == 0)
         fail("non-finite fullness metric must be rejected instead of corrupting needs");
 
