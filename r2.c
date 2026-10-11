@@ -3002,11 +3002,40 @@ static char *ollama_chat_with_limit(
     size_t input_budget = (size_t)(num_ctx - num_predict - 512) * 32U / 10U;
     if (input_budget > OLLAMA_MAX_TOTAL_CHARS)
         input_budget = OLLAMA_MAX_TOTAL_CHARS;
-    /* Reserve enough for the current user turn and a recent exchange, while
-       keeping the full identity prompt ahead of historical context. Long user
-       messages are truncated only at the global payload boundary, not by
-       letting old pinned memories crowd the identity instructions out. */
+    /*
+     * Explicitly reserve the newest user turn before selecting recent history.
+     * Tool-result and assistant messages may follow that turn during an action
+     * follow-up; a reverse-only history scan could otherwise fill the window
+     * without ever sending the actual question back to the model.
+     */
+    size_t current_user_index = SIZE_MAX;
+    for (size_t i = count; i > 0; --i) {
+        size_t index = i - 1;
+        if (msgs[index].role && !strcmp(msgs[index].role, "user")) {
+            current_user_index = index;
+            break;
+        }
+    }
+
     size_t current_user_reserve = 1500;
+    if (current_user_index != SIZE_MAX) {
+        const char *current_content = msgs[current_user_index].content
+            ? msgs[current_user_index].content : "";
+        size_t current_length = strlen(current_content);
+        const char *begin_marker = "----- BEGIN CURRENT USER MESSAGE -----\\n";
+        const char *end_marker = "----- END CURRENT USER MESSAGE -----";
+        const char *begin = strstr(current_content, begin_marker);
+        const char *end = begin ? strstr(begin + strlen(begin_marker), end_marker) : NULL;
+        if (begin && end) {
+            begin += strlen(begin_marker);
+            current_length = (size_t)(end - begin);
+        }
+        if (current_length > OLLAMA_MAX_MESSAGE_CHARS)
+            current_length = OLLAMA_MAX_MESSAGE_CHARS;
+        if (current_length > current_user_reserve)
+            current_user_reserve = current_length;
+    }
+
     size_t system_budget = input_budget > current_user_reserve + 500
         ? input_budget - current_user_reserve - 500 : input_budget;
     if (system_budget > OLLAMA_MAX_SYSTEM_TOTAL_CHARS)
@@ -3057,6 +3086,28 @@ static char *ollama_chat_with_limit(
     }
 
     size_t recent_count = 0;
+    /*
+     * Include the current user turn first, even if later tool-result messages
+     * would otherwise push it outside the newest-message count. Its content
+     * is capped exactly like every other message and remains inside the same
+     * serialized input budget.
+     */
+    if (current_user_index != SIZE_MAX && total_chars < input_budget) {
+        const char *content = msgs[current_user_index].content
+            ? msgs[current_user_index].content : "";
+        size_t length = strlen(content);
+        if (length > OLLAMA_MAX_MESSAGE_CHARS)
+            length = OLLAMA_MAX_MESSAGE_CHARS;
+        size_t remaining = input_budget - total_chars;
+        if (length > remaining) length = remaining;
+        if (length > 0) {
+            include[current_user_index] = 1;
+            limits[current_user_index] = length;
+            total_chars += length;
+            recent_count = 1;
+        }
+    }
+
     for (size_t i = count; i > 0 && recent_count < OLLAMA_MAX_RECENT_MESSAGES; --i) {
         size_t index = i - 1;
         if (include[index]) continue;
