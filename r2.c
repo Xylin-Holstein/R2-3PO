@@ -4184,10 +4184,10 @@ static char *chat_with_relevant_memories(
 {
     /*
        Preserve the user's original message as an actual user turn.
-       Historical memory and Life Log evidence is a separate, bounded system
-       context message placed immediately before that user turn. Live Reality
-       is refreshed separately, and live visual evidence is never cached here.
-       The permanent conversation is never modified by retrieval.
+       Historical memory and Life Log evidence is bounded and kept with the
+       leading system context, before dialogue begins. Live Reality is refreshed
+       separately, and live visual evidence is never cached here. The permanent
+       conversation is never modified by retrieval.
     */
 
     int explicit_recall = r2_query_explicitly_requests_recall(query);
