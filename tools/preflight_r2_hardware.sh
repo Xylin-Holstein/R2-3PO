@@ -105,13 +105,36 @@ else printf '[INFO] no active R2 core detected\n'; fi
 section "Dedicated user, workspace, and sound assets"
 if id r2 >/dev/null 2>&1; then pass "Linux account r2 exists"; else fail "Linux account r2 missing"; fi
 if [[ -d "$R2_ROOT" && -d "$R2_SOURCE" ]]; then
-  for path in "$R2_ROOT" "$R2_SOURCE"; do
-    if have sudo && id r2 >/dev/null 2>&1; then
+  if have sudo && id r2 >/dev/null 2>&1; then
+    for path in "$R2_ROOT" "$R2_SOURCE"; do
       if sudo -n -u r2 test -r "$path" && sudo -n -u r2 test -x "$path" && sudo -n -u r2 test -w "$path"; then
         pass "r2 can read/write/traverse $path"
-      else warn "could not verify r2 permissions on $path (sudo may require a password); installer performs authoritative checks."; fi
-    fi
-  done
+      else
+        fail "r2 must have read/write/traverse access to $path for runtime directories, SQLite, and persistent memory; correct ownership/permissions before launch"
+      fi
+    done
+    # Existing persistent directories/files must be writable by the actual
+    # runtime account. Missing directories are okay: the launcher creates them
+    # as r2, but existing unwritable paths would otherwise fail after launch.
+    for path in "$R2_ROOT/R2_Diary" "$R2_ROOT/room" "$R2_ROOT/room/shelf" "$R2_ROOT/room/box" "$R2_ROOT/room/piggybank" "$R2_ROOT/Pockets" "$R2_ROOT/Pockets/Wallet" "$R2_ROOT/fridge"; do
+      [[ -e "$path" ]] || continue
+      if sudo -n -u r2 test -d "$path" && sudo -n -u r2 test -r "$path" && sudo -n -u r2 test -x "$path" && sudo -n -u r2 test -w "$path"; then
+        pass "r2 can read/write/traverse existing runtime directory $path"
+      else
+        fail "existing runtime directory is not read/write/traverse accessible to r2: $path"
+      fi
+    done
+    for database in "$R2_SOURCE/r2_memory.db" "$R2_SOURCE/r2_reality.db" "$R2_SOURCE/r2_fridge.db" "$R2_SOURCE/r2_rewards.db" "$R2_SOURCE/r2_addictions.db"; do
+      [[ -e "$database" ]] || continue
+      if [[ -L "$database" ]]; then
+        fail "refusing symlinked runtime database: $database"
+      elif sudo -n -u r2 test -f "$database" && sudo -n -u r2 test -r "$database" && sudo -n -u r2 test -w "$database"; then
+        pass "r2 can read/write database $database"
+      else
+        fail "existing database must be a readable/writable regular file for r2: $database"
+      fi
+    done
+  fi
 else fail "workspace root or source directory missing"; fi
 if [[ -d "$R2_FX_DIR" && -r "$R2_FX_DIR" ]]; then
   if find "$R2_FX_DIR" -maxdepth 1 -type f -iname '*.mp3' -print -quit 2>/dev/null | grep -q .; then

@@ -22,6 +22,9 @@ required = (
     "R2 service's configured audio supplementary group can access", 'mGBA Qt emulator',
     'stop it before installation or database preflight',
     'sudo -n -u r2 test -r "$R2_FX_DIR"',
+    'r2 must have read/write/traverse access to $path for runtime directories, SQLite, and persistent memory',
+    'existing runtime directory is not read/write/traverse accessible to r2',
+    'existing database must be a readable/writable regular file for r2',
     'r2_diary.c r2_diary.h',
     'Reality.c Reality.h',
     'Addiction.c Addiction.h',
@@ -63,6 +66,10 @@ if 'sudo -n setpriv --reuid="$R2_UID" --regid="$R2_GID" --groups="$R2_RUNTIME_GR
     raise SystemExit("launcher must use setpriv for supplementary groups under sudo-rs")
 if 'sudo -u r2 -g r2 -G "$R2_RUNTIME_GROUPS"' in launcher:
     raise SystemExit("launcher must not use unsupported sudo-rs -G syntax")
+if 'sudo -n -u r2 mkdir -p "$DIR"' not in launcher:
+    raise SystemExit("launcher must create runtime directories as r2, not as the desktop login user")
+if 'Could not create workspace directory as r2' not in launcher:
+    raise SystemExit("launcher must stop if runtime-owned directory creation fails")
 if 'R2_OLLAMA_URL:-http://127.0.0.1:11434/api/tags' not in script:
     raise SystemExit("Ollama endpoint must remain locally configurable")
 

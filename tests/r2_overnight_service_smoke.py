@@ -69,6 +69,7 @@ class OvernightServiceTests(unittest.TestCase):
         launcher = (ROOT / "R2_Launch_Code.sh").read_text(encoding="utf-8")
         self.assertIn("Checking the local Ollama API and required model", launcher)
         self.assertIn('TEMP_EXEC="${R2_EXEC}.tmp.${BASHPID}"', launcher)
+        self.assertIn('if [ -e "$TEMP_EXEC" ] || [ -L "$TEMP_EXEC" ]; then', launcher)
         self.assertIn("preflight_ollama_model.py", launcher)
         self.assertIn("gemma3:4b", launcher)
         self.assertLess(launcher.index("Checking the local Ollama API"), launcher.index('echo "[3/4] Recompiling R2..."'))
