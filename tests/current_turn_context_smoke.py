@@ -35,8 +35,11 @@ require(
     and "----- BEGIN CURRENT USER MESSAGE -----" not in builder,
     "the user's original text stays byte-for-byte intact instead of being wrapped in context",
 )
+priority_start = core.find('else if (!strncmp(content, "CURRENT TURN RETRIEVED CONTEXT"')
+priority_end = core.find("else if", priority_start + 1) if priority_start >= 0 else -1
 require(
-    'message_priority = 1;' in core[core.find('"CURRENT TURN RETRIEVED CONTEXT"') - 120:core.find('"CURRENT TURN RETRIEVED CONTEXT"') + 180],
+    priority_start >= 0 and priority_end > priority_start
+    and "message_priority = 1;" in core[priority_start:priority_end],
     "relevant turn context is prioritized after live Reality/learning and before archive history",
 )
 require(
