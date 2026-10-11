@@ -26,6 +26,9 @@ for phrase in (
     '"that’s a bit garbled"',
     "if (words < 5)",
     "Do not override a legitimate conversation about audio, noise, or gibberish.",
+    "proposes_user_intent",
+    "asks_for_confirmation",
+    "interpretation_requests",
 ):
     require(phrase in guard, f"guard checks {phrase}")
 
