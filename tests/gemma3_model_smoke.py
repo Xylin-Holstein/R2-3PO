@@ -206,4 +206,11 @@ require(
     "synced game events remain virtual and never mutate physical Reality",
 )
 
+require(
+    "ollama_background_mode = 1;" in core
+    and "ollama_background_mode = previous_mode;" in core
+    and "Autonomous reflection is background work" in core,
+    "autonomous reflection yields to live conversation requests",
+)
+
 print("Gemma 3 unified-model contract checks passed.")
