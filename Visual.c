@@ -326,7 +326,10 @@ static char *call_vision_model(const char *image_base64, const char *question,
     }
     free(response.data);
     json_object_put(root);
- static int visual_column_exists(const char *column)
+    return answer;
+}
+
+static int visual_column_exists(const char *column)
 {
     sqlite3_stmt *st = NULL;
     int found = 0;
@@ -402,9 +405,6 @@ static int visual_migrate_schema(void)
         "CREATE INDEX IF NOT EXISTS r2_visual_experiences_created_idx "
         "ON r2_visual_experiences(created_utc);",
         NULL, NULL, NULL);
-}
-
-   return answer;
 }
 
 int r2_visual_init(const char *database_path, const char *library_directory)
