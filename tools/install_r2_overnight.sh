@@ -103,17 +103,20 @@ root_run install -m 0644 "$UNIT_SOURCE" "$UNIT_DEST"
 root_run systemctl daemon-reload
 
 log "Enabling R2 at boot and starting the overnight service..."
+STARTED_AT="$(date '+%Y-%m-%d %H:%M:%S')"
 if ! root_run systemctl enable --now r2-3po.service; then
     root_run systemctl --no-pager --full status r2-3po.service || true
     root_run journalctl -u r2-3po.service -n 100 --no-pager || true
     fail "systemd could not start R2. Fix the reported preflight/dependency issue before relying on overnight operation."
 fi
 
-# Do not report success merely because systemd accepted the start request.
-# The runner must finish its Ollama/model preflight and enter its long-lived process.
+# Type=simple becomes active before ExecStart finishes its dependency checks.
+# Require the runner's post-model-check startup message as well as active systemd state.
 ACTIVE=0
-for attempt in $(seq 1 15); do
-    if root_run systemctl is-active --quiet r2-3po.service; then
+for attempt in $(seq 1 75); do
+    if root_run systemctl is-active --quiet r2-3po.service &&
+       root_run journalctl -u r2-3po.service --since "$STARTED_AT" -o cat --no-pager 2>/dev/null |
+           grep -Fq "Starting R2 with private clock"; then
         ACTIVE=1
         break
     fi
