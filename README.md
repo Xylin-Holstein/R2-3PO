@@ -236,7 +236,7 @@ For NVIDIA, check `nvidia-smi` and the Ollama service log; for AMD, check the in
 
 ## Conversation work scheduling and RAM reuse
 
-R2 keeps a bounded, short-lived RAM cache of historical memory and Life Log retrieval results (12 entries, 12-second monotonic TTL, 32 KiB maximum per value). Persistent-memory writes invalidate the cache. Current Reality and live visual observations are assembled separately rather than being reused as stale cached state. This lets the program reuse recent retrieval work without treating RAM as a processor or allowing old state to masquerade as live reality.
+R2 keeps a bounded, short-lived RAM cache of persistent-memory retrieval results (12 entries, 12-second monotonic TTL, 32 KiB maximum per value). Persistent-memory writes invalidate the cache. Related Life Log history is searched fresh for each conversation turn; current Reality and live visual observations are also assembled separately rather than reused as stale cached state. This lets the program reuse recent database retrieval work without treating RAM as a processor or allowing old state to masquerade as live reality.
 
 Ollama requests are serialized. Foreground conversations take priority over opportunistic vision and background model calls; an in-flight background request checks the foreground wait queue and yields when possible. The C application, SQLite, prompt construction, scheduling, and cache still use the CPU. System RAM holds the model/runtime working set and cached context; it cannot execute model layers itself. A supported GPU backend is required for actual GPU inference.
 
