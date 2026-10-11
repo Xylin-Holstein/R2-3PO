@@ -48,14 +48,14 @@ You can also compile directly with the same source list and libraries:
 
 ```sh
 gcc -std=c11 -Wall -Wextra -O2 \
-  r2.c shell.c r2_diary.c Log.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c \
+  r2.c shell.c r2_diary.c Log.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c R2Sounds.c R2Reply.c \
   -o r2 \
   -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
 ```
 
 ## Compilation source inventory
 
-The build requires these ten C translation units:
+The build requires these thirteen C translation units:
 
 - `r2.c` — core
 - `shell.c` — command shell
@@ -63,12 +63,15 @@ The build requires these ten C translation units:
 - `Log.c` — factual Life Log chronology
 - `Reality.c` — persistent self-continuity, world state, room objects, needs, and inventory containers
 - `Addiction.c` — persistent enjoyment history and behavior-derived repeated-interest/addiction labels
+- `Reward.c` — experience/reward bookkeeping shared by memory and learning
 - `AlternateSelf.c` — persistent, explicitly hypothetical Choice Lab branches
 - `Visual.c` — vision-model integration
 - `Ears.c` — audio input
 - `Eyes.c` — visual input
+- `R2Sounds.c` — state-aware local sound-effect selection and playback
+- `R2Reply.c` — strips private control/reasoning markers from user-facing replies
 
-Their matching headers are included in the repository: `r2.h`, `shell.h`, `r2_diary.h`, `Log.h`, `Reality.h`, `Addiction.h`, `AlternateSelf.h`, `Visual.h`, `Ears.h`, and `Eyes.h`.
+Their matching headers are included in the repository: `r2.h`, `shell.h`, `r2_diary.h`, `Log.h`, `Reality.h`, `Addiction.h`, `Reward.h`, `AlternateSelf.h`, `Visual.h`, `Ears.h`, `Eyes.h`, `R2Sounds.h`, and `R2Reply.h`.
 
 GitHub Actions checks shell-script syntax and compiles this source set on pushes to the audit branch and the configured main branches. It also runs isolated smoke tests for file-authoritative money (seed, deletion, restart, deposit/withdrawal, purchase rollback, and cents) and the GBA launcher/lifecycle. These tests do not exercise Ollama, live audio/video devices, or the user's actual graphical desktop.
 
@@ -247,41 +250,6 @@ sudo systemctl disable r2-3po.service
 ```
 
 The supervisor restarts unexpected exits, waits up to 60 seconds for the local Ollama API and `gemma3:4b`, and logs preflight failures to the journal. The runner uses the existing `libfaketime` installation to keep R2's private clock starting in 1999 and advancing continuously; it does not alter Linux's actual clock, run `apt-get update`, or pull models automatically. A sleep inhibitor requests that the host not suspend during the session; firmware, power loss, forced shutdown, and administrative overrides can still stop it.
-
-Sound assets remain host-local at `/home/x/R2_Home/R2_sounds/FX`. Service startup checks core prerequisites but does not prove speaker playback, camera permissions, microphone capture, or GUI/VLC integration. Verify those against the actual desktop/audio session after startup. Use `R2_Launch_Code.sh` for the existing interactive desktop shell and Observer window.
-
-**Activation boundary:** installing this service on GitHub does not activate it on the physical Linux host. Run the installer on that host, then check `systemctl status` and `journalctl` before relying on an overnight run.
-
-## Overnight service (start at boot and recover from crashes)
-
-For an unattended session, install the systemd service from the repository at its established location, `/home/x/R2_Home/R2`. This is separate from the interactive desktop launcher: service mode has no terminal prompt or Observer popup, but keeps the initialized R2 core, autonomous-thinking/diary workers, and local TV-control server alive until systemd stops it.
-
-Before installing, make sure the local Ollama installation has the required model. This project intentionally does not download models or update package indexes during service startup:
-
-```sh
-ollama pull gemma3:4b
-```
-
-Then, from the repository directory:
-
-```sh
-cd /home/x/R2_Home/R2
-bash tools/install_r2_overnight.sh
-```
-
-The installer compiles the current source to a temporary executable first, preserves the previous executable if compilation fails, installs `r2-3po.service`, enables it at boot, and requests immediate startup. It refuses to rebuild while an R2 process is already running and refuses activation if the dedicated `r2` account cannot read/write the existing persistent-data directories.
-
-Useful operations:
-
-```sh
-sudo systemctl status r2-3po.service
-journalctl -u r2-3po.service -f
-sudo systemctl stop r2-3po.service
-sudo systemctl start r2-3po.service
-sudo systemctl disable r2-3po.service
-```
-
-The supervisor restarts failed runs, waits up to 60 seconds for the local Ollama API and `gemma3:4b`, and logs preflight failures to the journal. The runner uses the existing `libfaketime` installation to keep R2's private clock starting in 1999 and advancing continuously; it does not alter Linux's actual clock, run `apt-get update`, or pull models automatically. A sleep inhibitor requests that the host not suspend during the session; firmware, power loss, forced shutdown, and administrative overrides can still stop it.
 
 Sound assets remain host-local at `/home/x/R2_Home/R2_sounds/FX`. Service startup checks core prerequisites but does not prove speaker playback, camera permissions, microphone capture, or GUI/VLC integration. Verify those against the actual desktop/audio session after startup. Use `R2_Launch_Code.sh` for the existing interactive desktop shell and Observer window.
 
