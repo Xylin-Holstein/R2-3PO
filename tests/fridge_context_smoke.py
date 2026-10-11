@@ -42,6 +42,17 @@ new_fridge_schema = next(
 if "fullness REAL NOT NULL DEFAULT 100" in new_fridge_schema or "energy REAL NOT NULL DEFAULT 10" in new_fridge_schema:
     raise SystemExit("new fridge schema still assigns nutritious defaults to unspecified stock")
 
+legacy_migration_block = reality[
+    reality.find("static int fridge_migrate_schema(void)"):
+    reality.find("static int fridge_init(void)")
+]
+if '"fullness", "REAL NOT NULL DEFAULT 100"' in legacy_migration_block:
+    raise SystemExit("legacy fridge migration still fabricates fullness for unmeasured stock")
+if '"energy", "REAL NOT NULL DEFAULT 10"' in legacy_migration_block:
+    raise SystemExit("legacy fridge migration still fabricates energy for unmeasured stock")
+if '"fullness", "REAL NOT NULL DEFAULT 0"' not in legacy_migration_block or '"energy", "REAL NOT NULL DEFAULT 0"' not in legacy_migration_block:
+    raise SystemExit("legacy fridge migration must mark unknown nutrition with neutral 0/0 values")
+
 eat_start = r2.find('} else if (nf >= 3 && !strcasecmp(fields[0], "eat")) {')
 eat_end = r2.find('} else if (nf >= 4 && !strcasecmp(fields[0], "ratefood")) {', eat_start)
 if eat_start < 0 or eat_end < 0:
