@@ -39,10 +39,13 @@ retry = core[start:end]
 for phrase, message in (
     ("messages_copy[index].content, query", "retry locates the actual user turn"),
     ("r2_build_retry_system_prompt()", "retry obtains the complete combined system prompt"),
-    ("messages_copy, message_count, retry_system_prompt", "retry uses the original history and combined system prompt"),
+    ("Message compact_messages[3];", "retry builds a compact message window instead of resending stale dialogue"),
+    ("PERSISTENT REALITY CONTEXT", "retry preserves live Reality when available"),
+    ("CURRENT TURN RETRIEVED CONTEXT", "retry preserves focused retrieved evidence when available"),
+    ("compact_messages[compact_count++] = (Message)", "retry appends the exact current user message as the authoritative turn"),
     ("ollama_authoritative_user_query = query;", "retry preserves active-turn identity"),
     ("conversation_reply_token_budget(query)", "retry respects the normal response budget"),
-    ("ollama_chat_with_limit(\n        messages_copy, message_count, retry_system_prompt", "retry does not inject a system message into the middle of dialogue"),
+    ("ollama_chat_with_limit(\n        compact_messages, compact_count, retry_system_prompt", "retry uses the compact prompt and does not inject a system message into dialogue"),
 ):
     require(phrase in retry, message)
 
