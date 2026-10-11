@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 static sqlite3 *as_db;
 static pthread_mutex_t as_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -27,6 +28,67 @@ static int as_exec(const char *sql)
         return -1;
     }
     return 0;
+}
+
+static int altself_column_exists(const char *column)
+{
+    sqlite3_stmt *st = NULL;
+    int found = 0;
+    if (sqlite3_prepare_v2(as_db, "PRAGMA table_info(r2_alternate_self_branches)",
+                           -1, &st, NULL) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            const unsigned char *name = sqlite3_column_text(st, 1);
+            if (name && !strcasecmp((const char *)name, column)) {
+                found = 1;
+                break;
+            }
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    return found;
+}
+
+static int altself_ensure_column(const char *column, const char *definition)
+{
+    if (altself_column_exists(column)) return SQLITE_OK;
+    char sql[512];
+    int n = snprintf(sql, sizeof(sql),
+                     "ALTER TABLE r2_alternate_self_branches ADD COLUMN %s %s;",
+                     column, definition);
+    if (n < 0 || (size_t)n >= sizeof(sql)) return SQLITE_TOOBIG;
+    return sqlite3_exec(as_db, sql, NULL, NULL, NULL);
+}
+
+static int migrate_altself_schema(void)
+{
+    const char *columns[][2] = {
+        {"name", "TEXT NOT NULL DEFAULT ''"},
+        {"scenario", "TEXT NOT NULL DEFAULT ''"},
+        {"assumptions", "TEXT"},
+        {"predicted_outcome", "TEXT"},
+        {"conclusion", "TEXT"},
+        {"status", "TEXT NOT NULL DEFAULT 'active'"},
+        {"evidence_event_id", "INTEGER"},
+        {"log_event_id", "INTEGER NOT NULL DEFAULT 0"},
+        {"created_utc", "TEXT NOT NULL DEFAULT ''"},
+        {"updated_utc", "TEXT NOT NULL DEFAULT ''"}
+    };
+    for (size_t i = 0; i < sizeof(columns) / sizeof(columns[0]); ++i) {
+        if (altself_ensure_column(columns[i][0], columns[i][1]) != SQLITE_OK) {
+            fprintf(stderr, "[R2 Alternate-Self Lab] Could not migrate column %s: %s\n",
+                    columns[i][0], sqlite3_errmsg(as_db));
+            return -1;
+        }
+    }
+    return as_exec(
+        "UPDATE r2_alternate_self_branches SET created_utc=CURRENT_TIMESTAMP "
+        "WHERE created_utc IS NULL OR created_utc='';"
+        "UPDATE r2_alternate_self_branches SET updated_utc=CURRENT_TIMESTAMP "
+        "WHERE updated_utc IS NULL OR updated_utc='';"
+        "CREATE INDEX IF NOT EXISTS r2_alternate_self_status_idx "
+        "ON r2_alternate_self_branches(status,id);"
+        "CREATE INDEX IF NOT EXISTS r2_alternate_self_log_event_idx "
+        "ON r2_alternate_self_branches(log_event_id);");
 }
 
 int r2_altself_init(void)
@@ -59,12 +121,8 @@ int r2_altself_init(void)
         " updated_utc TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
         " FOREIGN KEY(evidence_event_id) REFERENCES r2_log_events(id),"
         " FOREIGN KEY(log_event_id) REFERENCES r2_log_events(id)"
-        ");"
-        "CREATE INDEX IF NOT EXISTS r2_alternate_self_status_idx "
-        "ON r2_alternate_self_branches(status,id);"
-        "CREATE INDEX IF NOT EXISTS r2_alternate_self_log_event_idx "
-        "ON r2_alternate_self_branches(log_event_id);";
-    if (as_exec(schema) != 0) {
+        ");";
+    if (as_exec(schema) != 0 || migrate_altself_schema() != 0) {
         sqlite3_close(as_db); as_db = NULL;
         pthread_mutex_unlock(&as_lock); return -1;
     }
