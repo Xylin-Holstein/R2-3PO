@@ -143,6 +143,64 @@ class TVDisplaySmoke(unittest.TestCase):
             self.assertEqual(received, [command + "\n"])
             TV.SOCKET_PATH.unlink(missing_ok=True)
 
+    def test_vcr_initialization_is_muted_and_paused_before_seek(self) -> None:
+        events = []
+
+        class FakePlayer:
+            def set_media(self, media): events.append(("set_media", media))
+            def audio_set_mute(self, muted): events.append(("mute", muted))
+            def play(self): events.append(("play",)); return 0
+            def set_pause(self, paused): events.append(("pause", paused))
+            def set_time(self, milliseconds): events.append(("seek", milliseconds))
+
+        class FakeInstance:
+            def media_new(self, path): return ("media", path)
+
+        class FakeRoot:
+            def after(self, delay, callback): callback()
+
+        display = object.__new__(TV.CRTDisplay)
+        display._player = FakePlayer()
+        display._vlc_instance = FakeInstance()
+        display._loaded_path = None
+        display._last_transport = None
+        display.root = FakeRoot()
+
+        display._prepare_media("/tmp/movie.mp4", 42.5, "stop", audible=False)
+
+        self.assertLess(events.index(("mute", True)), events.index(("play",)))
+        self.assertLess(events.index(("pause", 1)), events.index(("seek", 42500)))
+        self.assertEqual(events[-1], ("pause", 1))
+
+    def test_vcr_play_resumes_only_after_saved_position_is_applied(self) -> None:
+        events = []
+
+        class FakePlayer:
+            def set_media(self, media): events.append(("set_media", media))
+            def audio_set_mute(self, muted): events.append(("mute", muted))
+            def play(self): events.append(("play",)); return 0
+            def set_pause(self, paused): events.append(("pause", paused))
+            def set_time(self, milliseconds): events.append(("seek", milliseconds))
+
+        class FakeInstance:
+            def media_new(self, path): return ("media", path)
+
+        class FakeRoot:
+            def after(self, delay, callback): callback()
+
+        display = object.__new__(TV.CRTDisplay)
+        display._player = FakePlayer()
+        display._vlc_instance = FakeInstance()
+        display._loaded_path = None
+        display._last_transport = None
+        display.root = FakeRoot()
+
+        display._prepare_media("/tmp/movie.mp4", 42.5, "play", audible=True)
+
+        self.assertLess(events.index(("mute", False)), events.index(("play",)))
+        self.assertLess(events.index(("seek", 42500)), events.index(("pause", 0)))
+        self.assertEqual(events[-1], ("pause", 0))
+
     def test_vcr_client_rejects_invalid_media_and_position(self) -> None:
         with self.assertRaises(ValueError):
             TV.send_control_command("vcr insert relative/movie.mp4")
