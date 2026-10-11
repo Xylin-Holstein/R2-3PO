@@ -14,6 +14,10 @@ on:
       - clean-copy-r2-audit-2026-10-09
   workflow_dispatch:
 
+concurrency:
+  group: r2-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   compile:
     runs-on: ubuntu-latest
