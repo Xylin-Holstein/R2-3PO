@@ -112,7 +112,7 @@ static void assert_legacy_reality_and_fridge_preserved(void)
         "FROM r2_reality_self WHERE id=1", -1, &st, NULL) == SQLITE_OK);
     assert(sqlite3_step(st) == SQLITE_ROW);
     double hunger = sqlite3_column_double(st, 0);
-    assert(hunger >= 17.5 && hunger < 25.0);
+    assert(hunger >= 82.4 && hunger <= 82.6); /* legacy hunger 17.5 -> fullness 82.5 */
     assert(sqlite3_column_double(st, 1) >= 0.0);
     assert(sqlite3_column_double(st, 2) >= 0.0);
     assert(sqlite3_column_double(st, 3) >= 0.0);
