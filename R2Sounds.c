@@ -463,7 +463,8 @@ static char *process_reply_markers(const char *reply, int play_sound)
             if (!marker_selected && valid_marker_value(inside, 16) &&
                 valid_marker_state(sep) &&
                 (!strcasecmp(inside, "beep") || !strcasecmp(inside, "whistle"))) {
-                snprintf(selected_kind, sizeof(selected_kind), "%s", inside);
+                if (!strcasecmp(inside, "beep")) memcpy(selected_kind, "beep", sizeof("beep"));
+                else memcpy(selected_kind, "whistle", sizeof("whistle"));
                 snprintf(selected_state, sizeof(selected_state), "%s", sep);
                 marker_selected = 1;
             }
