@@ -4,6 +4,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 script = (ROOT / "tools/preflight_r2_hardware.sh").read_text(encoding="utf-8")
+launcher = (ROOT / "R2_Launch_Code.sh").read_text(encoding="utf-8")
 required = (
     'set -uo pipefail',
     'R2_ROOT="${R2_ROOT:-/home/x/R2_Home}"',
@@ -30,4 +31,27 @@ for forbidden in ('chmod 777', 'apt-get install', 'apt-get update',
         raise SystemExit(f"preflight must be read-only; found forbidden operation: {forbidden}")
 if 'R2_OLLAMA_URL:-http://127.0.0.1:11434/api/tags' not in script:
     raise SystemExit("Ollama endpoint must remain locally configurable")
-print("R2 hardware preflight safety/coverage smoke test passed")
+
+launch_required = (
+    'R2_PREFLIGHT="$R2_SOURCE/tools/preflight_r2_hardware.sh"',
+    'bash "$R2_PREFLIGHT"',
+    'R2 launch cancelled: preflight reported one or more failures.',
+    'Press Enter to continue launching R2, or Ctrl+C to cancel...',
+)
+missing_launch = [item for item in launch_required if item not in launcher]
+if missing_launch:
+    raise SystemExit(f"launcher does not run/guard the startup preflight: {missing_launch}")
+# The preflight must run before duplicate-process checks, directory creation,
+# model checks, package installation, compilation, and observer startup.
+preflight_at = launcher.index('bash "$R2_PREFLIGHT"')
+for marker in (
+    'systemctl is-active --quiet r2-3po.service',
+    'mkdir -p "$R2_ROOT"',
+    'Checking the local Ollama API and required model',
+    'sudo apt-get install -y libfaketime',
+    'Recompiling R2',
+    'Launching the read-only observer window',
+):
+    if launcher.index(marker) < preflight_at:
+        raise SystemExit(f"startup preflight must precede {marker!r}")
+print("R2 hardware preflight safety, coverage, and launcher-order smoke test passed")
