@@ -3242,8 +3242,19 @@ static char *ollama_chat_with_limit(
             current_user_reserve = current_length;
     }
 
+    /*
+     * A very long current turn cannot fit in every adaptive context, but it
+     * must never cause the fallback to allocate the entire input window to
+     * system messages. Bound its reservation while retaining at least 1000
+     * characters for system context plus generation/tokenizer overhead.
+     */
+    size_t max_user_reserve = input_budget > 1000
+        ? input_budget - 1000 : input_budget / 2;
+    if (current_user_reserve > max_user_reserve)
+        current_user_reserve = max_user_reserve;
+
     size_t system_budget = input_budget > current_user_reserve + 500
-        ? input_budget - current_user_reserve - 500 : input_budget;
+        ? input_budget - current_user_reserve - 500 : 0;
     if (system_budget > OLLAMA_MAX_SYSTEM_TOTAL_CHARS)
         system_budget = OLLAMA_MAX_SYSTEM_TOTAL_CHARS;
     if (system_budget > input_budget)
