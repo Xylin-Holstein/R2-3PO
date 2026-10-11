@@ -791,7 +791,7 @@ static void fridge_mirror_write_warn(const char *name, const char *description,
 {
     if (fridge_mirror_write(name, description, quantity, fullness, energy) != 0)
         fprintf(stderr,
-                "[R2 Fridge] Database remains authoritative, but mirror update failed during %s for '%s'.\\n",
+                "[R2 Fridge] Database remains authoritative, but mirror update failed during %s for '%s'.\n",
                 operation ? operation : "inventory update", name ? name : "(unknown)");
 }
 
