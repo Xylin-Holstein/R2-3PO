@@ -44,6 +44,28 @@ jobs:
           bash -n tools/preflight_r2_hardware.sh
           python3 -m py_compile tests/r2_hardware_preflight_smoke.py
           python3 tests/r2_hardware_preflight_smoke.py
+      - name: Check deployment audit utilities and read-only database behavior
+        run: |
+          python3 -m py_compile tools/audit_r2_databases.py tools/audit_r2_sound_assets.py
+          ROOT="$(mktemp -d)"
+          set +e
+          python3 tools/audit_r2_databases.py --root "$ROOT" --json > "$ROOT/report.json"
+          STATUS=$?
+          set -e
+          test "$STATUS" -eq 2
+          python3 - "$ROOT/report.json" "$ROOT" <<'PY'
+          import json, pathlib, sys
+          report = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          root = pathlib.Path(sys.argv[2])
+          assert report["read_only"] is True
+          assert len(report["summary"]["missing"]) == 5
+          assert report["summary"]["integrity_failures"] == []
+          assert not any((root / name).exists() for name in (
+              "r2_memory.db", "r2_reality.db", "r2_fridge.db",
+              "r2_rewards.db", "r2_addictions.db"
+          )), "read-only audit must not initialize missing databases"
+          print("Deployment audit utilities compile and missing-database audit is non-mutating.")
+          PY
 
       - name: Check observer syntax and privacy allowlist
         run: |
