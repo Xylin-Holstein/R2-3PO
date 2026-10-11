@@ -45,6 +45,9 @@ jobs:
       - name: Prevent silent truncation of the complete system prompt
         run: python3 tests/prompt_budget_smoke.py
 
+      - name: Check runtime headroom and backwards-compatible memory migration
+        run: python3 tests/runtime_headroom_smoke.py
+
       - name: Check Game Boy console syntax and lifecycle
         run: |
           python3 -m py_compile GameBoyAdvance.py tests/gameboy_console_smoke.py
