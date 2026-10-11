@@ -31,7 +31,7 @@ require(
     "interactive launcher uses the same strict compiler policy",
 )
 require(
-    'TEMP_EXEC="$R2_EXEC.tmp.$"' in launcher
+    'TEMP_EXEC="${R2_EXEC}.tmp.${BASHPID}"' in launcher
     and '-o "$TEMP_EXEC" \\' in launcher
     and 'mv -f "$TEMP_EXEC" "$R2_EXEC"' in launcher
     and '-o "$R2_EXEC" \\' not in launcher,
