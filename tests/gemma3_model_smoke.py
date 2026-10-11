@@ -63,6 +63,13 @@ require(
     "vision inference follows the same configurable GPU layer policy as chat",
 )
 require(
+    "int r2_ollama_context_tokens(void);" in header
+    and "int num_ctx = r2_ollama_context_tokens();" in visual
+    and 'json_object_object_add(options, "num_ctx", json_object_new_int(num_ctx))' in visual
+    and 'json_object_object_add(options, "num_predict", json_object_new_int(num_predict))' in visual,
+    "vision uses the shared RAM-aware context ceiling and a bounded observation output budget",
+)
+require(
     'strcmp(configured, R2_VISION_DEFAULT_MODEL) != 0' in visual
     and 'strcmp(model, R2_VISION_DEFAULT_MODEL) != 0' in visual,
     "environment overrides and runtime setter cannot split conversation and vision models",
