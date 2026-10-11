@@ -103,7 +103,32 @@ root_run install -m 0644 "$UNIT_SOURCE" "$UNIT_DEST"
 root_run systemctl daemon-reload
 
 log "Enabling R2 at boot and starting the overnight service..."
-root_run systemctl enable --now r2-3po.service
-log "Service enable/start requested. Inspect it with: systemctl status r2-3po.service"
+if ! root_run systemctl enable --now r2-3po.service; then
+    root_run systemctl --no-pager --full status r2-3po.service || true
+    root_run journalctl -u r2-3po.service -n 100 --no-pager || true
+    fail "systemd could not start R2. Fix the reported preflight/dependency issue before relying on overnight operation."
+fi
+
+# Do not report success merely because systemd accepted the start request.
+# The runner must finish its Ollama/model preflight and enter its long-lived process.
+ACTIVE=0
+for attempt in $(seq 1 15); do
+    if root_run systemctl is-active --quiet r2-3po.service; then
+        ACTIVE=1
+        break
+    fi
+    if root_run systemctl is-failed --quiet r2-3po.service; then
+        break
+    fi
+    sleep 1
+done
+if [[ "$ACTIVE" -ne 1 ]]; then
+    root_run systemctl --no-pager --full status r2-3po.service || true
+    root_run journalctl -u r2-3po.service -n 100 --no-pager || true
+    fail "R2 did not reach active state. The unit may be enabled but is not yet running correctly."
+fi
+
+log "R2 is active and enabled for boot."
+root_run systemctl --no-pager --full status r2-3po.service || true
 log "Live logs: journalctl -u r2-3po.service -f"
 log "Stop cleanly: sudo systemctl stop r2-3po.service"
