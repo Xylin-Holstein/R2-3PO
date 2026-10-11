@@ -12,6 +12,14 @@ The overnight service uses the same persistent databases as the desktop launcher
 
 Run these on the R2 Linux machine, not on GitHub.
 
+Before installing or starting the service, run the non-destructive hardware preflight from your normal desktop account:
+
+```sh
+bash /home/x/R2_Home/R2/tools/preflight_r2_hardware.sh
+```
+
+It checks the source/deployment files, the local Ollama API and `gemma3:4b`, read-only SQLite integrity, the separate FX folder, and available audio/camera/TV/emulator dependencies. `[FAIL]` items block readiness; `[WARN]` items identify optional hardware or GUI features that need attention. The report does not install packages, change databases, rebuild R2, or start/stop the service. Its desktop audio check reflects the current user's audio session, so the final speaker and microphone test must still be performed from the actual R2 launch environment.
+
 1. Confirm the repository is deployed at `/home/x/R2_Home/R2`. The sound assets remain a separate local directory at `/home/x/R2_Home/R2_sounds/FX`; that directory is not supposed to exist in GitHub.
 2. Confirm the dedicated Linux account exists: `id r2`.
 3. Install the required build and runtime packages if missing:
