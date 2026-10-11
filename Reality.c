@@ -930,11 +930,11 @@ static int fridge_migrate_schema(void)
     const char *columns[][2] = {
         {"description", "TEXT"},
         {"quantity", "INTEGER NOT NULL DEFAULT 1"},
-        /* Preserve the old fridge's effective 100/10 behavior for legacy stock
-           that predates per-item nutrition columns. New stock must provide an
-           explicit food metric and the new schema itself defaults to 0/0. */
-        {"fullness", "REAL NOT NULL DEFAULT 100"},
-        {"energy", "REAL NOT NULL DEFAULT 10"},
+        /* Legacy rows without per-item nutrition must remain inventory, not
+           gain fabricated nutritional values during migration. Unknown metrics
+           use the same neutral 0/0 values as newly created fridge stock. */
+        {"fullness", "REAL NOT NULL DEFAULT 0"},
+        {"energy", "REAL NOT NULL DEFAULT 0"},
         {"ingredients", "TEXT"},
         {"taste", "TEXT"},
         {"updated_at", "TEXT NOT NULL DEFAULT ''"}
