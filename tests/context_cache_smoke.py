@@ -31,7 +31,7 @@ for token, message in (
     require(token in core, message)
 
 require(
-    core.find("context_cache_store(query ? query : \\"\\", MAX_RELEVANT_MEMORIES,") < core.find("Conversation continuity: the Life Log"),
+    core.find("context_cache_store(query ? query : \"\", MAX_RELEVANT_MEMORIES,") < core.find("Conversation continuity: the Life Log"),
     "Life Log history is searched fresh after the cached memory lookup",
 )
 print("RAM context cache and hardware telemetry smoke passed.")
