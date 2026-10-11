@@ -3109,7 +3109,7 @@ static char *ollama_chat_with_limit(
      * snapshot, then any other system/archive context. Otherwise old pinned
      * memory blocks can crowd the refreshed hunger/world state out entirely.
      */
-    for (int priority = 0; priority < 3 &&
+    for (int priority = 0; priority < 4 &&
          total_chars < system_budget; ++priority) {
         for (size_t i = 0; i < count &&
              total_chars < system_budget; ++i) {
@@ -3127,6 +3127,9 @@ static char *ollama_chat_with_limit(
             else if (!strncmp(content, "PERSISTENT LEARNING CONTEXT",
                               strlen("PERSISTENT LEARNING CONTEXT")))
                 message_priority = 1;
+            else if (!strncmp(content, "PAST CONVERSATION ARCHIVE — CONTEXT ONLY.",
+                              strlen("PAST CONVERSATION ARCHIVE — CONTEXT ONLY.")))
+                message_priority = 3;
             if (message_priority != priority) continue;
 
             size_t length = strlen(content);
