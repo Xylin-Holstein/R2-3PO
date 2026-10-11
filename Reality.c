@@ -395,8 +395,7 @@ static int make_room_dirs(void)
         if (fp) {
             fputs("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
                   "<foods>\n"
-                  "  <!-- Add one food per line. fullness is 0..100; energy is optional. -->\n"
-                  "  <food name=\"burger\" fullness=\"100\" energy=\"10\" ingredients=\"bread,beef,cheese\" taste=\"savory,warm,salty\" />\n"
+                  "  <!-- Add one explicitly configured food per line. fullness is 0..100; energy is optional. -->\n"
                   "</foods>\n", fp);
             fclose(fp);
         }
@@ -592,11 +591,6 @@ static int food_metric(const char *food, double *fullness, double *energy)
         break;
     }
     fclose(fp);
-    if (found != 0 && food && !strcasecmp(food, "burger")) {
-        if (fullness) *fullness = 100.0;
-        if (energy) *energy = 10.0;
-        found = 0;
-    }
     return found;
 }
 
@@ -627,12 +621,6 @@ static void food_attributes(const char *food, char *ingredients, size_t ingredie
         break;
     }
     fclose(fp);
-    if (food && !strcasecmp(food, "burger")) {
-        if (ingredients && ingredients_cap && !*ingredients)
-            snprintf(ingredients, ingredients_cap, "bread,beef,cheese");
-        if (taste && taste_cap && !*taste)
-            snprintf(taste, taste_cap, "savory,warm,salty");
-    }
 }
 
 static char *food_metrics_context(void)
@@ -685,15 +673,6 @@ static char *food_metrics_context(void)
         count++;
     }
     fclose(fp);
-    if (!strstr(out, "burger:")) {
-        const char *guaranteed = "burger: fullness 100.0/100, energy bonus 10.0; ingredients: bread,beef,cheese; sensory description: savory,warm,salty (built-in fallback metric for a tracked burger only; this does not mean a burger exists in inventory)\n";
-        size_t add = strlen(guaranteed);
-        if (len + add + 1 > cap) {
-            char *grown = realloc(out, len + add + 1);
-            if (grown) { out = grown; cap = len + add + 1; }
-        }
-        if (len + add + 1 <= cap) { memcpy(out + len, guaranteed, add + 1); len += add; }
-    }
     if (!len) snprintf(out, cap, "No food metrics are configured in room/food_metrics.xml.\n");
     return out;
 }
