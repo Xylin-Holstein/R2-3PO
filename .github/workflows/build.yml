@@ -48,6 +48,15 @@ jobs:
       - name: Check runtime headroom and backwards-compatible memory migration
         run: python3 tests/runtime_headroom_smoke.py
 
+      - name: Exercise real legacy memory database migration
+        run: |
+          ROOT=/tmp/r2-memory-schema-smoke
+          rm -rf "$ROOT"
+          mkdir -p "$ROOT/R2"
+          FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\"$ROOT\" -DR2_HOME=\"$ROOT/R2\" -DR2_WORKSPACE=\"$ROOT\" -DR2_DIARY_DATABASE=\"$ROOT/R2/r2_memory.db\" -DR2_DIARY_DIR=\"$ROOT/R2_Diary\""
+          cc $FLAGS tests/memory_schema_migration_smoke.c shell.c r2_diary.c Log.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c R2Sounds.c R2Reply.c -o /tmp/r2-memory-schema-smoke -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
+          /tmp/r2-memory-schema-smoke
+
       - name: Check Game Boy console syntax and lifecycle
         run: |
           python3 -m py_compile GameBoyAdvance.py tests/gameboy_console_smoke.py
