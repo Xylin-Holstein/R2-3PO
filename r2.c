@@ -6622,11 +6622,22 @@ static char *process_tools_with_status(
             APPEND("REAL WORLD RESULT:\n%s\n", view ? view : "Could not read room state.");
             free(view);
         } else if (nf >= 4 && !strcasecmp(fields[0], "add")) {
-            int qty = nf >= 5 ? atoi(fields[4]) : 1;
-            int rc = r2_reality_add_item(fields[1], fields[2], fields[3], qty);
+            int qty = 1, valid_qty = 1;
+            if (nf >= 5) {
+                char *end = NULL;
+                errno = 0;
+                long parsed = strtol(fields[4], &end, 10);
+                if (errno == ERANGE || end == fields[4] || !end || *end ||
+                    parsed < 1 || parsed > INT_MAX)
+                    valid_qty = 0;
+                else
+                    qty = (int)parsed;
+            }
+            int rc = valid_qty ? r2_reality_add_item(fields[1], fields[2], fields[3], qty) : -1;
             APPEND("REAL WORLD %s: item '%s' %s.\n",
                    rc == 0 ? "RESULT" : "ERROR", fields[1],
-                   rc == 0 ? "was persisted in the requested container" : "could not be saved");
+                   rc == 0 ? "was persisted in the requested container" :
+                   (valid_qty ? "could not be saved" : "was rejected because quantity must be a positive whole number"));
         } else if (nf >= 3 && !strcasecmp(fields[0], "move")) {
             int rc = r2_reality_move_item(fields[1], fields[2]);
             APPEND("REAL WORLD %s: item '%s' %s.\n",
