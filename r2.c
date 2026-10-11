@@ -3928,6 +3928,26 @@ static char *r2_build_retry_system_prompt(void)
     return retry_system_prompt;
 }
 
+/*
+ * Never deliver the same known misclassification after the one permitted
+ * retry. If the retry fails or repeats the failure, return a brief, honest
+ * clarification instead of presenting fabricated intent as fact.
+ * Takes ownership of retry_reply.
+ */
+static char *r2_validate_corrective_reply(const char *query, char *retry_reply)
+{
+    if (retry_reply && *retry_reply &&
+        !r2_reply_misclassifies_plain_text(query, retry_reply))
+        return retry_reply;
+
+    free(retry_reply);
+    fprintf(stderr,
+            "[R2 Conversation] Corrective reply was unavailable or repeated the misclassification; asking for clarification instead.\n");
+    return xstrdup(
+        "I'm sorry—I misread your message and couldn't form a reliable response. "
+        "Could you tell me which part you'd like me to respond to?");
+}
+
 static char *r2_retry_direct_answer(Message *messages_copy,
                                     size_t message_count,
                                     const char *query)
@@ -4322,29 +4342,26 @@ static char *chat_with_relevant_memories(
      * Only this explicit failure class gets one extra inference call; normal
      * turns keep their existing latency and token budget.
      */
-    if (retry_after_sanitize_failure ||
-        r2_reply_misclassifies_plain_text(query, reply ? reply : "")) {
+    int reply_misclassified =
+        r2_reply_misclassifies_plain_text(query, reply ? reply : "");
+    if (retry_after_sanitize_failure || reply_misclassified) {
         char *retry = r2_retry_direct_answer(copy, base_count, query);
+        char *retry_user_facing = NULL;
         if (retry) {
-            char *retry_user_facing = r2_reply_sanitize(retry);
+            retry_user_facing = r2_reply_sanitize(retry);
             free(retry);
-            if (retry_user_facing && *retry_user_facing) {
-                free(reply);
-                reply = retry_user_facing;
-            } else {
-                free(retry_user_facing);
-                fprintf(stderr, "[R2 Conversation] Direct-answer retry produced no safe text.\n");
-                if (retry_after_sanitize_failure) {
-                    free(reply);
-                    reply = NULL;
-                }
-            }
         } else {
             fprintf(stderr, "[R2 Conversation] Direct-answer retry could not be completed.\n");
-            if (retry_after_sanitize_failure) {
-                free(reply);
-                reply = NULL;
-            }
+        }
+
+        char *validated_retry =
+            r2_validate_corrective_reply(query, retry_user_facing);
+        if (validated_retry) {
+            free(reply);
+            reply = validated_retry;
+        } else {
+            free(reply);
+            reply = NULL;
         }
     }
 
