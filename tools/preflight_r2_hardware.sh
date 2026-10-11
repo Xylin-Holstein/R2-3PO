@@ -27,9 +27,26 @@ if have nvidia-smi; then nvidia-smi --query-gpu=name --format=csv,noheader 2>/de
 else printf 'GPU: no NVIDIA runtime detected; CPU inference may still work.\n'; fi
 
 section "Required files and build tools"
-for tool in bash make gcc curl python3; do
+# These commands are used directly by the interactive launcher or overnight installer.
+for tool in bash make gcc curl python3 sudo pgrep date find grep cmp; do
   if have "$tool"; then pass "$tool installed"; else fail "$tool missing"; fi
 done
+if have xhost; then pass "xhost available for optional Observer GUI access"; else warn "xhost missing; Observer may not be able to grant the r2 account X display access."; fi
+
+FAKETIME_FOUND=0
+for candidate in \
+  /usr/lib/x86_64-linux-gnu/faketime/libfaketime.so.1 \
+  /usr/lib/x86_64-linux-gnu/libfaketime.so.1 \
+  /usr/lib/faketime/libfaketime.so.1 \
+  /usr/local/lib/faketime/libfaketime.so.1 \
+  /usr/local/lib/libfaketime.so.1; do
+  if [[ -r "$candidate" ]]; then FAKETIME_FOUND=1; break; fi
+done
+if [[ "$FAKETIME_FOUND" -eq 1 ]]; then
+  pass "libfaketime runtime found"
+else
+  warn "libfaketime.so.1 is missing; interactive startup may attempt package installation, but overnight service installation cannot proceed until it is installed."
+fi
 # Mirror the complete source/header set required by the interactive launcher,
 # so a partial manual copy is caught before the user is asked to continue.
 for file in \
