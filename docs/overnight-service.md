@@ -17,7 +17,7 @@ Run these on the R2 Linux machine, not on GitHub.
 3. Install the required build and runtime packages if missing:
 
    ```sh
-   sudo apt-get install -y build-essential libcurl4-openssl-dev libsqlite3-dev libjson-c-dev libpulse-dev libfaketime curl python3
+   sudo apt-get install -y build-essential libcurl4-openssl-dev libsqlite3-dev libjson-c-dev libpulse-dev libfaketime curl python3 ffmpeg vlc python3-vlc xdotool pulseaudio-utils python3-tk mpg123
    ```
 
    The R2 launcher and installer do not run `apt-get update` automatically.
