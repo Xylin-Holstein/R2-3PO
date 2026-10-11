@@ -37,7 +37,7 @@ int main(void)
                     "Do you remember what I told you about the room?"),
                 "explicit memory question enables broader recall");
 
-    char bounded_context[] = "[room] bed\\n[pockets] items\\n[old] archive\\n";
+    char bounded_context[] = "[room] bed\n[pockets] items\n[old] archive\n";
     r2_bound_context_records(bounded_context, 15);
     ok &= check(strcmp(bounded_context, "[room] bed") == 0,
                 "context budget truncates at a whole memory-record boundary");
