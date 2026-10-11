@@ -250,6 +250,8 @@ static void context_cache_store(const char *query, int limit, const char *value)
 
     pthread_mutex_lock(&context_cache_lock);
     size_t slot = R2_CONTEXT_CACHE_ENTRIES;
+    size_t empty_slot = R2_CONTEXT_CACHE_ENTRIES;
+    size_t oldest_slot = R2_CONTEXT_CACHE_ENTRIES;
     unsigned long long oldest = ULLONG_MAX;
     for (size_t i = 0; i < R2_CONTEXT_CACHE_ENTRIES; ++i) {
         R2ContextCacheEntry *entry = &context_cache[i];
@@ -259,14 +261,17 @@ static void context_cache_store(const char *query, int limit, const char *value)
             break;
         }
         if (!entry->query) {
-            slot = i;
-            break;
+            if (empty_slot == R2_CONTEXT_CACHE_ENTRIES)
+                empty_slot = i;
+            continue;
         }
         if (entry->use_stamp < oldest) {
             oldest = entry->use_stamp;
-            slot = i;
+            oldest_slot = i;
         }
     }
+    if (slot == R2_CONTEXT_CACHE_ENTRIES)
+        slot = empty_slot != R2_CONTEXT_CACHE_ENTRIES ? empty_slot : oldest_slot;
     if (slot < R2_CONTEXT_CACHE_ENTRIES) {
         R2ContextCacheEntry *entry = &context_cache[slot];
         free(entry->query);
@@ -3694,8 +3699,7 @@ static char *chat_with_relevant_memories(
 
     char *memory_context = context_cache_get(query ? query : "",
                                                    MAX_RELEVANT_MEMORIES);
-    int historical_cache_hit = memory_context != NULL;
-    if (!historical_cache_hit) {
+    if (!memory_context) {
         memory_context = get_relevant_memories(
             query ? query : "",
             MAX_RELEVANT_MEMORIES
@@ -3704,6 +3708,11 @@ static char *chat_with_relevant_memories(
             memory_context = xstrdup("");
         if (!memory_context)
             return NULL;
+        context_cache_store(query ? query : "", MAX_RELEVANT_MEMORIES,
+                            memory_context);
+    } else {
+        fprintf(stderr, "[R2 Context] Reused persistent-memory retrieval from RAM cache.\\n");
+    }
 
     /*
        Conversation continuity: the Life Log retains complete historical
@@ -3778,12 +3787,6 @@ static char *chat_with_relevant_memories(
         }
         free(history);
     }
-        context_cache_store(query ? query : "", MAX_RELEVANT_MEMORIES,
-                            memory_context);
-    } else {
-        fprintf(stderr, "[R2 Context] Reused historical context from RAM cache.\n");
-    }
-
     /*
      * Perception is available during ordinary conversation, not only
      * when the user explicitly asks about vision. If Eyes is already
@@ -7899,8 +7902,6 @@ static char *r2_talk_impl(const char *message)
     pthread_mutex_unlock(&messages_lock);
 
     int64_t turn_event_id = r2_log_conversation_turn(message, reply);
-    /* The new turn changes historical retrieval results for future turns. */
-    context_cache_invalidate();
     if (turn_event_id < 0)
         r2_log_event(R2_LOG_ERROR, "conversation_log_failed",
                      "Could not persist a conversation turn in the Life Log.",
