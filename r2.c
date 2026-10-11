@@ -3830,7 +3830,14 @@ static int r2_reply_misclassifies_plain_text(const char *query, const char *repl
         "can't make sense of your message",
         "not a coherent question",
         "random assortment of sounds",
-        "random string of words"
+        "random string of words",
+        "that's a bit garbled",
+        "that is a bit garbled",
+        "i think you're trying to say",
+        "i think you are trying to say",
+        "you're trying to say",
+        "you are trying to say",
+        "is that what you mean"
     };
     for (size_t i = 0; i < sizeof(failure_phrases) / sizeof(failure_phrases[0]); ++i) {
         if (strcasestr(reply, failure_phrases[i]))
@@ -3922,8 +3929,10 @@ static char *r2_retry_direct_answer(Message *messages_copy,
         "audio, noise, random sounds, gibberish, or data unless the user is "
         "actually discussing those things. Read the exact latest user message "
         "and answer its question, invitation, statement, or conversational intent "
-        "directly. Use the supplied memories only when relevant. Do not narrate "
-        "parsing or invent a different scenario. If it is genuinely ambiguous, "
+        "directly. Preserve speaker identity and who said what; never invent a paraphrase "
+        "that changes the user's meaning or attributes words to them that they did not say. "
+        "Use the supplied memories only when relevant. Do not narrate parsing or invent "
+        "a different scenario. If it is genuinely ambiguous, "
         "ask one focused clarification. Return only the user-facing answer.";
 
     Message *retry_messages = calloc(message_count + 1, sizeof(*retry_messages));
