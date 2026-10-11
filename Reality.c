@@ -1797,10 +1797,10 @@ char *r2_reality_context(void)
 {
     char *status = r2_reality_status();
     char *room = r2_reality_room_look();
-    char *facts = query_text("SELECT key,value,evidence FROM r2_reality_self_facts ORDER BY updated_at DESC", NULL);
+    char *facts = query_text("SELECT key,value,evidence FROM r2_reality_self_facts ORDER BY updated_at DESC LIMIT 40", NULL);
     char *items_memory = query_text(
         "WITH detailed AS (SELECT item_name,CASE precision WHEN 'exact' THEN printf('remembers collecting exactly %d',exact_quantity) ELSE printf('remembers collecting about %d',approximate_quantity) END AS memory,CASE precision WHEN 'exact' THEN printf('%d days ago',MAX(0,(strftime('%s','now')-collected_at)/86400)) ELSE printf('about %d weeks ago',MAX(1,ROUND((strftime('%s','now')-collected_at)/604800.0))) END AS timing,collected_at FROM r2_reality_item_memory WHERE precision IN ('exact','approximate')), vague AS (SELECT item_name,'remembers collecting some; exact quantity and timing have faded' AS memory,'older vague memory' AS timing,MAX(collected_at) AS collected_at FROM r2_reality_item_memory WHERE precision='vague' GROUP BY item_name) SELECT item_name,memory,timing FROM (SELECT * FROM detailed UNION ALL SELECT * FROM vague) ORDER BY collected_at DESC LIMIT 80", NULL);
-    char *food_preferences = query_text("SELECT ingredient,printf('average enjoyment rating %.2f/2',satisfaction_sum/rating_count),printf('%d ratings',rating_count) FROM r2_food_ingredient_preferences WHERE rating_count>0 ORDER BY satisfaction_sum*1.0/rating_count DESC", NULL);
+    char *food_preferences = query_text("SELECT ingredient,printf('average enjoyment rating %.2f/2',satisfaction_sum/rating_count),printf('%d ratings',rating_count) FROM r2_food_ingredient_preferences WHERE rating_count>0 ORDER BY satisfaction_sum*1.0/rating_count DESC LIMIT 24", NULL);
     char *food_experiences = query_text("SELECT food_name,printf('enjoyment rating %+d/2',satisfaction),notes FROM r2_food_experiences WHERE satisfaction IS NOT NULL ORDER BY eaten_at DESC LIMIT 20", NULL);
     char *foods = food_metrics_context();
     char *fridge=r2_fridge_context(); char *age=origin_age_context(); char *money=r2_reality_money_context();
