@@ -104,5 +104,25 @@ require(
     "do not answer as though the user were you" in core,
     "primary prompt forbids swapping the user's identity with R2",
 )
+require(
+    'getenv("R2_OLLAMA_TRACE_PROMPTS")' in core,
+    "prompt tracing is disabled unless explicitly opted into",
+)
+require(
+    'strcmp(enabled, "1") != 0' in core,
+    "prompt tracing requires an exact opt-in value",
+)
+require(
+    "O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600" in core,
+    "prompt trace uses a private, non-overwriting, no-symlink file",
+)
+require(
+    "ollama_trace_prompt_if_enabled(payload);" in core,
+    "trace captures the serialized request actually sent to Ollama",
+)
+require(
+    "contains full prompt, memories, and current user text; review before sharing" in core,
+    "trace warns that it contains private conversation context",
+)
 
 print("Nonresponsive text retry smoke passed.")
