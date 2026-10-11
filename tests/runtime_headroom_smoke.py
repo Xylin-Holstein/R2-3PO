@@ -50,6 +50,22 @@ if not re.search(
 if "int previous_background_mode = ollama_background_mode;" not in reflection:
     raise SystemExit("Autonomous reflection must restore the thread's previous mode")
 
+talk_start = core.find("static char *r2_talk_impl(const char *message)")
+talk_end = core.find("\\nchar *r2_talk(const char *message)", talk_start)
+if talk_start < 0 or talk_end < 0:
+    raise SystemExit("Could not locate the serialized conversation-turn implementation.")
+talk = core[talk_start:talk_end]
+retry_marker = talk.find('"conversation_tool_followup_retry"')
+if retry_marker < 0:
+    raise SystemExit("A failed post-action reply must trigger one logged recovery attempt.")
+retry_refresh = talk.find("(void)refresh_reality_context_message();", retry_marker)
+retry_generation = talk.find("reply = chat_with_relevant_memories(message);", retry_refresh)
+final_failure = talk.find("Follow-up generation failed after one refreshed retry", retry_generation)
+if min(retry_refresh, retry_generation, final_failure) < 0 or not (retry_marker < retry_refresh < retry_generation < final_failure):
+    raise SystemExit("Post-action recovery must refresh context, retry generation, then roll back only if retry fails.")
+if talk.count("process_tools(") != 1:
+    raise SystemExit("A failed post-action reply retry must not execute already-completed tools a second time.")
+
 for label, source, needle in (
     ("fridge schema migration", reality, "static int fridge_migrate_schema(void)"),
     ("Reality need-state migration", reality, "static int migrate_reality_self_schema(void)"),
