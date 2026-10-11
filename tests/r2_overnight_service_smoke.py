@@ -12,11 +12,16 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn('getenv("R2_SERVICE_MODE")', source)
         self.assertIn('!strcmp(service_mode_value, "1")', source)
         self.assertIn("if (service_mode) {", source)
-        self.assertIn("pause();", source)
+        self.assertIn("sigsuspend(&wait_mask)", source)
+        self.assertNotIn("pause();", source)
+        self.assertIn("sigprocmask(SIG_BLOCK, &service_signals, &original_mask)", source)
         self.assertIn("SIGTERM", source)
         core = (ROOT / "r2.c").read_text(encoding="utf-8")
         self.assertIn("r2_shutdown();", core)
         self.assertIn("setvbuf(stdout, NULL, _IOLBF, 0)", core)
+        self.assertIn("sigprocmask(SIG_BLOCK, &service_signals, NULL)", core)
+        self.assertLess(core.index("sigprocmask(SIG_BLOCK, &service_signals, NULL)"),
+                        core.index("if (r2_init() != 0)"))
 
     def test_runner_checks_local_model_and_private_clock(self):
         source = (ROOT / "tools/r2_service_runner.sh").read_text(encoding="utf-8")
