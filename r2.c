@@ -3839,6 +3839,40 @@ static int r2_reply_misclassifies_plain_text(const char *query, const char *repl
         if (strcasestr(reply, failure_phrases[i]))
             return 1;
     }
+
+    /*
+     * Some fabricated-intent replies omit "garbled" but present an invented
+     * interpretation as a guess and ask the user to validate it. Catch that
+     * combination, while leaving ordinary paraphrasing and genuine
+     * interpretation requests alone.
+     */
+    static const char *const interpretation_requests[] = {
+        "paraphrase", "interpret this", "what do i mean",
+        "what am i trying to say", "what does this mean",
+        "can you interpret", "can you paraphrase", "did i mean"
+    };
+    for (size_t i = 0; i < sizeof(interpretation_requests) /
+                            sizeof(interpretation_requests[0]); ++i) {
+        if (strcasestr(query, interpretation_requests[i]))
+            return 0;
+    }
+
+    int proposes_user_intent =
+        strcasestr(reply, "i think you're trying to say") != NULL ||
+        strcasestr(reply, "i think you’re trying to say") != NULL ||
+        strcasestr(reply, "i think you are trying to say") != NULL ||
+        strcasestr(reply, "what you're trying to say is") != NULL ||
+        strcasestr(reply, "what you’re trying to say is") != NULL ||
+        strcasestr(reply, "what you are trying to say is") != NULL;
+    int asks_for_confirmation =
+        strcasestr(reply, "is that correct") != NULL ||
+        strcasestr(reply, "is that right") != NULL ||
+        strcasestr(reply, "is that what you mean") != NULL ||
+        strcasestr(reply, "did i get that right") != NULL ||
+        strcasestr(reply, "am i understanding you") != NULL;
+    if (proposes_user_intent && asks_for_confirmation)
+        return 1;
+
     return 0;
 }
 
