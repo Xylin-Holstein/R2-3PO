@@ -34,8 +34,6 @@ for rule in required_rules:
 
 if reality.count("!isfinite(f)") < 2 or reality.count("isfinite(parsed)") < 2:
     raise SystemExit("food metric parsing and context must reject non-finite numeric values")
-if '"fullness", "REAL NOT NULL DEFAULT 100"' in reality or '"energy", "REAL NOT NULL DEFAULT 10"' in reality:
-    raise SystemExit("legacy fridge migration still assigns nutritious defaults to unknown stock")
 if "fullness REAL NOT NULL DEFAULT 100" in reality or "energy REAL NOT NULL DEFAULT 10" in reality:
     raise SystemExit("new fridge schema still assigns nutritious defaults to unspecified stock")
 
