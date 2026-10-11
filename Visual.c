@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <time.h>
 
 #define R2_VISION_URL "http://127.0.0.1:11434/api/chat"
@@ -325,7 +326,85 @@ static char *call_vision_model(const char *image_base64, const char *question,
     }
     free(response.data);
     json_object_put(root);
-    return answer;
+ static int visual_column_exists(const char *column)
+{
+    sqlite3_stmt *st = NULL;
+    int found = 0;
+    if (sqlite3_prepare_v2(visual_db, "PRAGMA table_info(r2_visual_experiences)",
+                           -1, &st, NULL) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            const unsigned char *name = sqlite3_column_text(st, 1);
+            if (name && !strcasecmp((const char *)name, column)) {
+                found = 1;
+                break;
+            }
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    return found;
+}
+
+static int visual_ensure_column(const char *column, const char *definition)
+{
+    if (visual_column_exists(column)) return SQLITE_OK;
+    char sql[512];
+    int n = snprintf(sql, sizeof(sql),
+                     "ALTER TABLE r2_visual_experiences ADD COLUMN %s %s;",
+                     column, definition);
+    if (n < 0 || (size_t)n >= sizeof(sql)) return SQLITE_TOOBIG;
+    return sqlite3_exec(visual_db, sql, NULL, NULL, NULL);
+}
+
+static int visual_backfill(const char *target, const char *source)
+{
+    if (!visual_column_exists(source)) return SQLITE_OK;
+    char sql[512];
+    int n = snprintf(sql, sizeof(sql),
+        "UPDATE r2_visual_experiences SET %s=%s WHERE %s IS NULL OR %s='';",
+        target, source, target, target);
+    if (n < 0 || (size_t)n >= sizeof(sql)) return SQLITE_TOOBIG;
+    return sqlite3_exec(visual_db, sql, NULL, NULL, NULL);
+}
+
+static int visual_migrate_schema(void)
+{
+    const char *columns[][2] = {
+        {"created_utc", "TEXT NOT NULL DEFAULT ''"},
+        {"source", "TEXT NOT NULL DEFAULT 'unknown'"},
+        {"image_path", "TEXT NOT NULL DEFAULT ''"},
+        {"model", "TEXT NOT NULL DEFAULT 'unknown'"},
+        {"prompt", "TEXT"},
+        {"description", "TEXT NOT NULL DEFAULT ''"},
+        {"width", "INTEGER NOT NULL DEFAULT 0"},
+        {"height", "INTEGER NOT NULL DEFAULT 0"},
+        {"frame_number", "INTEGER NOT NULL DEFAULT 0"},
+        {"frame_timestamp", "INTEGER NOT NULL DEFAULT 0"},
+        {"life_log_event_id", "INTEGER"}
+    };
+    for (size_t i = 0; i < sizeof(columns) / sizeof(columns[0]); ++i) {
+        if (visual_ensure_column(columns[i][0], columns[i][1]) != SQLITE_OK)
+            return SQLITE_ERROR;
+    }
+
+    /* Copy older names into canonical fields only when the new field is empty. */
+    if (visual_backfill("created_utc", "created_at") != SQLITE_OK ||
+        visual_backfill("created_utc", "timestamp") != SQLITE_OK ||
+        visual_backfill("image_path", "file_path") != SQLITE_OK ||
+        visual_backfill("image_path", "path") != SQLITE_OK)
+        return SQLITE_ERROR;
+
+    if (sqlite3_exec(visual_db,
+        "UPDATE r2_visual_experiences SET created_utc=CURRENT_TIMESTAMP "
+        "WHERE created_utc IS NULL OR created_utc='';",
+        NULL, NULL, NULL) != SQLITE_OK)
+        return SQLITE_ERROR;
+    return sqlite3_exec(visual_db,
+        "CREATE INDEX IF NOT EXISTS r2_visual_experiences_created_idx "
+        "ON r2_visual_experiences(created_utc);",
+        NULL, NULL, NULL);
+}
+
+   return answer;
 }
 
 int r2_visual_init(const char *database_path, const char *library_directory)
@@ -369,12 +448,18 @@ int r2_visual_init(const char *database_path, const char *library_directory)
         "frame_number INTEGER NOT NULL,"
         "frame_timestamp INTEGER NOT NULL,"
         "life_log_event_id INTEGER,"
-        "UNIQUE(image_path));"
-        "CREATE INDEX IF NOT EXISTS r2_visual_experiences_created_idx "
-        "ON r2_visual_experiences(created_utc);";
+        "UNIQUE(image_path));";
     char *err = NULL;
     if (sqlite3_exec(visual_db, schema, NULL, NULL, &err) != SQLITE_OK) {
         sqlite3_free(err);
+        sqlite3_close(visual_db);
+        visual_db = NULL;
+        pthread_mutex_unlock(&visual_lock);
+        return -1;
+    }
+    if (visual_migrate_schema() != SQLITE_OK) {
+        fprintf(stderr, "[R2 Visual] Could not migrate legacy visual database schema: %s\n",
+                sqlite3_errmsg(visual_db));
         sqlite3_close(visual_db);
         visual_db = NULL;
         pthread_mutex_unlock(&visual_lock);
