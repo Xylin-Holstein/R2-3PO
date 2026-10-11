@@ -58,6 +58,7 @@ for required in (
     "size_t reality_reserve = system_budget / 3;",
     "size_t override_budget = system_budget / 4;",
     "size_t identity_budget = system_budget > override_length + reality_reserve",
+    "if (identity_budget > 4000)",
     "message_priority == 0 && length > identity_budget",
     'json_object_object_add(override_message, "content", bounded_override)',
 ):
@@ -78,8 +79,8 @@ def allocation_for_context(num_ctx: int, num_predict: int, override_length: int,
     )
     system_budget = min(system_budget, system_total, input_budget)
     bounded_override = min(override_length, system_budget // 4)
-    reality_reserve = min(system_budget // 3, 6000)
-    identity_budget = max(0, system_budget - bounded_override - reality_reserve)
+    reality_reserve = min(system_budget // 3, 3000)
+    identity_budget = min(4000, max(0, system_budget - bounded_override - reality_reserve))
     return (system_budget, bounded_override, identity_budget, reality_reserve,
             current_user_reserve, input_budget)
 
