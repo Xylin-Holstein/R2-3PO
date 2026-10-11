@@ -26,25 +26,56 @@ require(
 )
 require(
     'char *context_role = strdup("system");' in builder
-    and "memmove(&copy[user_index + 1], &copy[user_index]" in builder,
-    "retrieved evidence is inserted as a separate system message before the active user turn",
+    and "Insert after any leading system context, before dialogue begins." in builder
+    and "memmove(&copy[context_index + 1], &copy[context_index]" in builder,
+    "retrieved evidence is inserted with leading system context, never mid-dialogue",
 )
 require(
-    "copy[user_index].content = context_content;" in builder
+    "copy[context_index].content = context_content;" in builder
     and '"CURRENT USER MESSAGE (authoritative):' not in builder
     and "----- BEGIN CURRENT USER MESSAGE -----" not in builder,
     "the user's original text stays byte-for-byte intact instead of being wrapped in context",
+)
+reality_start = core.find('if (!strncmp(content,')
+reality_marker = core.find('"PERSISTENT REALITY CONTEXT"', reality_start)
+reality_end = core.find("else if", reality_marker) if reality_marker >= 0 else -1
+require(
+    reality_marker >= 0 and reality_end > reality_marker
+    and "message_priority = 1;" in core[reality_marker:reality_end],
+    "live Reality state receives the highest contextual priority after core identity",
 )
 priority_start = core.find('else if (!strncmp(content, "CURRENT TURN RETRIEVED CONTEXT"')
 priority_end = core.find("else if", priority_start + 1) if priority_start >= 0 else -1
 require(
     priority_start >= 0 and priority_end > priority_start
-    and "message_priority = 1;" in core[priority_start:priority_end],
-    "relevant turn context is prioritized after live Reality/learning and before archive history",
+    and "message_priority = 2;" in core[priority_start:priority_end],
+    "retrieved evidence for the active turn outranks persistent learning and archived history",
+)
+learning_start = core.find('"PERSISTENT LEARNING CONTEXT"')
+learning_end = core.find("else if", learning_start) if learning_start >= 0 else -1
+require(
+    learning_start >= 0 and learning_end > learning_start
+    and "message_priority = 3;" in core[learning_start:learning_end],
+    "persistent learning is retained after live Reality and active-turn evidence",
 )
 require(
-    "Do not call an intelligible message gibberish" in builder
-    and "Do not replace a normal question or invitation with an analysis of the wording" in builder,
-    "the inference instructions prioritize ordinary conversational intent",
+    "int message_priority = 3;" in core,
+    "generic system context cannot crowd out active-turn retrieved evidence",
+)
+archive_start = core.find('"PAST CONVERSATION ARCHIVE — CONTEXT ONLY."')
+archive_end = core.find("message_priority = 4;", archive_start) if archive_start >= 0 else -1
+require(
+    archive_start >= 0 and archive_end > archive_start,
+    "archived dialogue is lowest priority and cannot crowd out current context",
+)
+system_start = core.find("static const char r2_conversation_system_prompt[]")
+system_end = core.find("\nstatic char *r2_build_retry_system_prompt(", system_start)
+if system_start < 0 or system_end < 0:
+    raise SystemExit("Could not isolate the shared conversation system prompt.")
+system_prompt = core[system_start:system_end]
+require(
+    "Do not call an intelligible message gibberish" in system_prompt
+    and "Do not replace a normal question or invitation with an analysis of the wording" in system_prompt,
+    "the shared inference instructions prioritize ordinary conversational intent",
 )
 print("Current-turn context separation smoke passed.")

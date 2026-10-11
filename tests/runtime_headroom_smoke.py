@@ -13,7 +13,7 @@ addiction = (ROOT / "Addiction.c").read_text(encoding="utf-8")
 alternate_self = (ROOT / "AlternateSelf.c").read_text(encoding="utf-8")
 
 required = {
-    "RAM-aware context selection": "static int ollama_context_tokens(void)",
+    "RAM-aware context selection": "int r2_ollama_context_tokens(void)",
     "Ollama receives explicit context length": '"num_ctx", json_object_new_int(num_ctx)',
     "Output budget is capped to context headroom": "if (num_predict > max_predict) num_predict = max_predict;",
     "Legacy memories are migrated additively": "static int migrate_memory_schema(void)",
@@ -21,10 +21,21 @@ required = {
     "Current-turn reserve prevents old context crowding it out": "size_t current_user_reserve = 1500;",
     "Live history has a byte ceiling": "#define MAX_LIVE_MESSAGE_BYTES (32U * 1024U * 1024U)",
     "Autonomous reflection uses the background scheduler": "previous_background_mode = ollama_background_mode",
+    "cgroup RAM reads distinguish zero from unreadable": "static unsigned long long read_uint_file(const char *path, int *valid)",
+    "cgroup RAM exhaustion forces minimal headroom": "(!cgroup_used_valid || cgroup_used >= cgroup_max)",
+    "unlimited cgroup v1 sentinel is not treated as real headroom": "v1_max < (1ULL << 60)",
+    "foreground timeout is configurable for long local inference": "R2_OLLAMA_TIMEOUT_SECONDS",
+    "foreground timeout has a six-hour safety ceiling": "requested <= 21600L",
+    "foreground timeout preserves the established default": "const long default_timeout = 2700L;",
 }
 for label, needle in required.items():
     if needle not in core:
         raise SystemExit(f"Missing runtime headroom safeguard: {label}")
+
+if "int r2_ollama_context_tokens(void);" not in (ROOT / "r2.h").read_text(encoding="utf-8"):
+    raise SystemExit("Shared RAM-aware context sizing must be part of the core interface.")
+if "int num_ctx = r2_ollama_context_tokens();" not in visual:
+    raise SystemExit("Vision must use the shared RAM-aware context selector.")
 
 reflection_start = core.find("static void *autonomous_thinking(")
 reflection_end = core.find("/* ============================================================", reflection_start + 40)

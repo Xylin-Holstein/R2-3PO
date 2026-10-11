@@ -138,6 +138,8 @@ int main(void)
         "ON CONFLICT(name) DO UPDATE SET quantity=2,fullness=0,energy=0",
         NULL, NULL, NULL) != SQLITE_OK) fail("could not seed non-nutritive fridge stock");
     sqlite3_close(fridge);
+    if (r2_reality_autonomous_food_available() != 1)
+        fail("accessible fridge stock with positive fullness must count as available food");
 
     if (r2_reality_fridge_eat("aaa_empty", -1.0) == 0)
         fail("zero-fullness fridge stock must not count as a meal");
@@ -186,6 +188,8 @@ int main(void)
     if (r2_reality_add_item("burger", "Room-only regression food", "room", 1) != 0)
         fail("could not add room-only test food");
     if (r2_reality_set_location(0) != 0) fail("could not move simulated location away from home");
+    if (r2_reality_autonomous_food_available() != 0)
+        fail("room food and fridge stock must not count as accessible while away");
     if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality database for away test");
     if (sqlite3_prepare_v2(db,
         "UPDATE r2_reality_self SET hunger=60,seconds_since_meal=10000,last_tick=? WHERE id=1",

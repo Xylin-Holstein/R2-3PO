@@ -48,6 +48,7 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn("LD_PRELOAD", source)
         self.assertIn("FAKETIME_DONT_RESET=1", source)
         self.assertIn("R2_SERVICE_MODE=1", source)
+        self.assertIn('"R2_OLLAMA_TIMEOUT_SECONDS=${R2_OLLAMA_TIMEOUT_SECONDS:-}"', source)
         self.assertIn("systemd-inhibit --what=sleep", source)
         self.assertLess(source.index("exec systemd-inhibit"), source.index('log "Waiting for the local Ollama API..."'))
         self.assertIn('if [[ "$CURRENT_MONTH$CURRENT_DAY" == "0229" ]]', source)
@@ -70,6 +71,7 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn("An R2 core is already running", launcher)
         self.assertIn('REAL_EPOCH="$(date \'+%s\')"' , launcher)
         self.assertIn('date -d "@$REAL_EPOCH"', launcher)
+        self.assertIn('R2_OLLAMA_TIMEOUT_SECONDS="${R2_OLLAMA_TIMEOUT_SECONDS:-}"', launcher)
         self.assertIn('R2_START="1999-03-01', launcher)
 
     def test_installer_is_non_destructive_and_does_not_update_apt(self):

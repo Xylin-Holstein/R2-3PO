@@ -250,6 +250,16 @@ static char *call_vision_model(const char *image_base64, const char *question,
     json_object_object_add(root, "stream", json_object_new_boolean(0));
     json_object_object_add(root, "keep_alive", json_object_new_string("10m"));
 
+    /*
+     * Share the RAM-aware context ceiling with chat. Vision only needs a concise
+     * observation, so cap generated output rather than letting the model's
+     * default context/output settings compete unpredictably with conversation.
+     */
+    int num_ctx = r2_ollama_context_tokens();
+    int num_predict = num_ctx >= 8192 ? 512 : 256;
+    json_object_object_add(options, "num_ctx", json_object_new_int(num_ctx));
+    json_object_object_add(options, "num_predict", json_object_new_int(num_predict));
+
     /* Keep vision inference on the same requested GPU/CPU layer policy as chat. */
     const char *gpu_layers_env = getenv("R2_OLLAMA_NUM_GPU");
     if (gpu_layers_env && *gpu_layers_env) {

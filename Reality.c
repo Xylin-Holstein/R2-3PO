@@ -142,8 +142,10 @@ static int money_create_bill(const char *dir)
     }
     return -1;
 }
-static int money_set_dir_balance(const char *dir, sqlite3_int64 cents)
+static int money_set_dir_balance(const char *dir, sqlite3_int64 cents,
+                                  int *changed)
 {
+    if (changed) *changed = 0;
     if (cents < 0 || cents > 100000000LL || ensure_dir_tree(dir) != 0) return -1;
 
     /* Preflight every authoritative money path before deleting anything.
@@ -183,12 +185,15 @@ static int money_set_dir_balance(const char *dir, sqlite3_int64 cents)
             continue;
         }
         if (!S_ISREG(st.st_mode) || unlink(path) != 0) { result = -1; break; }
+        if (changed) *changed = 1;
     }
     closedir(dp);
     if (result != 0) return -1;
 
-    for (sqlite3_int64 i = 0; i < cents / 100; ++i)
+    for (sqlite3_int64 i = 0; i < cents / 100; ++i) {
         if (money_create_bill(dir) != 0) return -1;
+        if (changed) *changed = 1;
+    }
     int change = (int)(cents % 100);
     if (change) {
         char path[2048], tmp[2100];
@@ -206,6 +211,7 @@ static int money_set_dir_balance(const char *dir, sqlite3_int64 cents)
         if (fclose(fp) != 0) bad = 1;
         if (!bad && rename(tmp, path) != 0) bad = 1;
         if (bad) { (void)unlink(tmp); return -1; }
+        if (changed) *changed = 1;
     }
     return 0;
 }
@@ -292,7 +298,7 @@ static int money_initialize_files(int previously_seeded)
             /* Once physical files have been authoritative, an empty wallet
                remains empty. A stale SQLite summary must never respawn cash. */
         } else if (!previously_seeded) {
-            if (money_set_dir_balance(wallet, 500) != 0) return -1;
+            if (money_set_dir_balance(wallet, 500, NULL) != 0) return -1;
         } else {
             /* First migration from a legacy database only: preserve its
                remaining balance before physical files become authoritative. */
@@ -311,8 +317,8 @@ static int money_initialize_files(int previously_seeded)
             sqlite3_int64 cash = sqlite3_column_int64(st, 0);
             sqlite3_int64 bank = sqlite3_column_int64(st, 1);
             sqlite3_finalize(st);
-            if (money_set_dir_balance(wallet, cash) != 0 ||
-                money_set_dir_balance(piggybank, bank) != 0) return -1;
+            if (money_set_dir_balance(wallet, cash, NULL) != 0 ||
+                money_set_dir_balance(piggybank, bank, NULL) != 0) return -1;
         }
     }
     return exec_sql(
@@ -2473,6 +2479,60 @@ int r2_reality_autonomous_feed_if_needed(void)
     return 0;
 }
 
+/* Read-only availability check used to validate autonomous sleep decisions.
+ * Returns 1 when an accessible, metric-backed meal exists, 0 when none exists,
+ * and -1 when authoritative inventory could not be checked safely. */
+int r2_reality_autonomous_food_available(void)
+{
+    if (!r2_reality_is_initialized()) return -1;
+    char food[512] = {0};
+    pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "SELECT name,container FROM r2_reality_objects WHERE quantity>0 ORDER BY id",
+        -1, &st, NULL);
+    int step_rc = SQLITE_OK;
+    if (rc == SQLITE_OK) {
+        while ((step_rc = sqlite3_step(st)) == SQLITE_ROW) {
+            const unsigned char *name = sqlite3_column_text(st, 0);
+            const unsigned char *container = sqlite3_column_text(st, 1);
+            if (!name || !container || !container_accessible((const char *)container))
+                continue;
+            double fullness = 0.0;
+            if (food_metric((const char *)name, &fullness, NULL) == 0 &&
+                isfinite(fullness) && fullness > 0.0) {
+                snprintf(food, sizeof(food), "%s", (const char *)name);
+                break;
+            }
+        }
+        if (!*food && step_rc != SQLITE_DONE) rc = step_rc;
+    }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reality_lock);
+    if (rc != SQLITE_OK) return -1;
+    if (*food) return 1;
+    if (!reality_is_home()) return 0;
+
+    int available = 0;
+    pthread_mutex_lock(&fridge_lock);
+    if (!fridge_db) {
+        pthread_mutex_unlock(&fridge_lock);
+        return -1;
+    }
+    st = NULL;
+    rc = sqlite3_prepare_v2(fridge_db,
+        "SELECT name FROM r2_fridge_items WHERE quantity>0 AND fullness>0 LIMIT 1",
+        -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        int step = sqlite3_step(st);
+        if (step == SQLITE_ROW) available = 1;
+        else if (step != SQLITE_DONE) rc = step;
+    }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&fridge_lock);
+    return rc == SQLITE_OK ? available : -1;
+}
+
 char *r2_reality_food_context(const char *food)
 {
     if (!food || !*food || !r2_reality_is_initialized()) return NULL;
@@ -2665,26 +2725,25 @@ static int money_transfer(double amount, int deposit)
     sqlite3_int64 cash = 0, bank = 0;
     int rc = money_read_locked(&cash, &bank);
     sqlite3_int64 old_cash = cash, old_bank = bank;
-    int mutation_started = 0;
+    int wallet_changed = 0, bank_changed = 0;
     if (rc == 0 && ((deposit && cash < cents) || (!deposit && bank < cents)))
         rc = -1;
 
     if (rc == 0) {
         sqlite3_int64 new_cash = deposit ? cash - cents : cash + cents;
         sqlite3_int64 new_bank = deposit ? bank + cents : bank - cents;
-        /* Either physical directory write can fail after changing some files.
-           Mark the transaction before the first write so both balances are
-           restored even when the first half fails part-way through. */
-        mutation_started = 1;
-        if (money_set_dir_balance(wallet, new_cash) != 0 ||
-            money_set_dir_balance(piggybank, new_bank) != 0 ||
+        if (money_set_dir_balance(wallet, new_cash, &wallet_changed) != 0 ||
+            money_set_dir_balance(piggybank, new_bank, &bank_changed) != 0 ||
             money_read_locked(&cash, &bank) != 0) {
             rc = -1;
         }
     }
+    int mutation_started = wallet_changed || bank_changed;
     if (rc != 0 && mutation_started) {
-        int wallet_restore = money_set_dir_balance(wallet, old_cash);
-        int bank_restore = money_set_dir_balance(piggybank, old_bank);
+        int wallet_restore = wallet_changed
+            ? money_set_dir_balance(wallet, old_cash, NULL) : 0;
+        int bank_restore = bank_changed
+            ? money_set_dir_balance(piggybank, old_bank, NULL) : 0;
         int mirror_restore = money_read_locked(&cash, &bank);
         if (wallet_restore != 0 || bank_restore != 0 || mirror_restore != 0)
             fprintf(stderr, "[R2 Money] CRITICAL: deposit/withdraw failed and balance rollback was incomplete; inspect Wallet and piggybank files.\n");
@@ -2707,22 +2766,21 @@ int r2_reality_money_receive(double amount)
     sqlite3_int64 cash = 0, bank = 0;
     int rc = money_read_locked(&cash, &bank);
     sqlite3_int64 old_cash = cash;
-    int mutation_started = 0;
+    int wallet_changed = 0;
     if (rc == 0 && cash <= 100000000LL - cents) {
-        mutation_started = 1;
-        if (money_set_dir_balance(wallet, cash + cents) != 0 ||
+        if (money_set_dir_balance(wallet, cash + cents, &wallet_changed) != 0 ||
             money_read_locked(&cash, &bank) != 0) rc = -1;
     } else {
         rc = -1;
     }
-    if (rc != 0 && mutation_started) {
-        int wallet_restore = money_set_dir_balance(wallet, old_cash);
+    if (rc != 0 && wallet_changed) {
+        int wallet_restore = money_set_dir_balance(wallet, old_cash, NULL);
         int mirror_restore = money_read_locked(&cash, &bank);
         if (wallet_restore != 0 || mirror_restore != 0)
             fprintf(stderr, "[R2 Money] CRITICAL: cash receipt failed and wallet rollback was incomplete; inspect Wallet files.\n");
     }
     pthread_mutex_unlock(&reality_lock);
-    if (rc == 0 || mutation_started) money_mirror_write(cash, bank);
+    if (rc == 0 || wallet_changed) money_mirror_write(cash, bank);
     return rc == 0 ? 0 : -1;
 }
 int r2_reality_money_deposit(double amount){return money_transfer(amount,1);}
@@ -2742,19 +2800,21 @@ int r2_reality_buy_item(const char *name, const char *description,
     sqlite3_int64 cash = 0, bank = 0;
     int rc = money_read_locked(&cash, &bank);
     sqlite3_int64 old_cash = cash, old_bank = bank;
-    int mutation_started = 0;
+    int wallet_changed = 0, bank_changed = 0;
     if (rc == 0 && cash + bank < cents) rc = -1;
     if (rc == 0) {
         sqlite3_int64 spend_cash = cash < cents ? cash : cents;
         sqlite3_int64 spend_bank = cents - spend_cash;
-        mutation_started = 1;
-        if (money_set_dir_balance(wallet, cash - spend_cash) != 0 ||
-            money_set_dir_balance(piggybank, bank - spend_bank) != 0 ||
+        if (money_set_dir_balance(wallet, cash - spend_cash, &wallet_changed) != 0 ||
+            money_set_dir_balance(piggybank, bank - spend_bank, &bank_changed) != 0 ||
             money_read_locked(&cash, &bank) != 0) rc = -1;
     }
+    int mutation_started = wallet_changed || bank_changed;
     if (rc != 0 && mutation_started) {
-        int wallet_restore = money_set_dir_balance(wallet, old_cash);
-        int bank_restore = money_set_dir_balance(piggybank, old_bank);
+        int wallet_restore = wallet_changed
+            ? money_set_dir_balance(wallet, old_cash, NULL) : 0;
+        int bank_restore = bank_changed
+            ? money_set_dir_balance(piggybank, old_bank, NULL) : 0;
         int mirror_restore = money_read_locked(&cash, &bank);
         if (wallet_restore != 0 || bank_restore != 0 || mirror_restore != 0)
             fprintf(stderr, "[R2 Money] CRITICAL: purchase failed and balance rollback was incomplete; inspect Wallet and piggybank files.\n");
@@ -2769,8 +2829,10 @@ int r2_reality_buy_item(const char *name, const char *description,
     if (r2_reality_add_item(name, description ? description : "Purchased item",
                             destination, 1) != 0) {
         pthread_mutex_lock(&reality_lock);
-        int wallet_restore = money_set_dir_balance(wallet, old_cash);
-        int bank_restore = money_set_dir_balance(piggybank, old_bank);
+        int wallet_restore = wallet_changed
+            ? money_set_dir_balance(wallet, old_cash, NULL) : 0;
+        int bank_restore = bank_changed
+            ? money_set_dir_balance(piggybank, old_bank, NULL) : 0;
         int mirror_restore = money_read_locked(&cash, &bank);
         pthread_mutex_unlock(&reality_lock);
         if (wallet_restore != 0 || bank_restore != 0 || mirror_restore != 0)
