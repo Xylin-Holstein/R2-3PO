@@ -113,6 +113,45 @@ int main(void)
         fail("could not remove atomic-move regression trigger");
     sqlite3_close(atomic_db);
 
+    if (r2_reality_add_item("fridge_move_failure", "World copy", "pockets", 1) != 0)
+        fail("could not create world item for fridge rollback regression");
+    if (r2_fridge_add_item("fridge_move_failure", "Original fridge copy", 2,
+                           12.0, 1.0, "old ingredient", "old taste") != 0)
+        fail("could not seed existing fridge stock for rollback regression");
+    if (sqlite3_open(atomic_path, &atomic_db) != SQLITE_OK)
+        fail("could not open Reality DB for fridge rollback regression");
+    if (sqlite3_exec(atomic_db,
+        "CREATE TRIGGER fail_fridge_move BEFORE DELETE ON r2_reality_objects "
+        "WHEN OLD.name='fridge_move_failure' BEGIN SELECT RAISE(ABORT,'forced fridge move failure'); END;",
+        NULL, NULL, NULL) != SQLITE_OK)
+        fail("could not install fridge move failure trigger");
+    sqlite3_close(atomic_db);
+    if (r2_reality_move_item("fridge_move_failure", "fridge") == 0)
+        fail("fridge move must fail when source-object deletion fails");
+    if (sqlite3_open(atomic_path, &atomic_db) != SQLITE_OK)
+        fail("could not reopen Reality DB after fridge move failure");
+    atomic_st = NULL;
+    if (sqlite3_prepare_v2(atomic_db,
+        "SELECT container,quantity FROM r2_reality_objects WHERE name='fridge_move_failure'",
+        -1, &atomic_st, NULL) != SQLITE_OK ||
+        sqlite3_step(atomic_st) != SQLITE_ROW ||
+        strcmp((const char *)sqlite3_column_text(atomic_st, 0), "pockets") != 0 ||
+        sqlite3_column_int(atomic_st, 1) != 1)
+        fail("failed fridge move changed or removed the source object");
+    sqlite3_finalize(atomic_st);
+    if (sqlite3_exec(atomic_db, "DROP TRIGGER fail_fridge_move", NULL, NULL, NULL) != SQLITE_OK)
+        fail("could not remove fridge move failure trigger");
+    sqlite3_close(atomic_db);
+    char *fridge_after_rollback = r2_fridge_context();
+    if (!fridge_after_rollback ||
+        !strstr(fridge_after_rollback, "Original fridge copy") ||
+        !strstr(fridge_after_rollback, "quantity=2") ||
+        !strstr(fridge_after_rollback, "fullness=12.0/100") ||
+        !strstr(fridge_after_rollback, "energy=1.0")) {
+        free(fridge_after_rollback);
+        fail("failed fridge move did not restore the original stock metadata and quantity");
+    }
+    free(fridge_after_rollback);
     if (r2_reality_sleep(NAN) == 0)
         fail("non-finite sleep duration must be rejected");
 
@@ -125,7 +164,8 @@ int main(void)
     fputs("\n  <food name=\"burger\" fullness=\"100\" energy=\"10\" ingredients=\"bread,beef,cheese\" taste=\"savory,warm,salty\" />"
           "\n  <food name=\"zero_fullness\" fullness=\"0\" energy=\"0\" />"
           "\n  <food name=\"nan_fullness\" fullness=\"nan\" energy=\"10\" />"
-          "\n  <food name=\"nan_energy\" fullness=\"20\" energy=\"nan\" />\n",
+          "\n  <food name=\"nan_energy\" fullness=\"20\" energy=\"nan\" />"
+          "\n  <food name=\"fridge_move_failure\" fullness=\"45\" energy=\"4\" ingredients=\"new ingredient\" taste=\"new taste\" />\n",
           metrics);
     if (fclose(metrics) != 0) fail("could not close temporary food metrics fixture");
     if (r2_fridge_add_item("invalid_negative_metric", "invalid test stock", 1,
