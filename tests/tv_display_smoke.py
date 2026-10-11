@@ -165,6 +165,8 @@ class TVDisplaySmoke(unittest.TestCase):
         display._loaded_path = None
         display._last_transport = None
         display.root = FakeRoot()
+        display.read_vcr_state = lambda: ("/tmp/movie.mp4", "stop", 42.5)
+        display.read_state = lambda: (0, "input", 1, None)
 
         display._prepare_media("/tmp/movie.mp4", 42.5, "stop", audible=False)
 
@@ -194,11 +196,47 @@ class TVDisplaySmoke(unittest.TestCase):
         display._loaded_path = None
         display._last_transport = None
         display.root = FakeRoot()
+        display.read_vcr_state = lambda: ("/tmp/movie.mp4", "play", 42.5)
+        display.read_state = lambda: (1, "input", 1, None)
 
         display._prepare_media("/tmp/movie.mp4", 42.5, "play", audible=True)
 
         self.assertLess(events.index(("mute", False)), events.index(("play",)))
         self.assertLess(events.index(("seek", 42500)), events.index(("pause", 0)))
+        self.assertEqual(events[-1], ("pause", 0))
+
+    def test_delayed_vlc_callback_uses_latest_reality_state(self) -> None:
+        events = []
+
+        class FakePlayer:
+            def set_media(self, media): events.append(("set_media", media))
+            def audio_set_mute(self, muted): events.append(("mute", muted))
+            def play(self): events.append(("play",)); return 0
+            def set_pause(self, paused): events.append(("pause", paused))
+            def set_time(self, milliseconds): events.append(("seek", milliseconds))
+
+        class FakeInstance:
+            def media_new(self, path): return ("media", path)
+
+        class FakeRoot:
+            callback = None
+            def after(self, delay, callback): self.callback = callback
+
+        display = object.__new__(TV.CRTDisplay)
+        display._player = FakePlayer()
+        display._vlc_instance = FakeInstance()
+        display._loaded_path = None
+        display._last_transport = None
+        display.root = FakeRoot()
+        display.read_vcr_state = lambda: ("/tmp/movie.mp4", "play", 80.0)
+        display.read_state = lambda: (0, "input", 1, None)
+
+        display._prepare_media("/tmp/movie.mp4", 0.0, "stop", audible=True)
+        self.assertIsNotNone(display.root.callback)
+        display.root.callback()
+
+        self.assertIn(("seek", 80000), events)
+        self.assertIn(("mute", True), events)
         self.assertEqual(events[-1], ("pause", 0))
 
     def test_vcr_client_rejects_invalid_media_and_position(self) -> None:
