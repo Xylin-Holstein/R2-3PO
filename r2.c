@@ -5801,9 +5801,12 @@ static int sync_gameboy_verified_events(void)
     return synced;
 }
 
-static char *process_tools(
-    const char *reply)
+static char *process_tools_with_status(
+    const char *reply,
+    int *world_action_succeeded)
 {
+    if (world_action_succeeded)
+        *world_action_succeeded = 0;
     size_t cap = 1024;
     size_t len = 0;
 
@@ -6650,6 +6653,8 @@ static char *process_tools(
                    rc == 0 ? "was moved into R2's pockets" : "could not be taken from the fridge");
         } else if (nf >= 2 && !strcasecmp(fields[0], "fridge_eat")) {
             int rc = r2_eat_fridge_and_learn(fields[1], -1.0);
+            if (rc == 0 && world_action_succeeded)
+                *world_action_succeeded = 1;
             APPEND("FRIDGE %s: eating '%s' %s.\n", rc == 0 ? "RESULT" : "ERROR", fields[1],
                    rc == 0 ? "reduced hunger and consumed fridge stock" : "failed; item may not be in the fridge");
         } else if (nf == 1 && !strcasecmp(fields[0], "tv_status")) {
@@ -6694,6 +6699,8 @@ static char *process_tools(
                silently turns malformed text into zero). */
             int valid_metric_request = !strcasecmp(fields[2], "auto");
             int rc = valid_metric_request ? r2_eat_and_learn(fields[1], -1.0) : -1;
+            if (rc == 0 && world_action_succeeded)
+                *world_action_succeeded = 1;
             APPEND("REAL NEEDS %s: eating '%s' %s.\n",
                    rc == 0 ? "RESULT" : "ERROR", fields[1],
                    rc == 0 ? "updated persistent hunger and energy" :
@@ -6709,6 +6716,8 @@ static char *process_tools(
                    rc == 0 ? "was saved as a subjective score" : "could not be saved; score must be -2..2 and an unrated meal must exist");
         } else if (nf >= 2 && !strcasecmp(fields[0], "sleep")) {
             int rc = r2_sleep_and_dream(atof(fields[1]));
+            if (rc == 0 && world_action_succeeded)
+                *world_action_succeeded = 1;
             APPEND("REAL NEEDS %s: sleep transition %s.\n",
                    rc == 0 ? "RESULT" : "ERROR",
                    rc == 0 ? "was persisted" : "could not be persisted (hours must be >0 and <=48)");
@@ -6815,6 +6824,12 @@ static char *process_tools(
 #undef APPEND
 
     return results;
+}
+
+/* Preserve the existing result-only interface for ordinary callers. */
+static char *process_tools(const char *reply)
+{
+    return process_tools_with_status(reply, NULL);
 }
 
 
@@ -7649,7 +7664,6 @@ static void autonomous_needs_check(void)
         return;
     }
 
-    int food_action_succeeded = 0;
     int world_action_succeeded = 0;
     const char *marker = strstr(decision, "[WORLD]");
     if (marker) {
@@ -7687,24 +7701,16 @@ static void autonomous_needs_check(void)
                              safe_action, "autonomous_needs_check");
                 pthread_mutex_unlock(&conversation_turn_lock);
             } else {
-                char *result = process_tools(safe_action);
+                int action_succeeded = 0;
+                char *result = process_tools_with_status(safe_action, &action_succeeded);
+                /* The action handler reports its actual persistence result. Do
+                   not infer success by searching user-facing output prose: that
+                   text may change or fail to allocate after the world changed. */
+                world_action_succeeded = action_succeeded;
                 if (result && *result) {
                     r2_log_event(R2_LOG_WORLD, "autonomous_needs_action",
                                  "R2's autonomous needs check performed a world action.",
                                  result, "autonomous_needs_check");
-                    /* A successful model-selected meal is already the one meal
-                       for this cycle. Do not immediately consume a second item
-                       just because hunger remains high after a small meal. */
-                    food_action_succeeded =
-                        strstr(result, "REAL NEEDS RESULT: eating '") != NULL &&
-                        strstr(result, "updated persistent hunger and energy.") != NULL;
-                    if (!food_action_succeeded) {
-                        food_action_succeeded =
-                            strstr(result, "FRIDGE RESULT: eating '") != NULL &&
-                            strstr(result, "reduced hunger and consumed fridge stock.") != NULL;
-                    }
-                    world_action_succeeded = food_action_succeeded ||
-                        strstr(result, "REAL NEEDS RESULT: sleep transition was persisted.") != NULL;
                 }
                 free(result);
                 pthread_mutex_unlock(&conversation_turn_lock);
