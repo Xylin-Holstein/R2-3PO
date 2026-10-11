@@ -140,10 +140,12 @@ dreams and explicitly evidenced self-state facts. Food fullness values are
 modeled inputs rather than biological measurements. These operations return a
 result to the model; R2 must not claim success when a write fails.
 
-Need model: hunger and sleepiness increase as modeled time advances; energy
-falls over time. Eating reduces hunger by the configured fullness points, and
-sleep advances needs before restoring energy and reducing sleepiness. The shell accepts `eat <food>` (uses XML metrics), `eat <food> | <fullness 0-100>`. The 0–100 hunger/fullness meter decreases steadily to zero over roughly three modeled hours without food; eating raises it by the configured food fullness value, capped at 100. Satisfaction is tracked separately on a 0–150 scale.
-and `sleep <hours>`. After a successful meal, the local model records a subjective
+Need model: the 0–100 hunger/fullness meter decreases toward zero over roughly
+three modeled hours without food; eating raises it by the configured fullness
+points, capped at 100. Sleepiness increases with modeled time and energy falls;
+sleep advances time before reducing sleepiness and restoring energy. The shell
+accepts `eat <food>` (uses XML metrics), `eat <food> | <fullness 0-100>`, and
+`sleep <hours>`. Satisfaction is tracked separately on a 0–150 scale. After a successful meal, the local model records a subjective
 satisfaction estimate from -2 (dislike) to +2 (enjoyment) using the configured
 ingredients, sensory description, and R2's prior ratings. Fullness and satisfaction
 are independent: a filling meal can be disliked, and a tasty snack can be unfulfilling.
