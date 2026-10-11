@@ -50,11 +50,11 @@ static void read_needs(double *hunger, double *sleepiness, double *energy,
 static void seed_legacy_fridge_schema(void)
 {
     if (mkdir(R2_ROOT, 0700) != 0 && errno != EEXIST) {
-        fprintf(stderr, "reality needs smoke failed: could not create test root\\n");
+        fprintf(stderr, "reality needs smoke failed: could not create test root\n");
         exit(1);
     }
     if (mkdir(R2_HOME, 0700) != 0 && errno != EEXIST) {
-        fprintf(stderr, "reality needs smoke failed: could not create test data directory\\n");
+        fprintf(stderr, "reality needs smoke failed: could not create test data directory\n");
         exit(1);
     }
 
@@ -62,7 +62,7 @@ static void seed_legacy_fridge_schema(void)
     snprintf(path, sizeof(path), "%s/r2_fridge.db", R2_HOME);
     sqlite3 *db = NULL;
     if (sqlite3_open(path, &db) != SQLITE_OK) {
-        fprintf(stderr, "reality needs smoke failed: could not create legacy fridge fixture\\n");
+        fprintf(stderr, "reality needs smoke failed: could not create legacy fridge fixture\n");
         if (db) sqlite3_close(db);
         exit(1);
     }
@@ -76,7 +76,7 @@ static void seed_legacy_fridge_schema(void)
     char *error = NULL;
     int rc = sqlite3_exec(db, legacy_schema, NULL, NULL, &error);
     if (rc != SQLITE_OK) {
-        fprintf(stderr, "reality needs smoke failed: could not seed legacy fridge schema: %s\\n",
+        fprintf(stderr, "reality needs smoke failed: could not seed legacy fridge schema: %s\n",
                 error ? error : sqlite3_errmsg(db));
         sqlite3_free(error);
         sqlite3_close(db);
