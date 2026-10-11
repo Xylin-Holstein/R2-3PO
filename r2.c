@@ -9505,7 +9505,7 @@ int main(void)
     /* Installer readiness must prove the core initialized, not merely that the
        shell runner passed dependency checks before exec'ing this process. */
     if (service_mode && !strcmp(service_mode, "1")) {
-        printf("[R2 READY] Core initialized; entering shell.\\n");
+        printf("[R2 READY] Core initialized; entering shell.\n");
         fflush(stdout);
     }
 
