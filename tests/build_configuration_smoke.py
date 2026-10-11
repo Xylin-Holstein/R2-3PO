@@ -31,6 +31,13 @@ require(
     "interactive launcher uses the same strict compiler policy",
 )
 require(
+    'TEMP_EXEC="$R2_EXEC.tmp.$"' in launcher
+    and '-o "$TEMP_EXEC" \\' in launcher
+    and 'mv -f "$TEMP_EXEC" "$R2_EXEC"' in launcher
+    and '-o "$R2_EXEC" \\' not in launcher,
+    "interactive build preserves the last known-good executable until atomic replacement",
+)
+require(
     'make clean all CFLAGS="-std=c11 -Wall -Wextra -Werror -O2"' in workflow,
     "CI compiles with the same strict compiler policy",
 )
