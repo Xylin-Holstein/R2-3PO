@@ -48,6 +48,69 @@ for required in (
 ):
     if required not in prompt:
         raise SystemExit(f"Complete prompt is missing its expected trailing section: {required}")
+
+# Guard the runtime allocator, not just the size of the static prompt. When
+# available RAM lowers num_ctx, a long per-call override must not consume the
+# whole system budget and crowd out the core identity/live Reality context.
+for required in (
+    "size_t max_user_reserve = input_budget > 1000",
+    "current_user_reserve > max_user_reserve",
+    "size_t reality_reserve = system_budget / 3;",
+    "size_t override_budget = system_budget / 4;",
+    "size_t identity_budget = system_budget > override_length + reality_reserve",
+    "message_priority == 0 && length > identity_budget",
+    'json_object_object_add(override_message, "content", bounded_override)',
+):
+    if required not in core:
+        raise SystemExit(f"Adaptive prompt budget is missing its context safeguard: {required}")
+
+def allocation_for_context(num_ctx: int, num_predict: int, override_length: int,
+                           current_user_reserve: int = 1500) -> tuple[int, int, int, int, int, int]:
+    input_budget = (num_ctx - num_predict - 512) * 32 // 10
+    input_budget = min(input_budget, history_total)
+    max_user_reserve = (
+        input_budget - 1000 if input_budget > 1000 else input_budget // 2
+    )
+    current_user_reserve = min(current_user_reserve, max_user_reserve)
+    system_budget = (
+        input_budget - current_user_reserve - 500
+        if input_budget > current_user_reserve + 500 else 0
+    )
+    system_budget = min(system_budget, system_total, input_budget)
+    bounded_override = min(override_length, system_budget // 4)
+    reality_reserve = min(system_budget // 3, 6000)
+    identity_budget = max(0, system_budget - bounded_override - reality_reserve)
+    return (system_budget, bounded_override, identity_budget, reality_reserve,
+            current_user_reserve, input_budget)
+
+# Exercise low-memory, normal, and long-user-message paths. The allocator must
+# leave a system budget and a bounded current-turn reservation at every size.
+for num_ctx, num_predict, override_length, requested_user_reserve in (
+    (2048, 384, 12000, 1500),
+    (2048, 384, 12000, 12000),
+    (4096, 384, 12000, 12000),
+    (8192, 768, 12000, 1500),
+    (16384, 3072, 12000, 12000),
+):
+    system_budget, override, identity, reality, user_reserve, input_budget = (
+        allocation_for_context(num_ctx, num_predict, override_length,
+                              requested_user_reserve)
+    )
+    if system_budget <= 0 or override > system_budget // 4:
+        raise SystemExit(f"Invalid override allocation at context={num_ctx}")
+    if identity <= 0 or reality <= 0:
+        raise SystemExit(
+            f"Identity/live Reality context starved at context={num_ctx}: "
+            f"system={system_budget}, override={override}, "
+            f"identity={identity}, reality={reality}"
+        )
+    if override + identity + reality > system_budget:
+        raise SystemExit(f"Prompt allocations exceed system budget at context={num_ctx}")
+    if system_budget + user_reserve + 500 > input_budget:
+        raise SystemExit(f"Current user reservation exceeds input budget at context={num_ctx}")
+    if requested_user_reserve > 1500 and user_reserve > input_budget - 1000:
+        raise SystemExit(f"Long current turn left too little context at context={num_ctx}")
+
 print(
     f"system prompt budget smoke passed: prompt={len(prompt)} chars, "
     f"per-message={per_message}, aggregate-system={system_total}, history={history_total}"
