@@ -23,6 +23,8 @@ if 'R2_OLLAMA_NUM_GPU:-1' not in launcher:
     raise SystemExit("Interactive launcher must request max-fit GPU offload by default.")
 if 'R2_OLLAMA_NUM_GPU="${R2_OLLAMA_NUM_GPU}"' not in launcher:
     raise SystemExit("Interactive launcher must pass the GPU offload setting through sudo's sanitized environment.")
+if 'R2_OLLAMA_NUM_CTX="${R2_OLLAMA_NUM_CTX:-}"' not in launcher:
+    raise SystemExit("Interactive launcher must preserve the optional adaptive context override.")
 if 'getenv("R2_OLLAMA_NUM_GPU")' not in visual or 'json_object_object_add(options, "num_gpu"' not in visual:
     raise SystemExit("Vision requests must use the same GPU layer policy as chat.")
 if "Environment=R2_OLLAMA_NUM_GPU=-1" not in service:
