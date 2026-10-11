@@ -51,7 +51,7 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn("R2_SERVICE_MODE=1", source)
         self.assertIn('"R2_OLLAMA_TIMEOUT_SECONDS=${R2_OLLAMA_TIMEOUT_SECONDS:-}"', source)
         self.assertIn("systemd-inhibit --what=sleep", source)
-        self.assertLess(source.index("exec systemd-inhibit"), source.index('log "Waiting for the local Ollama API..."'))
+        self.assertLess(source.index("exec systemd-inhibit"), source.index('log "Waiting for local Gemma model availability and a real chat completion..."'))
         self.assertIn('if [[ "$CURRENT_MONTH$CURRENT_DAY" == "0229" ]]', source)
         self.assertIn('R2_START="1999-03-01', source)
         self.assertNotIn("apt-get update", source)
