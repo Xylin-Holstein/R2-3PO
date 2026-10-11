@@ -3122,6 +3122,73 @@ int r2_ollama_context_tokens(void)
     return safe_max;
 }
 
+/*
+ * Opt-in diagnostic for reproducing prompt-dependent conversation failures.
+ * The trace contains the complete serialized request, including private memory
+ * and the user's message. It is never written unless explicitly enabled, and
+ * files are created privately without following symlinks or overwriting files.
+ */
+static atomic_uint_fast64_t ollama_prompt_trace_sequence = ATOMIC_VAR_INIT(0);
+
+static void ollama_trace_prompt_if_enabled(const char *payload)
+{
+    const char *enabled = getenv("R2_OLLAMA_TRACE_PROMPTS");
+    if (!payload || !enabled || strcmp(enabled, "1") != 0)
+        return;
+
+    struct timespec now;
+    if (clock_gettime(CLOCK_REALTIME, &now) != 0)
+        return;
+
+    uint64_t sequence = atomic_fetch_add(&ollama_prompt_trace_sequence, 1);
+    char path[PATH_MAX];
+    int n = snprintf(path, sizeof(path),
+                     R2_ROOT "/R2_Log/OllamaPromptTrace-%ld-%lld-%llu.json",
+                     (long)getpid(), (long long)now.tv_sec,
+                     (unsigned long long)sequence);
+    if (n < 0 || (size_t)n >= sizeof(path))
+        return;
+
+    int fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600);
+    if (fd < 0) {
+        fprintf(stderr,
+                "[R2 Ollama] Prompt trace requested but could not create a private trace file (errno=%d).\n",
+                errno);
+        return;
+    }
+
+    size_t remaining = strlen(payload);
+    const char *cursor = payload;
+    int failed = 0;
+    while (remaining > 0) {
+        ssize_t written = write(fd, cursor, remaining);
+        if (written < 0 && errno == EINTR)
+            continue;
+        if (written <= 0) {
+            failed = 1;
+            break;
+        }
+        cursor += (size_t)written;
+        remaining -= (size_t)written;
+    }
+    if (close(fd) != 0)
+        failed = 1;
+
+    if (failed) {
+        int saved_errno = errno;
+        (void)unlink(path);
+        fprintf(stderr,
+                "[R2 Ollama] Could not complete private prompt trace (errno=%d).\n",
+                saved_errno);
+        return;
+    }
+
+    fprintf(stderr,
+            "[R2 Ollama] Private prompt trace saved: %s "
+            "(contains full prompt, memories, and current user text; review before sharing).\n",
+            path);
+}
+
 static char *ollama_chat_with_limit(
     Message *msgs,
     size_t count,
@@ -3458,6 +3525,9 @@ static char *ollama_chat_with_limit(
         json_object_put(root);
         return NULL;
     }
+
+    /* Capture exactly what will be sent to Ollama only when the owner opts in. */
+    ollama_trace_prompt_if_enabled(payload);
 
     CURL *curl = curl_easy_init();
     if (!curl) {
