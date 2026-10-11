@@ -3037,7 +3037,7 @@ static unsigned long long available_memory_bytes(void)
     return host_available;
 }
 
-static int ollama_context_tokens(void)
+int r2_ollama_context_tokens(void)
 {
     const unsigned long long GiB = 1024ULL * 1024ULL * 1024ULL;
     unsigned long long available = available_memory_bytes();
@@ -3091,7 +3091,7 @@ static char *ollama_chat_with_limit(
     json_object_object_add(root, "stream", json_object_new_boolean(0));
     json_object_object_add(root, "keep_alive", json_object_new_string("10m"));
 
-    int num_ctx = ollama_context_tokens();
+    int num_ctx = r2_ollama_context_tokens();
     int max_predict = num_ctx >= 16384 ? 3072 :
                       num_ctx >= 12288 ? 2048 :
                       num_ctx >= 8192 ? 768 : 384;
