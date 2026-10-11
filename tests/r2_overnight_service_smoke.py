@@ -66,6 +66,9 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn("two R2 cores", launcher)
         self.assertIn("pgrep -x r2", launcher)
         self.assertIn("An R2 core is already running", launcher)
+        self.assertIn('REAL_EPOCH="$(date \'+%s\')"' , launcher)
+        self.assertIn('date -d "@$REAL_EPOCH"', launcher)
+        self.assertIn('R2_START="1999-03-01', launcher)
 
     def test_installer_is_non_destructive_and_does_not_update_apt(self):
         source = (ROOT / "tools/install_r2_overnight.sh").read_text(encoding="utf-8")
