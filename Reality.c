@@ -2479,6 +2479,60 @@ int r2_reality_autonomous_feed_if_needed(void)
     return 0;
 }
 
+/* Read-only availability check used to validate autonomous sleep decisions.
+ * Returns 1 when an accessible, metric-backed meal exists, 0 when none exists,
+ * and -1 when authoritative inventory could not be checked safely. */
+int r2_reality_autonomous_food_available(void)
+{
+    if (!r2_reality_is_initialized()) return -1;
+    char food[512] = {0};
+    pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "SELECT name,container FROM r2_reality_objects WHERE quantity>0 ORDER BY id",
+        -1, &st, NULL);
+    int step_rc = SQLITE_OK;
+    if (rc == SQLITE_OK) {
+        while ((step_rc = sqlite3_step(st)) == SQLITE_ROW) {
+            const unsigned char *name = sqlite3_column_text(st, 0);
+            const unsigned char *container = sqlite3_column_text(st, 1);
+            if (!name || !container || !container_accessible((const char *)container))
+                continue;
+            double fullness = 0.0;
+            if (food_metric((const char *)name, &fullness, NULL) == 0 &&
+                isfinite(fullness) && fullness > 0.0) {
+                snprintf(food, sizeof(food), "%s", (const char *)name);
+                break;
+            }
+        }
+        if (!*food && step_rc != SQLITE_DONE) rc = step_rc;
+    }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reality_lock);
+    if (rc != SQLITE_OK) return -1;
+    if (*food) return 1;
+    if (!reality_is_home()) return 0;
+
+    int available = 0;
+    pthread_mutex_lock(&fridge_lock);
+    if (!fridge_db) {
+        pthread_mutex_unlock(&fridge_lock);
+        return -1;
+    }
+    st = NULL;
+    rc = sqlite3_prepare_v2(fridge_db,
+        "SELECT name FROM r2_fridge_items WHERE quantity>0 AND fullness>0 LIMIT 1",
+        -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        int step = sqlite3_step(st);
+        if (step == SQLITE_ROW) available = 1;
+        else if (step != SQLITE_DONE) rc = step;
+    }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&fridge_lock);
+    return rc == SQLITE_OK ? available : -1;
+}
+
 char *r2_reality_food_context(const char *food)
 {
     if (!food || !*food || !r2_reality_is_initialized()) return NULL;
