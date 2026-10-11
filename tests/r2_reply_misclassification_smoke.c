@@ -36,8 +36,9 @@ int main(void)
                 "observed fabricated paraphrase triggers corrective retry");
 
     ok &= check(r2_reply_misclassifies_plain_text(mother_message,
-                    "I think you're trying to say that you need help."),
-                "straight-apostrophe paraphrase trigger works");
+                    "That's a bit garbled, but I think you're trying to say "
+                    "something else."),
+                "straight-apostrophe misclassification trigger works");
 
     ok &= check(!r2_reply_misclassifies_plain_text(mother_message,
                     "I missed you too, Mom. A room with a bed and pockets "
