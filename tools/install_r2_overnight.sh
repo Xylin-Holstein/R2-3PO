@@ -22,6 +22,40 @@ run_as_r2() {
     fi
 }
 
+BACKUP_EXEC=""
+rollback_previous_executable() {
+    if [[ -z "$BACKUP_EXEC" || ! -f "$BACKUP_EXEC" ]]; then
+        log "WARNING: no previous executable is available to roll back to."
+        return 1
+    fi
+
+    # Stop any failed/new instance before atomically restoring the prior binary.
+    root_run systemctl stop r2-3po.service >/dev/null 2>&1 || true
+    local restore_exec="$R2_ROOT/r2.restore.$"
+    if [[ -e "$restore_exec" || -L "$restore_exec" ]]; then
+        log "ERROR: refusing to overwrite existing rollback path: $restore_exec"
+        return 1
+    fi
+    if ! cp "$BACKUP_EXEC" "$restore_exec" ||
+       ! chmod 0755 "$restore_exec" ||
+       ! root_run chown r2:r2 "$restore_exec" ||
+       ! mv -f "$restore_exec" "$R2_EXEC"; then
+        rm -f "$restore_exec"
+        log "ERROR: could not atomically restore the previous executable from $BACKUP_EXEC"
+        return 1
+    fi
+    root_run chown r2:r2 "$R2_EXEC" || return 1
+    chmod 0755 "$R2_EXEC" || return 1
+    log "Restored previous executable from $BACKUP_EXEC"
+    root_run systemctl reset-failed r2-3po.service >/dev/null 2>&1 || true
+    if root_run systemctl start r2-3po.service; then
+        log "Restart requested using the previous executable; inspect the service journal to confirm readiness."
+    else
+        log "WARNING: previous executable is restored, but the service could not be restarted."
+        return 1
+    fi
+}
+
 [[ -d "$R2_SOURCE" ]] || fail "expected source tree at $R2_SOURCE. Copy/clone this repository there first, then rerun."
 [[ -f "$R2_SOURCE/Makefile" && -f "$UNIT_SOURCE" && -f "$RUNNER_SOURCE" ]] || fail "repository files are incomplete; expected Makefile, deploy/r2-3po.service, and tools/r2_service_runner.sh."
 id r2 >/dev/null 2>&1 || fail "Linux account 'r2' does not exist. Create the dedicated runtime account first."
@@ -93,6 +127,27 @@ make -C "$R2_SOURCE" clean all TARGET="$TEMP_EXEC"
 [[ -x "$TEMP_EXEC" ]] || fail "build completed without producing $TEMP_EXEC."
 chmod 0755 "$TEMP_EXEC"
 root_run chown r2:r2 "$TEMP_EXEC"
+
+# Preserve the last known executable before installing the new build. Refuse
+# symlinks and unexpected file types rather than backing up an ambiguous target.
+if [[ -L "$R2_EXEC" ]]; then
+    fail "refusing symlinked existing executable: $R2_EXEC"
+fi
+if [[ -e "$R2_EXEC" ]]; then
+    [[ -f "$R2_EXEC" && -x "$R2_EXEC" ]] ||
+        fail "existing executable is not a regular executable file: $R2_EXEC"
+    BACKUP_EXEC="$(mktemp "$R2_ROOT/r2.previous.XXXXXX")" ||
+        fail "could not reserve a private rollback copy path."
+    if ! cp "$R2_EXEC" "$BACKUP_EXEC"; then
+        rm -f "$BACKUP_EXEC"
+        BACKUP_EXEC=""
+        fail "could not preserve the previous executable; existing installation was left untouched."
+    fi
+    chmod 0755 "$BACKUP_EXEC"
+    root_run chown r2:r2 "$BACKUP_EXEC"
+    log "Previous executable preserved at $BACKUP_EXEC"
+fi
+
 mv -f "$TEMP_EXEC" "$R2_EXEC"
 root_run chown r2:r2 "$R2_EXEC"
 chmod 0755 "$R2_EXEC"
@@ -107,7 +162,8 @@ STARTED_AT="$(date '+%Y-%m-%d %H:%M:%S')"
 if ! root_run systemctl enable --now r2-3po.service; then
     root_run systemctl --no-pager --full status r2-3po.service || true
     root_run journalctl -u r2-3po.service -n 100 --no-pager || true
-    fail "systemd could not start R2. Fix the reported preflight/dependency issue before relying on overnight operation."
+    rollback_previous_executable || log "WARNING: automatic executable rollback/restart was incomplete."
+    fail "systemd could not start R2. The previous executable was restored when available; fix the reported preflight/dependency issue before relying on overnight operation."
 fi
 
 # Type=simple becomes active before ExecStart finishes its dependency checks.
@@ -128,7 +184,8 @@ done
 if [[ "$ACTIVE" -ne 1 ]]; then
     root_run systemctl --no-pager --full status r2-3po.service || true
     root_run journalctl -u r2-3po.service -n 100 --no-pager || true
-    fail "R2 did not reach active state. The unit may be enabled but is not yet running correctly."
+    rollback_previous_executable || log "WARNING: automatic executable rollback/restart was incomplete."
+    fail "R2 did not reach active state. The previous executable was restored when available; inspect the service logs before retrying deployment."
 fi
 
 log "R2 is active and enabled for boot."
