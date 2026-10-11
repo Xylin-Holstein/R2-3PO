@@ -50,8 +50,8 @@ require(
     "recognized text misclassification triggers the retry",
 )
 require(
-    "retry produced no safe text; retaining original draft" in core,
-    "failed corrective retry does not crash or discard the fallback reply",
+    "Direct-answer retry produced no safe text." in core and "if (retry_after_sanitize_failure)" in core,
+    "failed corrective retry propagates an empty result to the existing recovery path",
 )
 require(
     "Do not reinterpret typed text as an audio stream, random sounds, or machine data" in core,
