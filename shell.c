@@ -153,7 +153,15 @@ static void *tv_control_server(void *unused)
             else reply = "ERROR invalid VCR position";
         }
 
-        (void)send(client, reply, strlen(reply), MSG_NOSIGNAL);
+        size_t reply_len = strlen(reply);
+        size_t reply_sent = 0;
+        while (reply_sent < reply_len) {
+            ssize_t sent = send(client, reply + reply_sent,
+                                reply_len - reply_sent, MSG_NOSIGNAL);
+            if (sent < 0 && errno == EINTR) continue;
+            if (sent <= 0) break;
+            reply_sent += (size_t)sent;
+        }
         free(status);
         close(client);
     }
