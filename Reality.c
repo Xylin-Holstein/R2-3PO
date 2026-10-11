@@ -40,6 +40,7 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
  * starvation marker tracks elapsed time since a qualifying meal. Sleepiness
  * rises by 12.5/hour and energy falls by 10/hour; sleep recovery reverses those rates. */
 static const double HUNGER_PER_SECOND = 100.0 / (3.0 * 3600.0);
+static const double SATIETY_PER_SECOND = 0.1 / 4.75;
 static const double SLEEPINESS_PER_SECOND = 12.5 / 3600.0;
 static const double ENERGY_DRAIN_PER_SECOND = 10.0 / 3600.0;
 
@@ -693,7 +694,7 @@ static int update_hunger_locked(double elapsed)
     double since_meal = sqlite3_column_double(st, 1) + elapsed;
     double sleepiness = sqlite3_column_double(st, 2) + elapsed * SLEEPINESS_PER_SECOND;
     double energy = sqlite3_column_double(st, 3) - elapsed * ENERGY_DRAIN_PER_SECOND;
-    double satisfaction = sqlite3_column_double(st, 4) - elapsed * HUNGER_PER_SECOND;
+    double satisfaction = sqlite3_column_double(st, 4) - elapsed * SATIETY_PER_SECOND;
     sqlite3_finalize(st);
     if (!isfinite(hunger) || !isfinite(since_meal) || !isfinite(sleepiness) ||
         !isfinite(energy) || !isfinite(satisfaction)) return -1;
