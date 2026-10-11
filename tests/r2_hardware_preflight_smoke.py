@@ -63,6 +63,10 @@ if 'sudo -n setpriv --reuid="$R2_UID" --regid="$R2_GID" --groups="$R2_RUNTIME_GR
     raise SystemExit("launcher must use setpriv for supplementary groups under sudo-rs")
 if 'sudo -u r2 -g r2 -G "$R2_RUNTIME_GROUPS"' in launcher:
     raise SystemExit("launcher must not use unsupported sudo-rs -G syntax")
+if 'sudo -n -u r2 mkdir -p "$DIR"' not in launcher:
+    raise SystemExit("launcher must create runtime directories as r2, not as the desktop login user")
+if 'Could not create workspace directory as r2' not in launcher:
+    raise SystemExit("launcher must stop if runtime-owned directory creation fails")
 if 'R2_OLLAMA_URL:-http://127.0.0.1:11434/api/tags' not in script:
     raise SystemExit("Ollama endpoint must remain locally configurable")
 
