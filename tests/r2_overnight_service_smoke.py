@@ -20,6 +20,7 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn("r2_shutdown();", core)
         self.assertIn("setvbuf(stdout, NULL, _IOLBF, 0)", core)
         self.assertIn("sigprocmask(SIG_BLOCK, &service_signals, NULL)", core)
+        self.assertNotIn('safely.\\\\n");', core)
         self.assertLess(core.index("sigprocmask(SIG_BLOCK, &service_signals, NULL)"),
                         core.index("if (r2_init() != 0)"))
 
