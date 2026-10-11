@@ -2665,26 +2665,25 @@ static int money_transfer(double amount, int deposit)
     sqlite3_int64 cash = 0, bank = 0;
     int rc = money_read_locked(&cash, &bank);
     sqlite3_int64 old_cash = cash, old_bank = bank;
-    int mutation_started = 0;
+    int wallet_changed = 0, bank_changed = 0;
     if (rc == 0 && ((deposit && cash < cents) || (!deposit && bank < cents)))
         rc = -1;
 
     if (rc == 0) {
         sqlite3_int64 new_cash = deposit ? cash - cents : cash + cents;
         sqlite3_int64 new_bank = deposit ? bank + cents : bank - cents;
-        /* Either physical directory write can fail after changing some files.
-           Mark the transaction before the first write so both balances are
-           restored even when the first half fails part-way through. */
-        mutation_started = 1;
-        if (money_set_dir_balance(wallet, new_cash) != 0 ||
-            money_set_dir_balance(piggybank, new_bank) != 0 ||
+        if (money_set_dir_balance(wallet, new_cash, &wallet_changed) != 0 ||
+            money_set_dir_balance(piggybank, new_bank, &bank_changed) != 0 ||
             money_read_locked(&cash, &bank) != 0) {
             rc = -1;
         }
     }
+    int mutation_started = wallet_changed || bank_changed;
     if (rc != 0 && mutation_started) {
-        int wallet_restore = money_set_dir_balance(wallet, old_cash);
-        int bank_restore = money_set_dir_balance(piggybank, old_bank);
+        int wallet_restore = wallet_changed
+            ? money_set_dir_balance(wallet, old_cash, NULL) : 0;
+        int bank_restore = bank_changed
+            ? money_set_dir_balance(piggybank, old_bank, NULL) : 0;
         int mirror_restore = money_read_locked(&cash, &bank);
         if (wallet_restore != 0 || bank_restore != 0 || mirror_restore != 0)
             fprintf(stderr, "[R2 Money] CRITICAL: deposit/withdraw failed and balance rollback was incomplete; inspect Wallet and piggybank files.\n");
@@ -2707,22 +2706,21 @@ int r2_reality_money_receive(double amount)
     sqlite3_int64 cash = 0, bank = 0;
     int rc = money_read_locked(&cash, &bank);
     sqlite3_int64 old_cash = cash;
-    int mutation_started = 0;
+    int wallet_changed = 0;
     if (rc == 0 && cash <= 100000000LL - cents) {
-        mutation_started = 1;
-        if (money_set_dir_balance(wallet, cash + cents) != 0 ||
+        if (money_set_dir_balance(wallet, cash + cents, &wallet_changed) != 0 ||
             money_read_locked(&cash, &bank) != 0) rc = -1;
     } else {
         rc = -1;
     }
-    if (rc != 0 && mutation_started) {
-        int wallet_restore = money_set_dir_balance(wallet, old_cash);
+    if (rc != 0 && wallet_changed) {
+        int wallet_restore = money_set_dir_balance(wallet, old_cash, NULL);
         int mirror_restore = money_read_locked(&cash, &bank);
         if (wallet_restore != 0 || mirror_restore != 0)
             fprintf(stderr, "[R2 Money] CRITICAL: cash receipt failed and wallet rollback was incomplete; inspect Wallet files.\n");
     }
     pthread_mutex_unlock(&reality_lock);
-    if (rc == 0 || mutation_started) money_mirror_write(cash, bank);
+    if (rc == 0 || wallet_changed) money_mirror_write(cash, bank);
     return rc == 0 ? 0 : -1;
 }
 int r2_reality_money_deposit(double amount){return money_transfer(amount,1);}
@@ -2742,19 +2740,21 @@ int r2_reality_buy_item(const char *name, const char *description,
     sqlite3_int64 cash = 0, bank = 0;
     int rc = money_read_locked(&cash, &bank);
     sqlite3_int64 old_cash = cash, old_bank = bank;
-    int mutation_started = 0;
+    int wallet_changed = 0, bank_changed = 0;
     if (rc == 0 && cash + bank < cents) rc = -1;
     if (rc == 0) {
         sqlite3_int64 spend_cash = cash < cents ? cash : cents;
         sqlite3_int64 spend_bank = cents - spend_cash;
-        mutation_started = 1;
-        if (money_set_dir_balance(wallet, cash - spend_cash) != 0 ||
-            money_set_dir_balance(piggybank, bank - spend_bank) != 0 ||
+        if (money_set_dir_balance(wallet, cash - spend_cash, &wallet_changed) != 0 ||
+            money_set_dir_balance(piggybank, bank - spend_bank, &bank_changed) != 0 ||
             money_read_locked(&cash, &bank) != 0) rc = -1;
     }
+    int mutation_started = wallet_changed || bank_changed;
     if (rc != 0 && mutation_started) {
-        int wallet_restore = money_set_dir_balance(wallet, old_cash);
-        int bank_restore = money_set_dir_balance(piggybank, old_bank);
+        int wallet_restore = wallet_changed
+            ? money_set_dir_balance(wallet, old_cash, NULL) : 0;
+        int bank_restore = bank_changed
+            ? money_set_dir_balance(piggybank, old_bank, NULL) : 0;
         int mirror_restore = money_read_locked(&cash, &bank);
         if (wallet_restore != 0 || bank_restore != 0 || mirror_restore != 0)
             fprintf(stderr, "[R2 Money] CRITICAL: purchase failed and balance rollback was incomplete; inspect Wallet and piggybank files.\n");
@@ -2769,8 +2769,10 @@ int r2_reality_buy_item(const char *name, const char *description,
     if (r2_reality_add_item(name, description ? description : "Purchased item",
                             destination, 1) != 0) {
         pthread_mutex_lock(&reality_lock);
-        int wallet_restore = money_set_dir_balance(wallet, old_cash);
-        int bank_restore = money_set_dir_balance(piggybank, old_bank);
+        int wallet_restore = wallet_changed
+            ? money_set_dir_balance(wallet, old_cash, NULL) : 0;
+        int bank_restore = bank_changed
+            ? money_set_dir_balance(piggybank, old_bank, NULL) : 0;
         int mirror_restore = money_read_locked(&cash, &bank);
         pthread_mutex_unlock(&reality_lock);
         if (wallet_restore != 0 || bank_restore != 0 || mirror_restore != 0)
