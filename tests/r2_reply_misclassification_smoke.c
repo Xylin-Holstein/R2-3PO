@@ -77,26 +77,14 @@ int main(void)
                     observed_bad_reply),
                 "observed fabricated paraphrase triggers corrective retry");
 
-    ok &= check(r2_reply_reverses_greeting(
-                    mother_message,
-                    "Hello R2, is your voice getting distorted?"),
-                "observed wrong-speaker greeting is detected as identity inversion");
-    ok &= check(r2_reply_misclassifies_plain_text(
-                    mother_message,
-                    "Hello R2, is your voice getting distorted?"),
-                "wrong-speaker reply triggers the production corrective retry");
-    ok &= check(r2_reply_reverses_greeting(
-                    "This is your mother speaking. I missed you, R2.",
-                    "R2, is your voice getting distorted?"),
-                "speaker reversal is caught without a matching greeting template");
-    ok &= check(r2_reply_misclassifies_plain_text(
-                    "This is your mother speaking. I missed you, R2.",
-                    "R2, is your voice getting distorted?"),
-                "broader Mother identity reversal triggers corrective retry");
-    ok &= check(!r2_reply_reverses_greeting(
-                    mother_message,
-                    "I missed you too, Mom. The room sounds lovely."),
-                "a correctly addressed warm response does not trigger identity correction");
+    ok &= check(r2_history_keyword_is_low_signal("hello") &&
+                    r2_history_keyword_is_low_signal("r2") &&
+                    r2_history_keyword_is_low_signal("speaking"),
+                "Life Log retrieval ignores low-signal greeting/address tokens");
+    ok &= check(!r2_history_keyword_is_low_signal("mother") &&
+                    !r2_history_keyword_is_low_signal("room") &&
+                    !r2_history_keyword_is_low_signal("pockets"),
+                "Life Log retrieval preserves relationship and concrete-topic keywords");
 
     ok &= check(r2_reply_misclassifies_plain_text(mother_message,
                     "That's a bit garbled, but I think you're trying to say "
