@@ -8066,13 +8066,31 @@ int main(void)
         /* systemd captures pipes, not a terminal; flush each log line promptly. */
         (void)setvbuf(stdout, NULL, _IOLBF, 0);
         (void)setvbuf(stderr, NULL, _IOLBF, 0);
+
+        /*
+         * Block termination signals before r2_init creates any worker threads.
+         * All workers inherit this mask, so the shell's sigsuspend() is the one
+         * place that atomically accepts SIGTERM/SIGINT; this prevents signals
+         * being delivered to a background worker while the main thread sleeps.
+         */
+        sigset_t service_signals;
+        sigemptyset(&service_signals);
+        sigaddset(&service_signals, SIGINT);
+        sigaddset(&service_signals, SIGTERM);
+        if (sigprocmask(SIG_BLOCK, &service_signals, NULL) != 0) {
+            fprintf(stderr, "[R2] Could not block service termination signals safely.\\n");
+            return 1;
+        }
     }
 
     if (r2_init() != 0)
         return 1;
 
     extern int r2_shell_run(void);
-    r2_shell_run();
+    if (r2_shell_run() != 0) {
+        r2_shutdown();
+        return 1;
+    }
 
     r2_shutdown();
 
