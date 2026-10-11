@@ -14,7 +14,9 @@ required = (
     '?mode=ro',
     'r2_memory.db', 'r2_reality.db', 'r2_fridge.db',
     'r2_rewards.db', 'r2_addictions.db',
-    'pactl', '/dev/video*', 'mGBA Qt emulator',
+    'pactl', 'sudo -n -u r2 pactl info',
+    '/dev/video*', 'R2 runtime account can read/write',
+    '/dev/snd/*', 'mGBA Qt emulator',
     'stop it before installation or database preflight',
     'sudo -n -u r2 test -r "$R2_FX_DIR"',
 )
