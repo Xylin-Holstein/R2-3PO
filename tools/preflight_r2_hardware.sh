@@ -38,9 +38,9 @@ for file in deploy/r2-3po.service tools/r2_service_runner.sh tools/install_r2_ov
 done
 if [[ -x "$R2_EXEC" ]]; then pass "installed R2 executable exists"; else warn "installed executable missing; installer must build it before activation."; fi
 if have systemctl && systemctl is-active --quiet r2-3po.service 2>/dev/null; then
-  printf '[INFO] overnight service is active\n'
+  warn "overnight service is active; stop it before installation or database preflight."
 elif have pgrep && pgrep -x r2 >/dev/null 2>&1; then
-  warn "interactive R2 is running; stop it before rebuilding/installing."
+  warn "interactive R2 is running; stop it before installation or database preflight."
 else printf '[INFO] no active R2 core detected\n'; fi
 
 section "Dedicated user, workspace, and sound assets"
@@ -59,6 +59,11 @@ if [[ -d "$R2_FX_DIR" && -r "$R2_FX_DIR" ]]; then
     pass "FX directory contains MP3 assets"
   else warn "FX directory contains no MP3 files; learned beeps/whistles cannot play."; fi
 else warn "FX directory missing/unreadable; expected local assets at $R2_FX_DIR."; fi
+if have sudo && id r2 >/dev/null 2>&1 && [[ -d "$R2_FX_DIR" ]]; then
+  if sudo -n -u r2 test -r "$R2_FX_DIR" && sudo -n -u r2 test -x "$R2_FX_DIR"; then
+    pass "r2 can read/traverse the FX directory"
+  else warn "could not verify FX-directory access for r2 (sudo may require a password)."; fi
+fi
 
 section "Ollama and unified Gemma model"
 if TAGS="$(curl --silent --show-error --fail --max-time 4 "$OLLAMA_URL" 2>/dev/null)"; then
