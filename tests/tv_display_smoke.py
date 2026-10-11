@@ -6,6 +6,7 @@ import importlib.util
 import sqlite3
 import socket
 import tempfile
+import time
 import threading
 import unittest
 from pathlib import Path
@@ -100,6 +101,28 @@ class TVDisplaySmoke(unittest.TestCase):
         worker.join(timeout=2)
         self.assertFalse(worker.is_alive())
         self.assertEqual(received, ["input 2\n"])
+
+    def test_control_client_reads_a_fragmented_response_to_eof(self) -> None:
+        payload = b"OK " + (b"x" * 5000)
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(str(TV.SOCKET_PATH))
+        server.listen(1)
+
+        def serve_once() -> None:
+            with server:
+                conn, _ = server.accept()
+                with conn:
+                    conn.recv(256)
+                    conn.sendall(payload[:100])
+                    time.sleep(0.05)
+                    conn.sendall(payload[100:])
+
+        worker = threading.Thread(target=serve_once)
+        worker.start()
+        response = TV.send_control_command("input 2")
+        worker.join(timeout=2)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(response, payload.decode("utf-8"))
 
     def test_control_client_rejects_unsupported_commands(self) -> None:
         with self.assertRaises(ValueError):
