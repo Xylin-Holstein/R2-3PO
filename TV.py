@@ -241,23 +241,25 @@ class CRTDisplay:
                 self._vlc_error_shown = True
             return False
 
-    def _prepare_media(self, path: str, position: float, transport: str) -> None:
+    def _prepare_media(self, path: str, position: float, transport: str,
+                       audible: bool) -> None:
         if not self._ensure_player():
             return
         media = self._vlc_instance.media_new(path)
         self._player.set_media(media)
+        # Apply the modeled TV's audio state before starting VLC. Pause immediately
+        # while VLC initializes so a stopped/paused tape cannot briefly play from 0.
+        self._player.audio_set_mute(not audible)
         self._loaded_path = path
         self._last_transport = None
         self._player.play()
+        self._player.set_pause(1)
 
         def seek_and_apply() -> None:
             if self._player is None or self._loaded_path != path:
                 return
             self._player.set_time(int(position * 1000))
-            if transport == "play":
-                self._player.set_pause(0)
-            else:
-                self._player.set_pause(1)
+            self._player.set_pause(0 if transport == "play" else 1)
             self._last_transport = transport
 
         self.root.after(500, seek_and_apply)
@@ -276,7 +278,8 @@ class CRTDisplay:
             except (OSError, RuntimeError, ValueError):
                 pass
 
-    def sync_vcr_player(self, path: str | None, transport: str, position: float) -> None:
+    def sync_vcr_player(self, path: str | None, transport: str, position: float,
+                        audible: bool) -> None:
         if path != self._loaded_path:
             if path is None:
                 if self._player:
@@ -284,8 +287,9 @@ class CRTDisplay:
                 self._loaded_path = None
                 self._last_transport = None
             else:
-                self._prepare_media(path, position, transport)
+                self._prepare_media(path, position, transport, audible)
         elif path and self._player and transport != self._last_transport:
+            self._player.audio_set_mute(not audible)
             if transport == "play":
                 if self._player.play() < 0:
                     self._player.set_pause(0)
@@ -316,7 +320,10 @@ class CRTDisplay:
         try:
             power, kind, value, device = self.read_state()
             tape_path, transport, position = self.read_vcr_state()
-            self.sync_vcr_player(tape_path, transport, position)
+            audible = bool(power and kind == "input" and value == 1)
+            if self._player:
+                self._player.audio_set_mute(not audible)
+            self.sync_vcr_player(tape_path, transport, position, audible)
 
             if not power:
                 headline = "TV OFF"
