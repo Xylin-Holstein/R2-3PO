@@ -8,6 +8,9 @@ core = (ROOT / "r2.c").read_text(encoding="utf-8")
 reality = (ROOT / "Reality.c").read_text(encoding="utf-8")
 visual = (ROOT / "Visual.c").read_text(encoding="utf-8")
 diary = (ROOT / "r2_diary.c").read_text(encoding="utf-8")
+life_log = (ROOT / "Log.c").read_text(encoding="utf-8")
+addiction = (ROOT / "Addiction.c").read_text(encoding="utf-8")
+alternate_self = (ROOT / "AlternateSelf.c").read_text(encoding="utf-8")
 
 required = {
     "RAM-aware context selection": "static int ollama_context_tokens(void)",
@@ -44,10 +47,14 @@ for label, source, needle in (
     ("Reality need-state migration", reality, "static int migrate_reality_self_schema(void)"),
     ("visual experience schema migration", visual, "static int visual_migrate_schema(void)"),
     ("diary link schema migration", diary, "diary_link_ensure_column(\"memory_indexed\""),
+    ("Life Log schema migration", life_log, "static int migrate_legacy_log_schema(void)"),
+    ("repeated-interest schema migration", addiction, "static int migrate_addiction_schema(void)"),
 ):
     if needle not in source:
         raise SystemExit(f"Missing backwards-compatibility safeguard: {label}")
 
-if any("DROP TABLE" in source.upper() for source in (core, reality, visual, diary)):
+if any("DROP TABLE" in source.upper() for source in (core, reality, visual, diary, life_log, addiction, alternate_self)):
     raise SystemExit("R2 schema migrations must never drop persistent tables")
+if "DELETE FROM r2_alternate_self_branches" in alternate_self:
+    raise SystemExit("Alternate-Self migration must preserve existing branches")
 print("Runtime headroom and legacy memory safeguards passed.")
