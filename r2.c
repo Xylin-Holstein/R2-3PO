@@ -8078,7 +8078,7 @@ int main(void)
         sigaddset(&service_signals, SIGINT);
         sigaddset(&service_signals, SIGTERM);
         if (sigprocmask(SIG_BLOCK, &service_signals, NULL) != 0) {
-            fprintf(stderr, "[R2] Could not block service termination signals safely.\\n");
+            fprintf(stderr, "[R2] Could not block service termination signals safely.\n");
             return 1;
         }
     }
