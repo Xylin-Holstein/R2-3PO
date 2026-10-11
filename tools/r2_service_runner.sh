@@ -11,6 +11,15 @@ OLLAMA_TAGS_URL="http://127.0.0.1:11434/api/tags"
 log() { printf '[R2 service] %s\n' "$*"; }
 fail() { log "ERROR: $*"; exit 1; }
 
+# Check the directory with a real create/remove operation. This is more
+# meaningful for SQLite WAL/SHM and diary persistence than relying only on
+# a permission-bit probe, and catches ACL/filesystem restrictions at runtime.
+directory_write_probe() {
+    local directory="$1" probe
+    probe="$(mktemp "$directory/.r2-write-check.XXXXXX")" || return 1
+    rm -f -- "$probe" || return 1
+}
+
 # Acquire the sleep inhibitor before waiting for Ollama or doing any preflight.
 # Re-enter this script under the inhibitor with real time; faketime is applied
 # only to the final R2 process, never to systemd-inhibit or its checks.
@@ -29,9 +38,10 @@ fi
 [[ "$(id -un)" == "r2" ]] || fail "must run as the dedicated Linux account 'r2' (systemd unit configures this)."
 [[ -x "$R2_EXEC" ]] || fail "executable missing or not executable: $R2_EXEC; run tools/install_r2_overnight.sh first."
 [[ -d "$R2_SOURCE" && -r "$R2_SOURCE" && -x "$R2_SOURCE" ]] || fail "source/runtime directory is not readable: $R2_SOURCE"
-[[ -w "$R2_ROOT" ]] || fail "R2 runtime root is not writable by r2: $R2_ROOT"
-[[ -w "$R2_SOURCE" ]] || fail "R2 source/database directory is not writable by r2: $R2_SOURCE (SQLite and persistent memory need write access)"
-[[ -d "$R2_ROOT/R2_Diary" && -w "$R2_ROOT/R2_Diary" ]] || fail "R2 diary directory is missing or not writable by r2: $R2_ROOT/R2_Diary"
+directory_write_probe "$R2_ROOT" || fail "R2 runtime root is not writable by r2: $R2_ROOT"
+directory_write_probe "$R2_SOURCE" || fail "R2 source/database directory is not writable by r2: $R2_SOURCE (SQLite and persistent memory need write access)"
+[[ -d "$R2_ROOT/R2_Diary" ]] || fail "R2 diary directory is missing: $R2_ROOT/R2_Diary"
+directory_write_probe "$R2_ROOT/R2_Diary" || fail "R2 diary directory is not writable by r2: $R2_ROOT/R2_Diary"
 for database in "$R2_SOURCE/r2_memory.db" "$R2_SOURCE/r2_reality.db" "$R2_SOURCE/r2_fridge.db" "$R2_SOURCE/r2_rewards.db" "$R2_SOURCE/r2_addictions.db"; do
     [[ ! -L "$database" ]] || fail "refusing symlinked R2 database: $database"
     if [[ -e "$database" ]]; then
