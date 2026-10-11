@@ -6693,8 +6693,12 @@ static char *process_tools_with_status(
                    rc == 0 ? "RESULT" : "ERROR", fields[1], tv ? tv : "unavailable\n");
             free(tv);
         } else if (nf >= 4 && !strcasecmp(fields[0], "tv_connect")) {
-            char *end = NULL; long port = strtol(fields[3], &end, 10);
-            int rc = (end != fields[3] && !*end)
+            char *end = NULL;
+            errno = 0;
+            long port = strtol(fields[3], &end, 10);
+            int valid_port = errno != ERANGE && end != fields[3] && end && !*end &&
+                port >= INT_MIN && port <= INT_MAX;
+            int rc = valid_port
                 ? r2_reality_tv_connect(fields[1], fields[2], (int)port) : -1;
             APPEND("TV DEVICE %s: %s connected to %s %s.\n",
                    rc == 0 ? "RESULT" : "ERROR", fields[1], fields[2], fields[3]);
