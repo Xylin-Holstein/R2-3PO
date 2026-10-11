@@ -3022,7 +3022,7 @@ static char *ollama_chat_with_limit(
         const char *current_content = msgs[current_user_index].content
             ? msgs[current_user_index].content : "";
         size_t current_length = strlen(current_content);
-        const char *begin_marker = "----- BEGIN CURRENT USER MESSAGE -----\\n";
+        const char *begin_marker = "----- BEGIN CURRENT USER MESSAGE -----\n";
         const char *end_marker = "----- END CURRENT USER MESSAGE -----";
         const char *begin = strstr(current_content, begin_marker);
         const char *end = begin ? strstr(begin + strlen(begin_marker), end_marker) : NULL;
