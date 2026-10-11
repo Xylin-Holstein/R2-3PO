@@ -263,7 +263,7 @@ cd /home/x/R2_Home/R2
 bash tools/install_r2_overnight.sh
 ```
 
-The installer refuses to rebuild while an R2 process is already running, prepares missing data-only folders as the `r2` account, then creates a private, consistent snapshot of all five SQLite databases and requires their integrity audit to pass before activation. It also checks existing database-file permissions. Only then does it compile the current source to a temporary executable (preserving the previous binary if compilation fails), install `r2-3po.service`, enable it at boot, and request immediate startup. If the snapshot or integrity audit fails, it stops before installing or starting the service.
+The installer refuses to rebuild while an R2 process is already running, prepares missing data-only folders as the `r2` account, then creates a private, consistent snapshot of all five SQLite databases and requires their integrity audit to pass before activation. It also checks existing database-file permissions. Only then does it compile the current source to a process-specific temporary executable, preserve the previous binary, install `r2-3po.service`, and request immediate startup. If activation or core initialization fails, it attempts to restore and restart the previous executable; if no previous binary exists, it stops the failed service and reports that rollback is unavailable.
 
 Useful operations:
 
@@ -275,7 +275,7 @@ sudo systemctl start r2-3po.service
 sudo systemctl disable r2-3po.service
 ```
 
-The supervisor restarts unexpected exits, waits up to 60 seconds for the local Ollama API and `gemma3:4b`, and logs preflight failures to the journal. The runner uses the existing `libfaketime` installation to keep R2's private clock starting in 1999 and advancing continuously; it does not alter Linux's actual clock, run `apt-get update`, or pull models automatically. A sleep inhibitor requests that the host not suspend during the session; firmware, power loss, forced shutdown, and administrative overrides can still stop it.
+The supervisor restarts unexpected exits, waits up to 60 seconds for the local Ollama API/model, then performs one real `gemma3:4b` chat completion with a bounded 180-second timeout before starting the core. The installer waits for a readiness marker emitted after core initialization—not merely the runner's dependency-check log—and applies the same readiness check when rolling back. The runner uses the existing `libfaketime` installation to keep R2's private clock starting in 1999 and advancing continuously; it does not alter Linux's actual clock, run `apt-get update`, or pull models automatically. A sleep inhibitor requests that the host not suspend during the session; firmware, power loss, forced shutdown, and administrative overrides can still stop it.
 
 Sound assets remain host-local at `/home/x/R2_Home/R2_sounds/FX`. Service startup checks core prerequisites but does not prove speaker playback, camera permissions, microphone capture, or GUI/VLC integration. Verify those against the actual desktop/audio session after startup. Use `R2_Launch_Code.sh` for the existing interactive desktop shell and Observer window.
 
