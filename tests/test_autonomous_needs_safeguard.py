@@ -4,6 +4,21 @@
 from pathlib import Path
 
 source = Path("r2.c").read_text(encoding="utf-8")
+shell = Path("shell.c").read_text(encoding="utf-8")
+shell_needs_start = shell.index("static int shell_needs(const char *command)\\n{")
+shell_needs_end = shell.index("\\nstatic int shell_dispatch", shell_needs_start)
+shell_needs = shell[shell_needs_start:shell_needs_end]
+assert "shell_parse_amount(reality_trim(sep + 1), &fullness)" in shell_needs
+assert "shell_parse_amount(command + 6, &hours)" in shell_needs
+assert "atof(reality_trim(sep + 1))" not in shell_needs
+assert "atof(command + 6)" not in shell_needs
+
+sleep_start = source.index('} else if (nf >= 2 && !strcasecmp(fields[0], "sleep")) {')
+sleep_end = source.index('} else if (nf >= 2 && !strcasecmp(fields[0], "dream")) {', sleep_start)
+world_sleep = source[sleep_start:sleep_end]
+assert "parse_finite_double(fields[1], &hours)" in world_sleep
+assert "atof(fields[1])" not in world_sleep
+
 start = source.index("static void autonomous_needs_check(void)\n{")
 end = source.index("\nint r2_think(void)", start)
 function = source[start:end]
