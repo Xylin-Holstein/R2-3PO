@@ -48,6 +48,14 @@ assert "ollama_foreground_turn_mode = 1;" in talk_wrapper
 assert "ollama_foreground_turn_mode = previous_turn_mode;" in talk_wrapper
 assert "(atomic_load(&foreground_conversation_waiting) > 0 &&" in source
 assert "!ollama_foreground_turn_mode" in source
+vision_begin_start = source.index("int r2_ollama_vision_request_begin(void)")
+vision_begin_end = source.index("\nvoid r2_ollama_vision_request_end(void)", vision_begin_start)
+vision_begin = source[vision_begin_start:vision_begin_end]
+assert "foreground_conversation_waiting" in vision_begin
+assert "!ollama_foreground_turn_mode" in vision_begin
+vision_abort_start = source.index("int r2_ollama_vision_request_should_abort(void)")
+vision_abort_end = source.index("\n/* Estimate safe Ollama context", vision_abort_start)
+assert "!ollama_foreground_turn_mode" in source[vision_abort_start:vision_abort_end]
 
 worker_start = source.index("static void *post_turn_worker(void *opaque)\n{")
 worker_end = source.index("\n/* These model-assisted bookkeeping tasks", worker_start)
