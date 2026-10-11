@@ -202,7 +202,24 @@ int main(void) {
     char bad_money_path[1400];
     snprintf(bad_money_path, sizeof(bad_money_path), "%s/money(999)", wallet);
     assert(symlink("/dev/null", bad_money_path) == 0);
+    /* A preflight rejection must preserve cash without falsely reporting a
+       rollback failure: no authoritative file was changed, so no rollback
+       should be attempted. */
+    FILE *captured_stderr = tmpfile();
+    assert(captured_stderr);
+    int saved_stderr = dup(STDERR_FILENO);
+    assert(saved_stderr >= 0);
+    assert(fflush(stderr) == 0);
+    assert(dup2(fileno(captured_stderr), STDERR_FILENO) >= 0);
     assert(r2_reality_money_receive(1.00) != 0);
+    assert(fflush(stderr) == 0);
+    assert(dup2(saved_stderr, STDERR_FILENO) >= 0);
+    close(saved_stderr);
+    rewind(captured_stderr);
+    char captured_message[2048] = {0};
+    (void)fread(captured_message, 1, sizeof(captured_message) - 1, captured_stderr);
+    fclose(captured_stderr);
+    assert(strstr(captured_message, "CRITICAL: cash receipt failed") == NULL);
     assert(unlink(bad_money_path) == 0);
     assert(bill_count(wallet) == 5);
     ctx=money_context(); assert(strstr(ctx,"carried cash=$5.00")); free(ctx);
