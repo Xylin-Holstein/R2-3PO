@@ -38,19 +38,28 @@ end = core.find("\nstatic char *chat_with_relevant_memories(", start)
 require(start >= 0 and end > start, "corrective retry helper exists")
 retry = core[start:end]
 for phrase, message in (
-    ("RESPONSE CORRECTION:", "retry adds a direct-answer correction instruction"),
-    ("Preserve speaker identity and who said what", "retry protects speaker identity and the user's stated meaning"),
-    ("attributes words to them that they did not say", "retry forbids fabricated paraphrases"),
     ("messages_copy[index].content, query", "retry locates the actual user turn"),
-    ("r2_conversation_system_prompt", "full R2 system prompt is shared with the retry"),
-    ("snprintf(retry_system_prompt, prompt_size, \"%s\\n\\n%s\"", "retry appends correction without dropping core instructions"),
+    ("r2_build_retry_system_prompt()", "retry obtains the complete combined system prompt"),
     ("messages_copy, message_count, retry_system_prompt", "retry uses the original history and combined system prompt"),
     ("ollama_authoritative_user_query = query;", "retry preserves active-turn identity"),
     ("conversation_reply_token_budget(query)", "retry respects the normal response budget"),
-    ("r2_conversation_system_prompt, retry_instruction", "retry combines identity and correction instructions"),
     ("ollama_chat_with_limit(\n        messages_copy, message_count, retry_system_prompt", "retry does not inject a system message into the middle of dialogue"),
 ):
     require(phrase in retry, message)
+
+builder_start = core.find("static char *r2_build_retry_system_prompt(void)")
+builder_end = core.find("\nstatic char *r2_retry_direct_answer(", builder_start)
+require(builder_start >= 0 and builder_end > builder_start,
+        "combined corrective system-prompt builder exists")
+builder = core[builder_start:builder_end]
+for phrase, message in (
+    ("RESPONSE CORRECTION:", "builder includes a direct-answer correction instruction"),
+    ("Preserve speaker identity and who said what", "builder protects speaker identity and stated meaning"),
+    ("attributes words to them that they did not say", "builder forbids fabricated paraphrases"),
+    ("r2_conversation_system_prompt, retry_instruction", "builder retains the full R2 prompt before appending correction"),
+    ('"%s\\n\\n%s"', "builder separates core and corrective instructions cleanly"),
+):
+    require(phrase in builder, message)
 
 require(
     "if (retry_after_sanitize_failure ||" in core,
