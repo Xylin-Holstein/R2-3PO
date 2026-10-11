@@ -2964,12 +2964,18 @@ static int ollama_progress(void *userdata,
 
 int r2_ollama_vision_request_begin(void)
 {
-    /* Vision is opportunistic: never queue it ahead of text or background work. */
-    if (shutting_down || atomic_load(&foreground_ollama_waiting) > 0)
+    /* Vision is opportunistic for background watchers, but a foreground
+       turn may request its own frame analysis without being blocked by its
+       own priority flag. */
+    if (shutting_down || atomic_load(&foreground_ollama_waiting) > 0 ||
+        (atomic_load(&foreground_conversation_waiting) > 0 &&
+         !ollama_foreground_turn_mode))
         return 0;
     if (pthread_mutex_trylock(&ollama_request_lock) != 0)
         return 0;
-    if (shutting_down || atomic_load(&foreground_ollama_waiting) > 0) {
+    if (shutting_down || atomic_load(&foreground_ollama_waiting) > 0 ||
+        (atomic_load(&foreground_conversation_waiting) > 0 &&
+         !ollama_foreground_turn_mode)) {
         pthread_mutex_unlock(&ollama_request_lock);
         return 0;
     }
@@ -2983,7 +2989,9 @@ void r2_ollama_vision_request_end(void)
 
 int r2_ollama_vision_request_should_abort(void)
 {
-    return shutting_down || atomic_load(&foreground_ollama_waiting) > 0;
+    return shutting_down || atomic_load(&foreground_ollama_waiting) > 0 ||
+           (atomic_load(&foreground_conversation_waiting) > 0 &&
+            !ollama_foreground_turn_mode);
 }
 
 /* Estimate safe Ollama context from host and container memory headroom.
