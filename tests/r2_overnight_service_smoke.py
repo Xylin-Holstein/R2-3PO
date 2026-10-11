@@ -21,6 +21,8 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn("accept(server_fd", source)
         core = (ROOT / "r2.c").read_text(encoding="utf-8")
         self.assertIn("r2_shutdown();", core)
+        self.assertIn("static atomic_int shutting_down", core)
+        self.assertIn("atomic_is_lock_free(&shutting_down)", core)
         self.assertIn("setvbuf(stdout, NULL, _IOLBF, 0)", core)
         self.assertIn("sigprocmask(SIG_BLOCK, &service_signals, NULL)", core)
         self.assertNotIn('safely.\\\\n");', core)
