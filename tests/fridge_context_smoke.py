@@ -53,6 +53,9 @@ if '"energy", "REAL NOT NULL DEFAULT 10"' in legacy_migration_block:
 if '"fullness", "REAL NOT NULL DEFAULT 0"' not in legacy_migration_block or '"energy", "REAL NOT NULL DEFAULT 0"' not in legacy_migration_block:
     raise SystemExit("legacy fridge migration must mark unknown nutrition with neutral 0/0 values")
 
+if "double fullness = 100.0, energy = 10.0;" in reality or "double stored_fullness = 100.0, energy = 10.0;" in reality:
+    raise SystemExit("fridge take/eat paths must not carry fabricated nutrition fallback values")
+
 eat_start = r2.find('} else if (nf >= 3 && !strcasecmp(fields[0], "eat")) {')
 eat_end = r2.find('} else if (nf >= 4 && !strcasecmp(fields[0], "ratefood")) {', eat_start)
 if eat_start < 0 or eat_end < 0:
