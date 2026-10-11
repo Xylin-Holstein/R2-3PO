@@ -42,6 +42,19 @@ def send_control_command(command: str) -> str:
     if command.startswith("vcr insert "):
         path = command[11:]
         valid = Path(path).is_absolute() and "\n" not in path and "\r" not in path and len(command) <= 1199
+    if command.startswith("media "):
+        action, separator, path = command[6:].partition("|")
+        valid = (
+            separator != ""
+            and action in {
+                "vcr_playback_started", "vcr_playback_paused",
+                "vcr_playback_stopped", "vcr_playback_ended",
+                "vcr_playback_error",
+            }
+            and Path(path).is_absolute()
+            and "\n" not in path and "\r" not in path
+            and len(command) <= 1199
+        )
     if command.startswith("vcr position "):
         try:
             seconds = float(command[13:])
@@ -143,6 +156,7 @@ class CRTDisplay:
         self._last_transport: str | None = None
         self._last_position_save = time.monotonic()
         self._vlc_error_shown = False
+        self._last_logged_vlc_state: tuple[str, str] | None = None
         root.protocol("WM_DELETE_WINDOW", self.close)
         # Record the GUI opening through Reality, even while the modeled TV is off.
         # The event also represents the requested forced-attention cue.
@@ -321,6 +335,60 @@ class CRTDisplay:
             self._last_transport = transport
         self._save_vcr_position()
 
+    def _send_media_event(self, action: str, path: str) -> None:
+        try:
+            send_control_command(f"media {action}|{path}")
+        except (OSError, RuntimeError, ValueError):
+            # The player must remain usable if the Life Log socket is unavailable.
+            pass
+
+    def _record_playback_state(self, path: str | None) -> None:
+        previous = self._last_logged_vlc_state
+        if not path:
+            if previous and previous[1] == "playing":
+                self._send_media_event("vcr_playback_stopped", previous[0])
+            self._last_logged_vlc_state = None
+            return
+        if self._player is None or self._vlc is None:
+            return
+
+        try:
+            state = self._player.get_state()
+            state_map = {
+                self._vlc.State.Playing: ("playing", "vcr_playback_started"),
+                self._vlc.State.Paused: ("paused", "vcr_playback_paused"),
+                self._vlc.State.Stopped: ("stopped", "vcr_playback_stopped"),
+                self._vlc.State.Ended: ("ended", "vcr_playback_ended"),
+                self._vlc.State.Error: ("error", "vcr_playback_error"),
+            }
+            current = state_map.get(state)
+        except (AttributeError, OSError, RuntimeError):
+            return
+        if current is None:
+            return
+
+        state_name, action = current
+        if previous and previous[0] != path:
+            if previous[1] == "playing":
+                self._send_media_event("vcr_playback_stopped", previous[0])
+            previous = None
+            self._last_logged_vlc_state = None
+
+        if previous == (path, state_name):
+            return
+        if previous is None or previous[0] != path:
+            # Establish a baseline for loaded-but-not-playing media. Do not log
+            # a false stop/pause event just because a tape was inserted.
+            if state_name != "playing":
+                self._last_logged_vlc_state = (path, state_name)
+                return
+        elif state_name != "playing" and previous[1] != "playing":
+            self._last_logged_vlc_state = (path, state_name)
+            return
+
+        self._send_media_event(action, path)
+        self._last_logged_vlc_state = (path, state_name)
+
     def display_opened(self) -> None:
         try:
             response = send_control_command("display opened")
@@ -330,6 +398,10 @@ class CRTDisplay:
 
     def close(self) -> None:
         self._save_vcr_position(force=True)
+        previous = self._last_logged_vlc_state
+        if previous and previous[1] == "playing":
+            self._send_media_event("vcr_playback_stopped", previous[0])
+            self._last_logged_vlc_state = (previous[0], "stopped")
         try:
             send_control_command("display closed")
         except (OSError, RuntimeError, ValueError):
@@ -347,6 +419,7 @@ class CRTDisplay:
             if self._player:
                 self._player.audio_set_mute(not audible)
             self.sync_vcr_player(tape_path, transport, position, audible)
+            self._record_playback_state(tape_path)
 
             if not power:
                 headline = "TV OFF"
