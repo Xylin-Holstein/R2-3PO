@@ -48,6 +48,9 @@ jobs:
       - name: Prevent silent truncation of the complete system prompt
         run: python3 tests/prompt_budget_smoke.py
 
+      - name: Check Ollama mixed CPU/GPU layer placement
+        run: python3 tests/ollama_gpu_offload_smoke.py
+
       - name: Keep the current user turn in bounded Ollama payloads
         run: python3 tests/ollama_current_turn_smoke.py
 
