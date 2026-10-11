@@ -68,7 +68,7 @@ require(
     "archived dialogue is lowest priority and cannot crowd out current context",
 )
 system_start = core.find("static const char r2_conversation_system_prompt[]")
-system_end = core.find("\\nstatic char *r2_build_retry_system_prompt(", system_start)
+system_end = core.find("\nstatic char *r2_build_retry_system_prompt(", system_start)
 if system_start < 0 or system_end < 0:
     raise SystemExit("Could not isolate the shared conversation system prompt.")
 system_prompt = core[system_start:system_end]
