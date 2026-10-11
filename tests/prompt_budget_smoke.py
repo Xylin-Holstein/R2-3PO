@@ -7,11 +7,13 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 core = (ROOT / "r2.c").read_text(encoding="utf-8")
 
+
 def macro(name: str) -> int:
-    match = re.search(rf"^#define\\s+{re.escape(name)}\\s+(\\d+)\\s*$", core, re.MULTILINE)
+    match = re.search(rf"^#define\s+{re.escape(name)}\s+(\d+)\s*$", core, re.MULTILINE)
     if not match:
         raise SystemExit(f"Missing numeric limit: {name}")
     return int(match.group(1))
+
 
 per_message = macro("OLLAMA_MAX_SYSTEM_MESSAGE_CHARS")
 system_total = macro("OLLAMA_MAX_SYSTEM_TOTAL_CHARS")
@@ -24,11 +26,11 @@ if history_total < 60000:
     raise SystemExit(f"Bounded total history cap unexpectedly shrank: {history_total}")
 
 start = core.find("static const char *SYSTEM_PROMPT =")
-end = core.find(";\\n", start)
+end = core.find(";\n", start)
 if start < 0 or end < 0:
     raise SystemExit("Could not locate the complete SYSTEM_PROMPT definition")
 definition = core[start:end]
-literals = re.findall(r'"(?:\\\\.|[^"\\\\])*"', definition)
+literals = re.findall(r'"(?:\\.|[^"\\])*"', definition)
 try:
     prompt = "".join(ast.literal_eval(literal) for literal in literals)
 except (SyntaxError, ValueError) as exc:
