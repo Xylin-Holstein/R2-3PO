@@ -24,13 +24,12 @@ run_as_r2() {
 
 BACKUP_EXEC=""
 rollback_previous_executable() {
+    # Stop any failed/new instance before inspecting or restoring the prior binary.
+    root_run systemctl stop r2-3po.service >/dev/null 2>&1 || true
     if [[ -z "$BACKUP_EXEC" || ! -f "$BACKUP_EXEC" ]]; then
-        log "WARNING: no previous executable is available to roll back to."
+        log "WARNING: no previous executable is available to roll back to; the failed service has been stopped."
         return 1
     fi
-
-    # Stop any failed/new instance before atomically restoring the prior binary.
-    root_run systemctl stop r2-3po.service >/dev/null 2>&1 || true
     local restore_exec="$R2_ROOT/r2.restore.$"
     if [[ -e "$restore_exec" || -L "$restore_exec" ]]; then
         log "ERROR: refusing to overwrite existing rollback path: $restore_exec"
