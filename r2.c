@@ -7219,6 +7219,7 @@ static void autonomous_needs_check(void)
         return;
     }
 
+    int food_action_succeeded = 0;
     const char *marker = strstr(decision, "[WORLD]");
     if (marker) {
         const char *end = strpbrk(marker, "\r\n");
@@ -7229,17 +7230,31 @@ static void autonomous_needs_check(void)
             safe_action[length] = '\n';
             safe_action[length + 1] = '\0';
             char *result = process_tools(safe_action);
-            if (result && *result)
+            if (result && *result) {
                 r2_log_event(R2_LOG_WORLD, "autonomous_needs_action",
                              "R2's autonomous needs check performed a world action.",
                              result, "autonomous_needs_check");
+                /* A successful model-selected meal is already the one meal
+                   for this cycle. Do not immediately consume a second item
+                   just because hunger remains high after a small meal. */
+                food_action_succeeded =
+                    strstr(result, "REAL NEEDS RESULT: eating '") != NULL &&
+                    strstr(result, "updated persistent hunger and energy.") != NULL;
+                if (!food_action_succeeded) {
+                    food_action_succeeded =
+                        strstr(result, "FRIDGE RESULT: eating '") != NULL &&
+                        strstr(result, "reduced hunger and consumed fridge stock.") != NULL;
+                }
+            }
             free(result);
             free(safe_action);
         }
     }
     /* Model output is advisory, not the sole safeguard for a simulated
-       physical need. This also runs when no model decision was available. */
-    autonomous_needs_food_safeguard();
+       physical need. Fall back only when the model did not already feed R2
+       successfully; this avoids a second meal in the same needs cycle. */
+    if (!food_action_succeeded)
+        autonomous_needs_food_safeguard();
     free(decision);
 }
 
