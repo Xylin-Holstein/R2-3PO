@@ -256,13 +256,13 @@ static char *call_vision_model(const char *image_base64, const char *question,
         errno = 0;
         char *gpu_end = NULL;
         long gpu_layers = strtol(gpu_layers_env, &gpu_end, 10);
-        if (!errno && gpu_end != gpu_layers_env && *gpu_end == '\\0' &&
+        if (!errno && gpu_end != gpu_layers_env && *gpu_end == '\0' &&
             gpu_layers >= -1 && gpu_layers <= 999 && gpu_layers != 0) {
             json_object_object_add(options, "num_gpu",
                                    json_object_new_int((int)gpu_layers));
-        } else if (errno || gpu_end == gpu_layers_env || *gpu_end != '\\0' ||
+        } else if (errno || gpu_end == gpu_layers_env || *gpu_end != '\0' ||
                    gpu_layers < -1 || gpu_layers > 999) {
-            fprintf(stderr, "[R2 Vision] Ignoring invalid R2_OLLAMA_NUM_GPU value.\\n");
+            fprintf(stderr, "[R2 Vision] Ignoring invalid R2_OLLAMA_NUM_GPU value.\n");
         }
     }
     json_object_object_add(root, "options", options);
