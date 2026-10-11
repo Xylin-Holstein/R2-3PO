@@ -9,6 +9,7 @@ import tempfile
 import time
 import threading
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "TV.py"
@@ -150,7 +151,8 @@ class TVDisplaySmoke(unittest.TestCase):
 
     def test_vcr_client_accepts_transport_and_media_commands(self) -> None:
         for command in ("display opened", "display closed", "vcr play", "vcr pause", "vcr stop", "vcr eject",
-                        "vcr insert /tmp/example-film.mp4", "vcr position 42.750"):
+                        "vcr insert /tmp/example-film.mp4", "vcr position 42.750",
+                        "media vcr_playback_started|/tmp/example-film.mp4"):
             received = []
             TV.SOCKET_PATH.unlink(missing_ok=True)
             server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -268,6 +270,33 @@ class TVDisplaySmoke(unittest.TestCase):
         self.assertIn(("mute", True), events)
         self.assertEqual(events[-1], ("pause", 0))
 
+    def test_media_playback_transitions_are_logged_once(self) -> None:
+        class FakeState:
+            Playing, Paused, Stopped, Ended, Error = range(1, 6)
+
+        class FakePlayer:
+            state = FakeState.Playing
+            def get_state(self): return self.state
+
+        display = object.__new__(TV.CRTDisplay)
+        display._player = FakePlayer()
+        display._vlc = type("FakeVLC", (), {"State": FakeState})
+        display._last_logged_vlc_state = None
+        commands = []
+        with patch.object(TV, "send_control_command",
+                          side_effect=lambda command: commands.append(command) or "OK"):
+            display._record_playback_state("/tmp/movie.mp4")
+            display._record_playback_state("/tmp/movie.mp4")
+            display._player.state = FakeState.Paused
+            display._record_playback_state("/tmp/movie.mp4")
+            display._player.state = FakeState.Stopped
+            display._record_playback_state("/tmp/movie.mp4")
+
+        self.assertEqual(commands, [
+            "media vcr_playback_started|/tmp/movie.mp4",
+            "media vcr_playback_paused|/tmp/movie.mp4",
+        ])
+
     def test_vcr_client_rejects_invalid_media_and_position(self) -> None:
         with self.assertRaises(ValueError):
             TV.send_control_command("vcr insert relative/movie.mp4")
@@ -275,6 +304,10 @@ class TVDisplaySmoke(unittest.TestCase):
             TV.send_control_command("vcr position -1")
         with self.assertRaises(ValueError):
             TV.send_control_command("vcr insert /tmp/movie.mp4\n power off")
+        with self.assertRaises(ValueError):
+            TV.send_control_command("media vcr_playback_started|relative/movie.mp4")
+        with self.assertRaises(ValueError):
+            TV.send_control_command("media arbitrary_action|/tmp/movie.mp4")
 
 if __name__ == "__main__":
     unittest.main()
