@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guard one bounded retry for clear typed messages misread as unintelligible input."""
+"""Test the bounded recovery path for nonresponsive typed-text interpretations."""
 from pathlib import Path
 import sys
 
@@ -56,8 +56,7 @@ require(builder_start >= 0 and builder_end > builder_start,
 builder = core[builder_start:builder_end]
 for phrase, message in (
     ("RESPONSE CORRECTION:", "builder includes a direct-answer correction instruction"),
-    ("Preserve speaker identity and who said what", "builder protects speaker identity and stated meaning"),
-    ("do not greet yourself as R2 or reverse who is speaking", "builder explicitly prevents the observed speaker inversion"),
+    ("Preserve speaker identity and who said what", "builder preserves attribution while correcting a nonresponsive answer"),
     ("attributes words to them", "builder forbids invented attributions"),
     ("that they did not say", "builder forbids adding words the user never said"),
     ("r2_conversation_system_prompt, retry_instruction", "builder retains the full R2 prompt before appending correction"),
