@@ -28,7 +28,22 @@ log = read("Log.c")
 log_header = read("Log.h")
 
 require(
-    re.search(r'^#define R2_OLLAMA_MODEL "gemma3:4b"require(
+    re.search(r'^#define R2_OLLAMA_MODEL "gemma3:4b"$', header, re.MULTILINE) is not None,
+    "one shared model constant selects gemma3:4b",
+)
+require(
+    "Your user is your Mother (Mom)." in core
+    and "Do not call her Eli" in core
+    and "Do not describe clear text as jumbled sounds" in core,
+    "R2's established Mother relationship and natural-message interpretation are explicit",
+)
+require(
+    "You are not merely a generic AI assistant." in core
+    and "answer honestly" in core
+    and "Never claim an unverified capability." in core,
+    "identity guidance avoids generic AI disclaimers without denying the robot's actual environment",
+)
+require(
     re.search(r'^#define MODEL R2_OLLAMA_MODEL$', core, re.MULTILINE) is not None,
     "conversation uses the shared model constant",
 )
