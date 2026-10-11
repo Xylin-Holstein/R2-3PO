@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 #ifndef R2_HOME
 #define R2_HOME "/tmp/r2-needs-smoke/R2"
@@ -50,17 +51,18 @@ int main(void)
         fail("Reality API should accept a representable maximum stack");
     if (r2_reality_add_item("overflow_stack", "Quantity boundary test", "pockets", 1) == 0)
         fail("Reality API must reject a stack addition that overflows its int mirror quantity");
-    if (sqlite3_open(R2_HOME "/r2_reality.db", &atomic_db) != SQLITE_OK)
+    sqlite3 *overflow_db = NULL;
+    if (sqlite3_open(R2_HOME "/r2_reality.db", &overflow_db) != SQLITE_OK)
         fail("could not query quantity overflow regression");
     sqlite3_stmt *overflow_st = NULL;
-    if (sqlite3_prepare_v2(atomic_db,
+    if (sqlite3_prepare_v2(overflow_db,
         "SELECT quantity FROM r2_reality_objects WHERE name='overflow_stack'",
         -1, &overflow_st, NULL) != SQLITE_OK ||
         sqlite3_step(overflow_st) != SQLITE_ROW ||
         sqlite3_column_int64(overflow_st, 0) != INT_MAX)
         fail("overflowing stack addition changed authoritative quantity");
     sqlite3_finalize(overflow_st);
-    sqlite3_close(atomic_db);
+    sqlite3_close(overflow_db);
     if (r2_reality_remove_item("overflow_stack") != 0)
         fail("could not clean up quantity overflow fixture");
 
