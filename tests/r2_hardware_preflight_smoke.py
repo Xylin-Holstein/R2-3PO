@@ -20,6 +20,17 @@ required = (
     '/dev/snd/*', 'mGBA Qt emulator',
     'stop it before installation or database preflight',
     'sudo -n -u r2 test -r "$R2_FX_DIR"',
+    'r2_diary.c r2_diary.h',
+    'Reality.c Reality.h',
+    'Addiction.c Addiction.h',
+    'Reward.c Reward.h',
+    'AlternateSelf.c AlternateSelf.h',
+    'R2Sounds.c R2Sounds.h',
+    'R2Reply.c R2Reply.h',
+    'shell.c shell.h',
+    'Observer.py',
+    'tools/audit_r2_sound_assets.py',
+    'tools/preflight_r2_hardware.sh',
 )
 missing = [item for item in required if item not in script]
 if missing:
