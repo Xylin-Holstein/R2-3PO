@@ -144,7 +144,9 @@ if [[ "$db_rc" -ne 0 ]]; then fail "existing database integrity check failed"; f
 
 section "Audio, microphone, camera, TV, and emulator"
 if have mpg123 || have ffplay || have mpv; then pass "supported local MP3 playback process available"
-else warn "no mpg123/ffplay/mpv; sound effects will not play."; fi
+else
+  warn "no mpg123/ffplay/mpv; sound effects will not play. On Ubuntu/Debian, install a decoder with: sudo apt-get update && sudo apt-get install -y ffmpeg"
+fi
 if have pactl; then
   if pactl info >/dev/null 2>&1; then pass "desktop user's PulseAudio/PipeWire server responds"
   else warn "desktop user's PulseAudio/PipeWire server is unreachable."; fi
@@ -155,7 +157,9 @@ if have pactl; then
       warn "R2 runtime account cannot connect to its default PulseAudio/PipeWire server; desktop audio working for your login does not prove R2 can play sounds or capture monitor audio."
     fi
   fi
-else warn "pactl missing; PulseAudio/PipeWire routing cannot be checked."; fi
+else
+  warn "pactl missing; PulseAudio/PipeWire routing cannot be checked. On Ubuntu/Debian, install the diagnostic client with: sudo apt-get update && sudo apt-get install -y pulseaudio-utils"
+fi
 if have arecord; then arecord -l 2>&1 | sed 's/^/  /' || true; else warn "arecord missing; cannot enumerate microphone devices."; fi
 if have aplay; then aplay -l 2>&1 | sed 's/^/  /' || true; else warn "aplay missing; cannot enumerate ALSA output devices."; fi
 camera_count=0
@@ -176,7 +180,7 @@ for camera in /dev/video*; do
   fi
 done
 if [[ "$camera_count" -eq 0 ]]; then
-  warn "no /dev/video* camera detected; verify the configured Eyes source."
+  warn "no /dev/video* camera detected; this is a physical-device/configuration issue, not a missing package. Connect the intended webcam/capture device or configure Eyes to use its intended source."
 elif have sudo && id r2 >/dev/null 2>&1; then
   if [[ "$camera_accessible" -gt 0 ]]; then
     pass "R2 runtime account can read/write $camera_accessible camera device(s)"
