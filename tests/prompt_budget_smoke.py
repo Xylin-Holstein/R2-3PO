@@ -53,7 +53,7 @@ for required in (
 # available RAM lowers num_ctx, a long per-call override must not consume the
 # whole system budget and crowd out the core identity/live Reality context.
 for required in (
-    "size_t max_user_reserve = input_budget > 1000",
+    "size_t max_user_reserve = input_budget > 1500",
     "current_user_reserve > max_user_reserve",
     "size_t reality_reserve = system_budget / 3;",
     "size_t override_budget = system_budget / 4;",
@@ -69,7 +69,7 @@ def allocation_for_context(num_ctx: int, num_predict: int, override_length: int,
     input_budget = (num_ctx - num_predict - 512) * 32 // 10
     input_budget = min(input_budget, history_total)
     max_user_reserve = (
-        input_budget - 1000 if input_budget > 1000 else input_budget // 2
+        input_budget - 1500 if input_budget > 1500 else input_budget // 2
     )
     current_user_reserve = min(current_user_reserve, max_user_reserve)
     system_budget = (
@@ -108,8 +108,10 @@ for num_ctx, num_predict, override_length, requested_user_reserve in (
         raise SystemExit(f"Prompt allocations exceed system budget at context={num_ctx}")
     if system_budget + user_reserve + 500 > input_budget:
         raise SystemExit(f"Current user reservation exceeds input budget at context={num_ctx}")
-    if requested_user_reserve > 1500 and user_reserve > input_budget - 1000:
-        raise SystemExit(f"Long current turn left too little context at context={num_ctx}")
+    if requested_user_reserve > 1500 and input_budget > 1500 and user_reserve > input_budget - 1500:
+        raise SystemExit(f"Long current turn left too little system context at context={num_ctx}")
+    if input_budget > 1500 and system_budget < 1000:
+        raise SystemExit(f"Long current turn starved system context at context={num_ctx}")
 
 print(
     f"system prompt budget smoke passed: prompt={len(prompt)} chars, "
