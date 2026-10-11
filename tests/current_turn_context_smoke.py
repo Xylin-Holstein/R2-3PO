@@ -36,7 +36,10 @@ require(
     and "----- BEGIN CURRENT USER MESSAGE -----" not in builder,
     "the user's original text stays byte-for-byte intact instead of being wrapped in context",
 )
-reality_start = core.find('if (!strncmp(content,')
+priority_loop_start = core.find("for (int priority = 0; priority < 5 &&")
+require(priority_loop_start >= 0,
+        "inference context priority loop exists")
+reality_start = core.find('if (!strncmp(content,', priority_loop_start)
 reality_marker = core.find('"PERSISTENT REALITY CONTEXT"', reality_start)
 reality_end = core.find("else if", reality_marker) if reality_marker >= 0 else -1
 require(
@@ -44,14 +47,14 @@ require(
     and "message_priority = 1;" in core[reality_marker:reality_end],
     "live Reality state receives the highest contextual priority after core identity",
 )
-priority_start = core.find('else if (!strncmp(content, "CURRENT TURN RETRIEVED CONTEXT"')
+priority_start = core.find('else if (!strncmp(content, "CURRENT TURN RETRIEVED CONTEXT"', priority_loop_start)
 priority_end = core.find("else if", priority_start + 1) if priority_start >= 0 else -1
 require(
     priority_start >= 0 and priority_end > priority_start
     and "message_priority = 2;" in core[priority_start:priority_end],
     "retrieved evidence for the active turn outranks persistent learning and archived history",
 )
-learning_start = core.find('"PERSISTENT LEARNING CONTEXT"')
+learning_start = core.find('"PERSISTENT LEARNING CONTEXT"', priority_loop_start)
 learning_end = core.find("else if", learning_start) if learning_start >= 0 else -1
 require(
     learning_start >= 0 and learning_end > learning_start
@@ -62,7 +65,7 @@ require(
     "int message_priority = 3;" in core,
     "generic system context cannot crowd out active-turn retrieved evidence",
 )
-archive_start = core.find('"PAST CONVERSATION ARCHIVE — CONTEXT ONLY."')
+archive_start = core.find('"PAST CONVERSATION ARCHIVE — CONTEXT ONLY."', priority_loop_start)
 archive_end = core.find("message_priority = 4;", archive_start) if archive_start >= 0 else -1
 require(
     archive_start >= 0 and archive_end > archive_start,
