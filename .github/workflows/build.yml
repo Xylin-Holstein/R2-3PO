@@ -42,6 +42,9 @@ jobs:
       - name: Check unified Gemma 3 conversation and vision wiring
         run: python3 tests/gemma3_model_smoke.py
 
+      - name: Prevent archived dialogue from becoming an assistant instruction or answer
+        run: python3 tests/archive_prompt_smoke.py
+
       - name: Prevent silent truncation of the complete system prompt
         run: python3 tests/prompt_budget_smoke.py
 
