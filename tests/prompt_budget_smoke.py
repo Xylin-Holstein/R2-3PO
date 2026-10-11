@@ -22,7 +22,7 @@ if per_message > 12000 or per_message < 10000:
     raise SystemExit(f"System message cap should remain tightly bounded: {per_message}")
 if system_total > 20000 or system_total < 16000:
     raise SystemExit(f"Aggregate system context cap should remain tightly bounded: {system_total}")
-if history_total > 36000 or history_total < 30000:
+if history_total > 26000 or history_total < 20000:
     raise SystemExit(f"Bounded total history cap should remain tightly bounded: {history_total}")
 
 start = core.find("static const char *SYSTEM_PROMPT =")
