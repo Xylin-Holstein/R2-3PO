@@ -7187,6 +7187,23 @@ static void autonomous_needs_food_safeguard(void)
 /* Re-check hunger immediately before executing a model-selected meal.
  * The model's prompt is a snapshot; foreground actions may have changed needs
  * while inference was running. Fail closed if authoritative status is unreadable. */
+static int autonomous_needs_action_allowed(const char *action)
+{
+    if (!action || strncmp(action, "[WORLD] ", 8) != 0)
+        return 0;
+    const char *command = action + 8;
+    const char *separator = strchr(command, '|');
+    if (!separator || separator == command)
+        return 0;
+    size_t command_len = (size_t)(separator - command);
+    return (command_len == 3 && !strncmp(command, "eat", 3)) ||
+           (command_len == 9 && !strncmp(command, "fridge_eat", 9)) ||
+           (command_len == 5 && !strncmp(command, "sleep", 5));
+}
+
+/* Re-check hunger immediately before executing a model-selected meal.
+ * The model's prompt is a snapshot; foreground actions may have changed needs
+ * while inference was running. Fail closed if authoritative status is unreadable. */
 static int autonomous_food_action_still_needed(const char *action)
 {
     if (!action) return 0;
@@ -7257,6 +7274,7 @@ static void autonomous_needs_check(void)
     }
 
     int food_action_succeeded = 0;
+    int world_action_succeeded = 0;
     const char *marker = strstr(decision, "[WORLD]");
     if (marker) {
         const char *end = strpbrk(marker, "\r\n");
@@ -7272,9 +7290,13 @@ static void autonomous_needs_check(void)
             int turn_guard_locked =
                 !shutting_down &&
                 pthread_mutex_trylock(&conversation_turn_lock) == 0;
-            if (!turn_guard_locked ||
-                shutting_down ||
-                atomic_load(&foreground_ollama_waiting) > 0) {
+            if (!autonomous_needs_action_allowed(safe_action)) {
+                r2_log_event(R2_LOG_WORLD, "autonomous_needs_action_rejected",
+                             "Rejected an autonomous needs action outside the eat, fridge_eat, and sleep allowlist.",
+                             safe_action, "autonomous_needs_check");
+            } else if (!turn_guard_locked ||
+                       shutting_down ||
+                       atomic_load(&foreground_ollama_waiting) > 0) {
                 if (turn_guard_locked)
                     pthread_mutex_unlock(&conversation_turn_lock);
                 r2_log_event(R2_LOG_WORLD, "autonomous_needs_yielded_to_conversation",
@@ -7302,6 +7324,8 @@ static void autonomous_needs_check(void)
                             strstr(result, "FRIDGE RESULT: eating '") != NULL &&
                             strstr(result, "reduced hunger and consumed fridge stock.") != NULL;
                     }
+                    world_action_succeeded = food_action_succeeded ||
+                        strstr(result, "REAL NEEDS RESULT: sleep transition was persisted.") != NULL;
                 }
                 free(result);
                 pthread_mutex_unlock(&conversation_turn_lock);
@@ -7312,7 +7336,7 @@ static void autonomous_needs_check(void)
     /* Model output is advisory, not the sole safeguard for a simulated
        physical need. Fall back only when the model did not already feed R2
        successfully; this avoids a second meal in the same needs cycle. */
-    if (!food_action_succeeded)
+    if (!world_action_succeeded)
         autonomous_needs_food_safeguard();
     free(decision);
 }
