@@ -35,11 +35,13 @@ assert "autonomous_needs_stale_action" in function
 
 assert "int food_action_succeeded = 0;" in function
 assert "int world_action_succeeded = 0;" in function
-assert 'strstr(result, "REAL NEEDS RESULT: eating \'") != NULL' in function
-assert 'strstr(result, "updated persistent hunger and energy.") != NULL' in function
-assert 'strstr(result, "FRIDGE RESULT: eating \'") != NULL' in function
-assert 'strstr(result, "reduced hunger and consumed fridge stock.") != NULL' in function
-assert "REAL NEEDS RESULT: sleep transition was persisted." in function
+assert "process_tools_with_status(safe_action, &action_succeeded)" in function
+assert "world_action_succeeded = action_succeeded;" in function
+assert "strstr(result, \"REAL NEEDS RESULT: eating" not in function
+assert "strstr(result, \"FRIDGE RESULT: eating" not in function
+assert "strstr(result, \"REAL NEEDS RESULT: sleep transition" not in function
+assert 'if (rc == 0 && world_action_succeeded)' in source
+assert source.count('*world_action_succeeded = 1;') == 3
 assert "if (!world_action_succeeded)\n        autonomous_needs_food_safeguard();" in function
 assert "autonomous_needs_yielded_to_conversation" in function
 assert "pthread_mutex_trylock(&conversation_turn_lock)" in function
