@@ -237,7 +237,7 @@ cd /home/x/R2_Home/R2
 bash tools/install_r2_overnight.sh
 ```
 
-The installer refuses to rebuild while an R2 process is already running, prepares missing data-only folders as the `r2` account, then creates a private, consistent snapshot of the three SQLite databases and requires their integrity audit to pass before activation. It also checks existing database-file permissions. Only then does it compile the current source to a temporary executable (preserving the previous binary if compilation fails), install `r2-3po.service`, enable it at boot, and request immediate startup. If the snapshot or integrity audit fails, it stops before installing or starting the service.
+The installer refuses to rebuild while an R2 process is already running, prepares missing data-only folders as the `r2` account, then creates a private, consistent snapshot of all five SQLite databases and requires their integrity audit to pass before activation. It also checks existing database-file permissions. Only then does it compile the current source to a temporary executable (preserving the previous binary if compilation fails), install `r2-3po.service`, enable it at boot, and request immediate startup. If the snapshot or integrity audit fails, it stops before installing or starting the service.
 
 Useful operations:
 
