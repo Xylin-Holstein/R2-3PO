@@ -6,6 +6,21 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 core = (ROOT / "r2.c").read_text(encoding="utf-8")
 
+recall_start = core.find("static int r2_query_explicitly_requests_recall(")
+recall_end = core.find("/* Clip only at a record boundary", recall_start)
+if recall_start < 0 or recall_end < 0:
+    raise SystemExit("Could not isolate the explicit-recall detector.")
+recall_detector = core[recall_start:recall_end]
+for phrase in (
+    '"i remember that you told me"',
+    '"you told me"',
+    '"you were still thinking"',
+    '"is that still true"',
+):
+    if phrase not in recall_detector:
+        raise SystemExit(f"Missing explicit-recall regression phrase: {phrase}")
+print("PASS: first-person recollections and follow-up confirmation questions trigger expanded recall")
+
 
 def require(condition: bool, message: str) -> None:
     if not condition:
