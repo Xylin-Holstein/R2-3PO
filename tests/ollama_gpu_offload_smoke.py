@@ -7,6 +7,7 @@ core = (ROOT / "r2.c").read_text(encoding="utf-8")
 visual = (ROOT / "Visual.c").read_text(encoding="utf-8")
 launcher = (ROOT / "R2_Launch_Code.sh").read_text(encoding="utf-8")
 service = (ROOT / "deploy/r2-3po.service").read_text(encoding="utf-8")
+runner = (ROOT / "tools/r2_service_runner.sh").read_text(encoding="utf-8")
 readme = (ROOT / "README.md").read_text(encoding="utf-8")
 preflight = (ROOT / "tools/preflight_ollama_model.py").read_text(encoding="utf-8")
 
@@ -28,8 +29,10 @@ if 'R2_OLLAMA_NUM_CTX="${R2_OLLAMA_NUM_CTX:-}"' not in launcher:
     raise SystemExit("Interactive launcher must preserve the optional adaptive context override.")
 if 'getenv("R2_OLLAMA_NUM_GPU")' not in visual or 'json_object_object_add(options, "num_gpu"' not in visual:
     raise SystemExit("Vision requests must use the same GPU layer policy as chat.")
-if "Environment=R2_OLLAMA_NUM_GPU=20" not in service:
-    raise SystemExit("Overnight service must request partial offload for the GTX 1050 Ti.")
+if "GTX 1050 Ti" not in runner or "export R2_OLLAMA_NUM_GPU=20" not in runner:
+    raise SystemExit("Overnight service runner must select partial offload when the GTX 1050 Ti is present.")
+if '"R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU"' not in runner:
+    raise SystemExit("Overnight service runner must pass the GPU policy to the R2 process.")
 if 'options["num_gpu"] = gpu_layers' not in preflight or 'f"{API_BASE}/api/ps"' not in preflight:
     raise SystemExit("Ollama preflight must send the configured layer policy and inspect actual VRAM placement.")
 if "size_vram" not in preflight or "nvidia-smi" not in preflight:
