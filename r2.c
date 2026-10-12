@@ -4389,6 +4389,71 @@ static void r2_bound_context_records(char *context, size_t max_chars)
     context[cut] = '\0';
 }
 
+/*
+ * Ask the same local model to interpret the current message for retrieval,
+ * not to answer it. These associative cues are used only to search R2's
+ * existing records; they are never added to the user's message or treated
+ * as facts. Retrieval is attempted on every turn, regardless of whether the
+ * user says "remember" or uses any other special phrase.
+ */
+static char *r2_build_associative_search_query(const char *query)
+{
+    if (!query || !*query)
+        return xstrdup(query ? query : "");
+
+    static const char retrieval_prompt[] =
+        "You are R2's internal associative-memory retrieval planner. "
+        "Do NOT answer the user, roleplay, or claim that a memory exists. "
+        "Interpret the meaning of the user's complete message and output "
+        "only 6 to 10 short search concepts or paraphrases that could help "
+        "find related past experiences in a database. Preserve named people, "
+        "objects, actions, unusual concepts, and relationships. Include "
+        "natural paraphrases and related concepts even when the user did not "
+        "use those exact words. Prefer one concept per line. No commentary, "
+        "no numbering, no JSON, and no invented claims.";
+
+    Message probe;
+    memset(&probe, 0, sizeof(probe));
+    probe.role = (char *)"user";
+    probe.content = (char *)query;
+    probe.pinned = 0;
+
+    const char *previous_query = ollama_authoritative_user_query;
+    ollama_authoritative_user_query = query;
+    char *generated = ollama_chat_with_limit(
+        &probe, 1, retrieval_prompt, 128, 90L);
+    ollama_authoritative_user_query = previous_query;
+
+    if (!generated || !*generated) {
+        free(generated);
+        return xstrdup(query);
+    }
+
+    char *clean = r2_reply_sanitize(generated);
+    free(generated);
+    if (!clean || !*clean) {
+        free(clean);
+        return xstrdup(query);
+    }
+
+    size_t query_length = strlen(query);
+    size_t concepts_length = strlen(clean);
+    const char heading[] = "\\n\\nASSOCIATIVE SEARCH CONCEPTS (retrieval cues only):\\n";
+    size_t total = query_length + sizeof(heading) - 1 + concepts_length + 1;
+    char *combined = malloc(total);
+    if (!combined) {
+        free(clean);
+        return xstrdup(query);
+    }
+
+    snprintf(combined, total, "%s%s%s", query, heading, clean);
+    fprintf(stderr,
+            "[R2 Association] Generated associative retrieval cues (%zu chars); original user text remains unchanged.\\n",
+            concepts_length);
+    free(clean);
+    return combined;
+}
+
 static char *chat_with_relevant_memories(
     const char *query)
 {
@@ -4410,13 +4475,23 @@ static char *chat_with_relevant_memories(
     int history_search_limit = explicit_recall ? R2_RECALL_HISTORY_SEARCHES
                                                : R2_TURN_HISTORY_SEARCHES;
 
+    /* Semantic interpretation supplies database search cues for every turn.
+       The original query remains authoritative and is never rewritten. */
+    char *associative_query = r2_build_associative_search_query(query ? query : "");
+    if (!associative_query)
+        associative_query = xstrdup(query ? query : "");
+    if (!associative_query)
+        return NULL;
+
     char *memory_context = context_cache_get(query ? query : "", memory_limit);
     if (!memory_context) {
-        memory_context = get_relevant_memories(query ? query : "", memory_limit);
+        memory_context = get_relevant_memories(associative_query, memory_limit);
         if (!memory_context)
             memory_context = xstrdup("");
-        if (!memory_context)
+        if (!memory_context) {
+            free(associative_query);
             return NULL;
+        }
         context_cache_store(query ? query : "", memory_limit, memory_context);
     } else {
         fprintf(stderr, "[R2 Context] Reused persistent-memory retrieval from RAM cache.\\n");
@@ -4431,7 +4506,7 @@ static char *chat_with_relevant_memories(
     */
     if (query && *query && r2_log_is_initialized()) {
         char keywords[MAX_MEMORY_KEYWORDS][64];
-        size_t keyword_count = extract_memory_keywords(query, keywords);
+        size_t keyword_count = extract_memory_keywords(associative_query, keywords);
         char *history = calloc(1, 1);
         size_t history_length = 0;
         int searches = 0;
@@ -4504,6 +4579,7 @@ static char *chat_with_relevant_memories(
         }
         free(history);
     }
+    free(associative_query);
 
     fprintf(stderr,
             "[R2 Context] Turn retrieval profile=%s memory_limit=%d memory_chars=%zu history_search_limit=%d history_chars=%zu.\\n",
