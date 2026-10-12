@@ -165,7 +165,7 @@ if [[ -d "$R2_ROOT" && -d "$R2_SOURCE" ]]; then
     # as r2, but existing unwritable paths would otherwise fail after launch.
     for path in "$R2_ROOT/R2_Diary" "$R2_ROOT/room" "$R2_ROOT/room/shelf" "$R2_ROOT/room/box" "$R2_ROOT/room/piggybank" "$R2_ROOT/Pockets" "$R2_ROOT/Pockets/Wallet" "$R2_ROOT/fridge"; do
       [[ -e "$path" ]] || continue
-      if sudo -n -u r2 test -d "$path" && sudo -n -u r2 test -r "$path" && sudo -n -u r2 test -x "$path" && sudo -n -u r2 test -w "$path"; then
+      if run_as_r2 test -d "$path" && run_as_r2 test -r "$path" && run_as_r2 test -x "$path" && run_as_r2 test -w "$path"; then
         pass "r2 can read/write/traverse existing runtime directory $path"
       else
         fail "existing runtime directory is not read/write/traverse accessible to r2: $path"
