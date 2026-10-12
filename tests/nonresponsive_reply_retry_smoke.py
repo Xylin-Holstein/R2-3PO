@@ -32,6 +32,8 @@ for phrase in (
     "\"the message is\"",
     "\"you're saying\"",
     "acknowledgement_terms",
+    "if (!reports_r2_output_problem && strlen(query) < 24)",
+    "if (!reports_r2_output_problem && words < 5)",
     "If the user reports that YOUR prior message",
     "proposes_user_intent",
     "asks_for_confirmation",
