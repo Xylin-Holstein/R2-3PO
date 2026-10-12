@@ -302,6 +302,21 @@ require(
     and "Preserve the last valid snapshot if refresh allocation fails." in core[refresh_start:refresh_end],
     "Reality and learning context refresh together and preserve the last valid snapshot on failure",
 )
+
+require(
+    "if (r2_reality_tick() != 0)" in core
+    and "preserving the previous snapshot" in core
+    and "Retry could not refresh Reality/learning context" in core,
+    "Reality tick failures are reported and never silently treated as a successful context refresh",
+)
+require(
+    "log_post_turn_start_failure" in core
+    and "post_turn_worker_start_failed" in core
+    and "job allocation" in core
+    and "turn copy allocation" in core
+    and "thread creation" in core,
+    "failed post-turn learning scheduling is logged instead of silently skipping introspection/memory learning",
+)
 require(
     'bridge_event("prolonged_starvation"' in reality
     and '"R2 reached 72 modeled hours without a qualifying meal."' in reality
