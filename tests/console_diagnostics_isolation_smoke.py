@@ -35,4 +35,14 @@ require(
     and '[R2 Input Audit] r2_talk_received_chars=%zu' in core,
     "input length is audited at both shell and conversation-core boundaries without logging message contents",
 )
+require(
+    '"[HAND %s] %.*s"' in core
+    and 'fprintf(\\n            stderr,\\n            "[HAND %s] %.*s"' in core,
+    "background HANDS output goes to diagnostics rather than the interactive reply stream",
+)
+require(
+    'printf(\\n                "\\n[R2 autonomous diary reflection written]' not in core
+    and 'Autonomous reflection written to diary and Life Log.' in core,
+    "background diary reflections are archived without printing their contents over the conversation terminal",
+)
 print("R2 console diagnostic isolation smoke test passed.")
