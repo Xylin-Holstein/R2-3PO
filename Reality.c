@@ -1581,6 +1581,62 @@ static int migrate_legacy_reality(void)
     return result;
 }
 
+static int reality_column_exists(const char *table, const char *column)
+{
+    char sql[256];
+    int n = snprintf(sql, sizeof(sql), "PRAGMA table_info(%s)", table);
+    if (n < 0 || (size_t)n >= sizeof(sql)) return 0;
+    sqlite3_stmt *st = NULL;
+    int found = 0;
+    if (sqlite3_prepare_v2(reality_db, sql, -1, &st, NULL) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            const unsigned char *name = sqlite3_column_text(st, 1);
+            if (name && !strcasecmp((const char *)name, column)) {
+                found = 1;
+                break;
+            }
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    return found;
+}
+
+static int reality_ensure_self_column(const char *column, const char *definition)
+{
+    if (reality_column_exists("r2_reality_self", column)) return 0;
+    char sql[512];
+    int n = snprintf(sql, sizeof(sql),
+                     "ALTER TABLE r2_reality_self ADD COLUMN %s %s;",
+                     column, definition);
+    if (n < 0 || (size_t)n >= sizeof(sql)) return -1;
+    return exec_sql(sql);
+}
+
+static int migrate_reality_self_schema(void)
+{
+    const char *columns[][2] = {
+        {"hunger", "REAL NOT NULL DEFAULT 0"},
+        {"satisfaction", "REAL NOT NULL DEFAULT 100"},
+        {"seconds_since_meal", "REAL NOT NULL DEFAULT 0"},
+        {"sleepiness", "REAL NOT NULL DEFAULT 0"},
+        {"energy", "REAL NOT NULL DEFAULT 100"},
+        {"last_tick", "INTEGER NOT NULL DEFAULT 0"},
+        {"updated_at", "TEXT NOT NULL DEFAULT ''"}
+    };
+    for (size_t i = 0; i < sizeof(columns) / sizeof(columns[0]); ++i) {
+        if (reality_ensure_self_column(columns[i][0], columns[i][1]) != 0)
+            return -1;
+    }
+    if (exec_sql(
+        "INSERT OR IGNORE INTO r2_reality_self"
+        "(id,hunger,satisfaction,seconds_since_meal,sleepiness,energy,last_tick) "
+        "VALUES(1,0,100,0,0,100,strftime('%s','now'));"
+        "UPDATE r2_reality_self SET updated_at=CURRENT_TIMESTAMP "
+        "WHERE updated_at IS NULL OR updated_at='';") != 0)
+        return -1;
+    return 0;
+}
+
 int r2_reality_init(void)
 {
     pthread_mutex_lock(&reality_lock);
