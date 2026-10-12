@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import subprocess
 import sys
 import time
 import urllib.error
@@ -53,6 +55,20 @@ def preflight(wait_seconds: float = 0, timeout: float = 180) -> bool:
             return False
         time.sleep(min(1, remaining))
 
+    gpu_layers_raw = os.environ.get("R2_OLLAMA_NUM_GPU", "0").strip() or "0"
+    try:
+        gpu_layers = int(gpu_layers_raw)
+    except ValueError:
+        print(f"ERROR: Invalid R2_OLLAMA_NUM_GPU={gpu_layers_raw!r}; use -1, 0, or a positive layer count.", file=sys.stderr)
+        return False
+    if gpu_layers < -1 or gpu_layers > 999:
+        print("ERROR: R2_OLLAMA_NUM_GPU must be between -1 and 999.", file=sys.stderr)
+        return False
+
+    options: dict[str, Any] = {"temperature": 0, "num_predict": 8}
+    if gpu_layers != 0:
+        options["num_gpu"] = gpu_layers
+
     try:
         reply = _read_json(
             f"{API_BASE}/api/chat",
@@ -65,7 +81,7 @@ def preflight(wait_seconds: float = 0, timeout: float = 180) -> bool:
                 }],
                 "stream": False,
                 "keep_alive": "10m",
-                "options": {"temperature": 0, "num_predict": 8},
+                "options": options,
             },
         )
     except (OSError, ValueError, urllib.error.URLError, TimeoutError) as exc:
@@ -79,6 +95,47 @@ def preflight(wait_seconds: float = 0, timeout: float = 180) -> bool:
         return False
 
     print(f"Local Ollama is ready: {MODEL} completed a real chat generation (reply omitted).")
+    if gpu_layers == 0:
+        print("GPU policy: automatic placement (no explicit layer count sent).")
+    else:
+        print(f"GPU policy: requested {gpu_layers} model layers on the GPU.")
+
+    # Keep the model warm during this check, then inspect Ollama's own process
+    # report. A successful API request alone does not prove GPU offload.
+    try:
+        ps = _read_json(f"{API_BASE}/api/ps", timeout=min(8, max(1, timeout)))
+        loaded = ps.get("models", [])
+        active = next((item for item in loaded
+                       if isinstance(item, dict)
+                       and (item.get("name") == MODEL
+                            or str(item.get("name", "")).startswith(MODEL + "-"))), None)
+        if active is None:
+            print("GPU verification: model not present in /api/ps; placement remains unverified.")
+        else:
+            vram = active.get("size_vram", 0)
+            try:
+                vram = int(vram)
+            except (TypeError, ValueError):
+                vram = 0
+            if vram > 0:
+                print(f"GPU verification: Ollama reports {vram / (1024 ** 3):.2f} GiB allocated in GPU VRAM.")
+            else:
+                print("GPU verification: Ollama reports no VRAM allocation; inference may be CPU-only.")
+    except (OSError, ValueError, urllib.error.URLError, TimeoutError) as exc:
+        print(f"GPU verification unavailable: could not query Ollama /api/ps ({exc}).")
+
+    # Host-side diagnostic; lack of nvidia-smi access does not fail preflight.
+    try:
+        gpu = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,memory.total,memory.used", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+        if gpu.returncode == 0 and gpu.stdout.strip():
+            print("NVIDIA hardware: " + "; ".join(gpu.stdout.strip().splitlines()))
+        else:
+            print("NVIDIA hardware: nvidia-smi did not report a usable device; check Ollama logs.")
+    except (OSError, subprocess.TimeoutExpired):
+        print("NVIDIA hardware: nvidia-smi unavailable; GPU backend detection is not confirmed.")
     return True
 
 

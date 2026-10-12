@@ -4,6 +4,23 @@ R2_ROOT="/home/x/R2_Home"
 R2_SOURCE="$R2_ROOT/R2"
 R2_EXEC="$R2_ROOT/r2"
 
+# On this host the GTX 1050 Ti has 4 GiB VRAM. Request a partial layer
+# offload by default instead of forcing the entire model into limited VRAM.
+# An explicit environment value always wins; 0 leaves placement automatic.
+if [[ -z "${R2_OLLAMA_NUM_GPU+x}" ]]; then
+    if command -v nvidia-smi >/dev/null 2>&1 &&
+       nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi 'GTX 1050 Ti'; then
+        export R2_OLLAMA_NUM_GPU=20
+        echo "[GPU] NVIDIA GeForce GTX 1050 Ti detected; requesting 20 model layers on GPU."
+    else
+        export R2_OLLAMA_NUM_GPU=0
+        echo "[GPU] GTX 1050 Ti not detected; leaving placement automatic."
+    fi
+else
+    export R2_OLLAMA_NUM_GPU
+    echo "[GPU] Using configured R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU."
+fi
+
 # Run the read-only deployment preflight before touching workspace state,
 # compiling, installing packages, starting the observer, or launching R2.
 R2_FX_DIR="${R2_FX_DIR:-$R2_ROOT/R2_sounds/FX}"
@@ -33,11 +50,6 @@ if [[ -t 0 ]]; then
     read -r -p "Press Enter to continue launching R2, or Ctrl+C to cancel..."
 fi
 echo
-
-# Let Ollama choose CPU/GPU placement by default. This is the safest policy
-# on CPU-only hosts and on machines whose GPU backend is unsupported. Set
-# R2_OLLAMA_NUM_GPU explicitly only when you have verified a supported backend.
-export R2_OLLAMA_NUM_GPU="${R2_OLLAMA_NUM_GPU:-0}"
 
 # The interactive launcher and the overnight service share persistent databases.
 # Never start a second core against those same files.
@@ -92,8 +104,12 @@ R2_DIRS=(
     "$R2_ROOT/fridge"
 )
 for DIR in "${R2_DIRS[@]}"; do
-    if ! mkdir -p "$DIR"; then
-        echo "ERROR: Could not create workspace directory: $DIR"
+    # Runtime-owned directories must be created as r2. Creating a missing
+    # directory as the desktop login user would leave it mode 0755 and
+    # unwritable by R2, causing SQLite/diary/world-state writes to fail later.
+    if ! sudo -n -u r2 mkdir -p "$DIR"; then
+        echo "ERROR: Could not create workspace directory as r2: $DIR"
+        echo "Check that r2 can traverse and write the workspace root."
         read -p "Press Enter to exit..."
         exit 1
     fi
@@ -412,7 +428,7 @@ echo
 # Build beside the live executable and replace it only after a successful link.
 # This preserves the last known-good R2 binary if compilation fails.
 TEMP_EXEC="${R2_EXEC}.tmp.${BASHPID}"
-if [ -e "$TEMP_EXEC" ]; then
+if [ -e "$TEMP_EXEC" ] || [ -L "$TEMP_EXEC" ]; then
     echo "ERROR: Temporary build path already exists: $TEMP_EXEC"
     echo "R2 was NOT launched."
     exit 1
@@ -528,8 +544,22 @@ fi
 # START R2 WITH ITS PRIVATE CLOCK
 # ------------------------------------------------------------
 
-sudo -u r2 -g r2 -G "$R2_RUNTIME_GROUPS" \
+R2_UID="$(id -u r2)"
+R2_GID="$(id -g r2)"
+R2_HOME_DIR="$(getent passwd r2 | cut -d: -f6)"
+if [[ ! "$R2_UID" =~ ^[0-9]+$ || ! "$R2_GID" =~ ^[0-9]+$ || -z "$R2_HOME_DIR" ]]; then
+    echo "ERROR: Could not resolve the dedicated r2 account identity."
+    exit 1
+fi
+
+# Ubuntu sudo-rs does not support sudo's traditional -G option. Run setpriv
+# with elevated privilege only long enough to set supplementary groups, then
+# drop UID/GID before starting R2. No permanent account/group changes occur.
+sudo -n setpriv --reuid="$R2_UID" --regid="$R2_GID" --groups="$R2_RUNTIME_GROUPS" -- \
     env \
+    HOME="$R2_HOME_DIR" \
+    USER="r2" \
+    LOGNAME="r2" \
     DISPLAY="${DISPLAY:-}" \
     XAUTHORITY="${XAUTHORITY:-}" \
     LD_PRELOAD="$FAKETIME_LIB" \

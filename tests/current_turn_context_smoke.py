@@ -57,15 +57,15 @@ learning_start = budget_logic.find('"PERSISTENT LEARNING CONTEXT"')
 learning_end = budget_logic.find("else if", learning_start) if learning_start >= 0 else -1
 require(
     learning_start >= 0 and learning_end > learning_start
-    and "message_priority = 3;" in budget_logic[learning_start:learning_end],
-    "persistent learning is retained after live Reality and active-turn evidence",
+    and "message_priority = 4;" in budget_logic[learning_start:learning_end],
+    "persistent learning is retained after live Reality, active-turn evidence, and startup memory",
 )
 require(
-    "int message_priority = 3;" in budget_logic,
+    "int message_priority = 4;" in budget_logic,
     "generic system context cannot crowd out active-turn retrieved evidence",
 )
 archive_start = budget_logic.find('"PAST CONVERSATION ARCHIVE — CONTEXT ONLY."')
-archive_end = budget_logic.find("message_priority = 4;", archive_start) if archive_start >= 0 else -1
+archive_end = budget_logic.find("message_priority = 5;", archive_start) if archive_start >= 0 else -1
 require(
     archive_start >= 0 and archive_end > archive_start,
     "archived dialogue is lowest priority and cannot crowd out current context",

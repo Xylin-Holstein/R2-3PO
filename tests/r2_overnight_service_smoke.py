@@ -69,6 +69,7 @@ class OvernightServiceTests(unittest.TestCase):
         launcher = (ROOT / "R2_Launch_Code.sh").read_text(encoding="utf-8")
         self.assertIn("Checking the local Ollama API and required model", launcher)
         self.assertIn('TEMP_EXEC="${R2_EXEC}.tmp.${BASHPID}"', launcher)
+        self.assertIn('if [ -e "$TEMP_EXEC" ] || [ -L "$TEMP_EXEC" ]; then', launcher)
         self.assertIn("preflight_ollama_model.py", launcher)
         self.assertIn("gemma3:4b", launcher)
         self.assertLess(launcher.index("Checking the local Ollama API"), launcher.index('echo "[3/4] Recompiling R2..."'))
@@ -83,7 +84,8 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn('export R2_OLLAMA_NUM_GPU="${R2_OLLAMA_NUM_GPU:-0}"', launcher)
         self.assertIn("R2_RUNTIME_GROUPS=", launcher)
         self.assertIn('R2_RUNTIME_GROUPS+=",${AUDIO_GID}"', launcher)
-        self.assertIn('sudo -u r2 -g r2 -G "$R2_RUNTIME_GROUPS"', launcher)
+        self.assertIn('sudo -n setpriv --reuid="$R2_UID" --regid="$R2_GID" --groups="$R2_RUNTIME_GROUPS" --', launcher)
+        self.assertNotIn('sudo -u r2 -g r2 -G "$R2_RUNTIME_GROUPS"', launcher)
         self.assertNotIn("usermod -aG audio", launcher)
 
     def test_installer_is_non_destructive_and_does_not_update_apt(self):

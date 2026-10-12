@@ -11,6 +11,19 @@ OLLAMA_TAGS_URL="http://127.0.0.1:11434/api/tags"
 log() { printf '[R2 service] %s\n' "$*"; }
 fail() { log "ERROR: $*"; exit 1; }
 
+# Match the interactive launcher: prefer partial offload on the target 4 GiB
+# GTX 1050 Ti, but keep automatic placement when that card is not installed.
+# An explicit service environment override always takes precedence.
+if [[ -z "${R2_OLLAMA_NUM_GPU+x}" ]]; then
+    if command -v nvidia-smi >/dev/null 2>&1 &&
+       nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi 'GTX 1050 Ti'; then
+        export R2_OLLAMA_NUM_GPU=20
+    else
+        export R2_OLLAMA_NUM_GPU=0
+    fi
+fi
+log "Ollama GPU layer policy: R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU"
+
 # Acquire the sleep inhibitor before waiting for Ollama or doing any preflight.
 # Re-enter this script under the inhibitor with real time; faketime is applied
 # only to the final R2 process, never to systemd-inhibit or its checks.
@@ -123,6 +136,7 @@ R2_ENV=(/usr/bin/env
     "FAKETIME_DONT_RESET=1"
     "R2_SERVICE_MODE=1"
     "R2_OLLAMA_TIMEOUT_SECONDS=${R2_OLLAMA_TIMEOUT_SECONDS:-}"
+    "R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU"
     "R2_FX_DIR=$R2_FX_DIR"
     "R2_VISION_MODEL=gemma3:4b"
     "$R2_EXEC")

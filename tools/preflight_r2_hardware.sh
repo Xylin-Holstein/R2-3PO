@@ -14,6 +14,25 @@ fail() { printf '[FAIL] %s\n' "$*"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s ==\n' "$*"; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
+# sudo-rs (Ubuntu's Rust sudo) does not implement sudo's traditional -G flag.
+# Use setpriv to install supplementary groups before dropping to r2. This is
+# scoped to one process and never changes r2's persistent group membership.
+run_as_r2_with_audio_group() {
+  have setpriv || return 127
+  local uid gid groups audio_gid
+  uid="$(id -u r2)" || return 1
+  gid="$(id -g r2)" || return 1
+  groups="$(id -G r2 | tr ' ' ',')" || return 1
+  audio_gid="$(getent group audio 2>/dev/null | cut -d: -f3 || true)"
+  if [[ "$audio_gid" =~ ^[0-9]+$ ]]; then
+    case ",$groups," in
+      *,"$audio_gid",*) ;;
+      *) groups+=",${audio_gid}" ;;
+    esac
+  fi
+  sudo -n setpriv --reuid="$uid" --regid="$gid" --groups="$groups" -- "$@"
+}
+
 section "Host summary"
 printf 'Workspace: %s\nSource: %s\nExecutable: %s\nFX assets: %s\n' "$R2_ROOT" "$R2_SOURCE" "$R2_EXEC" "$R2_FX_DIR"
 if have lscpu; then lscpu | awk -F: '/^Model name:/ {gsub(/^[ \t]+/, "", $2); print "CPU: " $2; exit}'; fi
@@ -28,7 +47,7 @@ else printf 'GPU: no NVIDIA runtime detected; CPU inference may still work.\n'; 
 
 section "Required files and build tools"
 # These commands are used directly by the interactive launcher or overnight installer.
-for tool in bash make gcc curl python3 sudo pgrep date find grep cmp; do
+for tool in bash make gcc curl python3 sudo setpriv pgrep date find grep cmp; do
   if have "$tool"; then pass "$tool installed"; else fail "$tool missing"; fi
 done
 if have xhost; then pass "xhost available for optional Observer GUI access"; else warn "xhost missing; Observer may not be able to grant the r2 account X display access."; fi
@@ -86,13 +105,36 @@ else printf '[INFO] no active R2 core detected\n'; fi
 section "Dedicated user, workspace, and sound assets"
 if id r2 >/dev/null 2>&1; then pass "Linux account r2 exists"; else fail "Linux account r2 missing"; fi
 if [[ -d "$R2_ROOT" && -d "$R2_SOURCE" ]]; then
-  for path in "$R2_ROOT" "$R2_SOURCE"; do
-    if have sudo && id r2 >/dev/null 2>&1; then
+  if have sudo && id r2 >/dev/null 2>&1; then
+    for path in "$R2_ROOT" "$R2_SOURCE"; do
       if sudo -n -u r2 test -r "$path" && sudo -n -u r2 test -x "$path" && sudo -n -u r2 test -w "$path"; then
         pass "r2 can read/write/traverse $path"
-      else warn "could not verify r2 permissions on $path (sudo may require a password); installer performs authoritative checks."; fi
-    fi
-  done
+      else
+        fail "r2 must have read/write/traverse access to $path for runtime directories, SQLite, and persistent memory; correct ownership/permissions before launch"
+      fi
+    done
+    # Existing persistent directories/files must be writable by the actual
+    # runtime account. Missing directories are okay: the launcher creates them
+    # as r2, but existing unwritable paths would otherwise fail after launch.
+    for path in "$R2_ROOT/R2_Diary" "$R2_ROOT/room" "$R2_ROOT/room/shelf" "$R2_ROOT/room/box" "$R2_ROOT/room/piggybank" "$R2_ROOT/Pockets" "$R2_ROOT/Pockets/Wallet" "$R2_ROOT/fridge"; do
+      [[ -e "$path" ]] || continue
+      if sudo -n -u r2 test -d "$path" && sudo -n -u r2 test -r "$path" && sudo -n -u r2 test -x "$path" && sudo -n -u r2 test -w "$path"; then
+        pass "r2 can read/write/traverse existing runtime directory $path"
+      else
+        fail "existing runtime directory is not read/write/traverse accessible to r2: $path"
+      fi
+    done
+    for database in "$R2_SOURCE/r2_memory.db" "$R2_SOURCE/r2_reality.db" "$R2_SOURCE/r2_fridge.db" "$R2_SOURCE/r2_rewards.db" "$R2_SOURCE/r2_addictions.db"; do
+      [[ -e "$database" ]] || continue
+      if [[ -L "$database" ]]; then
+        fail "refusing symlinked runtime database: $database"
+      elif sudo -n -u r2 test -f "$database" && sudo -n -u r2 test -r "$database" && sudo -n -u r2 test -w "$database"; then
+        pass "r2 can read/write database $database"
+      else
+        fail "existing database must be a readable/writable regular file for r2: $database"
+      fi
+    done
+  fi
 else fail "workspace root or source directory missing"; fi
 if [[ -d "$R2_FX_DIR" && -r "$R2_FX_DIR" ]]; then
   if find "$R2_FX_DIR" -maxdepth 1 -type f -iname '*.mp3' -print -quit 2>/dev/null | grep -q .; then
@@ -206,8 +248,8 @@ for node in /dev/snd/*; do
     # Test the service's configured supplementary group without changing
     # account membership or touching device state.
     if [[ "$service_audio_group_configured" -eq 1 ]] &&
-       sudo -n -u r2 -g r2 -G audio test -r "$node" &&
-       sudo -n -u r2 -g r2 -G audio test -w "$node"; then
+       run_as_r2_with_audio_group test -r "$node" &&
+       run_as_r2_with_audio_group test -w "$node"; then
       sound_node_service_accessible=$((sound_node_service_accessible + 1))
     fi
   fi
