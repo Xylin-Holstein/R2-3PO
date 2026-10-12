@@ -284,6 +284,15 @@ require(
     "tool-call and tool-result history is appended atomically, preventing half-written turns",
 )
 
+tool_pair_start = core.find('message_add_pair_locked("assistant", reply, "user", tools)')
+tool_pair_end = core.find("reply = chat_with_relevant_memories(message);", tool_pair_start)
+require(
+    tool_pair_start >= 0 and tool_pair_end > tool_pair_start
+    and "The result was: %.1200s." in core[tool_pair_start:tool_pair_end]
+    and core.find("free(tools);", tool_pair_start) > core.find("if (pair_rc != 0)", tool_pair_start),
+    "if tool-history persistence fails, R2 retains and reports the actual tool result without rerunning the action",
+)
+
 refresh_start = core.find("static int refresh_reality_context_message(void)")
 refresh_end = core.find("\nstatic int reply_has_visible_text", refresh_start)
 require(
