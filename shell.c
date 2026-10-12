@@ -621,11 +621,11 @@ static void shell_talk(const char *message)
     if (!reply || !*reply) {
         fprintf(
             stderr,
-            "[R2] Conversation backend returned no visible answer; the shell is showing a fallback instead of silently dropping the turn.\\n"
+            "[R2] Conversation backend returned no visible answer; the shell is showing a fallback instead of silently dropping the turn.\n"
         );
         printf(
-            "\\nR2-3PO: I'm sorry, Mom—the conversation backend didn't return a usable reply. "
-            "Your message reached me, but I couldn't answer it this time. Please try again.\\n\\n"
+            "\nR2-3PO: I'm sorry, Mom—the conversation backend didn't return a usable reply. "
+            "Your message reached me, but I couldn't answer it this time. Please try again.\n\n"
         );
         free(reply);
         return;
@@ -1469,10 +1469,10 @@ static int shell_reality(const char *argument)
                     quantity = (int)parsed;
             }
             if (!quantity_valid) {
-                printf("[R2 Reality] Quantity must be a positive whole number.\\n");
+                printf("[R2 Reality] Quantity must be a positive whole number.\n");
             } else {
                 int rc = r2_reality_add_item(parts[0], desc, container, quantity);
-                printf(rc == 0 ? "[R2 Reality] Item recorded.\\n" : "[R2 Reality] Item could not be recorded.\\n");
+                printf(rc == 0 ? "[R2 Reality] Item recorded.\n" : "[R2 Reality] Item could not be recorded.\n");
             }
         }
         free(copy);
