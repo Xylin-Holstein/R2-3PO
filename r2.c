@@ -4479,7 +4479,22 @@ static int r2_query_explicitly_requests_recall(const char *query)
         "last time we",
         "search my memories",
         "look through my memories",
-        "recall our conversation"
+        "recall our conversation",
+        /* First-person references to something R2 previously said are recall too. */
+        "i remember that you told me",
+        "i remember you told me",
+        "i remember you said",
+        "i remember you mentioned",
+        "you told me",
+        "you said you",
+        "you mentioned that you",
+        "you were thinking about",
+        "you were still thinking",
+        "is that still true",
+        "are you still thinking",
+        "do you still think",
+        "you previously said",
+        "you once told me"
     };
     for (size_t i = 0; i < sizeof(recall_phrases) / sizeof(recall_phrases[0]); ++i) {
         if (strcasestr(query, recall_phrases[i]))
