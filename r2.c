@@ -4315,7 +4315,7 @@ static char *r2_retry_direct_answer(Message *messages_copy,
 #define R2_TURN_MEMORY_LIMIT 6
 #define R2_TURN_MEMORY_CHARS 2000
 #define R2_TURN_HISTORY_CHARS 1000
-#define R2_TURN_HISTORY_SEARCHES 2
+#define R2_TURN_HISTORY_SEARCHES 6
 #define R2_RECALL_MEMORY_CHARS 14000
 #define R2_RECALL_HISTORY_CHARS 10000
 #define R2_RECALL_HISTORY_SEARCHES 4
@@ -4571,7 +4571,7 @@ static char *chat_with_relevant_memories(
     size_t history_char_limit = explicit_recall ? R2_RECALL_HISTORY_CHARS
                                                 : R2_TURN_HISTORY_CHARS;
     int history_search_limit = explicit_recall ? R2_RECALL_HISTORY_SEARCHES
-                                               : 6;
+                                               : R2_TURN_HISTORY_SEARCHES;
 
     /* Semantic interpretation supplies database search cues for every turn.
        The original query remains authoritative and is never rewritten. */
