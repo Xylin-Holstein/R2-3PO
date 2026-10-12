@@ -57,7 +57,7 @@ learning_start = budget_logic.find('"PERSISTENT LEARNING CONTEXT"')
 learning_end = budget_logic.find("else if", learning_start) if learning_start >= 0 else -1
 require(
     learning_start >= 0 and learning_end > learning_start
-    and "message_priority = 3;" in budget_logic[learning_start:learning_end],
+    and "message_priority = 4;" in budget_logic[learning_start:learning_end],
     "persistent learning is retained after live Reality, active-turn evidence, and startup memory",
 )
 require(
