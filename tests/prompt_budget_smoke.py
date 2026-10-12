@@ -18,11 +18,11 @@ def macro(name: str) -> int:
 per_message = macro("OLLAMA_MAX_SYSTEM_MESSAGE_CHARS")
 system_total = macro("OLLAMA_MAX_SYSTEM_TOTAL_CHARS")
 history_total = macro("OLLAMA_MAX_TOTAL_CHARS")
-if per_message > 20000 or per_message < 19000:
+if per_message > 24000 or per_message < 23000:
     raise SystemExit(f"System message cap must preserve the complete pinned prompt: {per_message}")
-if system_total > 32000 or system_total < 30000:
+if system_total > 42000 or system_total < 40000:
     raise SystemExit(f"Aggregate system context cap must preserve identity and live context: {system_total}")
-if history_total > 36000 or history_total < 34000:
+if history_total > 48000 or history_total < 46000:
     raise SystemExit(f"Bounded total history cap should remain finite but preserve the full prompt: {history_total}")
 
 start = core.find("static const char *SYSTEM_PROMPT =")
