@@ -34,7 +34,7 @@ class OvernightServiceTests(unittest.TestCase):
 
     def test_runner_checks_local_model_and_private_clock(self):
         source = (ROOT / "tools/r2_service_runner.sh").read_text(encoding="utf-8")
-        self.assertIn("gemma3:4b", source)
+        self.assertIn("qwen3.5:9b", source)
         self.assertIn("refusing symlinked R2 database", source)
         self.assertIn("r2_fridge.db", source)
         self.assertIn("r2_rewards.db", source)
@@ -75,7 +75,7 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn('TEMP_EXEC="${R2_EXEC}.tmp.${BASHPID}"', launcher)
         self.assertIn('if [ -e "$TEMP_EXEC" ] || [ -L "$TEMP_EXEC" ]; then', launcher)
         self.assertIn("preflight_ollama_model.py", launcher)
-        self.assertIn("gemma3:4b", launcher)
+        self.assertIn("qwen3.5:9b", launcher)
         self.assertLess(launcher.index("Checking the local Ollama API"), launcher.index('echo "[3/4] Recompiling R2..."'))
         self.assertIn("systemctl is-active --quiet r2-3po.service", launcher)
         self.assertIn("two R2 cores", launcher)
