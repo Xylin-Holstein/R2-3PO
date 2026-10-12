@@ -323,6 +323,13 @@ require(
 )
 
 require(
+    "conversation_public_api_fallback" in core
+    and "implementation_reply=%s; input_chars=%zu; user_text_logged=no" in core
+    and "Public conversation API received a %s reply" in core,
+    "the last public API recovery boundary logs null/empty implementation replies without recording private user text",
+)
+
+require(
     "post_turn_memory_decision_failed" in core
     and "memory_save_failed" in core
     and "self_state_extraction_allocation_failed" in core
