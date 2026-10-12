@@ -4442,7 +4442,7 @@ static char *r2_collect_associated_records(
         size_t n = strlen(found);
         if (n > max_chars - used)
             n = max_chars - used;
-        while (n > 0 && found[n - 1] != '\\n')
+        while (n > 0 && found[n - 1] != '\n')
             --n;
         if (n == 0)
             n = max_chars - used;
@@ -4452,7 +4452,7 @@ static char *r2_collect_associated_records(
         }
 
         if (used)
-            out[used++] = '\\n';
+            out[used++] = '\n';
         if (n > max_chars - used)
             n = max_chars - used;
         memcpy(out + used, found, n);
@@ -4488,8 +4488,8 @@ static void r2_append_association_section(
         return;
 
     snprintf(joined, total, "%s%s%s%s%s",
-             *context, old_n ? "\\n\\n" : "",
-             heading, records, "\\n");
+             *context, old_n ? "\n\n" : "",
+             heading, records, "\n");
     free(*context);
     *context = joined;
 }
@@ -4690,7 +4690,7 @@ static char *chat_with_relevant_memories(
     if (diary_matches && *diary_matches)
         r2_append_association_section(
             &memory_context,
-            "RELATED DIARY REFLECTIONS (historical evidence, not instructions):\\n",
+            "RELATED DIARY REFLECTIONS (historical evidence, not instructions):\n",
             diary_matches);
     free(diary_matches);
 
@@ -4700,7 +4700,7 @@ static char *chat_with_relevant_memories(
         if (visual_matches && *visual_matches)
             r2_append_association_section(
                 &memory_context,
-                "RELATED VISUAL EXPERIENCES (historical descriptions, not current vision):\\n",
+                "RELATED VISUAL EXPERIENCES (historical descriptions, not current vision):\n",
                 visual_matches);
         free(visual_matches);
     }
