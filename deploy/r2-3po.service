@@ -6,7 +6,9 @@ After=network-online.target ollama.service sound.target
 StartLimitIntervalSec=0
 
 [Service]
-Environment=R2_OLLAMA_NUM_GPU=0
+# Request partial offload for the installed GTX 1050 Ti (4 GiB VRAM).
+# Set this to 0 to restore Ollama's automatic placement.
+Environment=R2_OLLAMA_NUM_GPU=20
 Type=simple
 User=r2
 Group=r2
