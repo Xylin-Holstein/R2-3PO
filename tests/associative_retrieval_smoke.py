@@ -41,6 +41,14 @@ require(
     "generated associations are used to search persistent memory and Life Log history",
 )
 require(
+    "r2_diary_search" in builder and "r2_visual_search" in builder,
+    "the same associations also search the separate diary and visual experience stores",
+)
+require(
+    "RELATED DIARY REFLECTIONS" in builder and "RELATED VISUAL EXPERIENCES" in builder,
+    "diary and visual evidence is labeled as historical context rather than current fact",
+)
+require(
     "message_add(\"user\", message)" in core
     and "CURRENT TURN RETRIEVED CONTEXT" in builder,
     "the original user message remains a separate authoritative turn",
