@@ -45,7 +45,7 @@ diary_marker = core.find("The full reflection is stored in the diary.")
 diary_end = core.find("} else {", diary_marker)
 diary_block = core[diary_marker:diary_end] if diary_marker >= 0 and diary_end > diary_marker else ""
 require(
-    diary_marker >= 0 and "fprintf(stderr" in diary_block and "\\n            printf(" not in diary_block,
+    diary_marker >= 0 and "fprintf(stderr" in diary_block and "\n            printf(" not in diary_block,
     "background diary reflections are archived without printing their contents over the conversation terminal",
 )
 print("R2 console diagnostic isolation smoke test passed.")
