@@ -3215,7 +3215,7 @@ static void ollama_trace_prompt_if_enabled(const char *payload)
 static int r2_inference_system_priority(const char *content)
 {
     if (!content)
-        return 3;
+        return 4;
     if (!strncmp(content,
                  "============================================================\nIDENTITY AND PERSISTENT MEMORY",
                  strlen("============================================================\nIDENTITY AND PERSISTENT MEMORY")))
@@ -3226,13 +3226,21 @@ static int r2_inference_system_priority(const char *content)
     if (!strncmp(content, "CURRENT TURN RETRIEVED CONTEXT",
                   strlen("CURRENT TURN RETRIEVED CONTEXT")))
         return 2;
+    /*
+     * Startup memory has a distinct heading from the identity prompt. Keep it
+     * after the live turn's focused retrieval, but ahead of learned summaries
+     * and archived dialogue so the broad persistent snapshot is not silently
+     * crowded out by lower-priority context.
+     */
+    if (strstr(content, "R2 PERSISTENT MEMORY - STARTUP CONTEXT"))
+        return 3;
     if (!strncmp(content, "PERSISTENT LEARNING CONTEXT",
                   strlen("PERSISTENT LEARNING CONTEXT")))
-        return 3;
+        return 4;
     if (!strncmp(content, "PAST CONVERSATION ARCHIVE — CONTEXT ONLY.",
                   strlen("PAST CONVERSATION ARCHIVE — CONTEXT ONLY.")))
-        return 4;
-    return 3;
+        return 5;
+    return 4;
 }
 
 static size_t r2_order_inference_messages(const Message *msgs,
@@ -3245,7 +3253,7 @@ static size_t r2_order_inference_messages(const Message *msgs,
         return 0;
 
     size_t used = 0;
-    for (int priority = 0; priority < 5; ++priority) {
+    for (int priority = 0; priority < 6; ++priority) {
         for (size_t i = 0; i < count; ++i) {
             if (!include[i] || !msgs[i].role ||
                 strcmp(msgs[i].role, "system") != 0 ||
@@ -3499,14 +3507,14 @@ static char *ollama_chat_with_limit(
      * other context, and finally archive history. Otherwise older pinned
      * memory blocks can crowd the current world state or relevant evidence out.
      */
-    for (int priority = 0; priority < 5 &&
+    for (int priority = 0; priority < 6 &&
          total_chars < system_budget; ++priority) {
         for (size_t i = 0; i < count &&
              total_chars < system_budget; ++i) {
             if (!msgs[i].role || strcmp(msgs[i].role, "system") != 0)
                 continue;
             const char *content = msgs[i].content ? msgs[i].content : "";
-            int message_priority = 3;
+            int message_priority = 4;
             if (!strncmp(content,
                          "============================================================\nIDENTITY AND PERSISTENT MEMORY",
                          strlen("============================================================\nIDENTITY AND PERSISTENT MEMORY")))
@@ -3517,12 +3525,14 @@ static char *ollama_chat_with_limit(
             else if (!strncmp(content, "CURRENT TURN RETRIEVED CONTEXT",
                               strlen("CURRENT TURN RETRIEVED CONTEXT")))
                 message_priority = 2;
+            else if (strstr(content, "R2 PERSISTENT MEMORY - STARTUP CONTEXT"))
+                message_priority = 3;
             else if (!strncmp(content, "PERSISTENT LEARNING CONTEXT",
                               strlen("PERSISTENT LEARNING CONTEXT")))
-                message_priority = 3;
+                message_priority = 4;
             else if (!strncmp(content, "PAST CONVERSATION ARCHIVE — CONTEXT ONLY.",
                               strlen("PAST CONVERSATION ARCHIVE — CONTEXT ONLY.")))
-                message_priority = 4;
+                message_priority = 5;
             if (message_priority != priority) continue;
 
             size_t length = strlen(content);
@@ -3616,6 +3626,70 @@ static char *ollama_chat_with_limit(
         json_object_put(root);
         return NULL;
     }
+
+    /*
+     * Audit the serialized request without logging private prompt text. This
+     * distinguishes a model interpretation failure from a missing/truncated
+     * current user turn or a context block that never reached Ollama.
+     */
+    struct json_object *audit_messages = NULL;
+    json_object_object_get_ex(root, "messages", &audit_messages);
+    size_t audit_message_count = audit_messages
+        ? json_object_array_length(audit_messages) : 0;
+    size_t audit_user_messages = 0;
+    size_t audit_system_chars = 0;
+    int audit_exact_user_turn = 0;
+    int audit_user_turn_contained = 0;
+    int audit_startup_memory = 0;
+    int audit_retrieved_context = 0;
+    int audit_reality_context = 0;
+    int audit_learning_context = 0;
+    const char *audit_query = ollama_authoritative_user_query;
+    size_t audit_query_chars = audit_query ? strlen(audit_query) : 0;
+    for (size_t i = 0; i < audit_message_count; ++i) {
+        struct json_object *entry = json_object_array_get_idx(audit_messages, i);
+        struct json_object *role_obj = NULL, *content_obj = NULL;
+        if (!entry ||
+            !json_object_object_get_ex(entry, "role", &role_obj) ||
+            !json_object_object_get_ex(entry, "content", &content_obj) ||
+            !role_obj || !content_obj)
+            continue;
+        const char *role = json_object_get_string(role_obj);
+        const char *content = json_object_get_string(content_obj);
+        if (!role || !content)
+            continue;
+        if (!strcmp(role, "user")) {
+            ++audit_user_messages;
+            if (audit_query && *audit_query) {
+                if (!strcmp(content, audit_query))
+                    audit_exact_user_turn = 1;
+                if (strstr(content, audit_query))
+                    audit_user_turn_contained = 1;
+            }
+        } else if (!strcmp(role, "system")) {
+            audit_system_chars += strlen(content);
+            if (strstr(content, "R2 PERSISTENT MEMORY - STARTUP CONTEXT"))
+                audit_startup_memory = 1;
+            if (!strncmp(content, "CURRENT TURN RETRIEVED CONTEXT",
+                          strlen("CURRENT TURN RETRIEVED CONTEXT")))
+                audit_retrieved_context = 1;
+            if (!strncmp(content, "PERSISTENT REALITY CONTEXT",
+                          strlen("PERSISTENT REALITY CONTEXT")))
+                audit_reality_context = 1;
+            if (!strncmp(content, "PERSISTENT LEARNING CONTEXT",
+                          strlen("PERSISTENT LEARNING CONTEXT")))
+                audit_learning_context = 1;
+        }
+    }
+    fprintf(stderr,
+            "[R2 Prompt Audit] payload_chars=%zu messages=%zu user_messages=%zu "
+            "current_query_chars=%zu exact_user_turn=%d query_in_user_turn=%d "
+            "startup_memory=%d retrieved_context=%d reality_context=%d "
+            "learning_context=%d system_chars=%zu\n",
+            strlen(payload), audit_message_count, audit_user_messages,
+            audit_query_chars, audit_exact_user_turn, audit_user_turn_contained,
+            audit_startup_memory, audit_retrieved_context, audit_reality_context,
+            audit_learning_context, audit_system_chars);
 
     /* Capture exactly what will be sent to Ollama only when the owner opts in. */
     ollama_trace_prompt_if_enabled(payload);
