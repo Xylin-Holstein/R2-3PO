@@ -321,6 +321,14 @@ require(
     and "thread creation" in core,
     "failed post-turn learning scheduling is logged instead of silently skipping introspection/memory learning",
 )
+
+require(
+    "post_turn_memory_decision_failed" in core
+    and "memory_save_failed" in core
+    and "self_state_extraction_allocation_failed" in core
+    and "conversation_context_append_failed" in core,
+    "post-turn inference, persistent-memory writes, self-state extraction, and live reply-history failures are explicitly recorded",
+)
 require(
     'bridge_event("prolonged_starvation"' in reality
     and '"R2 reached 72 modeled hours without a qualifying meal."' in reality
