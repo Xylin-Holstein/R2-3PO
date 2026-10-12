@@ -9525,7 +9525,7 @@ char *r2_talk(const char *message)
         free(reply);
         reply = NULL;
         fprintf(stderr,
-                "[R2] Public conversation API received no usable reply from the turn implementation; returning an explicit failure message.\\n");
+                "[R2] Public conversation API received no usable reply from the turn implementation; returning an explicit failure message.\n");
         reply = xstrdup(
             "I'm sorry, Mom—I couldn't process that turn successfully. "
             "The message may not have been saved to conversation history; please try again.");
