@@ -130,8 +130,8 @@ fi
 if ! python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --timeout 180; then
     echo
     echo "R2 was NOT launched."
-    echo "Start the local Ollama service and ensure 'ollama list' includes qwen3.5:4b."
-    echo "If the model is missing, run: ollama pull qwen3.5:4b"
+    echo "Start the local Ollama service and ensure 'ollama list' includes qwen3.5:9b."
+    echo "If the model is missing, run: ollama pull qwen3.5:9b"
     echo "Then launch R2 again."
     read -p "Press Enter to exit..."
     exit 1
@@ -484,9 +484,9 @@ echo "Compilation successful."
 echo "Executable updated:"
 echo "    $R2_EXEC"
 echo
-echo "Unified conversation + vision model: qwen3.5:4b"
+echo "Unified conversation + vision model: qwen3.5:9b"
 echo "R2 uses one shared Ollama model for text and image perception."
-echo "If needed, install it with: ollama pull qwen3.5:4b"
+echo "If needed, install it with: ollama pull qwen3.5:9b"
 echo
 echo "Modules compiled:"
 echo "    r2.c"
@@ -569,7 +569,7 @@ sudo -n setpriv --reuid="$R2_UID" --regid="$R2_GID" --groups="$R2_RUNTIME_GROUPS
     R2_OLLAMA_NUM_CTX="${R2_OLLAMA_NUM_CTX:-}" \
     R2_OLLAMA_TIMEOUT_SECONDS="${R2_OLLAMA_TIMEOUT_SECONDS:-}" \
     R2_OLLAMA_NUM_GPU="${R2_OLLAMA_NUM_GPU}" \
-    R2_VISION_MODEL="qwen3.5:4b" \
+    R2_VISION_MODEL="qwen3.5:9b" \
     R2_FX_DIR="$R2_FX_DIR" \
     sh -c 'exec "$1" 2>>"$2"' _ "$R2_EXEC" "$R2_ROOT/R2_Log/Debug.txt"
 
