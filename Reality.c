@@ -2092,7 +2092,7 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
         pthread_mutex_unlock(&reality_lock);
         fprintf(stderr,
                 "[R2 Reality] Refusing to add '%s' in '%s': the existing stack is in '%s'. "
-                "Use an explicit move or a distinct item name.\\n",
+                "Use an explicit move or a distinct item name.\n",
                 name, container, old_container);
         return -1;
     }
