@@ -20,6 +20,7 @@ def require(condition: bool, message: str) -> None:
 
 
 core = read("r2.c")
+reality = read("Reality.c")
 visual = read("Visual.c")
 header = read("r2.h")
 launcher = read("R2_Launch_Code.sh")
@@ -212,6 +213,20 @@ require(
     and "does not change physical Reality" in shell
     and 'r2_reality_' not in shell[shell.find("static const char *shell_gameboy_json_string"):shell.find("static int shell_gameboy(const char *arg)")],
     "synced game events remain virtual and never mutate physical Reality",
+)
+
+
+require(
+    "reply_has_visible_text" in core
+    and "Model output contained no visible reply after marker cleanup; retrying once." in core
+    and "Retry still produced no visible reply" in core,
+    "empty or marker-only model output triggers a retry and an explicit diagnostic instead of a silent blank turn",
+)
+require(
+    'bridge_event("prolonged_starvation"' in reality
+    and '"R2 reached 72 modeled hours without a qualifying meal."' in reality
+    and '1, 0);' in reality[reality.find('bridge_event("prolonged_starvation"'):reality.find('bridge_event("prolonged_starvation"') + 600],
+    "the 72-hour hunger threshold is recorded as a factual Reality/Life Log event without writing a diary entry",
 )
 
 print("Qwen 3.5 unified-model contract checks passed.")
