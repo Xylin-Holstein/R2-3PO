@@ -914,7 +914,7 @@ static int message_add(
  * so allocate and budget both messages before evicting history or appending.
  * This function owns messages_lock for the complete operation.
  */
-static int message_add_pair(const char *role_a, const char *content_a,
+static int message_add_pair_locked(const char *role_a, const char *content_a,
                             const char *role_b, const char *content_b)
 {
     if (!role_a || !content_a || !role_b || !content_b)
@@ -945,7 +945,6 @@ static int message_add_pair(const char *role_a, const char *content_a,
     }
 
     unsigned char evict[MAX_MESSAGES] = {0};
-    pthread_mutex_lock(&messages_lock);
 
     size_t live_bytes = 0;
     for (size_t i = 0; i < messages.count; ++i) {
@@ -965,7 +964,6 @@ static int message_add_pair(const char *role_a, const char *content_a,
             }
         }
         if (remove_index == SIZE_MAX) {
-            pthread_mutex_unlock(&messages_lock);
             free(role_a_copy);
             free(content_a_copy);
             free(role_b_copy);
@@ -988,7 +986,6 @@ static int message_add_pair(const char *role_a, const char *content_a,
         }
         Message *grown = realloc(messages.items, capacity * sizeof(*grown));
         if (!grown) {
-            pthread_mutex_unlock(&messages_lock);
             free(role_a_copy);
             free(content_a_copy);
             free(role_b_copy);
@@ -1014,7 +1011,6 @@ static int message_add_pair(const char *role_a, const char *content_a,
 
     messages.items[messages.count++] = (Message){role_a_copy, content_a_copy, 0};
     messages.items[messages.count++] = (Message){role_b_copy, content_b_copy, 0};
-    pthread_mutex_unlock(&messages_lock);
     return 0;
 }
 
@@ -9194,33 +9190,46 @@ static int refresh_reality_context_message(void)
         return -1; /* Preserve the last valid snapshot if refresh allocation fails. */
     }
 
+    /*
+     * Add both fresh snapshots before removing the old ones. If allocation or
+     * the live-history budget prevents the replacement, the old snapshots stay
+     * intact. The pair append is atomic while messages_lock is held.
+     */
     pthread_mutex_lock(&messages_lock);
-    for (size_t i = 0; i < messages.count; ) {
-        Message *m = &messages.items[i];
-        int is_live_context = m->role && !strcmp(m->role, "system") && m->content &&
-            (!strncmp(m->content, "PERSISTENT REALITY CONTEXT",
-                      strlen("PERSISTENT REALITY CONTEXT")) ||
-             !strncmp(m->content, "PERSISTENT LEARNING CONTEXT",
-                      strlen("PERSISTENT LEARNING CONTEXT")));
-        if (is_live_context) {
-            free(m->role);
-            free(m->content);
-            if (i + 1 < messages.count)
-                memmove(&messages.items[i], &messages.items[i + 1],
-                        (messages.count - i - 1) * sizeof(messages.items[0]));
-            messages.count--;
-            continue;
+    int add_rc = message_add_pair_locked("system", context,
+                                         "system", learning);
+    if (add_rc == 0) {
+        int kept_reality = 0, kept_learning = 0;
+        for (size_t i = messages.count; i > 0; ) {
+            --i;
+            Message *m = &messages.items[i];
+            int is_reality = m->role && !strcmp(m->role, "system") &&
+                m->content &&
+                !strncmp(m->content, "PERSISTENT REALITY CONTEXT",
+                         strlen("PERSISTENT REALITY CONTEXT"));
+            int is_learning = m->role && !strcmp(m->role, "system") &&
+                m->content &&
+                !strncmp(m->content, "PERSISTENT LEARNING CONTEXT",
+                         strlen("PERSISTENT LEARNING CONTEXT"));
+            int duplicate = (is_reality && kept_reality) ||
+                            (is_learning && kept_learning);
+            if (is_reality) kept_reality = 1;
+            if (is_learning) kept_learning = 1;
+            if (duplicate) {
+                free(m->role);
+                free(m->content);
+                if (i + 1 < messages.count)
+                    memmove(&messages.items[i], &messages.items[i + 1],
+                            (messages.count - i - 1) * sizeof(messages.items[0]));
+                messages.count--;
+            }
         }
-        ++i;
     }
-    int reality_rc = message_add("system", context);
-    int learning_rc = message_add("system", learning);
     pthread_mutex_unlock(&messages_lock);
     free(context);
     free(learning);
-    return reality_rc == 0 && learning_rc == 0 ? 0 : -1;
+    return add_rc == 0 ? 0 : -1;
 }
-
 
 static int reply_has_visible_text(const char *text)
 {
@@ -9341,7 +9350,9 @@ static char *r2_talk_impl(const char *message)
         reply = stripped_reply;
         stripped_reply = NULL;
 
-        int pair_rc = message_add_pair("assistant", reply, "user", tools);
+        pthread_mutex_lock(&messages_lock);
+        int pair_rc = message_add_pair_locked("assistant", reply, "user", tools);
+        pthread_mutex_unlock(&messages_lock);
 
         free(reply);
         free(tools);
