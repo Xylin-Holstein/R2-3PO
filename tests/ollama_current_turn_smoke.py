@@ -23,6 +23,10 @@ required = (
     "strcmp(content, authoritative_query) == 0",
     "memcmp(begin, authoritative_query, wrapped_length) == 0",
     "if (wrapped_length && begin[wrapped_length - 1] == '\\n')",
+    "if (current_user_index == SIZE_MAX && authoritative_query && *authoritative_query)",
+    '"ollama_current_user_turn_missing"',
+    "active user turn was absent from the serialized history",
+    "if (current_user_index == SIZE_MAX)\\n        current_user_index = fallback_user_index;",
 )
 for needle in required:
     if needle not in builder:
