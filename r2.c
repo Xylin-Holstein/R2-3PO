@@ -9521,6 +9521,15 @@ char *r2_talk(const char *message)
     int previous_turn_mode = ollama_foreground_turn_mode;
     ollama_foreground_turn_mode = 1;
     char *reply = r2_talk_impl(message);
+    if (!reply || !*reply) {
+        free(reply);
+        reply = NULL;
+        fprintf(stderr,
+                "[R2] Public conversation API received no usable reply from the turn implementation; returning an explicit failure message.\\n");
+        reply = xstrdup(
+            "I'm sorry, Mom—I couldn't process that turn successfully. "
+            "The message may not have been saved to conversation history; please try again.");
+    }
     ollama_foreground_turn_mode = previous_turn_mode;
     pthread_mutex_unlock(&conversation_turn_lock);
     atomic_fetch_sub(&foreground_conversation_waiting, 1);
