@@ -908,6 +908,117 @@ static int message_add(
     );
 }
 
+/*
+ * Append the internal assistant tool-call and its tool-result as one logical
+ * history operation. A half-written pair can corrupt subsequent turn order,
+ * so allocate and budget both messages before evicting history or appending.
+ * This function owns messages_lock for the complete operation.
+ */
+static int message_add_pair(const char *role_a, const char *content_a,
+                            const char *role_b, const char *content_b)
+{
+    if (!role_a || !content_a || !role_b || !content_b)
+        return -1;
+
+    size_t role_a_len = strlen(role_a), content_a_len = strlen(content_a);
+    size_t role_b_len = strlen(role_b), content_b_len = strlen(content_b);
+    if (role_a_len + content_a_len + 2 > MAX_LIVE_MESSAGE_BYTES ||
+        role_b_len + content_b_len + 2 > MAX_LIVE_MESSAGE_BYTES)
+        return -1;
+
+    size_t bytes_a = role_a_len + content_a_len + 2;
+    size_t bytes_b = role_b_len + content_b_len + 2;
+    if (bytes_a > MAX_LIVE_MESSAGE_BYTES - bytes_b || MAX_MESSAGES < 2)
+        return -1;
+    size_t pair_bytes = bytes_a + bytes_b;
+
+    char *role_a_copy = xstrdup(role_a);
+    char *content_a_copy = xstrdup(content_a);
+    char *role_b_copy = xstrdup(role_b);
+    char *content_b_copy = xstrdup(content_b);
+    if (!role_a_copy || !content_a_copy || !role_b_copy || !content_b_copy) {
+        free(role_a_copy);
+        free(content_a_copy);
+        free(role_b_copy);
+        free(content_b_copy);
+        return -1;
+    }
+
+    unsigned char evict[MAX_MESSAGES] = {0};
+    pthread_mutex_lock(&messages_lock);
+
+    size_t live_bytes = 0;
+    for (size_t i = 0; i < messages.count; ++i) {
+        live_bytes += strlen(messages.items[i].role ? messages.items[i].role : "") + 1;
+        live_bytes += strlen(messages.items[i].content ? messages.items[i].content : "") + 1;
+    }
+
+    size_t simulated_count = messages.count;
+    size_t simulated_bytes = live_bytes;
+    while (simulated_count + 2 > MAX_MESSAGES ||
+           simulated_bytes > MAX_LIVE_MESSAGE_BYTES - pair_bytes) {
+        size_t remove_index = SIZE_MAX;
+        for (size_t i = 0; i < messages.count; ++i) {
+            if (!evict[i] && !messages.items[i].pinned) {
+                remove_index = i;
+                break;
+            }
+        }
+        if (remove_index == SIZE_MAX) {
+            pthread_mutex_unlock(&messages_lock);
+            free(role_a_copy);
+            free(content_a_copy);
+            free(role_b_copy);
+            free(content_b_copy);
+            fprintf(stderr, "[R2 memory] Cannot fit complete assistant/tool history pair without evicting pinned context.\n");
+            return -1;
+        }
+        evict[remove_index] = 1;
+        simulated_count--;
+        simulated_bytes -= strlen(messages.items[remove_index].role ? messages.items[remove_index].role : "") + 1;
+        simulated_bytes -= strlen(messages.items[remove_index].content ? messages.items[remove_index].content : "") + 1;
+    }
+
+    size_t needed = simulated_count + 2;
+    if (needed > messages.capacity) {
+        size_t capacity = messages.capacity ? messages.capacity : 64;
+        while (capacity < needed && capacity < MAX_MESSAGES) {
+            size_t next = capacity * 2;
+            capacity = next > MAX_MESSAGES ? MAX_MESSAGES : next;
+        }
+        Message *grown = realloc(messages.items, capacity * sizeof(*grown));
+        if (!grown) {
+            pthread_mutex_unlock(&messages_lock);
+            free(role_a_copy);
+            free(content_a_copy);
+            free(role_b_copy);
+            free(content_b_copy);
+            return -1;
+        }
+        messages.items = grown;
+        messages.capacity = capacity;
+    }
+
+    size_t write_index = 0;
+    for (size_t i = 0; i < messages.count; ++i) {
+        if (evict[i]) {
+            free(messages.items[i].role);
+            free(messages.items[i].content);
+            continue;
+        }
+        if (write_index != i)
+            messages.items[write_index] = messages.items[i];
+        write_index++;
+    }
+    messages.count = write_index;
+
+    messages.items[messages.count++] = (Message){role_a_copy, content_a_copy, 0};
+    messages.items[messages.count++] = (Message){role_b_copy, content_b_copy, 0};
+    pthread_mutex_unlock(&messages_lock);
+    return 0;
+}
+
+
 
 static int message_add_pinned(
     const char *role,
@@ -9230,15 +9341,12 @@ static char *r2_talk_impl(const char *message)
         reply = stripped_reply;
         stripped_reply = NULL;
 
-        pthread_mutex_lock(&messages_lock);
-        int assistant_rc = message_add("assistant", reply);
-        int tool_rc = message_add("user", tools);
-        pthread_mutex_unlock(&messages_lock);
+        int pair_rc = message_add_pair("assistant", reply, "user", tools);
 
         free(reply);
         free(tools);
 
-        if (assistant_rc != 0 || tool_rc != 0) {
+        if (pair_rc != 0) {
             reply = xstrdup(
                 "I'm sorry, Mom—the action ran, but I couldn't save its result into the conversation. "
                 "I won't pretend the follow-up succeeded; please ask me again and I'll check the current state.");
