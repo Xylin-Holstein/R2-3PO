@@ -37,7 +37,7 @@ checks = {
     "core resets sound lifecycle during initialization": "r2_sounds_init();" in r2 and "void r2_sounds_init(void)" in sounds,
     "sound control marker recognition is case-insensitive": "find_sound_marker" in sounds and "strncasecmp(p, marker, marker_len)" in sounds,
     "marker cleanup fails closed instead of exposing control text": "Reply became empty after sound-marker cleanup" in r2 and "if (!reply_has_visible_text(sound_clean_reply))" in r2,
-    "empty or marker-only replies retry before the turn is discarded": "Model output contained no visible reply after marker cleanup; retrying once." in r2 and "Retry still produced no visible reply" in r2,
+    "empty or marker-only replies trigger recovery before a visible fallback is returned": "Model output contained no visible reply after marker cleanup; retrying once." in r2 and "Retry still produced no visible reply" in r2 and "Your message hasn't been discarded" in r2,
     "tool output append clamps snprintf lengths before copying": "if (_append_n >= sizeof(_b))" in r2 and "memcpy(results + len, _b, _append_n)" in r2 and "[tool output truncated]" in r2 and "memcpy(results + len, _b, (size_t)_n)" not in r2,
     "reply sanitizer rechecks scratch exposed after hidden tags": "visible_looks_private" in reply_module and "Removing a tagged private block" in reply_module,
 }
