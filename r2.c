@@ -4546,7 +4546,7 @@ static char *r2_build_associative_search_query(const char *query)
 
     snprintf(combined, total, "%s%s%s", clean, heading, query);
     fprintf(stderr,
-            "[R2 Association] Generated associative retrieval cues (%zu chars); original user text remains unchanged.\\n",
+            "[R2 Association] Generated associative retrieval cues (%zu chars); original user text remains unchanged.\n",
             concepts_length);
     free(clean);
     return combined;
@@ -4592,7 +4592,7 @@ static char *chat_with_relevant_memories(
         }
         context_cache_store(query ? query : "", memory_limit, memory_context);
     } else {
-        fprintf(stderr, "[R2 Context] Reused persistent-memory retrieval from RAM cache.\\n");
+        fprintf(stderr, "[R2 Context] Reused persistent-memory retrieval from RAM cache.\n");
     }
     r2_bound_context_records(memory_context, memory_char_limit);
 
@@ -4708,7 +4708,7 @@ static char *chat_with_relevant_memories(
     free(associative_query);
 
     fprintf(stderr,
-            "[R2 Context] Turn retrieval profile=%s memory_limit=%d memory_chars=%zu history_search_limit=%d history_chars=%zu.\\n",
+            "[R2 Context] Turn retrieval profile=%s memory_limit=%d memory_chars=%zu history_search_limit=%d history_chars=%zu.\n",
             explicit_recall ? "explicit-recall" : "focused",
             memory_limit, strlen(memory_context), history_search_limit,
             history_char_limit);
