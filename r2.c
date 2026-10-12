@@ -3546,6 +3546,34 @@ static char *ollama_chat_with_limit(
             }
         }
     }
+    if (current_user_index == SIZE_MAX && authoritative_query && *authoritative_query) {
+        /*
+         * A foreground request is only valid if its exact authoritative user
+         * turn (or the explicitly bounded wrapper around it) is in the payload.
+         * Falling back to an older user message here can make R2 answer a
+         * previous turn while appearing to have answered the current one.
+         */
+        fprintf(stderr,
+                "[R2 Ollama] refusing inference: authoritative current user turn is missing "
+                "(query_chars=%zu, messages=%zu, stage=%s).\\n",
+                strlen(authoritative_query), count,
+                ollama_audit_stage ? ollama_audit_stage : "unspecified");
+        if (r2_log_is_initialized()) {
+            char details[256];
+            snprintf(details, sizeof(details),
+                     "query_chars=%zu; messages=%zu; stage=%s; user_text_logged=no",
+                     strlen(authoritative_query), count,
+                     ollama_audit_stage ? ollama_audit_stage : "unspecified");
+            r2_log_event(R2_LOG_ERROR, "ollama_current_user_turn_missing",
+                         "Ollama inference was refused because the active user turn was absent from the serialized history.",
+                         details, MODEL);
+        }
+        free(include);
+        free(limits);
+        json_object_put(arr);
+        json_object_put(root);
+        return NULL;
+    }
     if (current_user_index == SIZE_MAX)
         current_user_index = fallback_user_index;
 
