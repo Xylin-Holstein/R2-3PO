@@ -9092,10 +9092,22 @@ static char *r2_talk_impl(const char *message)
         reply = chat_with_relevant_memories(message);
     }
     if (!reply) {
-        message_rollback_turn(message);
+        /*
+         * A failed inference must never look like an ignored user message.
+         * Keep the user's turn in conversation history and send a normal,
+         * visible assistant reply through the same downstream logging path.
+         */
         fprintf(stderr,
-                "[R2] Conversation generation failed after one refreshed retry; the incomplete turn was removed from live context.\n");
-        return NULL;
+                "[R2] Conversation generation failed after one refreshed retry; returning a visible fallback and preserving the user turn.\n");
+        reply = xstrdup(
+            "I'm sorry, Mom—I couldn't produce a usable reply just now. "
+            "Your message hasn't been discarded; please try again in a moment.");
+        if (!reply) {
+            message_rollback_turn(message);
+            fprintf(stderr,
+                    "[R2] Could not allocate the conversation fallback reply.\n");
+            return NULL;
+        }
     }
 
     /* Strip markers into a temporary copy before executing tools, so a
@@ -9116,9 +9128,20 @@ static char *r2_talk_impl(const char *message)
         if (!reply || !reply_has_visible_text(stripped_reply)) {
             free(reply);
             free(stripped_reply);
-            message_rollback_turn(message);
-            fprintf(stderr, "[R2] Retry still produced no visible reply; discarded this turn. Check the Ollama inference diagnostics above.\n");
-            return NULL;
+            reply = xstrdup(
+                "I'm sorry, Mom—I couldn't produce a usable reply just now. "
+                "Your message hasn't been discarded; please try again in a moment.");
+            stripped_reply = reply ? r2_sounds_strip_markers(reply) : NULL;
+            if (!reply || !reply_has_visible_text(stripped_reply)) {
+                free(reply);
+                free(stripped_reply);
+                message_rollback_turn(message);
+                fprintf(stderr,
+                        "[R2] Could not allocate a visible fallback after empty model output.\n");
+                return NULL;
+            }
+            fprintf(stderr,
+                    "[R2] Retry still produced no visible reply; returning a fallback and preserving the user turn.\n");
         }
     }
 

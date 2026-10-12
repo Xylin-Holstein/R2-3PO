@@ -218,14 +218,21 @@ require(
 
 require(
     'if (!reply || !*reply)' in shell
-    and "Conversation produced no visible answer" in shell,
-    "the shell reports empty conversation output rather than silently returning to the prompt",
+    and "Conversation backend returned no visible answer" in shell
+    and "Your message reached me, but I couldn't answer it this time." in shell,
+    "the shell prints a visible fallback if the conversation API returns an empty answer",
+)
+require(
+    "Conversation generation failed after one refreshed retry" in core
+    and "Your message hasn't been discarded" in core
+    and "message_rollback_turn(message)" in core,
+    "inference failure returns a visible fallback and only rolls back if fallback allocation itself fails",
 )
 require(
     "reply_has_visible_text" in core
     and "Model output contained no visible reply after marker cleanup; retrying once." in core
     and "Retry still produced no visible reply" in core,
-    "empty or marker-only model output triggers a retry and an explicit diagnostic instead of a silent blank turn",
+    "empty or marker-only model output triggers recovery and never intentionally drops a turn without a fallback",
 )
 require(
     'bridge_event("prolonged_starvation"' in reality
