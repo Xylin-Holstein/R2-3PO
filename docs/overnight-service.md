@@ -18,7 +18,7 @@ Before installing or starting the service, run the non-destructive hardware pref
 bash /home/x/R2_Home/R2/tools/preflight_r2_hardware.sh
 ```
 
-It checks the source/deployment files, the local Ollama API and `gemma3:4b`, read-only SQLite integrity, the separate FX folder, and available audio/camera/TV/emulator dependencies. `[FAIL]` items block readiness; `[WARN]` items identify optional hardware or GUI features that need attention. The report does not install packages, change databases, rebuild R2, or start/stop the service. It distinguishes the desktop account's audio session from the `r2` account's default PulseAudio/PipeWire connection and checks whether `r2` can access detected camera and ALSA device nodes when non-interactive `sudo` permits verification. A warning means access was unavailable or could not be proven; it does not itself repair permissions. The interactive launcher adds the host's `audio` group only to the R2 process's supplementary groups when that group exists, preserving the account's existing groups and avoiding a permanent account-membership change. The overnight systemd unit uses the same service-scoped audio group. This allows direct ALSA access where available, but it does not grant access to the desktop user's PulseAudio/PipeWire socket. The final speaker, microphone, and camera test must still be performed from the actual R2 launch environment.
+It checks the source/deployment files, the local Ollama API and `qwen3.5:9b`, read-only SQLite integrity, the separate FX folder, and available audio/camera/TV/emulator dependencies. `[FAIL]` items block readiness; `[WARN]` items identify optional hardware or GUI features that need attention. The report does not install packages, change databases, rebuild R2, or start/stop the service. It distinguishes the desktop account's audio session from the `r2` account's default PulseAudio/PipeWire connection and checks whether `r2` can access detected camera and ALSA device nodes when non-interactive `sudo` permits verification. A warning means access was unavailable or could not be proven; it does not itself repair permissions. The interactive launcher adds the host's `audio` group only to the R2 process's supplementary groups when that group exists, preserving the account's existing groups and avoiding a permanent account-membership change. The overnight systemd unit uses the same service-scoped audio group. This allows direct ALSA access where available, but it does not grant access to the desktop user's PulseAudio/PipeWire socket. The final speaker, microphone, and camera test must still be performed from the actual R2 launch environment.
 
 1. Confirm the repository is deployed at `/home/x/R2_Home/R2`. The sound assets remain a separate local directory at `/home/x/R2_Home/R2_sounds/FX`; that directory is not supposed to exist in GitHub.
 2. Confirm the dedicated Linux account exists: `id r2`.
@@ -34,11 +34,11 @@ It checks the source/deployment files, the local Ollama API and `gemma3:4b`, rea
 
    ```sh
    sudo systemctl enable --now ollama
-   ollama pull gemma3:4b
+   ollama pull qwen3.5:9b
    curl -fsS http://127.0.0.1:11434/api/tags
    ```
 
-   If Ollama is installed without a system unit named `ollama.service`, start it using the host's existing method. The R2 runner waits up to 60 seconds for the local API/model, then uses `tools/preflight_ollama_model.py` to require one real `gemma3:4b` chat completion (up to 180 seconds) before starting the core. This is a localhost-only inference check; it does not download model weights or contact an external API.
+   If Ollama is installed without a system unit named `ollama.service`, start it using the host's existing method. The R2 runner waits up to 60 seconds for the local API/model, then uses `tools/preflight_ollama_model.py` to require one real `qwen3.5:9b` chat completion (up to 180 seconds) before starting the core. This is a localhost-only inference check; it does not download model weights or contact an external API.
 
 5. Confirm the service account can access the existing workspace and local FX assets. Do not solve permission problems with broad `chmod 777` permissions:
 
@@ -131,7 +131,7 @@ systemctl --no-pager --full status r2-3po.service
 journalctl -u r2-3po.service -n 100 --no-pager
 ```
 
-Expected state is `enabled` and `active`. The journal should report a successful local Ollama chat preflight and the core readiness marker (`[R2 READY] Core initialized; entering shell.`). The installer does not call the service ready based only on systemd's early `active` state. If the unit keeps restarting, inspect the logs; common causes are a missing `gemma3:4b` model, missing `libfaketime`, inaccessible workspace/database files, or Ollama not running.
+Expected state is `enabled` and `active`. The journal should report a successful local Ollama chat preflight and the core readiness marker (`[R2 READY] Core initialized; entering shell.`). The installer does not call the service ready based only on systemd's early `active` state. If the unit keeps restarting, inspect the logs; common causes are a missing `qwen3.5:9b` model, missing `libfaketime`, inaccessible workspace/database files, or Ollama not running.
 
 Follow live logs with `journalctl -u r2-3po.service -f`.
 

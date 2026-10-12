@@ -196,9 +196,9 @@ fi
 
 section "Ollama and unified Gemma model"
 if TAGS="$(curl --silent --show-error --fail --max-time 4 "$OLLAMA_URL" 2>/dev/null)"; then
-  if printf '%s' "$TAGS" | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if any(m.get("name") == "gemma3:4b" or m.get("name","").startswith("gemma3:4b-") for m in d.get("models",[])) else 1)' >/dev/null 2>&1; then
-    pass "local Ollama API responds and gemma3:4b is installed"
-  else fail "Ollama responds but gemma3:4b is not installed"; fi
+  if printf '%s' "$TAGS" | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if any(m.get("name") == "qwen3.5:9b" or m.get("name","").startswith("qwen3.5:9b-") for m in d.get("models",[])) else 1)' >/dev/null 2>&1; then
+    pass "local Ollama API responds and qwen3.5:9b is installed"
+  else fail "Ollama responds but qwen3.5:9b is not installed"; fi
 else fail "Ollama API unreachable at $OLLAMA_URL"; fi
 if have ollama; then printf 'Ollama placement (when a model is loaded):\n'; ollama ps 2>&1 | sed 's/^/  /' || warn "ollama ps could not report placement."
 else warn "ollama CLI not found on PATH."; fi

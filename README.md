@@ -25,16 +25,16 @@ The resulting executable is `./r2`. To remove it, run `make clean`.
 
 ## Ollama model: conversation and vision
 
-R2's default conversation model and visual-perception model are both `gemma3:4b`.
+R2's default conversation model and visual-perception model are both `qwen3.5:9b`.
 Install the model locally before launching R2:
 
 ```sh
-ollama pull gemma3:4b
-ollama run gemma3:4b
+ollama pull qwen3.5:9b
+ollama run qwen3.5:9b
 ```
 
 At the Ollama prompt, test a short message and then enter `/bye`. The launch script
-also reports the expected model name. R2 uses the same model for text and image input;
+also reports the expected model name. Qwen 3.5 9B uses the same model for text and image input; it does not accept raw microphone PCM as a chat input. Ears therefore remains a format-agnostic PCM capture layer, and speech transcription requires a separate audio/ASR component;
 visual inference shares the Ollama request lock with conversation and yields when a
 foreground conversation is waiting. Ordinary conversation does not trigger a new frame
 analysis unless the user asks about visual context; ongoing Eyes/VLC observation can
@@ -255,7 +255,7 @@ For an unattended session, install the systemd service from the repository at it
 Before installing, make sure the local Ollama installation has the required model. This project intentionally does not download models or update package indexes during service startup:
 
 ```sh
-ollama pull gemma3:4b
+ollama pull qwen3.5:9b
 ```
 
 Then, from the repository directory:
@@ -277,7 +277,7 @@ sudo systemctl start r2-3po.service
 sudo systemctl disable r2-3po.service
 ```
 
-The supervisor restarts unexpected exits, waits up to 60 seconds for the local Ollama API/model, then performs one real `gemma3:4b` chat completion with a bounded 180-second timeout before starting the core. The installer waits for a readiness marker emitted after core initialization—not merely the runner's dependency-check log—and applies the same readiness check when rolling back. The runner uses the existing `libfaketime` installation to keep R2's private clock starting in 1999 and advancing continuously; it does not alter Linux's actual clock, run `apt-get update`, or pull models automatically. A sleep inhibitor requests that the host not suspend during the session; firmware, power loss, forced shutdown, and administrative overrides can still stop it.
+The supervisor restarts unexpected exits, waits up to 60 seconds for the local Ollama API/model, then performs one real `qwen3.5:9b` chat completion with a bounded 180-second timeout before starting the core. The installer waits for a readiness marker emitted after core initialization—not merely the runner's dependency-check log—and applies the same readiness check when rolling back. The runner uses the existing `libfaketime` installation to keep R2's private clock starting in 1999 and advancing continuously; it does not alter Linux's actual clock, run `apt-get update`, or pull models automatically. A sleep inhibitor requests that the host not suspend during the session; firmware, power loss, forced shutdown, and administrative overrides can still stop it.
 
 Sound assets remain host-local at `/home/x/R2_Home/R2_sounds/FX`. Service startup checks core prerequisites but does not prove speaker playback, camera permissions, microphone capture, or GUI/VLC integration. Verify those against the actual desktop/audio session after startup. Use `R2_Launch_Code.sh` for the existing interactive desktop shell and Observer window.
 

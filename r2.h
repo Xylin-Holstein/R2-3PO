@@ -8,7 +8,7 @@
  *
  * r2.c owns the actual implementation:
  *
- *   - Ollama / Gemma 3 multimodal conversation and vision
+ *   - Ollama / Qwen 3.5 multimodal conversation and vision
  *   - conversation
  *   - memory
  *   - relevant-memory retrieval
@@ -16,8 +16,8 @@
  *   - autonomous thinking
  *   - tools
  *   - diary integration
- *   - Eyes
- *   - Ears
+ *   - Eyes (frame capture; Visual.c sends frames to the unified Qwen 3.5 model)
+ *   - Ears (raw PCM capture; speech-to-text is a separate capability)
  *
  * This header is the PUBLIC bridge used by other R2 components,
  * especially shell.c.
@@ -32,7 +32,7 @@ extern "C" {
 #endif
 
 /* Single source of truth for every local Ollama inference in R2. */
-#define R2_OLLAMA_MODEL "gemma3:4b"
+#define R2_OLLAMA_MODEL "qwen3.5:9b"
 
 /* Shared RAM-aware context sizing for text and multimodal inference. */
 int r2_ollama_context_tokens(void);
@@ -257,7 +257,7 @@ int r2_is_initialized(void);
  *
  * Example:
  *
- *   Gemma 3 4B
+ *   Qwen 3.5 9B
  *
  * The returned pointer is owned by R2 and must NOT be freed.
  */

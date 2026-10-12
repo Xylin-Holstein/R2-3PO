@@ -155,6 +155,17 @@ int main(void)
                     "I'm glad you're here. How are you doing?"),
                 "short ordinary conversation is not retried");
 
+    ok &= check(r2_reply_misclassifies_plain_text(
+                    "Hello R2, This is your mother speaking to you. whats new with you? did you know about your pockets?",
+                    "Hello R2, it’s your mommy speaking to you. How are you, my baby? What have you learned?"),
+                "exact observed greeting inversion triggers the direct-answer retry");
+
+    ok &= check(!r2_reply_misclassifies_plain_text(
+                    "Hello R2, This is your mother speaking to you. whats new with you? did you know about your pockets?",
+                    "Hi Mom! I've been learning about my room and pockets, and I can check what I currently have stored there."),
+                "direct reply to the user that addresses both topics is accepted");
+
+
     char *retry_prompt = r2_build_retry_system_prompt();
     ok &= check(retry_prompt != NULL,
                 "corrective system prompt can be constructed");
