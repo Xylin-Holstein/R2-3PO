@@ -4060,7 +4060,20 @@ static int r2_reply_misclassifies_plain_text(const char *query, const char *repl
          strcasestr(query, "message you sent") ||
          strcasestr(query, "reply you gave") ||
          strcasestr(query, "answer you gave") ||
-         strcasestr(query, "you just said")) &&
+         strcasestr(query, "you just said") ||
+         strcasestr(query, "you keep saying") ||
+         strcasestr(query, "you're saying") ||
+         strcasestr(query, "you are saying") ||
+         strcasestr(query, "you called it") ||
+         strcasestr(query, "you think my message") ||
+         strcasestr(query, "i said the message") ||
+         strcasestr(query, "i'm saying the message") ||
+         strcasestr(query, "im saying the message") ||
+         strcasestr(query, "the message is") ||
+         strcasestr(query, "that message is") ||
+         strcasestr(query, "last message is") ||
+         strcasestr(query, "last reply is") ||
+         strcasestr(query, "last response is")) &&
         (strcasestr(query, "garbled") ||
          strcasestr(query, "gibberish") ||
          strcasestr(query, "unintelligible") ||
