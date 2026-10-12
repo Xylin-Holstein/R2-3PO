@@ -111,8 +111,8 @@ require(
     "active conversation prompt applies relationship learning without mother-specific phrase rules",
 )
 require(
-    "R2_TURN_MEMORY_LIMIT 6" in core and "R2_RECALL_HISTORY_SEARCHES 4" in core,
-    "ordinary dialogue uses focused retrieval while explicit recall expands it",
+    "R2_TURN_MEMORY_LIMIT 10" in core and "R2_RECALL_HISTORY_SEARCHES 16" in core,
+    "ordinary dialogue has a substantial retrieval budget while explicit recall expands it further",
 )
 require(
     "r2_query_explicitly_requests_recall(query)" in core,
