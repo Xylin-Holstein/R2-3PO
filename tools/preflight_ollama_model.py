@@ -13,7 +13,7 @@ import urllib.request
 from typing import Any
 
 API_BASE = "http://127.0.0.1:11434"
-MODEL = "qwen3.5:4b"
+MODEL = "qwen3.5:9b"
 
 
 def _read_json(url: str, timeout: float, payload: dict[str, Any] | None = None) -> dict[str, Any]:
