@@ -28,8 +28,8 @@ log = read("Log.c")
 log_header = read("Log.h")
 
 require(
-    re.search(r'^#define R2_OLLAMA_MODEL "qwen3.5:4b"$', header, re.MULTILINE) is not None,
-    "one shared model constant selects qwen3.5:4b",
+    re.search(r'^#define R2_OLLAMA_MODEL "qwen3.5:9b"$', header, re.MULTILINE) is not None,
+    "one shared model constant selects qwen3.5:9b",
 )
 require(
     "Interpret the user's current message first." in core
@@ -54,7 +54,7 @@ require(
     "vision uses the exact same shared model constant",
 )
 require(
-    'R2_VISION_MODEL="qwen3.5:4b"' in launcher,
+    'R2_VISION_MODEL="qwen3.5:9b"' in launcher,
     "launcher explicitly selects the unified vision model",
 )
 require(
