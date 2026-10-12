@@ -53,4 +53,17 @@ require(
     and "CURRENT TURN RETRIEVED CONTEXT" in builder,
     "the original user message remains a separate authoritative turn",
 )
+require(
+    "#define R2_TURN_MEMORY_LIMIT 10" in core
+    and "#define R2_TURN_MEMORY_CHARS 6000" in core
+    and "#define R2_TURN_HISTORY_CHARS 6000" in core
+    and "#define R2_TURN_HISTORY_SEARCHES 12" in core,
+    "ordinary turns receive a substantial memory/history budget instead of a tiny default allocation",
+)
+require(
+    "#define OLLAMA_MAX_SYSTEM_TOTAL_CHARS 42000" in core
+    and "#define OLLAMA_MAX_TOTAL_CHARS 48000" in core
+    and "#define OLLAMA_MAX_RECENT_MESSAGES 16" in core,
+    "the payload window is expanded so the larger retrieval budget can actually reach the model",
+)
 print("R2 associative retrieval smoke test passed.")
