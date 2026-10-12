@@ -4145,10 +4145,11 @@ static int r2_reply_misclassifies_plain_text(const char *query, const char *repl
     if (reports_r2_output_problem) {
         static const char *const acknowledgement_terms[] = {
             "sorry", "apolog", "garbled", "gibberish", "unreadable",
-            "confusing", "make sense", "understand", "rewrite", "rephrase",
-            "correct", "fix", "clearer", "message", "reply", "response",
-            "answer", "i misread", "i misunderstood", "i'll try again",
-            "let me try", "what you meant"
+            "confusing", "make sense", "rewrite", "rephrase", "correct",
+            "fix", "clearer", "i misread", "i misunderstood",
+            "i'll try again", "let me try", "let me clarify",
+            "i'll reread", "i'll rephrase", "what you meant",
+            "i see what you're saying"
         };
         int acknowledges_or_repairs = 0;
         for (size_t i = 0; i < sizeof(acknowledgement_terms) /
