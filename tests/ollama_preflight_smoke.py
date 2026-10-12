@@ -6,6 +6,7 @@ import contextlib
 import io
 import sys
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -19,13 +20,33 @@ class OllamaPreflightSmoke(unittest.TestCase):
         replies = [
             {"models": [{"name": "gemma3:4b"}]},
             {"message": {"content": "R2_READY"}},
+            {"models": [{"name": "gemma3:4b", "size_vram": 123456}]},
         ]
-        with patch.object(probe, "_read_json", side_effect=replies) as read:
+        gpu_result = SimpleNamespace(
+            returncode=0, stdout="Test GPU, 4096 MiB, 123 MiB", stderr=""
+        )
+        with patch.object(probe, "_read_json", side_effect=replies) as read, \
+             patch.object(probe.subprocess, "run", return_value=gpu_result) as gpu:
             self.assertTrue(probe.preflight(timeout=1))
-        self.assertEqual(read.call_count, 2)
+        self.assertEqual(read.call_count, 3)
         self.assertTrue(read.call_args_list[0].args[0].endswith("/api/tags"))
         self.assertTrue(read.call_args_list[1].args[0].endswith("/api/chat"))
         self.assertEqual(read.call_args_list[1].kwargs["payload"]["model"], "gemma3:4b")
+        self.assertTrue(read.call_args_list[2].args[0].endswith("/api/ps"))
+        self.assertEqual(gpu.call_count, 1)
+
+    def test_gpu_diagnostics_failure_does_not_block_ready_model(self) -> None:
+        # GPU placement is diagnostic only; a successful real chat must remain
+        # ready if /api/ps or nvidia-smi is unavailable.
+        errors = io.StringIO()
+        with patch.object(probe, "_read_json", side_effect=[
+            {"models": [{"name": "gemma3:4b"}]},
+            {"message": {"content": "R2_READY"}},
+            OSError("simulated /api/ps unavailable"),
+        ]), patch.object(probe.subprocess, "run", side_effect=FileNotFoundError("nvidia-smi")):
+            with contextlib.redirect_stderr(errors):
+                self.assertTrue(probe.preflight(timeout=1))
+        self.assertEqual(errors.getvalue(), "")
 
     def test_missing_model_fails_without_waiting_or_network(self) -> None:
         errors = io.StringIO()

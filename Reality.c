@@ -1287,12 +1287,114 @@ static int legacy_column_exists(const char *table, const char *column)
     return found;
 }
 
+static const char *legacy_column_expr(const char *table, const char *column,
+                                      const char *fallback)
+{
+    return legacy_column_exists(table, column) ? column : fallback;
+}
+
+static int legacy_table_has_rows(const char *table)
+{
+    char sql[256];
+    int n = snprintf(sql, sizeof(sql), "SELECT 1 FROM legacy.%s LIMIT 1", table);
+    if (n <= 0 || (size_t)n >= sizeof(sql)) return 0;
+    sqlite3_stmt *st = NULL;
+    int found = 0;
+    if (sqlite3_prepare_v2(reality_db, sql, -1, &st, NULL) == SQLITE_OK)
+        found = sqlite3_step(st) == SQLITE_ROW;
+    if (st) sqlite3_finalize(st);
+    return found;
+}
+
+/* Copy a legacy table using explicit destination columns. Missing optional
+ * fields receive a neutral/legacy-compatible expression; required identity
+ * fields must exist or migration fails rather than silently dropping data.
+ * History tables omit auto IDs so old rows can coexist with new DB rows. */
+static int legacy_copy_table(const char *table,
+                             const char *const *columns,
+                             const char *const *fallbacks, size_t column_count,
+                             const char *const *required, size_t required_count,
+                             int replace_conflicts)
+{
+    if (!legacy_table_exists(table)) return 0;
+    for (size_t i = 0; i < required_count; ++i) {
+        if (!legacy_column_exists(table, required[i])) {
+            fprintf(stderr,
+                    "[R2 Reality] Legacy table %s is missing required column %s; refusing incomplete migration.\n",
+                    table, required[i]);
+            return -1;
+        }
+    }
+
+    char sql[8192];
+    size_t used = 0;
+#define LEGACY_APPEND_SQL(...) do { \
+        int written = snprintf(sql + used, sizeof(sql) - used, __VA_ARGS__); \
+        if (written < 0 || (size_t)written >= sizeof(sql) - used) { \
+            fprintf(stderr, "[R2 Reality] Legacy migration SQL exceeded its bound for %s.\n", table); \
+            return -1; \
+        } \
+        used += (size_t)written; \
+    } while (0)
+    LEGACY_APPEND_SQL("INSERT OR %s INTO main.%s (",
+                      replace_conflicts ? "REPLACE" : "IGNORE", table);
+    for (size_t i = 0; i < column_count; ++i)
+        LEGACY_APPEND_SQL("%s%s", i ? "," : "", columns[i]);
+    LEGACY_APPEND_SQL(") SELECT ");
+    for (size_t i = 0; i < column_count; ++i) {
+        const char *expr = legacy_column_expr(table, columns[i], fallbacks[i]);
+        if (!expr) {
+            fprintf(stderr,
+                    "[R2 Reality] No safe fallback for legacy column %s.%s.\n",
+                    table, columns[i]);
+            return -1;
+        }
+        LEGACY_APPEND_SQL("%s%s", i ? "," : "", expr);
+    }
+    LEGACY_APPEND_SQL(" FROM legacy.%s", table);
+#undef LEGACY_APPEND_SQL
+    return exec_sql(sql);
+}
+
+/* Merge learned preference aggregates instead of overwriting ratings already
+ * recorded in the destination database. The migration transaction makes this
+ * safe to retry after any interrupted startup. */
+static int legacy_merge_preference_table(const char *table, const char *key_column)
+{
+    if (!legacy_table_exists(table)) return 0;
+    if (!legacy_column_exists(table, key_column)) {
+        fprintf(stderr, "[R2 Reality] Legacy preference table %s lacks %s.\n",
+                table, key_column);
+        return -1;
+    }
+    const char *sum = legacy_column_expr(table, "satisfaction_sum", "0");
+    const char *count = legacy_column_expr(table, "rating_count", "0");
+    const char *updated = legacy_column_expr(table, "updated_at", "0");
+    char sql[4096];
+    int n = snprintf(sql, sizeof(sql),
+        "INSERT INTO main.%s(%s,satisfaction_sum,rating_count,updated_at) "
+        "SELECT %s,COALESCE(%s,0),COALESCE(%s,0),COALESCE(%s,0) "
+        "FROM legacy.%s WHERE 1 "
+        "ON CONFLICT(%s) DO UPDATE SET "
+        "satisfaction_sum=satisfaction_sum+excluded.satisfaction_sum,"
+        "rating_count=rating_count+excluded.rating_count,"
+        "updated_at=MAX(updated_at,excluded.updated_at)",
+        table, key_column, key_column, sum, count, updated,
+        table, key_column);
+    if (n <= 0 || (size_t)n >= sizeof(sql)) return -1;
+    return exec_sql(sql);
+}
+
+/* One-time, transactional migration from older releases where Reality-owned
+ * tables lived inside r2_memory.db. The source database is read only here and
+ * is never cleared or rewritten; Life Log and searchable memory stay there. */
 static int migrate_legacy_reality(void)
 {
     if (access(R2_DIARY_DATABASE, F_OK) != 0) return 0;
     sqlite3_stmt *st = NULL;
-    if (sqlite3_prepare_v2(reality_db, "SELECT value FROM r2_reality_meta WHERE key='legacy_reality_migrated'", -1, &st, NULL) == SQLITE_OK &&
-        sqlite3_step(st) == SQLITE_ROW) {
+    if (sqlite3_prepare_v2(reality_db,
+        "SELECT value FROM r2_reality_meta WHERE key='legacy_reality_migrated'",
+        -1, &st, NULL) == SQLITE_OK && sqlite3_step(st) == SQLITE_ROW) {
         if (st) sqlite3_finalize(st);
         return 0;
     }
@@ -1305,41 +1407,177 @@ static int migrate_legacy_reality(void)
     bind_text(st, 1, R2_DIARY_DATABASE);
     int rc = sqlite3_step(st);
     if (st) sqlite3_finalize(st);
-    if (rc != SQLITE_DONE) return -1;
+    if (rc != SQLITE_DONE) {
+        (void)sqlite3_exec(reality_db, "DETACH DATABASE legacy", NULL, NULL, NULL);
+        return -1;
+    }
 
-    int result = 0;
-    /* Copy stable columns explicitly: old self-state schemas predate
-       seconds_since_meal, so SELECT * would fail on those databases. */
-    const struct { const char *table, *sql; } copies[] = {
-        {"r2_reality_containers", "INSERT OR IGNORE INTO main.r2_reality_containers(name,kind,description,parent) SELECT name,kind,description,parent FROM legacy.r2_reality_containers"},
-        {"r2_reality_meta", "INSERT OR IGNORE INTO main.r2_reality_meta(key,value) SELECT key,value FROM legacy.r2_reality_meta"},
-        {"r2_reality_self_facts", "INSERT OR IGNORE INTO main.r2_reality_self_facts(key,value,evidence) SELECT key,value,evidence FROM legacy.r2_reality_self_facts"},
-        {"r2_reality_ticks", "INSERT OR IGNORE INTO main.r2_reality_ticks(previous_tick,current_tick,elapsed_seconds) SELECT previous_tick,current_tick,elapsed_seconds FROM legacy.r2_reality_ticks"},
-        {"r2_reality_objects", "INSERT OR IGNORE INTO main.r2_reality_objects(name,description,quantity,container,owner) SELECT name,description,quantity,container,owner FROM legacy.r2_reality_objects"}
+    int result = exec_sql("BEGIN IMMEDIATE");
+    const char *container_cols[] = {"name","kind","description","parent"};
+    const char *container_defaults[] = {NULL,"'container'","NULL","NULL"};
+    const char *container_required[] = {"name"};
+    const char *fact_cols[] = {"key","value","evidence","updated_at"};
+    const char *fact_defaults[] = {NULL,NULL,"NULL","CURRENT_TIMESTAMP"};
+    const char *fact_required[] = {"key","value"};
+    const char *tick_cols[] = {"previous_tick","current_tick","elapsed_seconds","created_at"};
+    const char *tick_defaults[] = {NULL,NULL,"current_tick-previous_tick","CURRENT_TIMESTAMP"};
+    const char *tick_required[] = {"previous_tick","current_tick"};
+    const char *object_cols[] = {"name","description","quantity","container","owner","created_at","updated_at"};
+    const char *object_container_default = legacy_column_exists("r2_reality_objects", "location")
+        ? "location" : "'room'";
+    const char *object_defaults[] = {NULL,"NULL","1",object_container_default,"'R2'","CURRENT_TIMESTAMP","CURRENT_TIMESTAMP"};
+    const char *object_required[] = {"name"};
+    const char *legacy_collected_at_default =
+        legacy_column_exists("r2_reality_item_memory", "created_at")
+            ? "CAST(strftime('%s',created_at) AS INTEGER)"
+            : "CAST(strftime('%s','now') AS INTEGER)";
+    const char *legacy_decay_at_default =
+        legacy_column_exists("r2_reality_item_memory", "collected_at")
+            ? "collected_at" : legacy_collected_at_default;
+    const char *item_memory_cols[] = {"item_name","description","exact_quantity","approximate_quantity","precision","collected_at","last_decay_at"};
+    const char *item_memory_defaults[] = {NULL,"NULL","NULL","NULL","'exact'",legacy_collected_at_default,legacy_decay_at_default};
+    const char *item_memory_required[] = {"item_name"};
+    const char *food_experience_cols[] = {"food_name","ingredients","fullness","energy_bonus","satisfaction","notes","eaten_at","rated_at"};
+    const char *food_experience_defaults[] = {NULL,"NULL",NULL,"0.0","NULL","NULL",NULL,"NULL"};
+    const char *food_experience_required[] = {"food_name","fullness","eaten_at"};
+    const char *food_meta_cols[] = {"key","value"};
+    const char *food_meta_defaults[] = {NULL,NULL};
+    const char *food_meta_required[] = {"key","value"};
+    const char *money_cols[] = {"id","cash_cents","bank_cents","updated_at"};
+    const char *money_defaults[] = {"1",NULL,NULL,"CURRENT_TIMESTAMP"};
+    const char *money_required[] = {"cash_cents","bank_cents"};
+    const char *tv_state_cols[] = {"id","power","source_kind","source_value","updated_at"};
+    const char *tv_state_defaults[] = {"1",NULL,NULL,NULL,"CURRENT_TIMESTAMP"};
+    const char *tv_state_required[] = {"power","source_kind","source_value"};
+    const char *tv_device_cols[] = {"name","connection_kind","port","connected","updated_at"};
+    const char *tv_device_defaults[] = {NULL,NULL,NULL,"1","CURRENT_TIMESTAMP"};
+    const char *tv_device_required[] = {"name","connection_kind","port"};
+    const char *tape_cols[] = {"media_path","position_seconds","updated_at"};
+    const char *tape_defaults[] = {NULL,"0","CURRENT_TIMESTAMP"};
+    const char *tape_required[] = {"media_path"};
+    const char *vcr_state_cols[] = {"id","cassette_path","transport","updated_at"};
+    const char *vcr_state_defaults[] = {"1","NULL",NULL,"CURRENT_TIMESTAMP"};
+    const char *vcr_state_required[] = {"transport"};
+
+    const struct { const char *table, *sql; } simple_copies[] = {
+        {"r2_reality_meta", "INSERT OR IGNORE INTO main.r2_reality_meta(key,value) SELECT key,value FROM legacy.r2_reality_meta"}
     };
-    for (size_t i = 0; i < sizeof(copies)/sizeof(copies[0]); ++i) {
-        if (!legacy_table_exists(copies[i].table)) continue;
-        if (exec_sql(copies[i].sql) != 0) { result = -1; break; }
+    for (size_t i = 0; result == 0 && i < sizeof(simple_copies)/sizeof(simple_copies[0]); ++i) {
+        if (legacy_table_exists(simple_copies[i].table))
+            result = exec_sql(simple_copies[i].sql);
     }
-    if (result == 0 && legacy_table_exists("r2_reality_self")) {
-        const char *since = legacy_column_exists("r2_reality_self", "seconds_since_meal") ? "seconds_since_meal" : "0";
-        const char *sleep = legacy_column_exists("r2_reality_self", "sleepiness") ? "sleepiness" : "0";
-        const char *energy = legacy_column_exists("r2_reality_self", "energy") ? "energy" : "100";
-        const char *last = legacy_column_exists("r2_reality_self", "last_tick") ? "last_tick" : "0";
-        char sql[1024];
-        snprintf(sql, sizeof(sql),
-            "INSERT OR REPLACE INTO main.r2_reality_self(id,hunger,seconds_since_meal,sleepiness,energy,last_tick) "
-            "SELECT id,hunger,%s,%s,%s,%s FROM legacy.r2_reality_self",
-            since, sleep, energy, last);
-        result = exec_sql(sql);
-    }
-    if (result == 0 && legacy_table_exists("r2_reality_meta"))
-        result = exec_sql("UPDATE main.r2_reality_meta SET value=(SELECT value FROM legacy.r2_reality_meta WHERE legacy.r2_reality_meta.key=main.r2_reality_meta.key) WHERE key IN (SELECT key FROM legacy.r2_reality_meta)");
     if (result == 0)
-        result = exec_sql("INSERT INTO r2_reality_meta(key,value) VALUES('legacy_reality_migrated','yes') ON CONFLICT(key) DO UPDATE SET value='yes'");
+        result = legacy_copy_table("r2_reality_containers", container_cols, container_defaults,
+                                   sizeof(container_cols)/sizeof(container_cols[0]),
+                                   container_required, sizeof(container_required)/sizeof(container_required[0]), 0);
+    if (result == 0)
+        result = legacy_copy_table("r2_reality_self_facts", fact_cols, fact_defaults,
+                                   sizeof(fact_cols)/sizeof(fact_cols[0]),
+                                   fact_required, sizeof(fact_required)/sizeof(fact_required[0]), 0);
+    if (result == 0)
+        result = legacy_copy_table("r2_reality_ticks", tick_cols, tick_defaults,
+                                   sizeof(tick_cols)/sizeof(tick_cols[0]),
+                                   tick_required, sizeof(tick_required)/sizeof(tick_required[0]), 0);
+    if (result == 0)
+        result = legacy_copy_table("r2_reality_item_memory", item_memory_cols, item_memory_defaults,
+                                   sizeof(item_memory_cols)/sizeof(item_memory_cols[0]),
+                                   item_memory_required, sizeof(item_memory_required)/sizeof(item_memory_required[0]), 0);
+
+    if (result == 0 && legacy_table_exists("r2_reality_objects") &&
+        legacy_column_exists("r2_reality_objects", "container")) {
+        result = exec_sql(
+            "INSERT OR IGNORE INTO main.r2_reality_containers(name,kind,description,parent) "
+            "SELECT DISTINCT legacy_objects.container,'container','Recovered legacy object container','room' "
+            "FROM legacy.r2_reality_objects AS legacy_objects "
+            "LEFT JOIN main.r2_reality_containers AS known ON known.name=legacy_objects.container "
+            "WHERE legacy_objects.container IS NOT NULL AND legacy_objects.container<>'' AND known.name IS NULL");
+    }
+    if (result == 0)
+        result = legacy_copy_table("r2_reality_objects", object_cols, object_defaults,
+                                   sizeof(object_cols)/sizeof(object_cols[0]),
+                                   object_required, sizeof(object_required)/sizeof(object_required[0]), 0);
+
+    if (result == 0 && legacy_table_exists("r2_reality_self")) {
+        if (!legacy_column_exists("r2_reality_self", "id") ||
+            !legacy_column_exists("r2_reality_self", "hunger")) {
+            fprintf(stderr, "[R2 Reality] Legacy self-state table lacks id/hunger; refusing incomplete migration.\n");
+            result = -1;
+        } else {
+            const char *satisfaction = legacy_column_expr("r2_reality_self", "satisfaction", "100");
+            const char *since = legacy_column_expr("r2_reality_self", "seconds_since_meal", "0");
+            const char *sleep = legacy_column_expr("r2_reality_self", "sleepiness", "0");
+            const char *energy = legacy_column_expr("r2_reality_self", "energy", "100");
+            const char *last = legacy_column_expr("r2_reality_self", "last_tick", "0");
+            const char *updated = legacy_column_expr("r2_reality_self", "updated_at", "CURRENT_TIMESTAMP");
+            char sql[2048];
+            int n = snprintf(sql, sizeof(sql),
+                "INSERT OR REPLACE INTO main.r2_reality_self"
+                "(id,hunger,satisfaction,seconds_since_meal,sleepiness,energy,last_tick,updated_at) "
+                "SELECT id,hunger,%s,%s,%s,%s,%s,%s FROM legacy.r2_reality_self",
+                satisfaction, since, sleep, energy, last, updated);
+            result = n > 0 && (size_t)n < sizeof(sql) ? exec_sql(sql) : -1;
+        }
+    }
+
+    if (result == 0)
+        result = legacy_copy_table("r2_food_experiences", food_experience_cols, food_experience_defaults,
+                                   sizeof(food_experience_cols)/sizeof(food_experience_cols[0]),
+                                   food_experience_required, sizeof(food_experience_required)/sizeof(food_experience_required[0]), 0);
+    if (result == 0)
+        result = legacy_copy_table("r2_food_experience_meta", food_meta_cols, food_meta_defaults,
+                                   sizeof(food_meta_cols)/sizeof(food_meta_cols[0]),
+                                   food_meta_required, sizeof(food_meta_required)/sizeof(food_meta_required[0]), 0);
+    if (result == 0)
+        result = legacy_merge_preference_table("r2_food_preferences", "food_name");
+    if (result == 0)
+        result = legacy_merge_preference_table("r2_food_ingredient_preferences", "ingredient");
+
+    if (result == 0)
+        result = legacy_copy_table("r2_money_account", money_cols, money_defaults,
+                                   sizeof(money_cols)/sizeof(money_cols[0]),
+                                   money_required, sizeof(money_required)/sizeof(money_required[0]), 1);
+    if (result == 0)
+        result = legacy_copy_table("r2_tv_devices", tv_device_cols, tv_device_defaults,
+                                   sizeof(tv_device_cols)/sizeof(tv_device_cols[0]),
+                                   tv_device_required, sizeof(tv_device_required)/sizeof(tv_device_required[0]), 0);
+    if (result == 0)
+        result = legacy_copy_table("r2_tv_vcr_tapes", tape_cols, tape_defaults,
+                                   sizeof(tape_cols)/sizeof(tape_cols[0]),
+                                   tape_required, sizeof(tape_required)/sizeof(tape_required[0]), 0);
+    if (result == 0)
+        result = legacy_copy_table("r2_tv_state", tv_state_cols, tv_state_defaults,
+                                   sizeof(tv_state_cols)/sizeof(tv_state_cols[0]),
+                                   tv_state_required, sizeof(tv_state_required)/sizeof(tv_state_required[0]), 1);
+    if (result == 0)
+        result = legacy_copy_table("r2_tv_vcr_state", vcr_state_cols, vcr_state_defaults,
+                                   sizeof(vcr_state_cols)/sizeof(vcr_state_cols[0]),
+                                   vcr_state_required, sizeof(vcr_state_required)/sizeof(vcr_state_required[0]), 1);
+
+    if (result == 0 && legacy_table_exists("r2_reality_meta"))
+        result = exec_sql(
+            "UPDATE main.r2_reality_meta SET value=(SELECT value FROM legacy.r2_reality_meta "
+            "WHERE legacy.r2_reality_meta.key=main.r2_reality_meta.key) "
+            "WHERE key IN (SELECT key FROM legacy.r2_reality_meta)");
+    /* If a legacy account existed, its balance must be materialized into the
+       physical wallet on first migration rather than replaced by the new-user
+       seed. The physical files still win when they already exist. */
+    if (result == 0 && legacy_table_has_rows("r2_money_account"))
+        result = exec_sql(
+            "INSERT INTO main.r2_reality_meta(key,value) VALUES('initial_cash_seeded','1') "
+            "ON CONFLICT(key) DO UPDATE SET value='1'");
+    if (result == 0)
+        result = exec_sql(
+            "INSERT INTO main.r2_reality_meta(key,value) VALUES('legacy_reality_migrated','yes') "
+            "ON CONFLICT(key) DO UPDATE SET value='yes'");
+
+    if (result == 0) {
+        if (exec_sql("COMMIT") != 0) result = -1;
+    }
+    if (result != 0) (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
     (void)sqlite3_exec(reality_db, "DETACH DATABASE legacy", NULL, NULL, NULL);
     if (result == 0)
-        fprintf(stderr, "[R2 Reality] Legacy world/needs state migrated into r2_reality.db; r2_memory.db remains intact.\n");
+        fprintf(stderr,
+                "[R2 Reality] Legacy Reality tables migrated into r2_reality.db; r2_memory.db remains intact.\n");
     return result;
 }
 
@@ -2081,6 +2319,19 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
     if (*old_container && !container_accessible(old_container)) {
         (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
         pthread_mutex_unlock(&reality_lock);
+        return -1;
+    }
+    /* Object names identify a stack in the canonical Reality database. An
+       add/collect operation may increase that stack only where it already is;
+       silently changing its container would move every existing unit when
+       collecting one more unit. Moving a stack is an explicit move action. */
+    if (*old_container && strcasecmp(old_container, container) != 0) {
+        (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
+        pthread_mutex_unlock(&reality_lock);
+        fprintf(stderr,
+                "[R2 Reality] Refusing to add '%s' in '%s': the existing stack is in '%s'. "
+                "Use an explicit move or a distinct item name.\n",
+                name, container, old_container);
         return -1;
     }
 
