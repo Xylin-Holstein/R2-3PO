@@ -255,11 +255,15 @@ require(
     and "The message may not have been saved to conversation history; please try again." in core,
     "the public conversation API itself reports a failed turn instead of passing silent NULL/empty output to callers",
 )
+conversation_impl_start = core.find("static char *r2_talk_impl(const char *message)")
+conversation_impl_end = core.find("\\nchar *r2_talk(const char *message)", conversation_impl_start)
+conversation_impl = core[conversation_impl_start:conversation_impl_end]
 require(
-    "Conversation generation failed after one refreshed retry" in core
-    and "Your message hasn't been discarded" in core
-    and "message_rollback_turn(message)" in core,
-    "inference failure returns a visible fallback and only rolls back if fallback allocation itself fails",
+    conversation_impl_start >= 0 and conversation_impl_end > conversation_impl_start
+    and "Conversation generation failed after one refreshed retry" in conversation_impl
+    and "Your message hasn't been discarded" in conversation_impl
+    and "message_rollback_turn(message)" not in conversation_impl,
+    "conversation failures preserve the user turn even if allocating an in-core fallback fails",
 )
 require(
     "reply_has_visible_text" in core
