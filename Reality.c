@@ -2083,6 +2083,19 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
         pthread_mutex_unlock(&reality_lock);
         return -1;
     }
+    /* Object names identify a stack in the canonical Reality database. An
+       add/collect operation may increase that stack only where it already is;
+       silently changing its container would move every existing unit when
+       collecting one more unit. Moving a stack is an explicit move action. */
+    if (*old_container && strcasecmp(old_container, container) != 0) {
+        (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
+        pthread_mutex_unlock(&reality_lock);
+        fprintf(stderr,
+                "[R2 Reality] Refusing to add '%s' in '%s': the existing stack is in '%s'. "
+                "Use an explicit move or a distinct item name.\\n",
+                name, container, old_container);
+        return -1;
+    }
 
     sqlite3_stmt *st = NULL;
     rc = sqlite3_prepare_v2(reality_db,
