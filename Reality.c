@@ -1487,10 +1487,10 @@ static int migrate_legacy_reality(void)
         legacy_column_exists("r2_reality_objects", "container")) {
         result = exec_sql(
             "INSERT OR IGNORE INTO main.r2_reality_containers(name,kind,description,parent) "
-            "SELECT DISTINCT old.container,'container','Recovered legacy object container','room' "
-            "FROM legacy.r2_reality_objects AS old "
-            "LEFT JOIN main.r2_reality_containers AS known ON known.name=old.container "
-            "WHERE old.container IS NOT NULL AND old.container<>'' AND known.name IS NULL");
+            "SELECT DISTINCT legacy_objects.container,'container','Recovered legacy object container','room' "
+            "FROM legacy.r2_reality_objects AS legacy_objects "
+            "LEFT JOIN main.r2_reality_containers AS known ON known.name=legacy_objects.container "
+            "WHERE legacy_objects.container IS NOT NULL AND legacy_objects.container<>'' AND known.name IS NULL");
     }
     if (result == 0)
         result = legacy_copy_table("r2_reality_objects", object_cols, object_defaults,
