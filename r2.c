@@ -9050,6 +9050,15 @@ static int refresh_reality_context_message(void)
 }
 
 
+static int reply_has_visible_text(const char *text)
+{
+    if (!text) return 0;
+    for (const unsigned char *p = (const unsigned char *)text; *p; ++p) {
+        if (!isspace(*p)) return 1;
+    }
+    return 0;
+}
+
 static char *r2_talk_impl(const char *message)
 {
     if (!core_initialized || shutting_down || !message)
@@ -9093,19 +9102,22 @@ static char *r2_talk_impl(const char *message)
        cleanup allocation failure cannot occur after a tool side effect. Keep
        the original separately in case this is a final reply and should play. */
     char *stripped_reply = r2_sounds_strip_markers(reply);
-    if (!stripped_reply) {
-        /* A marker-only or unallocatable result is not a user-facing answer.
-           Retry once before rolling back, without executing any tool action. */
+    if (!reply_has_visible_text(stripped_reply)) {
+        /* Marker-only/whitespace output is not a valid conversational answer.
+           Retry once before executing any tool action. */
         free(reply);
-        fprintf(stderr, "[R2] No safe user-facing text after sound-marker cleanup; retrying once.\n");
+        free(stripped_reply);
+        reply = NULL;
+        stripped_reply = NULL;
+        fprintf(stderr, "[R2] Model output contained no visible reply after marker cleanup; retrying once.\n");
         reply = chat_with_relevant_memories(message);
         if (reply)
             stripped_reply = r2_sounds_strip_markers(reply);
-        if (!reply || !stripped_reply) {
+        if (!reply || !reply_has_visible_text(stripped_reply)) {
             free(reply);
             free(stripped_reply);
             message_rollback_turn(message);
-            fprintf(stderr, "[R2] Retry still produced no safe user-facing text; discarded this turn.\n");
+            fprintf(stderr, "[R2] Retry still produced no visible reply; discarded this turn. Check the Ollama inference diagnostics above.\n");
             return NULL;
         }
     }
@@ -9156,10 +9168,11 @@ static char *r2_talk_impl(const char *message)
         }
 
         char *sound_clean_reply = r2_sounds_process_reply(reply);
-        if (!sound_clean_reply) {
+        if (!reply_has_visible_text(sound_clean_reply)) {
             free(reply);
+            free(sound_clean_reply);
             message_rollback_turn(message);
-            fprintf(stderr, "[R2] Could not safely remove sound control markers from tool follow-up; discarded this turn.\n");
+            fprintf(stderr, "[R2] Tool follow-up became empty after sound-marker cleanup; discarded this turn instead of returning a blank answer.\n");
             return NULL;
         }
         free(reply);
@@ -9169,10 +9182,11 @@ static char *r2_talk_impl(const char *message)
         free(stripped_reply);
         /* Only a final, user-facing response may trigger an effect. */
         char *sound_clean_reply = r2_sounds_process_reply(reply);
-        if (!sound_clean_reply) {
+        if (!reply_has_visible_text(sound_clean_reply)) {
             free(reply);
+            free(sound_clean_reply);
             message_rollback_turn(message);
-            fprintf(stderr, "[R2] Could not safely remove sound control markers; discarded this turn.\n");
+            fprintf(stderr, "[R2] Reply became empty after sound-marker cleanup; discarded this turn instead of returning a blank answer.\n");
             return NULL;
         }
         free(reply);
