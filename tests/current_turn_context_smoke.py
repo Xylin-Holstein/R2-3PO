@@ -61,7 +61,7 @@ require(
     "persistent learning is retained after live Reality, active-turn evidence, and startup memory",
 )
 require(
-    "int message_priority = 3;" in budget_logic,
+    "int message_priority = 4;" in budget_logic,
     "generic system context cannot crowd out active-turn retrieved evidence",
 )
 archive_start = budget_logic.find('"PAST CONVERSATION ARCHIVE — CONTEXT ONLY."')
