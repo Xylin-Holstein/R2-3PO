@@ -9355,21 +9355,29 @@ static char *r2_talk_impl(const char *message)
         pthread_mutex_unlock(&messages_lock);
 
         free(reply);
-        free(tools);
+        reply = NULL;
 
         if (pair_rc != 0) {
-            reply = xstrdup(
-                "I'm sorry, Mom—the action ran, but I couldn't save its result into the conversation. "
-                "I won't pretend the follow-up succeeded; please ask me again and I'll check the current state.");
+            char fallback_text[2048];
+            snprintf(fallback_text, sizeof(fallback_text),
+                     "I'm sorry, Mom—the action ran, but I couldn't save its result into the conversation. "
+                     "The result was: %.1200s. I won't repeat the action automatically; "
+                     "please ask me again if you'd like me to verify the current state.",
+                     tools ? tools : "(no tool result text was returned)");
+            reply = xstrdup(fallback_text);
+            free(tools);
+            tools = NULL;
             if (!reply) {
                 message_rollback_turn(message);
                 fprintf(stderr, "[R2] Could not allocate a visible reply after action-context persistence failed.\n");
                 return NULL;
             }
             fprintf(stderr,
-                    "[R2] Action-context persistence failed; returning a visible reply without repeating the action.\n");
+                    "[R2] Action-context persistence failed; returning the result text without repeating the action.\n");
             goto finalize_reply;
         }
+        free(tools);
+        tools = NULL;
 
         reply = chat_with_relevant_memories(message);
         if (!reply) {
