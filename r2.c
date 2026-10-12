@@ -3555,7 +3555,7 @@ static char *ollama_chat_with_limit(
          */
         fprintf(stderr,
                 "[R2 Ollama] refusing inference: authoritative current user turn is missing "
-                "(query_chars=%zu, messages=%zu, stage=%s).\\n",
+                "(query_chars=%zu, messages=%zu, stage=%s).\n",
                 strlen(authoritative_query), count,
                 ollama_audit_stage ? ollama_audit_stage : "unspecified");
         if (r2_log_is_initialized()) {
