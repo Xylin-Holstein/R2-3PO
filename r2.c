@@ -4044,14 +4044,70 @@ static int r2_reply_misclassifies_plain_text(const char *query, const char *repl
     if (words < 5)
         return 0;
 
-    /* Do not override a legitimate conversation about audio, noise, or gibberish. */
+    /*
+     * User feedback that R2's previous output was garbled is itself a clear,
+     * meaningful message. Do not let the words "gibberish" or "unintelligible"
+     * accidentally disable recovery for that case.
+     */
+    int reports_r2_output_problem =
+        (strcasestr(query, "your message") ||
+         strcasestr(query, "your reply") ||
+         strcasestr(query, "your response") ||
+         strcasestr(query, "your answer") ||
+         strcasestr(query, "your last") ||
+         strcasestr(query, "what you said") ||
+         strcasestr(query, "what you wrote") ||
+         strcasestr(query, "message you sent") ||
+         strcasestr(query, "reply you gave") ||
+         strcasestr(query, "answer you gave") ||
+         strcasestr(query, "you just said")) &&
+        (strcasestr(query, "garbled") ||
+         strcasestr(query, "gibberish") ||
+         strcasestr(query, "unintelligible") ||
+         strcasestr(query, "unreadable") ||
+         strcasestr(query, "confusing") ||
+         strcasestr(query, "doesn't make sense") ||
+         strcasestr(query, "does not make sense") ||
+         strcasestr(query, "made no sense") ||
+         strcasestr(query, "hard to understand") ||
+         strcasestr(query, "can't understand") ||
+         strcasestr(query, "cannot understand"));
+
+    /* Keep legitimate audio/transcription discussions out of this guard,
+       except when the user is explicitly reporting a problem with R2's output. */
     static const char *const topic_terms[] = {
         "audio", "sound", "sounds", "noise", "signal", "gibberish",
         "unintelligible", "jumbled", "transcribe", "transcription"
     };
-    for (size_t i = 0; i < sizeof(topic_terms) / sizeof(topic_terms[0]); ++i) {
-        if (strcasestr(query, topic_terms[i]))
-            return 0;
+    if (!reports_r2_output_problem) {
+        for (size_t i = 0; i < sizeof(topic_terms) / sizeof(topic_terms[0]); ++i) {
+            if (strcasestr(query, topic_terms[i]))
+                return 0;
+        }
+    }
+
+    /*
+     * If the user is correcting R2's own prior output, a reply that does not
+     * acknowledge or repair that complaint is another nonresponsive turn.
+     */
+    if (reports_r2_output_problem) {
+        static const char *const acknowledgement_terms[] = {
+            "sorry", "apolog", "garbled", "gibberish", "unreadable",
+            "confusing", "make sense", "understand", "rewrite", "rephrase",
+            "correct", "fix", "clearer", "message", "reply", "response",
+            "answer", "i misread", "i misunderstood", "i'll try again",
+            "let me try", "what you meant"
+        };
+        int acknowledges_or_repairs = 0;
+        for (size_t i = 0; i < sizeof(acknowledgement_terms) /
+                                sizeof(acknowledgement_terms[0]); ++i) {
+            if (strcasestr(reply, acknowledgement_terms[i])) {
+                acknowledges_or_repairs = 1;
+                break;
+            }
+        }
+        if (!acknowledges_or_repairs)
+            return 1;
     }
 
     static const char *const failure_phrases[] = {
@@ -4153,7 +4209,7 @@ static const char r2_conversation_system_prompt[] =
             "a description of an answer you plan to give. "
             "INTERPRETATION: Treat ordinary, grammatical user language as meaningful, "
             "including messages that combine several topics or refer to personal context. "
-            "Do not call an intelligible message gibberish merely because a detail is unfamiliar. "
+            "Do not call an intelligible message gibberish merely because a detail is unfamiliar. If the user says YOUR prior message, answer, or reply was garbled, confusing, unreadable, or made no sense, understand that as feedback about YOUR output; acknowledge it, correct yourself, and address what they were trying to tell you. Do not treat that feedback as evidence that the user's current message is unintelligible. "
             "Do not reinterpret typed text as an audio stream, random sounds, or machine data unless the user is actually discussing audio, sound, signals, or transcription. "
             "Do not replace a normal question or invitation with an analysis of the wording or "
             "a claim that the user is asking whether you are yourself. For multi-part messages, "
@@ -4179,7 +4235,7 @@ static char *r2_build_retry_system_prompt(void)
 {
     static const char retry_instruction[] =
         "RESPONSE CORRECTION: The previous draft did not answer the user's actual message. "
-        "Do not describe ordinary typed language as unintelligible, audio, noise, random sounds, "
+        "If the user reports that YOUR prior message, reply, or answer was garbled, confusing, unreadable, or nonsensical, acknowledge that their complaint is about your output and repair it; do not call their current message garbled. Do not describe ordinary typed language as unintelligible, audio, noise, random sounds, "
         "gibberish, or data unless the user is actually discussing those things. Read the exact "
         "latest user message and answer its question, invitation, statement, or conversational "
         "intent directly. Address the important parts of a multi-part message, including its "
