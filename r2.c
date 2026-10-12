@@ -41,11 +41,11 @@
 #define MIN_MEMORY_KEYWORD_LENGTH 3
 
 /* Bound prompts for the local Gemma 3 4B model: keep system instructions and recent turns. */
-#define OLLAMA_MAX_RECENT_MESSAGES 12
-#define OLLAMA_MAX_MESSAGE_CHARS 8000
-#define OLLAMA_MAX_SYSTEM_MESSAGE_CHARS 20000
-#define OLLAMA_MAX_SYSTEM_TOTAL_CHARS 32000
-#define OLLAMA_MAX_TOTAL_CHARS 36000
+#define OLLAMA_MAX_RECENT_MESSAGES 16
+#define OLLAMA_MAX_MESSAGE_CHARS 12000
+#define OLLAMA_MAX_SYSTEM_MESSAGE_CHARS 24000
+#define OLLAMA_MAX_SYSTEM_TOTAL_CHARS 42000
+#define OLLAMA_MAX_TOTAL_CHARS 48000
 #define OLLAMA_MAX_RESPONSE_BYTES (16U * 1024U * 1024U)
 
 #define OLLAMA_URL "http://127.0.0.1:11434/api/chat"
@@ -4308,17 +4308,18 @@ static char *r2_retry_direct_answer(Message *messages_copy,
 }
 
 /*
- * Keep routine dialogue focused instead of sending a broad memory dump to a
- * small local model on every turn. Full recall remains available when the
- * user explicitly asks about prior conversations or remembered details.
+ * Give ordinary turns a substantial bounded evidence budget: normal conversation
+ * still searches persistent memory, Life Log, diary, and visual experiences, while
+ * explicit recall receives a larger ceiling. The Ollama payload builder applies
+ * a second hardware-aware cap so these retrieval budgets do not override RAM headroom.
  */
-#define R2_TURN_MEMORY_LIMIT 6
-#define R2_TURN_MEMORY_CHARS 2000
-#define R2_TURN_HISTORY_CHARS 1000
-#define R2_TURN_HISTORY_SEARCHES 6
-#define R2_RECALL_MEMORY_CHARS 14000
-#define R2_RECALL_HISTORY_CHARS 10000
-#define R2_RECALL_HISTORY_SEARCHES 4
+#define R2_TURN_MEMORY_LIMIT 10
+#define R2_TURN_MEMORY_CHARS 6000
+#define R2_TURN_HISTORY_CHARS 6000
+#define R2_TURN_HISTORY_SEARCHES 12
+#define R2_RECALL_MEMORY_CHARS 18000
+#define R2_RECALL_HISTORY_CHARS 14000
+#define R2_RECALL_HISTORY_SEARCHES 16
 
 /*
  * Greeting/address and conversational filler tokens are poor memory-search
