@@ -9310,9 +9310,8 @@ static char *r2_talk_impl(const char *message)
             "I'm sorry, Mom—I couldn't produce a usable reply just now. "
             "Your message hasn't been discarded; please try again in a moment.");
         if (!reply) {
-            message_rollback_turn(message);
             fprintf(stderr,
-                    "[R2] Could not allocate the conversation fallback reply.\n");
+                    "[R2] Could not allocate the conversation fallback reply; preserving the user turn for the caller's fallback.\n");
             return NULL;
         }
     }
@@ -9342,9 +9341,8 @@ static char *r2_talk_impl(const char *message)
             if (!reply || !reply_has_visible_text(stripped_reply)) {
                 free(reply);
                 free(stripped_reply);
-                message_rollback_turn(message);
-                fprintf(stderr,
-                        "[R2] Could not allocate a visible fallback after empty model output.\n");
+                    fprintf(stderr,
+                        "[R2] Could not allocate a visible fallback after empty model output; preserving the user turn.\n");
                 return NULL;
             }
             fprintf(stderr,
@@ -9360,8 +9358,7 @@ static char *r2_talk_impl(const char *message)
             "I'm sorry, Mom—I couldn't finish processing that response. "
             "Your message is still here; please try again in a moment.");
         if (!reply) {
-            message_rollback_turn(message);
-            fprintf(stderr, "[R2] Could not allocate a visible reply after tool-processing failure.\n");
+            fprintf(stderr, "[R2] Could not allocate a visible reply after tool-processing failure; preserving the user turn.\n");
             return NULL;
         }
         fprintf(stderr,
@@ -9394,8 +9391,7 @@ static char *r2_talk_impl(const char *message)
             free(tools);
             tools = NULL;
             if (!reply) {
-                message_rollback_turn(message);
-                fprintf(stderr, "[R2] Could not allocate a visible reply after action-context persistence failed.\n");
+                    fprintf(stderr, "[R2] Could not allocate a visible reply after action-context persistence failed; preserving the user turn and not repeating the action.\n");
                 return NULL;
             }
             fprintf(stderr,
@@ -9419,9 +9415,8 @@ static char *r2_talk_impl(const char *message)
                 "I'm sorry, Mom—I completed the action, but couldn't generate the follow-up answer. "
                 "The action result is still in the conversation; please ask me again if you'd like me to explain it.");
             if (!reply) {
-                message_rollback_turn(message);
-                fprintf(stderr,
-                        "[R2] Follow-up generation failed after one refreshed retry and fallback allocation failed.\n");
+                    fprintf(stderr,
+                        "[R2] Follow-up generation failed after one refreshed retry and fallback allocation failed; preserving the action and user turn.\n");
                 return NULL;
             }
             fprintf(stderr,
@@ -9436,8 +9431,7 @@ static char *r2_talk_impl(const char *message)
                 "I'm sorry, Mom—the action happened, but I couldn't prepare a usable follow-up. "
                 "The result remains in the conversation; please ask me again.");
             if (!reply) {
-                message_rollback_turn(message);
-                fprintf(stderr, "[R2] Could not allocate a visible reply after tool follow-up cleanup failed.\n");
+                    fprintf(stderr, "[R2] Could not allocate a visible reply after tool follow-up cleanup failed; preserving the action and user turn.\n");
                 return NULL;
             }
             fprintf(stderr,
@@ -9458,8 +9452,7 @@ static char *r2_talk_impl(const char *message)
                 "I'm sorry, Mom—I couldn't prepare a usable reply after processing it. "
                 "Your message is still here; please try again.");
             if (!reply) {
-                message_rollback_turn(message);
-                fprintf(stderr, "[R2] Could not allocate a visible reply after sound-marker cleanup failed.\n");
+                    fprintf(stderr, "[R2] Could not allocate a visible reply after sound-marker cleanup failed; preserving the user turn.\n");
                 return NULL;
             }
             fprintf(stderr,
