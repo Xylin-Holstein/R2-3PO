@@ -35,14 +35,17 @@ require(
     and '[R2 Input Audit] r2_talk_received_chars=%zu' in core,
     "input length is audited at both shell and conversation-core boundaries without logging message contents",
 )
+hand_marker = core.find('"[HAND %s] %.*s"')
+hand_prefix = core[max(0, hand_marker - 100):hand_marker]
 require(
-    '"[HAND %s] %.*s"' in core
-    and 'fprintf(\\n            stderr,\\n            "[HAND %s] %.*s"' in core,
+    hand_marker >= 0 and "fprintf" in hand_prefix and "stderr" in hand_prefix,
     "background HANDS output goes to diagnostics rather than the interactive reply stream",
 )
+diary_marker = core.find("The full reflection is stored in the diary.")
+diary_end = core.find("} else {", diary_marker)
+diary_block = core[diary_marker:diary_end] if diary_marker >= 0 and diary_end > diary_marker else ""
 require(
-    'printf(\\n                "\\n[R2 autonomous diary reflection written]' not in core
-    and 'Autonomous reflection written to diary and Life Log.' in core,
+    diary_marker >= 0 and "fprintf(stderr" in diary_block and "printf(" not in diary_block,
     "background diary reflections are archived without printing their contents over the conversation terminal",
 )
 print("R2 console diagnostic isolation smoke test passed.")
