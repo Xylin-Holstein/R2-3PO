@@ -80,4 +80,12 @@ require(
     and "Do not replace a normal question or invitation with an analysis of the wording" in system_prompt,
     "the shared inference instructions prioritize ordinary conversational intent",
 )
+require(
+    'static _Thread_local const char *ollama_audit_stage = "unspecified";' in core
+    and 'ollama_audit_stage = "association-planner";' in core
+    and 'ollama_audit_stage = "conversation-answer";' in core
+    and 'ollama_audit_stage = "conversation-retry";' in core
+    and '"[R2 Prompt Audit] stage=%s payload_chars=%zu' in core,
+    "prompt diagnostics distinguish associative planning from the actual answer and retry, making input-length discrepancies traceable",
+)
 print("Current-turn context separation smoke passed.")
