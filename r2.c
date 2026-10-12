@@ -3343,6 +3343,18 @@ static char *ollama_chat_with_limit(
         json_object_object_add(options, "num_predict", json_object_new_int(num_predict));
 
         /*
+         * Qwen3.5's official non-thinking/general-task sampler settings.
+         * Set these explicitly instead of inheriting an Ollama Modelfile's
+         * defaults, so R2's conversational behavior is reproducible.
+         */
+        json_object_object_add(options, "temperature", json_object_new_double(0.7));
+        json_object_object_add(options, "top_p", json_object_new_double(0.8));
+        json_object_object_add(options, "top_k", json_object_new_int(20));
+        json_object_object_add(options, "min_p", json_object_new_double(0.0));
+        json_object_object_add(options, "presence_penalty", json_object_new_double(1.5));
+        json_object_object_add(options, "repeat_penalty", json_object_new_double(1.0));
+
+        /*
          * Ollama otherwise chooses GPU placement automatically. The optional
          * layer count permits deliberate mixed CPU/GPU execution when a
          * supported GPU backend is available.
