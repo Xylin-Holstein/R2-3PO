@@ -4416,7 +4416,7 @@ static char *r2_collect_associated_records(
 
     size_t used = 0;
     int searches = 0;
-    for (size_t i = 0; i < keyword_count && searches < 3 && used < max_chars; ++i) {
+    for (size_t i = 0; i < keyword_count && searches < 6 && used < max_chars; ++i) {
         if (!keywords[i][0] || r2_keyword_is_low_signal(keywords[i]))
             continue;
 
@@ -4687,7 +4687,7 @@ static char *chat_with_relevant_memories(
         extract_memory_keywords(associative_query, associated_keywords);
 
     char *diary_matches = r2_collect_associated_records(
-        associated_keywords, associated_count, r2_diary_search, 700);
+        associated_keywords, associated_count, r2_diary_search, 1400);
     if (diary_matches && *diary_matches)
         r2_append_association_section(
             &memory_context,
@@ -4697,7 +4697,7 @@ static char *chat_with_relevant_memories(
 
     if (r2_visual_is_initialized()) {
         char *visual_matches = r2_collect_associated_records(
-            associated_keywords, associated_count, r2_visual_search, 700);
+            associated_keywords, associated_count, r2_visual_search, 1400);
         if (visual_matches && *visual_matches)
             r2_append_association_section(
                 &memory_context,
