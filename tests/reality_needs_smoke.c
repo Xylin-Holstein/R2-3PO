@@ -163,6 +163,42 @@ int main(void)
     if (r2_reality_remove_item("overflow_stack") != 0)
         fail("could not clean up quantity overflow fixture");
 
+    /* Adding another unit must not silently move an existing stack from the
+       shelf into pockets. Moving the stack is a separate, explicit operation. */
+    if (r2_reality_add_item("cross_container_stack", "Shelf stack", "shelf", 2) != 0)
+        fail("could not create cross-container stack fixture");
+    if (r2_reality_add_item("cross_container_stack", "Pocket stack", "pockets", 1) == 0)
+        fail("adding an item in another container must not silently relocate the existing stack");
+    sqlite3 *container_db = NULL;
+    sqlite3_stmt *container_st = NULL;
+    if (sqlite3_open(R2_HOME "/r2_reality.db", &container_db) != SQLITE_OK)
+        fail("could not query cross-container stack regression");
+    if (sqlite3_prepare_v2(container_db,
+        "SELECT container,quantity FROM r2_reality_objects WHERE name='cross_container_stack'",
+        -1, &container_st, NULL) != SQLITE_OK ||
+        sqlite3_step(container_st) != SQLITE_ROW ||
+        strcmp((const char *)sqlite3_column_text(container_st, 0), "shelf") != 0 ||
+        sqlite3_column_int(container_st, 1) != 2)
+        fail("rejected cross-container add changed the existing shelf stack");
+    sqlite3_finalize(container_st);
+    sqlite3_close(container_db);
+    if (r2_reality_move_item("cross_container_stack", "pockets") != 0)
+        fail("explicit stack move from shelf to pockets should succeed");
+    if (sqlite3_open(R2_HOME "/r2_reality.db", &container_db) != SQLITE_OK)
+        fail("could not verify explicit stack move");
+    container_st = NULL;
+    if (sqlite3_prepare_v2(container_db,
+        "SELECT container,quantity FROM r2_reality_objects WHERE name='cross_container_stack'",
+        -1, &container_st, NULL) != SQLITE_OK ||
+        sqlite3_step(container_st) != SQLITE_ROW ||
+        strcmp((const char *)sqlite3_column_text(container_st, 0), "pockets") != 0 ||
+        sqlite3_column_int(container_st, 1) != 2)
+        fail("explicit stack move did not preserve quantity while changing containers");
+    sqlite3_finalize(container_st);
+    sqlite3_close(container_db);
+    if (r2_reality_remove_item("cross_container_stack") != 0)
+        fail("could not clean up cross-container stack fixture");
+
     /* Force a secondary persistence failure and verify the primary object,
        its container, and its collection memory are rolled back together. */
     char atomic_path[1024];
