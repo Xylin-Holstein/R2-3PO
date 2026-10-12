@@ -24,8 +24,17 @@ for phrase in (
     '"unable to understand your message"',
     '"that\'s a bit garbled"',
     '"that’s a bit garbled"',
-    "if (words < 5)",
-    "Do not override a legitimate conversation about audio, noise, or gibberish.",
+    "if (!reports_r2_output_problem && words < 5)",
+    "Keep legitimate audio/transcription discussions out of this guard",
+    "reports_r2_output_problem",
+    "\"your message\"",
+    "\"garbled\"",
+    "\"the message is\"",
+    "\"you're saying\"",
+    "acknowledgement_terms",
+    "if (!reports_r2_output_problem && strlen(query) < 24)",
+    "if (!reports_r2_output_problem && words < 5)",
+    "If the user reports that YOUR prior message",
     "proposes_user_intent",
     "asks_for_confirmation",
     "interpretation_requests",
@@ -93,6 +102,10 @@ require(
     "sanitized retry result is validated before delivery",
 )
 require(
+    "If the user says YOUR prior message, answer, or reply was garbled" in core,
+    "the main conversation prompt distinguishes feedback about R2's prior output from an unintelligible current user message",
+)
+require(
     "Do not reinterpret typed text as an audio stream, random sounds, or machine data" in core,
     "primary conversation prompt discourages typed-text misclassification",
 )
@@ -111,8 +124,8 @@ require(
     "active conversation prompt applies relationship learning without mother-specific phrase rules",
 )
 require(
-    "R2_TURN_MEMORY_LIMIT 6" in core and "R2_RECALL_HISTORY_SEARCHES 4" in core,
-    "ordinary dialogue uses focused retrieval while explicit recall expands it",
+    "R2_TURN_MEMORY_LIMIT 10" in core and "R2_RECALL_HISTORY_SEARCHES 16" in core,
+    "ordinary dialogue has a substantial retrieval budget while explicit recall expands it further",
 )
 require(
     "r2_query_explicitly_requests_recall(query)" in core,

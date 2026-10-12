@@ -90,6 +90,12 @@ jobs:
       - name: Keep retrieved context separate from the active user turn
         run: python3 tests/current_turn_context_smoke.py
 
+      - name: Keep diagnostics out of the interactive conversation stream
+        run: python3 tests/console_diagnostics_isolation_smoke.py
+
+      - name: Check model-assisted associative memory retrieval
+        run: python3 tests/associative_retrieval_smoke.py
+
       - name: Check bounded RAM context cache and hardware telemetry
         run: python3 tests/context_cache_smoke.py
 

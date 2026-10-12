@@ -37,15 +37,15 @@
 */
 #define MAX_STARTUP_MEMORIES 100
 #define MAX_RELEVANT_MEMORIES 20
-#define MAX_MEMORY_KEYWORDS 16
+#define MAX_MEMORY_KEYWORDS 48
 #define MIN_MEMORY_KEYWORD_LENGTH 3
 
 /* Bound prompts for the local Gemma 3 4B model: keep system instructions and recent turns. */
-#define OLLAMA_MAX_RECENT_MESSAGES 12
-#define OLLAMA_MAX_MESSAGE_CHARS 8000
-#define OLLAMA_MAX_SYSTEM_MESSAGE_CHARS 20000
-#define OLLAMA_MAX_SYSTEM_TOTAL_CHARS 32000
-#define OLLAMA_MAX_TOTAL_CHARS 36000
+#define OLLAMA_MAX_RECENT_MESSAGES 16
+#define OLLAMA_MAX_MESSAGE_CHARS 12000
+#define OLLAMA_MAX_SYSTEM_MESSAGE_CHARS 24000
+#define OLLAMA_MAX_SYSTEM_TOTAL_CHARS 42000
+#define OLLAMA_MAX_TOTAL_CHARS 48000
 #define OLLAMA_MAX_RESPONSE_BYTES (16U * 1024U * 1024U)
 
 #define OLLAMA_URL "http://127.0.0.1:11434/api/chat"
@@ -121,6 +121,8 @@ static _Thread_local int ollama_background_mode = 0;
 static _Thread_local int ollama_foreground_turn_mode = 0;
 /* Original user query for the active contextual conversation request. */
 static _Thread_local const char *ollama_authoritative_user_query = NULL;
+/* Labels prompt audits so intermediate planning calls cannot be confused with the final answer request. */
+static _Thread_local const char *ollama_audit_stage = "unspecified";
 static pthread_mutex_t post_turn_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t post_turn_cond = PTHREAD_COND_INITIALIZER;
 static unsigned int post_turn_active = 0;
@@ -1720,6 +1722,29 @@ static size_t extract_memory_keywords(
     return count;
 }
 
+/*
+ * Match a search cue as a whole token. Substring-only matches made short
+ * concepts such as "eye" collide with unrelated words and over-ranked noisy
+ * memories. The text passed here is normalized to lowercase by the caller.
+ */
+static int r2_memory_has_keyword(const char *text, const char *keyword)
+{
+    if (!text || !keyword || !*keyword)
+        return 0;
+
+    size_t length = strlen(keyword);
+    const char *match = text;
+    while ((match = strstr(match, keyword)) != NULL) {
+        int left_boundary = match == text ||
+            !isalnum((unsigned char)match[-1]);
+        int right_boundary = !isalnum((unsigned char)match[length]);
+        if (left_boundary && right_boundary)
+            return 1;
+        ++match;
+    }
+    return 0;
+}
+
 static char *get_relevant_memories(
     const char *query,
     int limit)
@@ -1862,21 +1887,29 @@ static char *get_relevant_memories(
                 }
 
                 int score = 0;
+                int matched_keywords = 0;
 
                 for (
                     size_t k = 0;
                     k < keyword_count;
                     ++k
                 ) {
-
-                    if (
-                        strstr(
-                            combined,
-                            keywords[k]
-                        )
-                    )
-                        score++;
+                    if (r2_memory_has_keyword(combined, keywords[k])) {
+                        size_t keyword_length = strlen(keywords[k]);
+                        /*
+                         * Specific concepts carry more information than short
+                         * generic terms. Whole-token matching prevents partial
+                         * collisions; coverage rewards records connecting more
+                         * than one cue. This remains bounded lexical ranking,
+                         * not a claim of vector/embedding semantics.
+                         */
+                        score += keyword_length >= 9 ? 4 :
+                                 keyword_length >= 6 ? 2 : 1;
+                        ++matched_keywords;
+                    }
                 }
+                if (matched_keywords > 1)
+                    score += matched_keywords - 1;
 
                 free(combined);
 
@@ -3682,10 +3715,11 @@ static char *ollama_chat_with_limit(
         }
     }
     fprintf(stderr,
-            "[R2 Prompt Audit] payload_chars=%zu messages=%zu user_messages=%zu "
+            "[R2 Prompt Audit] stage=%s payload_chars=%zu messages=%zu user_messages=%zu "
             "current_query_chars=%zu exact_user_turn=%d query_in_user_turn=%d "
             "startup_memory=%d retrieved_context=%d reality_context=%d "
             "learning_context=%d system_chars=%zu\n",
+            ollama_audit_stage ? ollama_audit_stage : "unspecified",
             strlen(payload), audit_message_count, audit_user_messages,
             audit_query_chars, audit_exact_user_turn, audit_user_turn_contained,
             audit_startup_memory, audit_retrieved_context, audit_reality_context,
@@ -4025,7 +4059,52 @@ static int conversation_reply_token_budget(const char *query)
  */
 static int r2_reply_misclassifies_plain_text(const char *query, const char *reply)
 {
-    if (!query || !reply || strlen(query) < 24)
+    if (!query || !reply)
+        return 0;
+
+    /*
+     * Detect feedback about R2's own output before applying the ordinary
+     * minimum-length/word-count guards: reports like "your reply is garbled"
+     * are short but still unambiguous and must trigger recovery.
+     */
+    int reports_r2_output_problem =
+        (strcasestr(query, "your message") ||
+         strcasestr(query, "your reply") ||
+         strcasestr(query, "your response") ||
+         strcasestr(query, "your answer") ||
+         strcasestr(query, "your last") ||
+         strcasestr(query, "what you said") ||
+         strcasestr(query, "what you wrote") ||
+         strcasestr(query, "message you sent") ||
+         strcasestr(query, "reply you gave") ||
+         strcasestr(query, "answer you gave") ||
+         strcasestr(query, "you just said") ||
+         strcasestr(query, "you keep saying") ||
+         strcasestr(query, "you're saying") ||
+         strcasestr(query, "you are saying") ||
+         strcasestr(query, "you called it") ||
+         strcasestr(query, "you think my message") ||
+         strcasestr(query, "i said the message") ||
+         strcasestr(query, "i'm saying the message") ||
+         strcasestr(query, "im saying the message") ||
+         strcasestr(query, "the message is") ||
+         strcasestr(query, "that message is") ||
+         strcasestr(query, "last message is") ||
+         strcasestr(query, "last reply is") ||
+         strcasestr(query, "last response is")) &&
+        (strcasestr(query, "garbled") ||
+         strcasestr(query, "gibberish") ||
+         strcasestr(query, "unintelligible") ||
+         strcasestr(query, "unreadable") ||
+         strcasestr(query, "confusing") ||
+         strcasestr(query, "doesn't make sense") ||
+         strcasestr(query, "does not make sense") ||
+         strcasestr(query, "made no sense") ||
+         strcasestr(query, "hard to understand") ||
+         strcasestr(query, "can't understand") ||
+         strcasestr(query, "cannot understand"));
+
+    if (!reports_r2_output_problem && strlen(query) < 24)
         return 0;
 
     size_t words = 0;
@@ -4038,17 +4117,50 @@ static int r2_reply_misclassifies_plain_text(const char *query, const char *repl
             in_word = 0;
         }
     }
-    if (words < 5)
+    if (!reports_r2_output_problem && words < 5)
         return 0;
 
-    /* Do not override a legitimate conversation about audio, noise, or gibberish. */
+    /*
+     * User feedback that R2's previous output was garbled is itself a clear,
+     * meaningful message. Do not let the words "gibberish" or "unintelligible"
+     * accidentally disable recovery for that case.
+     */
+    /* Keep legitimate audio/transcription discussions out of this guard,
+       except when the user is explicitly reporting a problem with R2's output. */
     static const char *const topic_terms[] = {
         "audio", "sound", "sounds", "noise", "signal", "gibberish",
         "unintelligible", "jumbled", "transcribe", "transcription"
     };
-    for (size_t i = 0; i < sizeof(topic_terms) / sizeof(topic_terms[0]); ++i) {
-        if (strcasestr(query, topic_terms[i]))
-            return 0;
+    if (!reports_r2_output_problem) {
+        for (size_t i = 0; i < sizeof(topic_terms) / sizeof(topic_terms[0]); ++i) {
+            if (strcasestr(query, topic_terms[i]))
+                return 0;
+        }
+    }
+
+    /*
+     * If the user is correcting R2's own prior output, a reply that does not
+     * acknowledge or repair that complaint is another nonresponsive turn.
+     */
+    if (reports_r2_output_problem) {
+        static const char *const acknowledgement_terms[] = {
+            "sorry", "apolog", "garbled", "gibberish", "unreadable",
+            "confusing", "make sense", "rewrite", "rephrase", "correct",
+            "fix", "clearer", "i misread", "i misunderstood",
+            "i'll try again", "let me try", "let me clarify",
+            "i'll reread", "i'll rephrase", "what you meant",
+            "i see what you're saying"
+        };
+        int acknowledges_or_repairs = 0;
+        for (size_t i = 0; i < sizeof(acknowledgement_terms) /
+                                sizeof(acknowledgement_terms[0]); ++i) {
+            if (strcasestr(reply, acknowledgement_terms[i])) {
+                acknowledges_or_repairs = 1;
+                break;
+            }
+        }
+        if (!acknowledges_or_repairs)
+            return 1;
     }
 
     static const char *const failure_phrases[] = {
@@ -4150,7 +4262,7 @@ static const char r2_conversation_system_prompt[] =
             "a description of an answer you plan to give. "
             "INTERPRETATION: Treat ordinary, grammatical user language as meaningful, "
             "including messages that combine several topics or refer to personal context. "
-            "Do not call an intelligible message gibberish merely because a detail is unfamiliar. "
+            "Do not call an intelligible message gibberish merely because a detail is unfamiliar. If the user says YOUR prior message, answer, or reply was garbled, confusing, unreadable, or made no sense, understand that as feedback about YOUR output; acknowledge it, correct yourself, and address what they were trying to tell you. Do not treat that feedback as evidence that the user's current message is unintelligible. "
             "Do not reinterpret typed text as an audio stream, random sounds, or machine data unless the user is actually discussing audio, sound, signals, or transcription. "
             "Do not replace a normal question or invitation with an analysis of the wording or "
             "a claim that the user is asking whether you are yourself. For multi-part messages, "
@@ -4176,7 +4288,7 @@ static char *r2_build_retry_system_prompt(void)
 {
     static const char retry_instruction[] =
         "RESPONSE CORRECTION: The previous draft did not answer the user's actual message. "
-        "Do not describe ordinary typed language as unintelligible, audio, noise, random sounds, "
+        "If the user reports that YOUR prior message, reply, or answer was garbled, confusing, unreadable, or nonsensical, acknowledge that their complaint is about your output and repair it; do not call their current message garbled. Do not describe ordinary typed language as unintelligible, audio, noise, random sounds, "
         "gibberish, or data unless the user is actually discussing those things. Read the exact "
         "latest user message and answer its question, invitation, statement, or conversational "
         "intent directly. Address the important parts of a multi-part message, including its "
@@ -4297,28 +4409,32 @@ static char *r2_retry_direct_answer(Message *messages_copy,
     fprintf(stderr,
             "[R2 Conversation] Correcting a nonresponsive turn with a compact current-message retry.\n");
     const char *previous_query = ollama_authoritative_user_query;
+    const char *previous_stage = ollama_audit_stage;
     ollama_authoritative_user_query = query;
+    ollama_audit_stage = "conversation-retry";
     char *retry = ollama_chat_with_limit(
         compact_messages, compact_count, retry_system_prompt,
         conversation_reply_token_budget(query),
         r2_conversation_timeout_seconds());
     ollama_authoritative_user_query = previous_query;
+    ollama_audit_stage = previous_stage;
     free(retry_system_prompt);
     return retry;
 }
 
 /*
- * Keep routine dialogue focused instead of sending a broad memory dump to a
- * small local model on every turn. Full recall remains available when the
- * user explicitly asks about prior conversations or remembered details.
+ * Give ordinary turns a substantial bounded evidence budget: normal conversation
+ * still searches persistent memory, Life Log, diary, and visual experiences, while
+ * explicit recall receives a larger ceiling. The Ollama payload builder applies
+ * a second hardware-aware cap so these retrieval budgets do not override RAM headroom.
  */
-#define R2_TURN_MEMORY_LIMIT 6
-#define R2_TURN_MEMORY_CHARS 2000
-#define R2_TURN_HISTORY_CHARS 1000
-#define R2_TURN_HISTORY_SEARCHES 2
-#define R2_RECALL_MEMORY_CHARS 14000
-#define R2_RECALL_HISTORY_CHARS 10000
-#define R2_RECALL_HISTORY_SEARCHES 4
+#define R2_TURN_MEMORY_LIMIT 10
+#define R2_TURN_MEMORY_CHARS 6000
+#define R2_TURN_HISTORY_CHARS 6000
+#define R2_TURN_HISTORY_SEARCHES 12
+#define R2_RECALL_MEMORY_CHARS 18000
+#define R2_RECALL_HISTORY_CHARS 14000
+#define R2_RECALL_HISTORY_SEARCHES 16
 
 /*
  * Greeting/address and conversational filler tokens are poor memory-search
@@ -4404,6 +4520,172 @@ static void r2_bound_context_records(char *context, size_t max_chars)
     context[cut] = '\0';
 }
 
+/*
+ * Ask the same local model to interpret the current message for retrieval,
+ * not to answer it. These associative cues are used only to search R2's
+ * existing records; they are never added to the user's message or treated
+ * as facts. Retrieval is attempted on every turn, regardless of whether the
+ * user says "remember" or uses any other special phrase.
+ */
+typedef char *(*R2AssociationSearchFn)(const char *, int);
+
+/* Search other existing experience stores with the same model-generated cues.
+   This is read-only retrieval: it does not rewrite or promote stored records. */
+static char *r2_collect_associated_records(
+    char keywords[MAX_MEMORY_KEYWORDS][64],
+    size_t keyword_count,
+    R2AssociationSearchFn search_fn,
+    size_t max_chars)
+{
+    if (!search_fn || max_chars == 0)
+        return xstrdup("");
+
+    char *out = calloc(max_chars + 1, 1);
+    if (!out)
+        return NULL;
+
+    size_t used = 0;
+    int searches = 0;
+    for (size_t i = 0; i < keyword_count && searches < 6 && used < max_chars; ++i) {
+        if (!keywords[i][0] || r2_keyword_is_low_signal(keywords[i]))
+            continue;
+
+        char *found = search_fn(keywords[i], 2);
+        ++searches;
+        if (!found || !*found) {
+            free(found);
+            continue;
+        }
+
+        if (strstr(found, "No Life Log events matched") ||
+            strstr(found, "The Life Log contains no events") ||
+            strstr(found, "No visual experiences matched")) {
+            free(found);
+            continue;
+        }
+
+        /* Avoid repeating the same entry when several cues hit it. */
+        if (used && strstr(out, found)) {
+            free(found);
+            continue;
+        }
+
+        size_t n = strlen(found);
+        if (n > max_chars - used)
+            n = max_chars - used;
+        while (n > 0 && found[n - 1] != '\n')
+            --n;
+        if (n == 0)
+            n = max_chars - used;
+        if (n == 0) {
+            free(found);
+            break;
+        }
+
+        if (used)
+            out[used++] = '\n';
+        if (n > max_chars - used)
+            n = max_chars - used;
+        memcpy(out + used, found, n);
+        used += n;
+        out[used] = '\0';
+        free(found);
+    }
+
+    if (used == 0) {
+        free(out);
+        return xstrdup("");
+    }
+    return out;
+}
+
+static void r2_append_association_section(
+    char **context,
+    const char *heading,
+    const char *records)
+{
+    if (!context || !*context || !heading || !records || !*records)
+        return;
+
+    size_t old_n = strlen(*context);
+    size_t heading_n = strlen(heading);
+    size_t records_n = strlen(records);
+    if (old_n > SIZE_MAX - heading_n - records_n - 8)
+        return;
+
+    size_t total = old_n + heading_n + records_n + 8;
+    char *joined = malloc(total);
+    if (!joined)
+        return;
+
+    snprintf(joined, total, "%s%s%s%s%s",
+             *context, old_n ? "\n\n" : "",
+             heading, records, "\n");
+    free(*context);
+    *context = joined;
+}
+
+static char *r2_build_associative_search_query(const char *query)
+{
+    if (!query || !*query)
+        return xstrdup(query ? query : "");
+
+    static const char retrieval_prompt[] =
+        "You are R2's internal associative-memory retrieval planner. "
+        "Do NOT answer the user, roleplay, or claim that a memory exists. "
+        "Interpret the meaning of the user's complete message and output "
+        "only 6 to 10 short search concepts or paraphrases that could help "
+        "find related past experiences in a database. Preserve named people, "
+        "objects, actions, unusual concepts, and relationships. Include "
+        "natural paraphrases and related concepts even when the user did not "
+        "use those exact words. Prefer one concept per line. No commentary, "
+        "no numbering, no JSON, and no invented claims.";
+
+    Message probe;
+    memset(&probe, 0, sizeof(probe));
+    probe.role = (char *)"user";
+    probe.content = (char *)query;
+    probe.pinned = 0;
+
+    const char *previous_query = ollama_authoritative_user_query;
+    const char *previous_stage = ollama_audit_stage;
+    ollama_authoritative_user_query = query;
+    ollama_audit_stage = "association-planner";
+    char *generated = ollama_chat_with_limit(
+        &probe, 1, retrieval_prompt, 128, 90L);
+    ollama_authoritative_user_query = previous_query;
+    ollama_audit_stage = previous_stage;
+
+    if (!generated || !*generated) {
+        free(generated);
+        return xstrdup(query);
+    }
+
+    char *clean = r2_reply_sanitize(generated);
+    free(generated);
+    if (!clean || !*clean) {
+        free(clean);
+        return xstrdup(query);
+    }
+
+    size_t query_length = strlen(query);
+    size_t concepts_length = strlen(clean);
+    const char heading[] = "\n\nORIGINAL USER MESSAGE (retrieval input only):\n";
+    size_t total = query_length + sizeof(heading) - 1 + concepts_length + 1;
+    char *combined = malloc(total);
+    if (!combined) {
+        free(clean);
+        return xstrdup(query);
+    }
+
+    snprintf(combined, total, "%s%s%s", clean, heading, query);
+    fprintf(stderr,
+            "[R2 Association] Generated associative retrieval cues (%zu chars); original user text remains unchanged.\n",
+            concepts_length);
+    free(clean);
+    return combined;
+}
+
 static char *chat_with_relevant_memories(
     const char *query)
 {
@@ -4425,16 +4707,26 @@ static char *chat_with_relevant_memories(
     int history_search_limit = explicit_recall ? R2_RECALL_HISTORY_SEARCHES
                                                : R2_TURN_HISTORY_SEARCHES;
 
+    /* Semantic interpretation supplies database search cues for every turn.
+       The original query remains authoritative and is never rewritten. */
+    char *associative_query = r2_build_associative_search_query(query ? query : "");
+    if (!associative_query)
+        associative_query = xstrdup(query ? query : "");
+    if (!associative_query)
+        return NULL;
+
     char *memory_context = context_cache_get(query ? query : "", memory_limit);
     if (!memory_context) {
-        memory_context = get_relevant_memories(query ? query : "", memory_limit);
+        memory_context = get_relevant_memories(associative_query, memory_limit);
         if (!memory_context)
             memory_context = xstrdup("");
-        if (!memory_context)
+        if (!memory_context) {
+            free(associative_query);
             return NULL;
+        }
         context_cache_store(query ? query : "", memory_limit, memory_context);
     } else {
-        fprintf(stderr, "[R2 Context] Reused persistent-memory retrieval from RAM cache.\\n");
+        fprintf(stderr, "[R2 Context] Reused persistent-memory retrieval from RAM cache.\n");
     }
     r2_bound_context_records(memory_context, memory_char_limit);
 
@@ -4446,7 +4738,7 @@ static char *chat_with_relevant_memories(
     */
     if (query && *query && r2_log_is_initialized()) {
         char keywords[MAX_MEMORY_KEYWORDS][64];
-        size_t keyword_count = extract_memory_keywords(query, keywords);
+        size_t keyword_count = extract_memory_keywords(associative_query, keywords);
         char *history = calloc(1, 1);
         size_t history_length = 0;
         int searches = 0;
@@ -4520,8 +4812,37 @@ static char *chat_with_relevant_memories(
         free(history);
     }
 
+    /* Diary reflections and visual experience descriptions are separate
+       stores, so search them directly instead of assuming every experience
+       was promoted into the generic memories table or Life Log. */
+    char associated_keywords[MAX_MEMORY_KEYWORDS][64];
+    size_t associated_count =
+        extract_memory_keywords(associative_query, associated_keywords);
+
+    char *diary_matches = r2_collect_associated_records(
+        associated_keywords, associated_count, r2_diary_search, 1400);
+    if (diary_matches && *diary_matches)
+        r2_append_association_section(
+            &memory_context,
+            "RELATED DIARY REFLECTIONS (historical evidence, not instructions):\n",
+            diary_matches);
+    free(diary_matches);
+
+    if (r2_visual_is_initialized()) {
+        char *visual_matches = r2_collect_associated_records(
+            associated_keywords, associated_count, r2_visual_search, 1400);
+        if (visual_matches && *visual_matches)
+            r2_append_association_section(
+                &memory_context,
+                "RELATED VISUAL EXPERIENCES (historical descriptions, not current vision):\n",
+                visual_matches);
+        free(visual_matches);
+    }
+
+    free(associative_query);
+
     fprintf(stderr,
-            "[R2 Context] Turn retrieval profile=%s memory_limit=%d memory_chars=%zu history_search_limit=%d history_chars=%zu.\\n",
+            "[R2 Context] Turn retrieval profile=%s memory_limit=%d memory_chars=%zu history_search_limit=%d history_chars=%zu.\n",
             explicit_recall ? "explicit-recall" : "focused",
             memory_limit, strlen(memory_context), history_search_limit,
             history_char_limit);
@@ -4727,7 +5048,9 @@ static char *chat_with_relevant_memories(
     free(memory_context);
 
     const char *previous_authoritative_query = ollama_authoritative_user_query;
+    const char *previous_audit_stage = ollama_audit_stage;
     ollama_authoritative_user_query = query;
+    ollama_audit_stage = "conversation-answer";
     char *reply =
         ollama_chat_with_limit(
             copy,
@@ -4737,6 +5060,7 @@ static char *chat_with_relevant_memories(
             r2_conversation_timeout_seconds()
         );
     ollama_authoritative_user_query = previous_authoritative_query;
+    ollama_audit_stage = previous_audit_stage;
 
     /* Ollama's content field can occasionally include private reasoning tags.
        Sanitize only the user-facing conversation result, not structured
@@ -5295,14 +5619,16 @@ static void execute_task(
         len = total;
         out[len] = '\0';
 
-        printf(
+        /* Tool output is retained in the task result for R2. Do not let a
+           background worker write into the interactive user's input line. */
+        fprintf(
+            stderr,
             "[HAND %s] %.*s",
             id,
             (int)got,
             buf
         );
-
-        fflush(stdout);
+        fflush(stderr);
     }
 
     close(pipefd[0]);
@@ -7092,13 +7418,10 @@ static void *autonomous_thinking(
                               "R2 periodically reflects on supplied persistent context.",
                               "completed", NULL, "autonomous_thinking");
 
-            printf(
-                "\n[R2 autonomous diary reflection written]\n"
-                "%s\n\n",
-                reflection
-            );
-
-            fflush(stdout);
+            /* The full reflection is stored in the diary. A background thread
+               must not print it into the active conversation terminal. */
+            fprintf(stderr,
+                    "[R2 diary] Autonomous reflection written to diary and Life Log.\n");
 
         } else {
             r2_log_event(R2_LOG_ERROR, "reflection_write_failed",
@@ -8676,6 +8999,7 @@ static char *r2_talk_impl(const char *message)
     if (!core_initialized || shutting_down || !message)
         return NULL;
 
+    fprintf(stderr, "[R2 Input Audit] r2_talk_received_chars=%zu\n", strlen(message));
     handle_completed_messages();
 
     /* Replace the previous snapshot so every turn sees current Reality state. */
