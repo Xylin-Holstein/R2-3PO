@@ -31,7 +31,10 @@ class OllamaPreflightSmoke(unittest.TestCase):
         self.assertEqual(read.call_count, 3)
         self.assertTrue(read.call_args_list[0].args[0].endswith("/api/tags"))
         self.assertTrue(read.call_args_list[1].args[0].endswith("/api/chat"))
-        self.assertEqual(read.call_args_list[1].kwargs["payload"]["model"], "qwen3.5:9b")
+        payload = read.call_args_list[1].kwargs["payload"]
+        self.assertEqual(payload["model"], "qwen3.5:9b")
+        self.assertIs(payload["think"], False)
+        self.assertEqual(payload["options"]["num_predict"], 128)
         self.assertTrue(read.call_args_list[2].args[0].endswith("/api/ps"))
         self.assertEqual(gpu.call_count, 1)
 
@@ -64,7 +67,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         ]):
             with contextlib.redirect_stderr(errors):
                 self.assertFalse(probe.preflight(timeout=1))
-        self.assertIn("returned no usable chat text", errors.getvalue())
+        self.assertIn("chat generation produced no usable final answer", errors.getvalue())
 
     def test_api_failure_is_reported_without_network_access(self) -> None:
         errors = io.StringIO()
