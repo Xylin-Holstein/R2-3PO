@@ -8891,7 +8891,17 @@ static void log_structured_self_report(const char *reply, int64_t parent_event_i
         "R2 visible response:\n";
     size_t n = strlen(prefix) + strlen(reply) + 1;
     input = malloc(n);
-    if (!input) return;
+    if (!input) {
+        char details[160];
+        snprintf(details, sizeof(details),
+                 "conversation_event_id=%lld; structured extraction input allocation failed.",
+                 (long long)parent_event_id);
+        fprintf(stderr, "[R2 Post-turn] Could not allocate structured self-state extraction input.\n");
+        (void)r2_log_event(R2_LOG_ERROR, "self_state_extraction_allocation_failed",
+                           "Structured self-state extraction could not start because input allocation failed.",
+                           details, "log_structured_self_report");
+        return;
+    }
     snprintf(input, n, "%s%s", prefix, reply);
 
     Message m = { "user", input, 0 };
@@ -9067,17 +9077,40 @@ static void *post_turn_worker(void *opaque)
         log_structured_self_report(job->reply, job->event_id);
     if (!shutting_down) {
         char *decision = memory_decision(job->user, job->reply);
-        if (decision) {
+        if (!decision) {
+            char details[160];
+            snprintf(details, sizeof(details),
+                     "conversation_event_id=%lld; memory decision returned no result.",
+                     (long long)job->event_id);
+            fprintf(stderr, "[R2 Post-turn] Memory decision failed; no new persistent memory was saved for event %lld.\n",
+                    (long long)job->event_id);
+            (void)r2_log_event(R2_LOG_ERROR, "post_turn_memory_decision_failed",
+                               "Post-turn memory evaluation did not return a decision.",
+                               details, "post_turn_worker");
+        } else {
             char *p = trim(decision);
             if (strcasecmp(p, "NONE") && strchr(p, '|')) {
                 char *sep = strchr(p, '|');
                 *sep = '\0';
                 char *category = trim(p);
                 char *memory = trim(sep + 1);
-                if (*memory && save_memory(memory, category) == 0)
-                    r2_log_event(R2_LOG_MEMORY, "memory_saved",
-                                 "A persistent memory was saved after the conversation response was delivered.",
-                                 memory, category);
+                if (*memory) {
+                    if (save_memory(memory, category) == 0) {
+                        r2_log_event(R2_LOG_MEMORY, "memory_saved",
+                                     "A persistent memory was saved after the conversation response was delivered.",
+                                     memory, category);
+                    } else {
+                        char details[1200];
+                        snprintf(details, sizeof(details),
+                                 "conversation_event_id=%lld; category=%s; proposed_memory=%.900s",
+                                 (long long)job->event_id, category, memory);
+                        fprintf(stderr, "[R2 Post-turn] Persistent memory write failed for event %lld.\n",
+                                (long long)job->event_id);
+                        (void)r2_log_event(R2_LOG_ERROR, "memory_save_failed",
+                                           "A valid post-turn memory decision could not be persisted.",
+                                           details, "post_turn_worker");
+                    }
+                }
             }
             free(decision);
         }
@@ -9437,7 +9470,8 @@ static char *r2_talk_impl(const char *message)
 finalize_reply:
     pthread_mutex_lock(&messages_lock);
 
-    if (message_add("assistant", reply) != 0)
+    int assistant_context_rc = message_add("assistant", reply);
+    if (assistant_context_rc != 0)
         fprintf(stderr,
                 "[R2] Failed to add assistant response "
                 "to conversation context.\n");
@@ -9445,6 +9479,15 @@ finalize_reply:
     pthread_mutex_unlock(&messages_lock);
 
     int64_t turn_event_id = r2_log_conversation_turn(message, reply);
+    if (assistant_context_rc != 0) {
+        char details[256];
+        snprintf(details, sizeof(details),
+                 "conversation_event_id=%lld; the visible reply was returned, but live context could not retain it.",
+                 (long long)turn_event_id);
+        (void)r2_log_event(R2_LOG_ERROR, "conversation_context_append_failed",
+                           "R2 returned a visible reply but could not append it to live conversation history.",
+                           details, "r2_talk");
+    }
     if (turn_event_id < 0)
         r2_log_event(R2_LOG_ERROR, "conversation_log_failed",
                      "Could not persist a conversation turn in the Life Log.",
