@@ -9128,10 +9128,22 @@ static char *r2_talk_impl(const char *message)
         if (!reply || !reply_has_visible_text(stripped_reply)) {
             free(reply);
             free(stripped_reply);
-            message_rollback_turn(message);
-            fprintf(stderr, "[R2] Retry still produced no visible reply; discarded this turn. Check the Ollama inference diagnostics above.\n");
-            return NULL;
+            reply = xstrdup(
+                "I'm sorry, Mom—I couldn't produce a usable reply just now. "
+                "Your message hasn't been discarded; please try again in a moment.");
+            stripped_reply = reply ? r2_sounds_strip_markers(reply) : NULL;
+            if (!reply || !reply_has_visible_text(stripped_reply)) {
+                free(reply);
+                free(stripped_reply);
+                message_rollback_turn(message);
+                fprintf(stderr,
+                        "[R2] Could not allocate a visible fallback after empty model output.\\n");
+                return NULL;
+            }
+            fprintf(stderr,
+                    "[R2] Retry still produced no visible reply; returning a fallback and preserving the user turn.\\n");
         }
+    }
     }
 
     char *tools = process_tools(stripped_reply);
