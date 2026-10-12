@@ -1027,35 +1027,6 @@ static int message_add_pinned(
     );
 }
 
-/* Remove a failed/incomplete turn and every temporary tool message after it. */
-static void message_rollback_turn(const char *user_message)
-{
-    if (!user_message) return;
-
-    pthread_mutex_lock(&messages_lock);
-    size_t start = SIZE_MAX;
-    for (size_t i = messages.count; i > 0; --i) {
-        size_t index = i - 1;
-        if (messages.items[index].role &&
-            messages.items[index].content &&
-            !strcmp(messages.items[index].role, "user") &&
-            !strcmp(messages.items[index].content, user_message)) {
-            start = index;
-            break;
-        }
-    }
-
-    if (start != SIZE_MAX) {
-        for (size_t i = start; i < messages.count; ++i) {
-            free(messages.items[i].role);
-            free(messages.items[i].content);
-        }
-        messages.count = start;
-    }
-    pthread_mutex_unlock(&messages_lock);
-}
-
-
 static void message_free_all(void)
 {
     for (size_t i = 0;
