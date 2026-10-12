@@ -248,6 +248,7 @@ static char *call_vision_model(const char *image_base64, const char *question,
     }
     json_object_object_add(root, "model", json_object_new_string(model));
     json_object_object_add(root, "stream", json_object_new_boolean(0));
+    json_object_object_add(root, "think", json_object_new_boolean(0));
     json_object_object_add(root, "keep_alive", json_object_new_string("10m"));
 
     /*
@@ -259,6 +260,14 @@ static char *call_vision_model(const char *image_base64, const char *question,
     int num_predict = num_ctx >= 8192 ? 512 : 256;
     json_object_object_add(options, "num_ctx", json_object_new_int(num_ctx));
     json_object_object_add(options, "num_predict", json_object_new_int(num_predict));
+
+    /* Qwen3.5's official non-thinking/VL sampler settings. */
+    json_object_object_add(options, "temperature", json_object_new_double(0.7));
+    json_object_object_add(options, "top_p", json_object_new_double(0.8));
+    json_object_object_add(options, "top_k", json_object_new_int(20));
+    json_object_object_add(options, "min_p", json_object_new_double(0.0));
+    json_object_object_add(options, "presence_penalty", json_object_new_double(1.5));
+    json_object_object_add(options, "repeat_penalty", json_object_new_double(1.0));
 
     /* Keep vision inference on the same requested GPU/CPU layer policy as chat. */
     const char *gpu_layers_env = getenv("R2_OLLAMA_NUM_GPU");
