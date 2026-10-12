@@ -40,6 +40,24 @@ require(
     and "extract_memory_keywords(associative_query, keywords)" in builder,
     "generated associations are used to search persistent memory and Life Log history",
 )
+
+rank_start = core.find("static int r2_memory_has_keyword(")
+rank_end = core.find("static char *get_relevant_memories(", rank_start)
+require(
+    rank_start >= 0 and rank_end > rank_start
+    and "isalnum((unsigned char)match[-1])" in core[rank_start:rank_end]
+    and "isalnum((unsigned char)match[length])" in core[rank_start:rank_end],
+    "memory cues use whole-token boundaries instead of substring collisions",
+)
+memory_start = core.find("static char *get_relevant_memories(")
+memory_end = core.find("\nstatic ", memory_start + 1)
+memory_ranker = core[memory_start:memory_end]
+require(
+    "keyword_length >= 9 ? 4" in memory_ranker
+    and "keyword_length >= 6 ? 2 : 1" in memory_ranker
+    and "matched_keywords - 1" in memory_ranker,
+    "specific concepts and multi-cue coverage receive more weight than short generic overlaps",
+)
 require(
     "r2_diary_search" in builder and "r2_visual_search" in builder,
     "the same associations also search the separate diary and visual experience stores",
