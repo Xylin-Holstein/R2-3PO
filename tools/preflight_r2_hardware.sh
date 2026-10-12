@@ -6,6 +6,48 @@ R2_SOURCE="${R2_SOURCE:-$R2_ROOT/R2}"
 R2_EXEC="${R2_EXEC:-$R2_ROOT/r2}"
 R2_FX_DIR="${R2_FX_DIR:-$R2_ROOT/R2_sounds/FX}"
 OLLAMA_URL="${R2_OLLAMA_URL:-http://127.0.0.1:11434/api/tags}"
+
+# Run the complete report as the dedicated runtime account, with the same
+# supplementary audio group the interactive launcher grants R2. No persistent
+# ownership, ACL, or group-membership changes are made.
+if [[ "$(id -un)" != "r2" ]]; then
+  if ! id r2 >/dev/null 2>&1; then
+    printf '[FAIL] Linux account r2 is missing; cannot run runtime preflight.\n' >&2
+    exit 1
+  fi
+  R2_UID="$(id -u r2)"
+  R2_GID="$(id -g r2)"
+  R2_HOME_DIR="$(getent passwd r2 | cut -d: -f6)"
+  R2_RUNTIME_GROUPS="$(id -G r2 | tr ' ' ',')"
+  AUDIO_GID="$(getent group audio 2>/dev/null | cut -d: -f3 || true)"
+  if [[ "$AUDIO_GID" =~ ^[0-9]+$ ]]; then
+    case ",$R2_RUNTIME_GROUPS," in
+      *,"$AUDIO_GID",*) ;;
+      *) R2_RUNTIME_GROUPS+=",${AUDIO_GID}" ;;
+    esac
+  fi
+  if [[ ! "$R2_UID" =~ ^[0-9]+$ || ! "$R2_GID" =~ ^[0-9]+$ || -z "$R2_HOME_DIR" ]]; then
+    printf '[FAIL] Could not resolve the r2 runtime identity.\n' >&2
+    exit 1
+  fi
+  SCRIPT_PATH="$(readlink -f "$0")"
+  DROP=(setpriv --reuid="$R2_UID" --regid="$R2_GID" --groups="$R2_RUNTIME_GROUPS" --)
+  if [[ "$EUID" -eq 0 ]]; then
+    "${DROP[@]}" env HOME="$R2_HOME_DIR" USER=r2 LOGNAME=r2 \
+      R2_PREFLIGHT_AS_RUNTIME=1 R2_ROOT="$R2_ROOT" R2_SOURCE="$R2_SOURCE" \
+      R2_EXEC="$R2_EXEC" R2_FX_DIR="$R2_FX_DIR" R2_OLLAMA_URL="$OLLAMA_URL" \
+      bash "$SCRIPT_PATH"
+  else
+    sudo -n "${DROP[@]}" env HOME="$R2_HOME_DIR" USER=r2 LOGNAME=r2 \
+      R2_PREFLIGHT_AS_RUNTIME=1 R2_ROOT="$R2_ROOT" R2_SOURCE="$R2_SOURCE" \
+      R2_EXEC="$R2_EXEC" R2_FX_DIR="$R2_FX_DIR" R2_OLLAMA_URL="$OLLAMA_URL" \
+      bash "$SCRIPT_PATH"
+  fi
+  exit $?
+fi
+
+printf '[INFO] Hardware preflight identity: %s (uid=%s, groups=%s)\n' \
+  "$(id -un)" "$(id -u)" "$(id -G | tr ' ' ',')"
 FAILURES=0
 WARNINGS=0
 pass() { printf '[PASS] %s\n' "$*"; }
@@ -14,23 +56,28 @@ fail() { printf '[FAIL] %s\n' "$*"; FAILURES=$((FAILURES + 1)); }
 section() { printf '\n== %s ==\n' "$*"; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
-# sudo-rs (Ubuntu's Rust sudo) does not implement sudo's traditional -G flag.
-# Use setpriv to install supplementary groups before dropping to r2. This is
-# scoped to one process and never changes r2's persistent group membership.
+# All normal runtime checks now execute as r2 already. This helper is kept
+# explicit for the service-group audit: the parent process was launched with
+# the same temporary supplementary groups as R2_Launch_Code.sh.
+run_as_r2() {
+  if [[ "$(id -un)" == "r2" ]]; then "$@"; else sudo -n -u r2 -- "$@"; fi
+}
 run_as_r2_with_audio_group() {
   have setpriv || return 127
-  local uid gid groups audio_gid
-  uid="$(id -u r2)" || return 1
-  gid="$(id -g r2)" || return 1
-  groups="$(id -G r2 | tr ' ' ',')" || return 1
-  audio_gid="$(getent group audio 2>/dev/null | cut -d: -f3 || true)"
-  if [[ "$audio_gid" =~ ^[0-9]+$ ]]; then
-    case ",$groups," in
-      *,"$audio_gid",*) ;;
-      *) groups+=",${audio_gid}" ;;
-    esac
+  if [[ "$(id -un)" == "r2" ]]; then "$@"; else
+    local uid gid groups audio_gid
+    uid="$(id -u r2)" || return 1
+    gid="$(id -g r2)" || return 1
+    groups="$(id -G r2 | tr ' ' ',')" || return 1
+    audio_gid="$(getent group audio 2>/dev/null | cut -d: -f3 || true)"
+    if [[ "$audio_gid" =~ ^[0-9]+$ ]]; then
+      case ",$groups," in
+        *,"$audio_gid",*) ;;
+        *) groups+=",${audio_gid}" ;;
+      esac
+    fi
+    sudo -n setpriv --reuid="$uid" --regid="$gid" --groups="$groups" -- "$@"
   fi
-  sudo -n setpriv --reuid="$uid" --regid="$gid" --groups="$groups" -- "$@"
 }
 
 section "Host summary"
@@ -107,7 +154,7 @@ if id r2 >/dev/null 2>&1; then pass "Linux account r2 exists"; else fail "Linux 
 if [[ -d "$R2_ROOT" && -d "$R2_SOURCE" ]]; then
   if have sudo && id r2 >/dev/null 2>&1; then
     for path in "$R2_ROOT" "$R2_SOURCE"; do
-      if sudo -n -u r2 test -r "$path" && sudo -n -u r2 test -x "$path" && sudo -n -u r2 test -w "$path"; then
+      if run_as_r2 test -r "$path" && run_as_r2 test -x "$path" && run_as_r2 test -w "$path"; then
         pass "r2 can read/write/traverse $path"
       else
         fail "r2 must have read/write/traverse access to $path for runtime directories, SQLite, and persistent memory; correct ownership/permissions before launch"
@@ -118,7 +165,7 @@ if [[ -d "$R2_ROOT" && -d "$R2_SOURCE" ]]; then
     # as r2, but existing unwritable paths would otherwise fail after launch.
     for path in "$R2_ROOT/R2_Diary" "$R2_ROOT/room" "$R2_ROOT/room/shelf" "$R2_ROOT/room/box" "$R2_ROOT/room/piggybank" "$R2_ROOT/Pockets" "$R2_ROOT/Pockets/Wallet" "$R2_ROOT/fridge"; do
       [[ -e "$path" ]] || continue
-      if sudo -n -u r2 test -d "$path" && sudo -n -u r2 test -r "$path" && sudo -n -u r2 test -x "$path" && sudo -n -u r2 test -w "$path"; then
+      if run_as_r2 test -d "$path" && run_as_r2 test -r "$path" && run_as_r2 test -x "$path" && run_as_r2 test -w "$path"; then
         pass "r2 can read/write/traverse existing runtime directory $path"
       else
         fail "existing runtime directory is not read/write/traverse accessible to r2: $path"
@@ -128,7 +175,7 @@ if [[ -d "$R2_ROOT" && -d "$R2_SOURCE" ]]; then
       [[ -e "$database" ]] || continue
       if [[ -L "$database" ]]; then
         fail "refusing symlinked runtime database: $database"
-      elif sudo -n -u r2 test -f "$database" && sudo -n -u r2 test -r "$database" && sudo -n -u r2 test -w "$database"; then
+      elif run_as_r2 test -f "$database" && run_as_r2 test -r "$database" && run_as_r2 test -w "$database"; then
         pass "r2 can read/write database $database"
       else
         fail "existing database must be a readable/writable regular file for r2: $database"
@@ -142,7 +189,7 @@ if [[ -d "$R2_FX_DIR" && -r "$R2_FX_DIR" ]]; then
   else warn "FX directory contains no MP3 files; learned beeps/whistles cannot play."; fi
 else warn "FX directory missing/unreadable; expected local assets at $R2_FX_DIR."; fi
 if have sudo && id r2 >/dev/null 2>&1 && [[ -d "$R2_FX_DIR" ]]; then
-  if sudo -n -u r2 test -r "$R2_FX_DIR" && sudo -n -u r2 test -x "$R2_FX_DIR"; then
+  if run_as_r2 test -r "$R2_FX_DIR" && run_as_r2 test -x "$R2_FX_DIR"; then
     pass "r2 can read/traverse the FX directory"
   else warn "could not verify FX-directory access for r2 (sudo may require a password)."; fi
 fi
@@ -190,14 +237,10 @@ else
   warn "no mpg123/ffplay/mpv; sound effects will not play. On Ubuntu/Debian, install a decoder with: sudo apt-get update && sudo apt-get install -y ffmpeg"
 fi
 if have pactl; then
-  if pactl info >/dev/null 2>&1; then pass "desktop user's PulseAudio/PipeWire server responds"
-  else warn "desktop user's PulseAudio/PipeWire server is unreachable."; fi
-  if have sudo && id r2 >/dev/null 2>&1; then
-    if sudo -n -u r2 pactl info >/dev/null 2>&1; then
-      pass "R2 runtime account can connect to its default PulseAudio/PipeWire server"
-    else
-      warn "R2 runtime account cannot connect to its default PulseAudio/PipeWire server; desktop audio working for your login does not prove R2 can play sounds or capture monitor audio."
-    fi
+  if run_as_r2 pactl info >/dev/null 2>&1; then
+    pass "R2 runtime account can connect to its default PulseAudio/PipeWire server"
+  else
+    warn "R2 runtime account cannot connect to its default PulseAudio/PipeWire server; audio must be tested in R2's actual runtime session."
   fi
 else
   warn "pactl missing; PulseAudio/PipeWire routing cannot be checked. On Ubuntu/Debian, install the diagnostic client with: sudo apt-get update && sudo apt-get install -y pulseaudio-utils"
@@ -216,7 +259,7 @@ for camera in /dev/video*; do
     warn "current user cannot read/write $camera; camera capture may fail."
   fi
   if have sudo && id r2 >/dev/null 2>&1; then
-    if sudo -n -u r2 test -r "$camera" && sudo -n -u r2 test -w "$camera"; then
+    if run_as_r2 test -r "$camera" && run_as_r2 test -w "$camera"; then
       camera_accessible=$((camera_accessible + 1))
     fi
   fi
@@ -242,7 +285,7 @@ for node in /dev/snd/*; do
   [[ -e "$node" ]] || continue
   sound_node_count=$((sound_node_count + 1))
   if have sudo && id r2 >/dev/null 2>&1; then
-    if sudo -n -u r2 test -r "$node" && sudo -n -u r2 test -w "$node"; then
+    if run_as_r2 test -r "$node" && run_as_r2 test -w "$node"; then
       sound_node_accessible=$((sound_node_accessible + 1))
     fi
     # Test the service's configured supplementary group without changing

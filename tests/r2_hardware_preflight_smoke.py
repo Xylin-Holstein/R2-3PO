@@ -16,12 +16,12 @@ required = (
     '?mode=ro',
     'r2_memory.db', 'r2_reality.db', 'r2_fridge.db',
     'r2_rewards.db', 'r2_addictions.db',
-    'pactl', 'sudo -n -u r2 pactl info',
+    'pactl', 'R2 runtime account can connect to its default PulseAudio/PipeWire server',
     '/dev/video*', 'R2 runtime account can read/write',
     '/dev/snd/*',
     "R2 service's configured audio supplementary group can access", 'mGBA Qt emulator',
     'stop it before installation or database preflight',
-    'sudo -n -u r2 test -r "$R2_FX_DIR"',
+    'run_as_r2 test -r "$R2_FX_DIR"',
     'r2 must have read/write/traverse access to $path for runtime directories, SQLite, and persistent memory',
     'existing runtime directory is not read/write/traverse accessible to r2',
     'existing database must be a readable/writable regular file for r2',
@@ -38,6 +38,9 @@ required = (
     'tools/preflight_r2_hardware.sh',
     'for tool in bash make gcc curl python3 sudo setpriv pgrep date find grep cmp',
     'run_as_r2_with_audio_group()',
+    'Hardware preflight identity: %s (uid=%s, groups=%s)',
+    'DROP=(setpriv --reuid="$R2_UID" --regid="$R2_GID" --groups="$R2_RUNTIME_GROUPS" --)',
+    'sudo -n "${DROP[@]}" env HOME="$R2_HOME_DIR" USER=r2 LOGNAME=r2',
     'sudo -n setpriv --reuid="$uid" --regid="$gid" --groups="$groups" -- "$@"',
     'libfaketime.so.1 is missing',
     'sudo apt-get update && sudo apt-get install -y ffmpeg',
@@ -62,6 +65,8 @@ for line in script.splitlines():
         raise SystemExit("preflight must not execute package-manager commands")
 if 'sudo -n -u r2 -g r2 -G audio' in script:
     raise SystemExit("preflight must not use unsupported sudo-rs -G syntax")
+if 'sudo -n -u r2 test -r' in script or 'sudo -n -u r2 pactl info' in script:
+    raise SystemExit("runtime checks must execute directly as r2 after the preflight privilege drop")
 if 'sudo -n setpriv --reuid="$R2_UID" --regid="$R2_GID" --groups="$R2_RUNTIME_GROUPS" --' not in launcher:
     raise SystemExit("launcher must use setpriv for supplementary groups under sudo-rs")
 if 'sudo -u r2 -g r2 -G "$R2_RUNTIME_GROUPS"' in launcher:
