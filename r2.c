@@ -4457,7 +4457,7 @@ static char *r2_collect_associated_records(
             n = max_chars - used;
         memcpy(out + used, found, n);
         used += n;
-        out[used] = '\\0';
+        out[used] = '\0';
         free(found);
     }
 
