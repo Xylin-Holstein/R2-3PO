@@ -11,7 +11,7 @@ required = (
     'R2_ROOT="${R2_ROOT:-/home/x/R2_Home}"',
     'R2_FX_DIR="${R2_FX_DIR:-$R2_ROOT/R2_sounds/FX}"',
     'http://127.0.0.1:11434/api/tags',
-    'qwen3.5:4b',
+    'qwen3.5:9b',
     'PRAGMA integrity_check',
     '?mode=ro',
     'r2_memory.db', 'r2_reality.db', 'r2_fridge.db',
