@@ -121,6 +121,8 @@ static _Thread_local int ollama_background_mode = 0;
 static _Thread_local int ollama_foreground_turn_mode = 0;
 /* Original user query for the active contextual conversation request. */
 static _Thread_local const char *ollama_authoritative_user_query = NULL;
+/* Labels prompt audits so intermediate planning calls cannot be confused with the final answer request. */
+static _Thread_local const char *ollama_audit_stage = "unspecified";
 static pthread_mutex_t post_turn_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t post_turn_cond = PTHREAD_COND_INITIALIZER;
 static unsigned int post_turn_active = 0;
@@ -3682,10 +3684,11 @@ static char *ollama_chat_with_limit(
         }
     }
     fprintf(stderr,
-            "[R2 Prompt Audit] payload_chars=%zu messages=%zu user_messages=%zu "
+            "[R2 Prompt Audit] stage=%s payload_chars=%zu messages=%zu user_messages=%zu "
             "current_query_chars=%zu exact_user_turn=%d query_in_user_turn=%d "
             "startup_memory=%d retrieved_context=%d reality_context=%d "
             "learning_context=%d system_chars=%zu\n",
+            ollama_audit_stage ? ollama_audit_stage : "unspecified",
             strlen(payload), audit_message_count, audit_user_messages,
             audit_query_chars, audit_exact_user_turn, audit_user_turn_contained,
             audit_startup_memory, audit_retrieved_context, audit_reality_context,
@@ -4297,12 +4300,15 @@ static char *r2_retry_direct_answer(Message *messages_copy,
     fprintf(stderr,
             "[R2 Conversation] Correcting a nonresponsive turn with a compact current-message retry.\n");
     const char *previous_query = ollama_authoritative_user_query;
+    const char *previous_stage = ollama_audit_stage;
     ollama_authoritative_user_query = query;
+    ollama_audit_stage = "conversation-retry";
     char *retry = ollama_chat_with_limit(
         compact_messages, compact_count, retry_system_prompt,
         conversation_reply_token_budget(query),
         r2_conversation_timeout_seconds());
     ollama_authoritative_user_query = previous_query;
+    ollama_audit_stage = previous_stage;
     free(retry_system_prompt);
     return retry;
 }
@@ -4518,10 +4524,13 @@ static char *r2_build_associative_search_query(const char *query)
     probe.pinned = 0;
 
     const char *previous_query = ollama_authoritative_user_query;
+    const char *previous_stage = ollama_audit_stage;
     ollama_authoritative_user_query = query;
+    ollama_audit_stage = "association-planner";
     char *generated = ollama_chat_with_limit(
         &probe, 1, retrieval_prompt, 128, 90L);
     ollama_authoritative_user_query = previous_query;
+    ollama_audit_stage = previous_stage;
 
     if (!generated || !*generated) {
         free(generated);
@@ -4915,7 +4924,9 @@ static char *chat_with_relevant_memories(
     free(memory_context);
 
     const char *previous_authoritative_query = ollama_authoritative_user_query;
+    const char *previous_audit_stage = ollama_audit_stage;
     ollama_authoritative_user_query = query;
+    ollama_audit_stage = "conversation-answer";
     char *reply =
         ollama_chat_with_limit(
             copy,
@@ -4925,6 +4936,7 @@ static char *chat_with_relevant_memories(
             r2_conversation_timeout_seconds()
         );
     ollama_authoritative_user_query = previous_authoritative_query;
+    ollama_audit_stage = previous_audit_stage;
 
     /* Ollama's content field can occasionally include private reasoning tags.
        Sanitize only the user-facing conversation result, not structured
