@@ -484,7 +484,7 @@ static void shell_help(void)
         "  vision search <text>\n"
         "      Search the visual experience library.\n"
         "\n"
-        "  vision model qwen3.5:4b\n"
+        "  vision model qwen3.5:9b\n"
         "      Confirm the single model shared by conversation and vision.\n"
         "\n"
         "  vision close\n"
