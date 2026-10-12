@@ -249,6 +249,12 @@ require(
     and "Your message reached me, but I couldn't answer it this time." in shell,
     "the shell prints a visible fallback if the conversation API returns an empty answer",
 )
+
+require(
+    "Public conversation API received no usable reply from the turn implementation" in core
+    and "The message may not have been saved to conversation history; please try again." in core,
+    "the public conversation API itself reports a failed turn instead of passing silent NULL/empty output to callers",
+)
 require(
     "Conversation generation failed after one refreshed retry" in core
     and "Your message hasn't been discarded" in core
