@@ -65,7 +65,7 @@ def preflight(wait_seconds: float = 0, timeout: float = 180) -> bool:
         print("ERROR: R2_OLLAMA_NUM_GPU must be between -1 and 999.", file=sys.stderr)
         return False
 
-    options: dict[str, Any] = {"temperature": 0, "num_predict": 8}
+    options: dict[str, Any] = {"temperature": 0, "num_predict": 128}
     if gpu_layers != 0:
         options["num_gpu"] = gpu_layers
 
@@ -80,6 +80,7 @@ def preflight(wait_seconds: float = 0, timeout: float = 180) -> bool:
                     "content": "Reply with exactly this token and no other text: R2_READY",
                 }],
                 "stream": False,
+                "think": False,
                 "keep_alive": "10m",
                 "options": options,
             },
@@ -91,7 +92,12 @@ def preflight(wait_seconds: float = 0, timeout: float = 180) -> bool:
     message = reply.get("message")
     content = message.get("content") if isinstance(message, dict) else None
     if not isinstance(content, str) or not content.strip():
-        print(f"ERROR: Ollama listed {MODEL} but returned no usable chat text.", file=sys.stderr)
+        thinking = message.get("thinking") if isinstance(message, dict) else None
+        if isinstance(thinking, str) and thinking.strip():
+            detail = "Ollama returned thinking output but no final answer text, even with think=false."
+        else:
+            detail = "Ollama returned an empty final answer field."
+        print(f"ERROR: Ollama listed {MODEL} but chat generation produced no usable final answer. {detail}", file=sys.stderr)
         return False
 
     print(f"Local Ollama is ready: {MODEL} completed a real chat generation (reply omitted).")
