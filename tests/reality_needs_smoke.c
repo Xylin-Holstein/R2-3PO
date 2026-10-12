@@ -131,11 +131,195 @@ static void verify_legacy_fridge_migration(void)
         fail("could not clean up migrated legacy stock fixture");
 }
 
+static void seed_legacy_shared_reality_tables(void)
+{
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/r2_memory.db", R2_HOME);
+    sqlite3 *db = NULL;
+    if (sqlite3_open(path, &db) != SQLITE_OK)
+        fail("could not create legacy shared-memory database fixture");
+    const char *sql =
+        "CREATE TABLE r2_reality_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);"
+        "INSERT INTO r2_reality_meta(key,value) VALUES('current_location','home'),('initial_cash_seeded','1');"
+        "CREATE TABLE r2_reality_containers(name TEXT PRIMARY KEY,description TEXT,parent TEXT);"
+        "INSERT INTO r2_reality_containers(name,description,parent) VALUES('legacy_container','Old container','room');"
+        "CREATE TABLE r2_reality_objects(name TEXT PRIMARY KEY,description TEXT,quantity INTEGER,container TEXT);"
+        "INSERT INTO r2_reality_objects(name,description,quantity,container) VALUES('legacy_stack','Old stack',2,'legacy_container');"
+        "CREATE TABLE r2_reality_self_facts(key TEXT PRIMARY KEY,value TEXT);"
+        "INSERT INTO r2_reality_self_facts(key,value) VALUES('legacy_fact','preserve me');"
+        "CREATE TABLE r2_reality_ticks(previous_tick INTEGER,current_tick INTEGER);"
+        "INSERT INTO r2_reality_ticks(previous_tick,current_tick) VALUES(100,110);"
+        "CREATE TABLE r2_reality_item_memory(item_name TEXT,description TEXT,exact_quantity INTEGER,collected_at INTEGER);"
+        "INSERT INTO r2_reality_item_memory(item_name,description,exact_quantity,collected_at) "
+        "VALUES('legacy_collection','Old item memory',3,123456);"
+        "CREATE TABLE r2_food_experiences(food_name TEXT,fullness REAL,eaten_at INTEGER);"
+        "INSERT INTO r2_food_experiences(food_name,fullness,eaten_at) VALUES('legacy_meal',25,123456);"
+        "CREATE TABLE r2_food_preferences(food_name TEXT PRIMARY KEY,satisfaction_sum REAL,rating_count INTEGER,updated_at INTEGER);"
+        "INSERT INTO r2_food_preferences(food_name,satisfaction_sum,rating_count,updated_at) "
+        "VALUES('legacy_meal',3.5,2,123456);"
+        "CREATE TABLE r2_food_ingredient_preferences(ingredient TEXT PRIMARY KEY);"
+        "INSERT INTO r2_food_ingredient_preferences(ingredient) VALUES('legacy_ingredient');"
+        "CREATE TABLE r2_food_experience_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);"
+        "INSERT INTO r2_food_experience_meta(key,value) VALUES('legacy_test','preserved');"
+        "CREATE TABLE r2_money_account(id INTEGER PRIMARY KEY,cash_cents INTEGER,bank_cents INTEGER);"
+        "INSERT INTO r2_money_account(id,cash_cents,bank_cents) VALUES(1,1234,5678);"
+        "CREATE TABLE r2_tv_state(id INTEGER PRIMARY KEY,power INTEGER,source_kind TEXT,source_value INTEGER);"
+        "INSERT INTO r2_tv_state(id,power,source_kind,source_value) VALUES(1,1,'input',2);"
+        "CREATE TABLE r2_tv_devices(name TEXT PRIMARY KEY,connection_kind TEXT,port INTEGER);"
+        "INSERT INTO r2_tv_devices(name,connection_kind,port) VALUES('legacy_vcr','input',4);"
+        "CREATE TABLE r2_tv_vcr_tapes(media_path TEXT PRIMARY KEY);"
+        "INSERT INTO r2_tv_vcr_tapes(media_path) VALUES('legacy_tape.mkv');"
+        "CREATE TABLE r2_tv_vcr_state(id INTEGER PRIMARY KEY,cassette_path TEXT,transport TEXT);"
+        "INSERT INTO r2_tv_vcr_state(id,cassette_path,transport) VALUES(1,'legacy_tape.mkv','pause');";
+    char *error = NULL;
+    int rc = sqlite3_exec(db, sql, NULL, NULL, &error);
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "reality needs smoke failed: could not seed legacy shared DB: %s\n",
+                error ? error : sqlite3_errmsg(db));
+        sqlite3_free(error);
+        sqlite3_close(db);
+        exit(1);
+    }
+    sqlite3_close(db);
+}
+
+static void verify_legacy_shared_reality_migration(void)
+{
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/r2_reality.db", R2_HOME);
+    sqlite3 *db = NULL;
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_open(path, &db) != SQLITE_OK)
+        fail("could not open destination Reality DB after legacy migration");
+
+    const struct { const char *sql; int expected; const char *message; } counts[] = {
+        {"SELECT COUNT(*) FROM r2_reality_item_memory WHERE item_name='legacy_collection'", 1,
+         "legacy item-collection memory was not migrated"},
+        {"SELECT COUNT(*) FROM r2_food_experiences WHERE food_name='legacy_meal'", 1,
+         "legacy food experience was not migrated"},
+        {"SELECT COUNT(*) FROM r2_food_ingredient_preferences WHERE ingredient='legacy_ingredient'", 1,
+         "legacy ingredient preference was not migrated"},
+        {"SELECT COUNT(*) FROM r2_food_experience_meta WHERE key='legacy_test' AND value='preserved'", 1,
+         "legacy food experience metadata was not migrated"},
+        {"SELECT COUNT(*) FROM r2_reality_self_facts WHERE key='legacy_fact' AND value='preserve me'", 1,
+         "legacy self-fact was not migrated"},
+        {"SELECT COUNT(*) FROM r2_reality_objects WHERE name='legacy_stack' AND quantity=2 AND container='legacy_container'", 1,
+         "legacy object stack/container was not migrated"},
+        {"SELECT COUNT(*) FROM r2_reality_containers WHERE name='legacy_container' AND kind='container'", 1,
+         "legacy container was not migrated with a safe default kind"},
+        {"SELECT COUNT(*) FROM r2_reality_ticks WHERE previous_tick=100 AND current_tick=110 AND elapsed_seconds=10", 1,
+         "legacy world tick was not migrated with elapsed-time fallback"},
+        {"SELECT COUNT(*) FROM r2_tv_vcr_tapes WHERE media_path='legacy_tape.mkv'", 1,
+         "legacy VCR tape was not migrated"},
+        {"SELECT COUNT(*) FROM r2_tv_devices WHERE name='legacy_vcr' AND connected=1", 1,
+         "legacy TV device was not migrated with its default connection state"},
+    };
+    for (size_t i = 0; i < sizeof(counts) / sizeof(counts[0]); ++i) {
+        if (sqlite3_prepare_v2(db, counts[i].sql, -1, &st, NULL) != SQLITE_OK ||
+            sqlite3_step(st) != SQLITE_ROW ||
+            sqlite3_column_int(st, 0) != counts[i].expected) {
+            if (st) sqlite3_finalize(st);
+            sqlite3_close(db);
+            fail(counts[i].message);
+        }
+        sqlite3_finalize(st);
+        st = NULL;
+    }
+
+    if (sqlite3_prepare_v2(db,
+        "SELECT precision,last_decay_at FROM r2_reality_item_memory WHERE item_name='legacy_collection'",
+        -1, &st, NULL) != SQLITE_OK || sqlite3_step(st) != SQLITE_ROW ||
+        strcmp((const char *)sqlite3_column_text(st, 0), "exact") != 0 ||
+        sqlite3_column_int64(st, 1) != 123456) {
+        if (st) sqlite3_finalize(st);
+        sqlite3_close(db);
+        fail("legacy item memory did not receive backward-compatible precision/decay defaults");
+    }
+    sqlite3_finalize(st);
+    st = NULL;
+
+    if (sqlite3_prepare_v2(db,
+        "SELECT fullness,energy_bonus FROM r2_food_experiences WHERE food_name='legacy_meal'",
+        -1, &st, NULL) != SQLITE_OK || sqlite3_step(st) != SQLITE_ROW ||
+        sqlite3_column_double(st, 0) != 25.0 || sqlite3_column_double(st, 1) != 0.0) {
+        if (st) sqlite3_finalize(st);
+        sqlite3_close(db);
+        fail("legacy food experience was not preserved with neutral missing-energy fallback");
+    }
+    sqlite3_finalize(st);
+    st = NULL;
+
+    if (sqlite3_prepare_v2(db,
+        "SELECT satisfaction_sum,rating_count FROM r2_food_preferences WHERE food_name='legacy_meal'",
+        -1, &st, NULL) != SQLITE_OK || sqlite3_step(st) != SQLITE_ROW ||
+        sqlite3_column_double(st, 0) != 3.5 || sqlite3_column_int(st, 1) != 2) {
+        if (st) sqlite3_finalize(st);
+        sqlite3_close(db);
+        fail("legacy food ratings were not preserved/merged");
+    }
+    sqlite3_finalize(st);
+    st = NULL;
+
+    if (sqlite3_prepare_v2(db,
+        "SELECT cash_cents,bank_cents FROM r2_money_account WHERE id=1",
+        -1, &st, NULL) != SQLITE_OK || sqlite3_step(st) != SQLITE_ROW ||
+        sqlite3_column_int64(st, 0) != 1234 || sqlite3_column_int64(st, 1) != 5678) {
+        if (st) sqlite3_finalize(st);
+        sqlite3_close(db);
+        fail("legacy cash and piggybank balances were not preserved");
+    }
+    sqlite3_finalize(st);
+    st = NULL;
+
+    if (sqlite3_prepare_v2(db,
+        "SELECT power,source_kind,source_value FROM r2_tv_state WHERE id=1",
+        -1, &st, NULL) != SQLITE_OK || sqlite3_step(st) != SQLITE_ROW ||
+        sqlite3_column_int(st, 0) != 1 ||
+        strcmp((const char *)sqlite3_column_text(st, 1), "input") != 0 ||
+        sqlite3_column_int(st, 2) != 2) {
+        if (st) sqlite3_finalize(st);
+        sqlite3_close(db);
+        fail("legacy CRT power/input state was not preserved");
+    }
+    sqlite3_finalize(st);
+    st = NULL;
+
+    if (sqlite3_prepare_v2(db,
+        "SELECT cassette_path,transport FROM r2_tv_vcr_state WHERE id=1",
+        -1, &st, NULL) != SQLITE_OK || sqlite3_step(st) != SQLITE_ROW ||
+        strcmp((const char *)sqlite3_column_text(st, 0), "legacy_tape.mkv") != 0 ||
+        strcmp((const char *)sqlite3_column_text(st, 1), "pause") != 0) {
+        if (st) sqlite3_finalize(st);
+        sqlite3_close(db);
+        fail("legacy VCR cassette and transport state were not preserved");
+    }
+    sqlite3_finalize(st);
+    sqlite3_close(db);
+
+    /* Migration is copy-only: old memory/diary data must still be present. */
+    snprintf(path, sizeof(path), "%s/r2_memory.db", R2_HOME);
+    if (sqlite3_open(path, &db) != SQLITE_OK)
+        fail("could not reopen original memory DB after migration");
+    st = NULL;
+    if (sqlite3_prepare_v2(db,
+        "SELECT COUNT(*) FROM r2_food_experiences WHERE food_name='legacy_meal'",
+        -1, &st, NULL) != SQLITE_OK || sqlite3_step(st) != SQLITE_ROW ||
+        sqlite3_column_int(st, 0) != 1) {
+        if (st) sqlite3_finalize(st);
+        sqlite3_close(db);
+        fail("legacy memory database was modified or cleared by Reality migration");
+    }
+    sqlite3_finalize(st);
+    sqlite3_close(db);
+}
+
 int main(void)
 {
     seed_legacy_fridge_schema();
+    seed_legacy_shared_reality_tables();
     if (r2_reality_init() != 0) fail("Reality initialization failed");
     verify_legacy_fridge_migration();
+    verify_legacy_shared_reality_migration();
     double initial_hunger, initial_sleepiness, initial_energy;
     double initial_satisfaction, initial_since_meal;
     read_needs(&initial_hunger, &initial_sleepiness, &initial_energy,
