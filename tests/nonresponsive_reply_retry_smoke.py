@@ -24,7 +24,7 @@ for phrase in (
     '"unable to understand your message"',
     '"that\'s a bit garbled"',
     '"that’s a bit garbled"',
-    "if (words < 5)",
+    "if (!reports_r2_output_problem && words < 5)",
     "Keep legitimate audio/transcription discussions out of this guard",
     "reports_r2_output_problem",
     "\"your message\"",
