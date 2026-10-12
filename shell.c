@@ -621,7 +621,11 @@ static void shell_talk(const char *message)
     if (!reply || !*reply) {
         fprintf(
             stderr,
-            "[R2] Conversation produced no visible answer. Check the preceding Ollama/R2 diagnostics; the shell will remain available.\n"
+            "[R2] Conversation backend returned no visible answer; the shell is showing a fallback instead of silently dropping the turn.\\n"
+        );
+        printf(
+            "\\nR2-3PO: I'm sorry, Mom—the conversation backend didn't return a usable reply. "
+            "Your message reached me, but I couldn't answer it this time. Please try again.\\n\\n"
         );
         free(reply);
         return;
