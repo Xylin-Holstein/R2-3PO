@@ -1420,14 +1420,23 @@ static int migrate_legacy_reality(void)
     const char *fact_defaults[] = {NULL,NULL,"NULL","CURRENT_TIMESTAMP"};
     const char *fact_required[] = {"key","value"};
     const char *tick_cols[] = {"previous_tick","current_tick","elapsed_seconds","created_at"};
-    const char *tick_defaults[] = {NULL,NULL,NULL,"CURRENT_TIMESTAMP"};
-    const char *tick_required[] = {"previous_tick","current_tick","elapsed_seconds"};
+    const char *tick_defaults[] = {NULL,NULL,"current_tick-previous_tick","CURRENT_TIMESTAMP"};
+    const char *tick_required[] = {"previous_tick","current_tick"};
     const char *object_cols[] = {"name","description","quantity","container","owner","created_at","updated_at"};
-    const char *object_defaults[] = {NULL,"NULL","1",NULL,"'R2'","CURRENT_TIMESTAMP","CURRENT_TIMESTAMP"};
-    const char *object_required[] = {"name","container"};
+    const char *object_container_default = legacy_column_exists("r2_reality_objects", "location")
+        ? "location" : "'room'";
+    const char *object_defaults[] = {NULL,"NULL","1",object_container_default,"'R2'","CURRENT_TIMESTAMP","CURRENT_TIMESTAMP"};
+    const char *object_required[] = {"name"};
+    const char *legacy_collected_at_default =
+        legacy_column_exists("r2_reality_item_memory", "created_at")
+            ? "CAST(strftime('%s',created_at) AS INTEGER)"
+            : "CAST(strftime('%s','now') AS INTEGER)";
+    const char *legacy_decay_at_default =
+        legacy_column_exists("r2_reality_item_memory", "collected_at")
+            ? "collected_at" : legacy_collected_at_default;
     const char *item_memory_cols[] = {"item_name","description","exact_quantity","approximate_quantity","precision","collected_at","last_decay_at"};
-    const char *item_memory_defaults[] = {NULL,"NULL","NULL","NULL","'exact'",NULL,"collected_at"};
-    const char *item_memory_required[] = {"item_name","collected_at"};
+    const char *item_memory_defaults[] = {NULL,"NULL","NULL","NULL","'exact'",legacy_collected_at_default,legacy_decay_at_default};
+    const char *item_memory_required[] = {"item_name"};
     const char *food_experience_cols[] = {"food_name","ingredients","fullness","energy_bonus","satisfaction","notes","eaten_at","rated_at"};
     const char *food_experience_defaults[] = {NULL,"NULL",NULL,"0.0","NULL","NULL",NULL,"NULL"};
     const char *food_experience_required[] = {"food_name","fullness","eaten_at"};
