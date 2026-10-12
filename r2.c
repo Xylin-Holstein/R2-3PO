@@ -5482,14 +5482,16 @@ static void execute_task(
         len = total;
         out[len] = '\0';
 
-        printf(
+        /* Tool output is retained in the task result for R2. Do not let a
+           background worker write into the interactive user's input line. */
+        fprintf(
+            stderr,
             "[HAND %s] %.*s",
             id,
             (int)got,
             buf
         );
-
-        fflush(stdout);
+        fflush(stderr);
     }
 
     close(pipefd[0]);
