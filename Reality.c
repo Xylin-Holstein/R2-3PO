@@ -1923,7 +1923,7 @@ static void maybe_record_starvation(void)
             bridge_event("prolonged_starvation",
                 "R2 reached 72 modeled hours without a qualifying meal.",
                 "Hunger is near its maximum modeled level. This is a simulation state, not a claim of biological metabolism.",
-                1, 1);
+                1, 0);
         }
     }
 }
