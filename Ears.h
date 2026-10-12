@@ -15,7 +15,9 @@
  *   WORLD - audio originating from the physical world
  *           (microphone, future external sensors, etc.)
  *
- * Audio interpretation belongs to R2's hearing/cognition layer.
+ * Audio interpretation belongs to R2's hearing/cognition layer. Ears provides
+ * raw PCM only; Qwen 3.5 4B accepts text and images, not raw microphone PCM.
+ * Speech recognition/transcription therefore requires a separate ASR stage.
  */
 
 #include <stddef.h>
