@@ -261,6 +261,14 @@ require(
     and "Retry still produced no visible reply" in core,
     "empty or marker-only model output triggers recovery and never intentionally drops a turn without a fallback",
 )
+
+require(
+    "Follow-up generation failed after one refreshed retry; returning a visible reply and preserving the action result." in core
+    and "Tool processing failed; returning a visible reply and preserving the user turn." in core
+    and "Reply cleanup produced no visible text; returning a visible reply and preserving the user turn." in core
+    and "goto finalize_reply;" in core,
+    "tool/action, parser, and sound-cleanup failures return a visible answer instead of silently rolling back the turn",
+)
 require(
     'bridge_event("prolonged_starvation"' in reality
     and '"R2 reached 72 modeled hours without a qualifying meal."' in reality
