@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Static contract tests for R2's unified Gemma 3 conversation/vision path."""
+"""Static contract tests for R2's unified Qwen 3.5 conversation/vision path."""
 
 from pathlib import Path
 import re
@@ -28,8 +28,8 @@ log = read("Log.c")
 log_header = read("Log.h")
 
 require(
-    re.search(r'^#define R2_OLLAMA_MODEL "gemma3:4b"$', header, re.MULTILINE) is not None,
-    "one shared model constant selects gemma3:4b",
+    re.search(r'^#define R2_OLLAMA_MODEL "qwen3.5:4b"$', header, re.MULTILINE) is not None,
+    "one shared model constant selects qwen3.5:4b",
 )
 require(
     "Interpret the user's current message first." in core
@@ -54,7 +54,7 @@ require(
     "vision uses the exact same shared model constant",
 )
 require(
-    'R2_VISION_MODEL="gemma3:4b"' in launcher,
+    'R2_VISION_MODEL="qwen3.5:4b"' in launcher,
     "launcher explicitly selects the unified vision model",
 )
 require(
@@ -210,4 +210,4 @@ require(
     "synced game events remain virtual and never mutate physical Reality",
 )
 
-print("Gemma 3 unified-model contract checks passed.")
+print("Qwen 3.5 unified-model contract checks passed.")
