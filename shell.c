@@ -1469,10 +1469,10 @@ static int shell_reality(const char *argument)
                     quantity = (int)parsed;
             }
             if (!quantity_valid) {
-                printf("[R2 Reality] Quantity must be a positive whole number.\n");
+                printf("[R2 Reality] Quantity must be a positive whole number.\\n");
             } else {
                 int rc = r2_reality_add_item(parts[0], desc, container, quantity);
-                printf(rc == 0 ? "[R2 Reality] Item recorded.\n" : "[R2 Reality] Item could not be recorded.\n");
+                printf(rc == 0 ? "[R2 Reality] Item recorded.\\n" : "[R2 Reality] Item could not be recorded.\\n");
             }
         }
         free(copy);
