@@ -1722,6 +1722,29 @@ static size_t extract_memory_keywords(
     return count;
 }
 
+/*
+ * Match a search cue as a whole token. Substring-only matches made short
+ * concepts such as "eye" collide with unrelated words and over-ranked noisy
+ * memories. The text passed here is normalized to lowercase by the caller.
+ */
+static int r2_memory_has_keyword(const char *text, const char *keyword)
+{
+    if (!text || !keyword || !*keyword)
+        return 0;
+
+    size_t length = strlen(keyword);
+    const char *match = text;
+    while ((match = strstr(match, keyword)) != NULL) {
+        int left_boundary = match == text ||
+            !isalnum((unsigned char)match[-1]);
+        int right_boundary = !isalnum((unsigned char)match[length]);
+        if (left_boundary && right_boundary)
+            return 1;
+        ++match;
+    }
+    return 0;
+}
+
 static char *get_relevant_memories(
     const char *query,
     int limit)
@@ -1864,21 +1887,29 @@ static char *get_relevant_memories(
                 }
 
                 int score = 0;
+                int matched_keywords = 0;
 
                 for (
                     size_t k = 0;
                     k < keyword_count;
                     ++k
                 ) {
-
-                    if (
-                        strstr(
-                            combined,
-                            keywords[k]
-                        )
-                    )
-                        score++;
+                    if (r2_memory_has_keyword(combined, keywords[k])) {
+                        size_t keyword_length = strlen(keywords[k]);
+                        /*
+                         * Specific concepts carry more information than short
+                         * generic terms. Whole-token matching prevents partial
+                         * collisions; coverage rewards records connecting more
+                         * than one cue. This remains bounded lexical ranking,
+                         * not a claim of vector/embedding semantics.
+                         */
+                        score += keyword_length >= 9 ? 4 :
+                                 keyword_length >= 6 ? 2 : 1;
+                        ++matched_keywords;
+                    }
                 }
+                if (matched_keywords > 1)
+                    score += matched_keywords - 1;
 
                 free(combined);
 
