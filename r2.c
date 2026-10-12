@@ -3685,7 +3685,7 @@ static char *ollama_chat_with_limit(
             "[R2 Prompt Audit] payload_chars=%zu messages=%zu user_messages=%zu "
             "current_query_chars=%zu exact_user_turn=%d query_in_user_turn=%d "
             "startup_memory=%d retrieved_context=%d reality_context=%d "
-            "learning_context=%d system_chars=%zu\\n",
+            "learning_context=%d system_chars=%zu\n",
             strlen(payload), audit_message_count, audit_user_messages,
             audit_query_chars, audit_exact_user_turn, audit_user_turn_contained,
             audit_startup_memory, audit_retrieved_context, audit_reality_context,
