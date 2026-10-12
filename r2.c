@@ -9563,10 +9563,23 @@ char *r2_talk(const char *message)
     ollama_foreground_turn_mode = 1;
     char *reply = r2_talk_impl(message);
     if (!reply || !*reply) {
+        const char *failure_kind = reply ? "empty" : "null";
+        size_t input_chars = message ? strlen(message) : 0;
         free(reply);
         reply = NULL;
         fprintf(stderr,
-                "[R2] Public conversation API received no usable reply from the turn implementation; returning an explicit failure message.\n");
+                "[R2] Public conversation API received a %s reply from the turn implementation "
+                "(input_chars=%zu); returning an explicit failure message.\n",
+                failure_kind, input_chars);
+        if (r2_log_is_initialized()) {
+            char details[160];
+            snprintf(details, sizeof(details),
+                     "implementation_reply=%s; input_chars=%zu; user_text_logged=no",
+                     failure_kind, input_chars);
+            r2_log_event(R2_LOG_ERROR, "conversation_public_api_fallback",
+                         "The conversation implementation returned no usable reply; the public API supplied a visible fallback.",
+                         details, "r2_talk");
+        }
         reply = xstrdup(
             "I'm sorry, Mom—I couldn't process that turn successfully. "
             "The message may not have been saved to conversation history; please try again.");
