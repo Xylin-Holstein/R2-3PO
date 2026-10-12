@@ -40,7 +40,7 @@
 #define MAX_MEMORY_KEYWORDS 48
 #define MIN_MEMORY_KEYWORD_LENGTH 3
 
-/* Bound prompts for local Qwen 3.5 4B: preserve the active turn and useful memory within RAM headroom. */
+/* Bound prompts for local Qwen 3.5 9B: preserve the active turn and useful memory within RAM headroom. */
 #define OLLAMA_MAX_RECENT_MESSAGES 16
 #define OLLAMA_MAX_MESSAGE_CHARS 12000
 #define OLLAMA_MAX_SYSTEM_MESSAGE_CHARS 24000
