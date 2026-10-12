@@ -9360,7 +9360,7 @@ static char *r2_talk_impl(const char *message)
         if (pair_rc != 0) {
             char fallback_text[2048];
             snprintf(fallback_text, sizeof(fallback_text),
-                     "I'm sorry, Mom—the action ran, but I couldn't save its result into the conversation. "
+                     "I'm sorry, Mom—I processed the action request, but couldn't save its result into the conversation. "
                      "The result was: %.1200s. I won't repeat the action automatically; "
                      "please ask me again if you'd like me to verify the current state.",
                      tools ? tools : "(no tool result text was returned)");
