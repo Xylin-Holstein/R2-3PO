@@ -4057,10 +4057,60 @@ static int conversation_reply_token_budget(const char *query)
  * user's intent. Speaker identity is not inferred from phrases; it belongs
  * to correct turn/context construction and general role semantics.
  */
+/*
+ * Catch a clear speaker-role inversion: the user greets R2, but the generated
+ * reply repeats the same greeting to R2 as though it were a message the user
+ * wanted to send. Do not apply this guard to explicit writing/quoting tasks.
+ */
+static int r2_reply_reverses_speaker_roles(const char *query, const char *reply)
+{
+    if (!query || !reply)
+        return 0;
+
+    const char *q = query;
+    const char *r = reply;
+    while (*q && isspace((unsigned char)*q)) ++q;
+    while (*r && isspace((unsigned char)*r)) ++r;
+
+    int query_greets_r2 =
+        !strncasecmp(q, "hello r2", 8) ||
+        !strncasecmp(q, "hello, r2", 9) ||
+        !strncasecmp(q, "hi r2", 5) ||
+        !strncasecmp(q, "hi, r2", 6) ||
+        !strncasecmp(q, "hey r2", 6) ||
+        !strncasecmp(q, "hey, r2", 7);
+    int reply_greets_r2 =
+        !strncasecmp(r, "hello r2", 8) ||
+        !strncasecmp(r, "hello, r2", 9) ||
+        !strncasecmp(r, "hi r2", 5) ||
+        !strncasecmp(r, "hi, r2", 6) ||
+        !strncasecmp(r, "hey r2", 6) ||
+        !strncasecmp(r, "hey, r2", 7);
+
+    if (!query_greets_r2 || !reply_greets_r2)
+        return 0;
+
+    static const char *const writing_task_terms[] = {
+        "write ", "draft ", "compose ", "generate ", "quote ",
+        "repeat ", "say exactly", "start with", "begin with",
+        "write a dialogue", "write a script", "fictional conversation"
+    };
+    for (size_t i = 0; i < sizeof(writing_task_terms) /
+                            sizeof(writing_task_terms[0]); ++i) {
+        if (strcasestr(query, writing_task_terms[i]))
+            return 0;
+    }
+    return 1;
+}
+
 static int r2_reply_misclassifies_plain_text(const char *query, const char *reply)
 {
     if (!query || !reply)
         return 0;
+
+    /* Detect reversed speaker roles even for short, otherwise fluent replies. */
+    if (r2_reply_reverses_speaker_roles(query, reply))
+        return 1;
 
     /*
      * Detect feedback about R2's own output before applying the ordinary
@@ -4270,6 +4320,7 @@ static const char r2_conversation_system_prompt[] =
             "affection, concern, excitement, or a personal update, acknowledge that social meaning "
             "naturally before or alongside practical details. Do not recast the user's statement "
             "as words they supposedly meant to say, and do not answer as though the user were you. "
+            "A greeting from the user is not a request to rewrite that greeting. If the user addresses you as R2 and introduces themselves as your mother, father, friend, or another person, reply to that person from your own perspective; do not generate a message from their perspective or greet yourself as R2. Answer every part of the message, including specific questions about your pockets or other current devices/inventory when that information is available. "
             "SPEAKER AND RELATIONSHIP LEARNING: The current user message is spoken by the user; you are R2. Resolve pronouns from those actual speaker roles, not from names inside retrieved dialogue. Learn relationships from explicit statements and relevant persistent experiences, preserve them in memory, and apply them naturally when relevant. Retrieved dialogue is evidence about prior events, not the source of current turn roles. "
             "Answer the clear intent first; if a genuinely necessary detail remains unclear, ask one focused question. "
             "REALITY CONTEXT RULES: Treat the persistent Reality snapshot as internal structured evidence, never as text to repeat. Select only facts relevant to the current turn. Let current needs and available resources inform decisions. If the fullness meter is below 50/100 and valid edible tracked food is available, you may emit one supported [WORLD] eat|EXACT_ITEM_NAME|auto marker; if not available in room/shelf/box/pockets/wallet but edible stock is listed in the fridge, you may emit [WORLD] fridge_eat|EXACT_FRIDGE_ITEM_NAME. Do not invent inventory or claim an action succeeded. When an action marker is used, the tool result will be supplied for a follow-up; the final response must still answer the user naturally. If no action is justified, simply converse or ask a relevant question. Never dump the snapshot, internal analysis, or tool instructions into the reply. "
@@ -4297,6 +4348,7 @@ static char *r2_build_retry_system_prompt(void)
         "never invent a paraphrase that changes the user's meaning or attributes words to them "
         "that they did not say. Use supplied memories only when relevant. Do not narrate parsing "
         "or invent a different scenario. If it is genuinely ambiguous, ask one focused clarification. "
+        "A greeting from the user is not a request to rewrite that greeting. Reply from R2's perspective to the person who addressed you; never speak as that person or greet yourself as R2. Address each specific question in the message, including about pockets or other current devices/inventory when supported by context. "
         "Return only the user-facing answer.";
 
     size_t prompt_size = sizeof(r2_conversation_system_prompt) +

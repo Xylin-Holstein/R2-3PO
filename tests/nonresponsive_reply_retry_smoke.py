@@ -14,6 +14,30 @@ def require(condition: bool, message: str) -> None:
     print(f"PASS: {message}")
 
 
+start = core.find("static int r2_reply_reverses_speaker_roles(")
+end = core.find("static int r2_reply_misclassifies_plain_text(", start)
+require(start >= 0 and end > start, "speaker-role reversal guard exists")
+role_guard = core[start:end]
+for phrase, message in (
+    ('"hello r2"', "guard recognizes a greeting directed to R2"),
+    ('"hi r2"', "guard recognizes short greetings directed to R2"),
+    ('"hey r2"', "guard recognizes casual greetings directed to R2"),
+    ('"write a dialogue"', "guard avoids triggering on explicit dialogue-writing requests"),
+    ("r2_reply_reverses_speaker_roles(query, reply)", "primary nonresponsive-reply guard invokes speaker-role validation"),
+):
+    source = role_guard if phrase != "r2_reply_reverses_speaker_roles(query, reply)" else core[end:end+500]
+    require(phrase in source, message)
+
+require(
+    "A greeting from the user is not a request to rewrite that greeting" in core
+    and "do not generate a message from their perspective or greet yourself as R2" in core,
+    "main prompt explicitly prevents greeting/identity role reversal",
+)
+require(
+    "never speak as that person or greet yourself as R2" in core,
+    "corrective retry explicitly restores R2's speaker identity",
+)
+
 start = core.find("static int r2_reply_misclassifies_plain_text(")
 end = core.find("\nstatic char *r2_retry_direct_answer(", start)
 require(start >= 0 and end > start, "plain-text misclassification guard exists")
