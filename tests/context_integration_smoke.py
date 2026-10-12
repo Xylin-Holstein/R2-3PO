@@ -85,7 +85,7 @@ print("shared memory/reality/reward/addiction context wiring smoke passed")
 # have an explicit serialization priority, after focused live retrieval but
 # before learned summaries and archived dialogue.
 priority_start = core.find("static int r2_inference_system_priority(const char *content)")
-priority_end = core.find("\\nstatic size_t r2_order_inference_messages", priority_start)
+priority_end = core.find("\nstatic size_t r2_order_inference_messages", priority_start)
 if priority_start < 0 or priority_end < 0:
     raise SystemExit("Could not locate inference system-context priority ordering.")
 priority = core[priority_start:priority_end]
