@@ -3253,7 +3253,7 @@ static size_t r2_order_inference_messages(const Message *msgs,
         return 0;
 
     size_t used = 0;
-    for (int priority = 0; priority < 5; ++priority) {
+    for (int priority = 0; priority < 6; ++priority) {
         for (size_t i = 0; i < count; ++i) {
             if (!include[i] || !msgs[i].role ||
                 strcmp(msgs[i].role, "system") != 0 ||
@@ -3514,7 +3514,7 @@ static char *ollama_chat_with_limit(
             if (!msgs[i].role || strcmp(msgs[i].role, "system") != 0)
                 continue;
             const char *content = msgs[i].content ? msgs[i].content : "";
-            int message_priority = 3;
+            int message_priority = 4;
             if (!strncmp(content,
                          "============================================================\nIDENTITY AND PERSISTENT MEMORY",
                          strlen("============================================================\nIDENTITY AND PERSISTENT MEMORY")))
