@@ -4028,26 +4028,13 @@ static int conversation_reply_token_budget(const char *query)
  */
 static int r2_reply_misclassifies_plain_text(const char *query, const char *reply)
 {
-    if (!query || !reply || strlen(query) < 24)
-        return 0;
-
-    size_t words = 0;
-    int in_word = 0;
-    for (const unsigned char *p = (const unsigned char *)query; *p; ++p) {
-        if (isalnum(*p)) {
-            if (!in_word) ++words;
-            in_word = 1;
-        } else {
-            in_word = 0;
-        }
-    }
-    if (words < 5)
+    if (!query || !reply)
         return 0;
 
     /*
-     * User feedback that R2's previous output was garbled is itself a clear,
-     * meaningful message. Do not let the words "gibberish" or "unintelligible"
-     * accidentally disable recovery for that case.
+     * Detect feedback about R2's own output before applying the ordinary
+     * minimum-length/word-count guards: reports like "your reply is garbled"
+     * are short but still unambiguous and must trigger recovery.
      */
     int reports_r2_output_problem =
         (strcasestr(query, "your message") ||
@@ -4086,6 +4073,27 @@ static int r2_reply_misclassifies_plain_text(const char *query, const char *repl
          strcasestr(query, "can't understand") ||
          strcasestr(query, "cannot understand"));
 
+    if (!reports_r2_output_problem && strlen(query) < 24)
+        return 0;
+
+    size_t words = 0;
+    int in_word = 0;
+    for (const unsigned char *p = (const unsigned char *)query; *p; ++p) {
+        if (isalnum(*p)) {
+            if (!in_word) ++words;
+            in_word = 1;
+        } else {
+            in_word = 0;
+        }
+    }
+    if (!reports_r2_output_problem && words < 5)
+        return 0;
+
+    /*
+     * User feedback that R2's previous output was garbled is itself a clear,
+     * meaningful message. Do not let the words "gibberish" or "unintelligible"
+     * accidentally disable recovery for that case.
+     */
     /* Keep legitimate audio/transcription discussions out of this guard,
        except when the user is explicitly reporting a problem with R2's output. */
     static const char *const topic_terms[] = {
