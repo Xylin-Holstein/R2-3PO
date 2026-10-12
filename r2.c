@@ -9239,8 +9239,17 @@ static char *r2_talk_impl(const char *message)
         free(tools);
 
         if (assistant_rc != 0 || tool_rc != 0) {
-            message_rollback_turn(message);
-            return NULL;
+            reply = xstrdup(
+                "I'm sorry, Mom—the action ran, but I couldn't save its result into the conversation. "
+                "I won't pretend the follow-up succeeded; please ask me again and I'll check the current state.");
+            if (!reply) {
+                message_rollback_turn(message);
+                fprintf(stderr, "[R2] Could not allocate a visible reply after action-context persistence failed.\n");
+                return NULL;
+            }
+            fprintf(stderr,
+                    "[R2] Action-context persistence failed; returning a visible reply without repeating the action.\n");
+            goto finalize_reply;
         }
 
         reply = chat_with_relevant_memories(message);
@@ -9257,7 +9266,6 @@ static char *r2_talk_impl(const char *message)
                 "I'm sorry, Mom—I completed the action, but couldn't generate the follow-up answer. "
                 "The action result is still in the conversation; please ask me again if you'd like me to explain it.");
             if (!reply) {
-                free(tools);
                 message_rollback_turn(message);
                 fprintf(stderr,
                         "[R2] Follow-up generation failed after one refreshed retry and fallback allocation failed.\n");
@@ -9275,7 +9283,6 @@ static char *r2_talk_impl(const char *message)
                 "I'm sorry, Mom—the action happened, but I couldn't prepare a usable follow-up. "
                 "The result remains in the conversation; please ask me again.");
             if (!reply) {
-                free(tools);
                 message_rollback_turn(message);
                 fprintf(stderr, "[R2] Could not allocate a visible reply after tool follow-up cleanup failed.\n");
                 return NULL;
