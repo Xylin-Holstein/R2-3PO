@@ -3322,6 +3322,10 @@ static char *ollama_chat_with_limit(
 
     json_object_object_add(root, "model", json_object_new_string(MODEL));
     json_object_object_add(root, "stream", json_object_new_boolean(0));
+    /* Qwen 3.5 can spend a tiny output budget entirely in its separate
+       thinking field. Request final-answer-only output at the chat API level;
+       never serialize message.thinking as a user-facing reply. */
+    json_object_object_add(root, "think", json_object_new_boolean(0));
     json_object_object_add(root, "keep_alive", json_object_new_string("10m"));
 
     int num_ctx = r2_ollama_context_tokens();
