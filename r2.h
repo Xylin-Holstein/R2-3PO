@@ -32,7 +32,7 @@ extern "C" {
 #endif
 
 /* Single source of truth for every local Ollama inference in R2. */
-#define R2_OLLAMA_MODEL "qwen3.5:4b"
+#define R2_OLLAMA_MODEL "qwen3.5:9b"
 
 /* Shared RAM-aware context sizing for text and multimodal inference. */
 int r2_ollama_context_tokens(void);
@@ -257,7 +257,7 @@ int r2_is_initialized(void);
  *
  * Example:
  *
- *   Qwen 3.5 4B
+ *   Qwen 3.5 9B
  *
  * The returned pointer is owned by R2 and must NOT be freed.
  */
