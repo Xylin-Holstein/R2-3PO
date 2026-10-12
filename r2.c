@@ -3866,12 +3866,41 @@ static char *ollama_chat_with_limit(
 
     struct json_object *msg = NULL;
     struct json_object *content = NULL;
+    struct json_object *thinking_obj = NULL;
+    struct json_object *role_obj = NULL;
+    struct json_object *done_obj = NULL;
+    struct json_object *done_reason_obj = NULL;
     char *result = NULL;
-    if (json_object_object_get_ex(resp, "message", &msg) &&
-        json_object_object_get_ex(msg, "content", &content) &&
-        json_object_is_type(content, json_type_string)) {
-        const char *text = json_object_get_string(content);
-        if (text && *text) result = xstrdup(text);
+    const char *response_role = "missing";
+    const char *done_reason = "missing";
+    size_t content_chars = 0;
+    size_t thinking_chars = 0;
+    int response_done = -1;
+    if (json_object_object_get_ex(resp, "message", &msg) && msg) {
+        if (json_object_object_get_ex(msg, "role", &role_obj) && role_obj) {
+            const char *role = json_object_get_string(role_obj);
+            if (role) response_role = role;
+        }
+        if (json_object_object_get_ex(msg, "thinking", &thinking_obj) &&
+            thinking_obj && json_object_is_type(thinking_obj, json_type_string)) {
+            const char *thinking = json_object_get_string(thinking_obj);
+            if (thinking) thinking_chars = strlen(thinking);
+        }
+        if (json_object_object_get_ex(msg, "content", &content) &&
+            content && json_object_is_type(content, json_type_string)) {
+            const char *text = json_object_get_string(content);
+            if (text) {
+                content_chars = strlen(text);
+                if (*text) result = xstrdup(text);
+            }
+        }
+    }
+    if (json_object_object_get_ex(resp, "done", &done_obj) && done_obj)
+        response_done = json_object_get_boolean(done_obj) ? 1 : 0;
+    if (json_object_object_get_ex(resp, "done_reason", &done_reason_obj) &&
+        done_reason_obj) {
+        const char *reason = json_object_get_string(done_reason_obj);
+        if (reason && *reason) done_reason = reason;
     }
 
     struct json_object *metric = NULL;
@@ -3906,11 +3935,31 @@ static char *ollama_chat_with_limit(
             available_bytes ? (double)available_bytes / (1024.0 * 1024.0 * 1024.0) : 0.0);
 
     if (!result) {
-        fprintf(stderr, "[R2 Ollama] response JSON had no non-empty message.content.\n");
-        if (r2_log_is_initialized())
-            r2_log_event(R2_LOG_ERROR, "ollama_missing_message_content",
-                         "R2's text-model response did not contain message.content.",
-                         NULL, MODEL);
+        /*
+         * Do not print the model's private thinking text. Its presence/length,
+         * final-channel length, and Ollama completion metadata distinguish an
+         * empty final answer from transport or JSON failure.
+         */
+        fprintf(stderr,
+                "[R2 Ollama] no final answer text: model=%s role=%s content_chars=%zu "
+                "thinking_chars=%zu done=%d done_reason=%s prompt_tokens=%lld "
+                "generated_tokens=%lld context=%d stage=%s.\n",
+                MODEL, response_role, content_chars, thinking_chars, response_done,
+                done_reason, prompt_tokens, generated_tokens, num_ctx,
+                ollama_audit_stage ? ollama_audit_stage : "unspecified");
+        if (r2_log_is_initialized()) {
+            char details[512];
+            snprintf(details, sizeof(details),
+                     "model=%s; role=%s; content_chars=%zu; thinking_chars=%zu; "
+                     "done=%d; done_reason=%s; prompt_tokens=%lld; generated_tokens=%lld; "
+                     "context=%d; stage=%s",
+                     MODEL, response_role, content_chars, thinking_chars,
+                     response_done, done_reason, prompt_tokens, generated_tokens,
+                     num_ctx, ollama_audit_stage ? ollama_audit_stage : "unspecified");
+            r2_log_event(R2_LOG_ERROR, "ollama_missing_final_answer",
+                         "Ollama returned no user-facing final answer text.",
+                         details, MODEL);
+        }
     }
     json_object_put(resp);
     return result;

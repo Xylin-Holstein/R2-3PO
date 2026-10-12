@@ -100,6 +100,19 @@ require(
     'json_object_object_get_ex(msg, "content", &content)' in core,
     "the user-facing text response is read from Ollama message.content",
 )
+
+require(
+    'json_object_object_get_ex(msg, "thinking", &thinking_obj)' in core
+    and "thinking_chars=%zu" in core
+    and "content_chars=%zu" in core
+    and 'json_object_object_get_ex(resp, "done_reason", &done_reason_obj)' in core,
+    "empty final answers report response-channel lengths and Ollama completion metadata without logging private thinking text",
+)
+require(
+    '"ollama_missing_final_answer"' in core
+    and '"Ollama returned no user-facing final answer text."' in core,
+    "empty final answers are written to the R2 error log with model/stage diagnostics",
+)
 require(
     'json_object_object_add(root, "think", json_object_new_boolean(0))' in core,
     "chat requests disable separate thinking output so it cannot consume the final-answer budget",
