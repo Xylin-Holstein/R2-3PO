@@ -9210,9 +9210,17 @@ static char *r2_talk_impl(const char *message)
     if (!tools) {
         free(reply);
         free(stripped_reply);
-        message_rollback_turn(message);
-        fprintf(stderr, "[R2] Could not parse tool instructions; discarded this turn.\n");
-        return NULL;
+        reply = xstrdup(
+            "I'm sorry, Mom—I couldn't finish processing that response. "
+            "Your message is still here; please try again in a moment.");
+        if (!reply) {
+            message_rollback_turn(message);
+            fprintf(stderr, "[R2] Could not allocate a visible reply after tool-processing failure.\n");
+            return NULL;
+        }
+        fprintf(stderr,
+                "[R2] Tool processing failed; returning a visible reply and preserving the user turn.\n");
+        goto finalize_reply;
     }
 
     if (*tools) {
@@ -9245,22 +9253,39 @@ static char *r2_talk_impl(const char *message)
             reply = chat_with_relevant_memories(message);
         }
         if (!reply) {
-            message_rollback_turn(message);
+            reply = xstrdup(
+                "I'm sorry, Mom—I completed the action, but couldn't generate the follow-up answer. "
+                "The action result is still in the conversation; please ask me again if you'd like me to explain it.");
+            if (!reply) {
+                free(tools);
+                message_rollback_turn(message);
+                fprintf(stderr,
+                        "[R2] Follow-up generation failed after one refreshed retry and fallback allocation failed.\n");
+                return NULL;
+            }
             fprintf(stderr,
-                    "[R2] Follow-up generation failed after one refreshed retry; the incomplete turn was removed from live context.\n");
-            return NULL;
+                    "[R2] Follow-up generation failed after one refreshed retry; returning a visible reply and preserving the action result.\n");
         }
 
         char *sound_clean_reply = r2_sounds_process_reply(reply);
         if (!reply_has_visible_text(sound_clean_reply)) {
             free(reply);
             free(sound_clean_reply);
-            message_rollback_turn(message);
-            fprintf(stderr, "[R2] Tool follow-up became empty after sound-marker cleanup; discarded this turn instead of returning a blank answer.\n");
-            return NULL;
+            reply = xstrdup(
+                "I'm sorry, Mom—the action happened, but I couldn't prepare a usable follow-up. "
+                "The result remains in the conversation; please ask me again.");
+            if (!reply) {
+                free(tools);
+                message_rollback_turn(message);
+                fprintf(stderr, "[R2] Could not allocate a visible reply after tool follow-up cleanup failed.\n");
+                return NULL;
+            }
+            fprintf(stderr,
+                    "[R2] Tool follow-up cleanup produced no visible text; returning a visible reply and preserving the action result.\n");
+        } else {
+            free(reply);
+            reply = sound_clean_reply;
         }
-        free(reply);
-        reply = sound_clean_reply;
     } else {
         free(tools);
         free(stripped_reply);
@@ -9269,14 +9294,23 @@ static char *r2_talk_impl(const char *message)
         if (!reply_has_visible_text(sound_clean_reply)) {
             free(reply);
             free(sound_clean_reply);
-            message_rollback_turn(message);
-            fprintf(stderr, "[R2] Reply became empty after sound-marker cleanup; discarded this turn instead of returning a blank answer.\n");
-            return NULL;
+            reply = xstrdup(
+                "I'm sorry, Mom—I couldn't prepare a usable reply after processing it. "
+                "Your message is still here; please try again.");
+            if (!reply) {
+                message_rollback_turn(message);
+                fprintf(stderr, "[R2] Could not allocate a visible reply after sound-marker cleanup failed.\n");
+                return NULL;
+            }
+            fprintf(stderr,
+                    "[R2] Reply cleanup produced no visible text; returning a visible reply and preserving the user turn.\n");
+        } else {
+            free(reply);
+            reply = sound_clean_reply;
         }
-        free(reply);
-        reply = sound_clean_reply;
     }
 
+finalize_reply:
     pthread_mutex_lock(&messages_lock);
 
     if (message_add("assistant", reply) != 0)
