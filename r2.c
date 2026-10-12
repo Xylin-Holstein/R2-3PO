@@ -9126,17 +9126,36 @@ static void *post_turn_worker(void *opaque)
 
 /* These model-assisted bookkeeping tasks must never delay delivery of R2's
    actual answer. They yield to foreground inference and are joined at shutdown. */
+static void log_post_turn_start_failure(const char *stage, int64_t event_id)
+{
+    char details[256];
+    snprintf(details, sizeof(details),
+             "conversation_event_id=%lld; stage=%s; user-facing reply was already delivered; "
+             "post-turn introspection and memory learning may not run for this turn.",
+             (long long)event_id, stage ? stage : "unknown");
+    fprintf(stderr, "[R2 Post-turn] Could not start post-turn learning worker at stage '%s'.\\n",
+            stage ? stage : "unknown");
+    (void)r2_log_event(R2_LOG_ERROR, "post_turn_worker_start_failed",
+                       "Post-turn introspection and memory learning could not be scheduled.",
+                       details, "schedule_post_turn_processing");
+}
+
 static void schedule_post_turn_processing(const char *user, const char *reply,
                                           int64_t event_id)
 {
     if (!user || !reply || shutting_down) return;
     R2PostTurnJob *job = calloc(1, sizeof(*job));
-    if (!job) return;
+    if (!job) {
+        log_post_turn_start_failure("job allocation", event_id);
+        return;
+    }
     job->user = xstrdup(user);
     job->reply = xstrdup(reply);
     job->event_id = event_id;
     if (!job->user || !job->reply) {
-        free(job->user); free(job->reply); free(job); return;
+        free(job->user); free(job->reply); free(job);
+        log_post_turn_start_failure("turn copy allocation", event_id);
+        return;
     }
 
     pthread_mutex_lock(&post_turn_lock);
@@ -9150,6 +9169,7 @@ static void schedule_post_turn_processing(const char *user, const char *reply,
         pthread_cond_broadcast(&post_turn_cond);
         pthread_mutex_unlock(&post_turn_lock);
         free(job->user); free(job->reply); free(job);
+        log_post_turn_start_failure("thread creation", event_id);
         return;
     }
     pthread_detach(thread);
@@ -9181,7 +9201,11 @@ static char *build_learning_context(void)
 static int refresh_reality_context_message(void)
 {
     if (!r2_reality_is_initialized()) return 0;
-    (void)r2_reality_tick();
+    if (r2_reality_tick() != 0) {
+        fprintf(stderr,
+                "[R2 Reality] Could not advance Reality before context refresh; preserving the previous snapshot.\\n");
+        return -1;
+    }
     char *context = r2_reality_context();
     char *learning = build_learning_context();
     if (!context || !learning) {
@@ -9269,7 +9293,9 @@ static char *r2_talk_impl(const char *message)
                      "R2's first contextual response attempt failed; refreshing context and retrying once.",
                      "The original user turn remains in memory; the refreshed attempt rebuilds relevant context from the current message and available memories.",
                      "r2_talk");
-        (void)refresh_reality_context_message();
+        if (refresh_reality_context_message() != 0)
+            fprintf(stderr,
+                    "[R2 Reality] Retry could not refresh Reality/learning context; using the previous valid snapshot.\\n");
         reply = chat_with_relevant_memories(message);
     }
     if (!reply) {
