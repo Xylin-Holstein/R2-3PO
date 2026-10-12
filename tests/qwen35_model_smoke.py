@@ -271,11 +271,21 @@ require(
 )
 
 require(
-    "static int message_add_pair(" in core
-    and "message_add_pair(\"assistant\", reply, \"user\", tools)" in core
+    "static int message_add_pair_locked(" in core
+    and 'message_add_pair_locked("assistant", reply, "user", tools)' in core
     and "Append the internal assistant tool-call and its tool-result as one logical" in core
     and "Cannot fit complete assistant/tool history pair without evicting pinned context." in core,
     "tool-call and tool-result history is appended atomically, preventing half-written turns",
+)
+
+refresh_start = core.find("static int refresh_reality_context_message(void)")
+refresh_end = core.find("\nstatic int reply_has_visible_text", refresh_start)
+require(
+    refresh_start >= 0 and refresh_end > refresh_start
+    and 'message_add_pair_locked("system", context,' in core[refresh_start:refresh_end]
+    and "if (add_rc == 0)" in core[refresh_start:refresh_end]
+    and "Preserve the last valid snapshot if refresh allocation fails." in core[refresh_start:refresh_end],
+    "Reality and learning context refresh together and preserve the last valid snapshot on failure",
 )
 require(
     'bridge_event("prolonged_starvation"' in reality
