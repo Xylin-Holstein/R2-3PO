@@ -217,6 +217,11 @@ require(
 
 
 require(
+    'if (!reply || !*reply)' in shell
+    and "Conversation produced no visible answer" in shell,
+    "the shell reports empty conversation output rather than silently returning to the prompt",
+)
+require(
     "reply_has_visible_text" in core
     and "Model output contained no visible reply after marker cleanup; retrying once." in core
     and "Retry still produced no visible reply" in core,
