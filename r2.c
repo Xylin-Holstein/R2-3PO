@@ -9137,13 +9137,12 @@ static char *r2_talk_impl(const char *message)
                 free(stripped_reply);
                 message_rollback_turn(message);
                 fprintf(stderr,
-                        "[R2] Could not allocate a visible fallback after empty model output.\\n");
+                        "[R2] Could not allocate a visible fallback after empty model output.\n");
                 return NULL;
             }
             fprintf(stderr,
-                    "[R2] Retry still produced no visible reply; returning a fallback and preserving the user turn.\\n");
+                    "[R2] Retry still produced no visible reply; returning a fallback and preserving the user turn.\n");
         }
-    }
     }
 
     char *tools = process_tools(stripped_reply);
