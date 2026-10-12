@@ -32,7 +32,7 @@
        and temporarily inject them immediately before the relevant
        user message.
 
-   This gives Gemma 3 both broad historical memory and focused
+   This gives Qwen 3.5 both broad historical memory and focused
    contextual memory.
 */
 #define MAX_STARTUP_MEMORIES 100
@@ -40,7 +40,7 @@
 #define MAX_MEMORY_KEYWORDS 48
 #define MIN_MEMORY_KEYWORD_LENGTH 3
 
-/* Bound prompts for the local Gemma 3 4B model: keep system instructions and recent turns. */
+/* Bound prompts for local Qwen 3.5 4B: preserve the active turn and useful memory within RAM headroom. */
 #define OLLAMA_MAX_RECENT_MESSAGES 16
 #define OLLAMA_MAX_MESSAGE_CHARS 12000
 #define OLLAMA_MAX_SYSTEM_MESSAGE_CHARS 24000
