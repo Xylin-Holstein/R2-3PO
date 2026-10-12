@@ -249,6 +249,12 @@ require(
     and "Your message reached me, but I couldn't answer it this time." in shell,
     "the shell prints a visible fallback if the conversation API returns an empty answer",
 )
+
+require(
+    "Public conversation API received no usable reply from the turn implementation" in core
+    and "The message may not have been saved to conversation history; please try again." in core,
+    "the public conversation API itself reports a failed turn instead of passing silent NULL/empty output to callers",
+)
 require(
     "Conversation generation failed after one refreshed retry" in core
     and "Your message hasn't been discarded" in core
@@ -268,6 +274,48 @@ require(
     and "Reply cleanup produced no visible text; returning a visible reply and preserving the user turn." in core
     and "goto finalize_reply;" in core,
     "tool/action, parser, and sound-cleanup failures return a visible answer instead of silently rolling back the turn",
+)
+
+require(
+    "static int message_add_pair_locked(" in core
+    and 'message_add_pair_locked("assistant", reply, "user", tools)' in core
+    and "Append the internal assistant tool-call and its tool-result as one logical" in core
+    and "Cannot fit complete assistant/tool history pair without evicting pinned context." in core,
+    "tool-call and tool-result history is appended atomically, preventing half-written turns",
+)
+
+tool_pair_start = core.find('message_add_pair_locked("assistant", reply, "user", tools)')
+tool_pair_end = core.find("reply = chat_with_relevant_memories(message);", tool_pair_start)
+require(
+    tool_pair_start >= 0 and tool_pair_end > tool_pair_start
+    and "The result was: %.1200s." in core[tool_pair_start:tool_pair_end]
+    and core.find("free(tools);", tool_pair_start) > core.find("if (pair_rc != 0)", tool_pair_start),
+    "if tool-history persistence fails, R2 retains and reports the actual tool result without rerunning the action",
+)
+
+refresh_start = core.find("static int refresh_reality_context_message(void)")
+refresh_end = core.find("\nstatic int reply_has_visible_text", refresh_start)
+require(
+    refresh_start >= 0 and refresh_end > refresh_start
+    and 'message_add_pair_locked("system", context,' in core[refresh_start:refresh_end]
+    and "if (add_rc == 0)" in core[refresh_start:refresh_end]
+    and "Preserve the last valid snapshot if refresh allocation fails." in core[refresh_start:refresh_end],
+    "Reality and learning context refresh together and preserve the last valid snapshot on failure",
+)
+
+require(
+    "if (r2_reality_tick() != 0)" in core
+    and "preserving the previous snapshot" in core
+    and "Retry could not refresh Reality/learning context" in core,
+    "Reality tick failures are reported and never silently treated as a successful context refresh",
+)
+require(
+    "log_post_turn_start_failure" in core
+    and "post_turn_worker_start_failed" in core
+    and "job allocation" in core
+    and "turn copy allocation" in core
+    and "thread creation" in core,
+    "failed post-turn learning scheduling is logged instead of silently skipping introspection/memory learning",
 )
 require(
     'bridge_event("prolonged_starvation"' in reality

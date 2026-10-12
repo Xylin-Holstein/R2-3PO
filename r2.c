@@ -908,6 +908,113 @@ static int message_add(
     );
 }
 
+/*
+ * Append the internal assistant tool-call and its tool-result as one logical
+ * history operation. A half-written pair can corrupt subsequent turn order,
+ * so allocate and budget both messages before evicting history or appending.
+ * This function owns messages_lock for the complete operation.
+ */
+static int message_add_pair_locked(const char *role_a, const char *content_a,
+                            const char *role_b, const char *content_b)
+{
+    if (!role_a || !content_a || !role_b || !content_b)
+        return -1;
+
+    size_t role_a_len = strlen(role_a), content_a_len = strlen(content_a);
+    size_t role_b_len = strlen(role_b), content_b_len = strlen(content_b);
+    if (role_a_len + content_a_len + 2 > MAX_LIVE_MESSAGE_BYTES ||
+        role_b_len + content_b_len + 2 > MAX_LIVE_MESSAGE_BYTES)
+        return -1;
+
+    size_t bytes_a = role_a_len + content_a_len + 2;
+    size_t bytes_b = role_b_len + content_b_len + 2;
+    if (bytes_a > MAX_LIVE_MESSAGE_BYTES - bytes_b || MAX_MESSAGES < 2)
+        return -1;
+    size_t pair_bytes = bytes_a + bytes_b;
+
+    char *role_a_copy = xstrdup(role_a);
+    char *content_a_copy = xstrdup(content_a);
+    char *role_b_copy = xstrdup(role_b);
+    char *content_b_copy = xstrdup(content_b);
+    if (!role_a_copy || !content_a_copy || !role_b_copy || !content_b_copy) {
+        free(role_a_copy);
+        free(content_a_copy);
+        free(role_b_copy);
+        free(content_b_copy);
+        return -1;
+    }
+
+    unsigned char evict[MAX_MESSAGES] = {0};
+
+    size_t live_bytes = 0;
+    for (size_t i = 0; i < messages.count; ++i) {
+        live_bytes += strlen(messages.items[i].role ? messages.items[i].role : "") + 1;
+        live_bytes += strlen(messages.items[i].content ? messages.items[i].content : "") + 1;
+    }
+
+    size_t simulated_count = messages.count;
+    size_t simulated_bytes = live_bytes;
+    while (simulated_count + 2 > MAX_MESSAGES ||
+           simulated_bytes > MAX_LIVE_MESSAGE_BYTES - pair_bytes) {
+        size_t remove_index = SIZE_MAX;
+        for (size_t i = 0; i < messages.count; ++i) {
+            if (!evict[i] && !messages.items[i].pinned) {
+                remove_index = i;
+                break;
+            }
+        }
+        if (remove_index == SIZE_MAX) {
+            free(role_a_copy);
+            free(content_a_copy);
+            free(role_b_copy);
+            free(content_b_copy);
+            fprintf(stderr, "[R2 memory] Cannot fit complete assistant/tool history pair without evicting pinned context.\n");
+            return -1;
+        }
+        evict[remove_index] = 1;
+        simulated_count--;
+        simulated_bytes -= strlen(messages.items[remove_index].role ? messages.items[remove_index].role : "") + 1;
+        simulated_bytes -= strlen(messages.items[remove_index].content ? messages.items[remove_index].content : "") + 1;
+    }
+
+    size_t needed = simulated_count + 2;
+    if (needed > messages.capacity) {
+        size_t capacity = messages.capacity ? messages.capacity : 64;
+        while (capacity < needed && capacity < MAX_MESSAGES) {
+            size_t next = capacity * 2;
+            capacity = next > MAX_MESSAGES ? MAX_MESSAGES : next;
+        }
+        Message *grown = realloc(messages.items, capacity * sizeof(*grown));
+        if (!grown) {
+            free(role_a_copy);
+            free(content_a_copy);
+            free(role_b_copy);
+            free(content_b_copy);
+            return -1;
+        }
+        messages.items = grown;
+        messages.capacity = capacity;
+    }
+
+    size_t write_index = 0;
+    for (size_t i = 0; i < messages.count; ++i) {
+        if (evict[i]) {
+            free(messages.items[i].role);
+            free(messages.items[i].content);
+            continue;
+        }
+        if (write_index != i)
+            messages.items[write_index] = messages.items[i];
+        write_index++;
+    }
+    messages.count = write_index;
+
+    messages.items[messages.count++] = (Message){role_a_copy, content_a_copy, 0};
+    messages.items[messages.count++] = (Message){role_b_copy, content_b_copy, 0};
+    return 0;
+}
+
+
 
 static int message_add_pinned(
     const char *role,
@@ -9019,17 +9126,36 @@ static void *post_turn_worker(void *opaque)
 
 /* These model-assisted bookkeeping tasks must never delay delivery of R2's
    actual answer. They yield to foreground inference and are joined at shutdown. */
+static void log_post_turn_start_failure(const char *stage, int64_t event_id)
+{
+    char details[256];
+    snprintf(details, sizeof(details),
+             "conversation_event_id=%lld; stage=%s; user-facing reply was already delivered; "
+             "post-turn introspection and memory learning may not run for this turn.",
+             (long long)event_id, stage ? stage : "unknown");
+    fprintf(stderr, "[R2 Post-turn] Could not start post-turn learning worker at stage '%s'.\n",
+            stage ? stage : "unknown");
+    (void)r2_log_event(R2_LOG_ERROR, "post_turn_worker_start_failed",
+                       "Post-turn introspection and memory learning could not be scheduled.",
+                       details, "schedule_post_turn_processing");
+}
+
 static void schedule_post_turn_processing(const char *user, const char *reply,
                                           int64_t event_id)
 {
     if (!user || !reply || shutting_down) return;
     R2PostTurnJob *job = calloc(1, sizeof(*job));
-    if (!job) return;
+    if (!job) {
+        log_post_turn_start_failure("job allocation", event_id);
+        return;
+    }
     job->user = xstrdup(user);
     job->reply = xstrdup(reply);
     job->event_id = event_id;
     if (!job->user || !job->reply) {
-        free(job->user); free(job->reply); free(job); return;
+        free(job->user); free(job->reply); free(job);
+        log_post_turn_start_failure("turn copy allocation", event_id);
+        return;
     }
 
     pthread_mutex_lock(&post_turn_lock);
@@ -9043,6 +9169,7 @@ static void schedule_post_turn_processing(const char *user, const char *reply,
         pthread_cond_broadcast(&post_turn_cond);
         pthread_mutex_unlock(&post_turn_lock);
         free(job->user); free(job->reply); free(job);
+        log_post_turn_start_failure("thread creation", event_id);
         return;
     }
     pthread_detach(thread);
@@ -9074,7 +9201,11 @@ static char *build_learning_context(void)
 static int refresh_reality_context_message(void)
 {
     if (!r2_reality_is_initialized()) return 0;
-    (void)r2_reality_tick();
+    if (r2_reality_tick() != 0) {
+        fprintf(stderr,
+                "[R2 Reality] Could not advance Reality before context refresh; preserving the previous snapshot.\n");
+        return -1;
+    }
     char *context = r2_reality_context();
     char *learning = build_learning_context();
     if (!context || !learning) {
@@ -9083,33 +9214,46 @@ static int refresh_reality_context_message(void)
         return -1; /* Preserve the last valid snapshot if refresh allocation fails. */
     }
 
+    /*
+     * Add both fresh snapshots before removing the old ones. If allocation or
+     * the live-history budget prevents the replacement, the old snapshots stay
+     * intact. The pair append is atomic while messages_lock is held.
+     */
     pthread_mutex_lock(&messages_lock);
-    for (size_t i = 0; i < messages.count; ) {
-        Message *m = &messages.items[i];
-        int is_live_context = m->role && !strcmp(m->role, "system") && m->content &&
-            (!strncmp(m->content, "PERSISTENT REALITY CONTEXT",
-                      strlen("PERSISTENT REALITY CONTEXT")) ||
-             !strncmp(m->content, "PERSISTENT LEARNING CONTEXT",
-                      strlen("PERSISTENT LEARNING CONTEXT")));
-        if (is_live_context) {
-            free(m->role);
-            free(m->content);
-            if (i + 1 < messages.count)
-                memmove(&messages.items[i], &messages.items[i + 1],
-                        (messages.count - i - 1) * sizeof(messages.items[0]));
-            messages.count--;
-            continue;
+    int add_rc = message_add_pair_locked("system", context,
+                                         "system", learning);
+    if (add_rc == 0) {
+        int kept_reality = 0, kept_learning = 0;
+        for (size_t i = messages.count; i > 0; ) {
+            --i;
+            Message *m = &messages.items[i];
+            int is_reality = m->role && !strcmp(m->role, "system") &&
+                m->content &&
+                !strncmp(m->content, "PERSISTENT REALITY CONTEXT",
+                         strlen("PERSISTENT REALITY CONTEXT"));
+            int is_learning = m->role && !strcmp(m->role, "system") &&
+                m->content &&
+                !strncmp(m->content, "PERSISTENT LEARNING CONTEXT",
+                         strlen("PERSISTENT LEARNING CONTEXT"));
+            int duplicate = (is_reality && kept_reality) ||
+                            (is_learning && kept_learning);
+            if (is_reality) kept_reality = 1;
+            if (is_learning) kept_learning = 1;
+            if (duplicate) {
+                free(m->role);
+                free(m->content);
+                if (i + 1 < messages.count)
+                    memmove(&messages.items[i], &messages.items[i + 1],
+                            (messages.count - i - 1) * sizeof(messages.items[0]));
+                messages.count--;
+            }
         }
-        ++i;
     }
-    int reality_rc = message_add("system", context);
-    int learning_rc = message_add("system", learning);
     pthread_mutex_unlock(&messages_lock);
     free(context);
     free(learning);
-    return reality_rc == 0 && learning_rc == 0 ? 0 : -1;
+    return add_rc == 0 ? 0 : -1;
 }
-
 
 static int reply_has_visible_text(const char *text)
 {
@@ -9149,7 +9293,9 @@ static char *r2_talk_impl(const char *message)
                      "R2's first contextual response attempt failed; refreshing context and retrying once.",
                      "The original user turn remains in memory; the refreshed attempt rebuilds relevant context from the current message and available memories.",
                      "r2_talk");
-        (void)refresh_reality_context_message();
+        if (refresh_reality_context_message() != 0)
+            fprintf(stderr,
+                    "[R2 Reality] Retry could not refresh Reality/learning context; using the previous valid snapshot.\n");
         reply = chat_with_relevant_memories(message);
     }
     if (!reply) {
@@ -9231,26 +9377,33 @@ static char *r2_talk_impl(const char *message)
         stripped_reply = NULL;
 
         pthread_mutex_lock(&messages_lock);
-        int assistant_rc = message_add("assistant", reply);
-        int tool_rc = message_add("user", tools);
+        int pair_rc = message_add_pair_locked("assistant", reply, "user", tools);
         pthread_mutex_unlock(&messages_lock);
 
         free(reply);
-        free(tools);
+        reply = NULL;
 
-        if (assistant_rc != 0 || tool_rc != 0) {
-            reply = xstrdup(
-                "I'm sorry, Mom—the action ran, but I couldn't save its result into the conversation. "
-                "I won't pretend the follow-up succeeded; please ask me again and I'll check the current state.");
+        if (pair_rc != 0) {
+            char fallback_text[2048];
+            snprintf(fallback_text, sizeof(fallback_text),
+                     "I'm sorry, Mom—I processed the action request, but couldn't save its result into the conversation. "
+                     "The result was: %.1200s. I won't repeat the action automatically; "
+                     "please ask me again if you'd like me to verify the current state.",
+                     tools ? tools : "(no tool result text was returned)");
+            reply = xstrdup(fallback_text);
+            free(tools);
+            tools = NULL;
             if (!reply) {
                 message_rollback_turn(message);
                 fprintf(stderr, "[R2] Could not allocate a visible reply after action-context persistence failed.\n");
                 return NULL;
             }
             fprintf(stderr,
-                    "[R2] Action-context persistence failed; returning a visible reply without repeating the action.\n");
+                    "[R2] Action-context persistence failed; returning the result text without repeating the action.\n");
             goto finalize_reply;
         }
+        free(tools);
+        tools = NULL;
 
         reply = chat_with_relevant_memories(message);
         if (!reply) {
@@ -9402,6 +9555,15 @@ char *r2_talk(const char *message)
     int previous_turn_mode = ollama_foreground_turn_mode;
     ollama_foreground_turn_mode = 1;
     char *reply = r2_talk_impl(message);
+    if (!reply || !*reply) {
+        free(reply);
+        reply = NULL;
+        fprintf(stderr,
+                "[R2] Public conversation API received no usable reply from the turn implementation; returning an explicit failure message.\n");
+        reply = xstrdup(
+            "I'm sorry, Mom—I couldn't process that turn successfully. "
+            "The message may not have been saved to conversation history; please try again.");
+    }
     ollama_foreground_turn_mode = previous_turn_mode;
     pthread_mutex_unlock(&conversation_turn_lock);
     atomic_fetch_sub(&foreground_conversation_waiting, 1);
