@@ -3943,7 +3943,7 @@ static char *ollama_chat_with_limit(
         fprintf(stderr,
                 "[R2 Ollama] no final answer text: model=%s role=%s content_chars=%zu "
                 "thinking_chars=%zu done=%d done_reason=%s prompt_tokens=%lld "
-                "generated_tokens=%lld context=%d stage=%s.\\n",
+                "generated_tokens=%lld context=%d stage=%s.\n",
                 MODEL, response_role, content_chars, thinking_chars, response_done,
                 done_reason, prompt_tokens, generated_tokens, num_ctx,
                 ollama_audit_stage ? ollama_audit_stage : "unspecified");
