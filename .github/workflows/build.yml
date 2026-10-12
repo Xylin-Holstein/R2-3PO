@@ -85,7 +85,7 @@ jobs:
           python3 tests/ollama_preflight_smoke.py
 
       - name: Check unified Qwen 3.5 conversation and vision wiring
-        run: python3 tests/gemma3_model_smoke.py
+        run: python3 tests/qwen35_model_smoke.py
 
       - name: Keep retrieved context separate from the active user turn
         run: python3 tests/current_turn_context_smoke.py
