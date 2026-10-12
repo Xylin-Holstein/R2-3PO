@@ -26,6 +26,11 @@ for phrase in (
     '"that’s a bit garbled"',
     "if (words < 5)",
     "Do not override a legitimate conversation about audio, noise, or gibberish.",
+    "reports_r2_output_problem",
+    "\"your message\"",
+    "\"garbled\"",
+    "acknowledgement_terms",
+    "If the user reports that YOUR prior message",
     "proposes_user_intent",
     "asks_for_confirmation",
     "interpretation_requests",
@@ -91,6 +96,10 @@ require(
 require(
     "r2_validate_corrective_reply(query, retry_user_facing)" in core,
     "sanitized retry result is validated before delivery",
+)
+require(
+    "If the user says YOUR prior message, answer, or reply was garbled" in core,
+    "the main conversation prompt distinguishes feedback about R2's prior output from an unintelligible current user message",
 )
 require(
     "Do not reinterpret typed text as an audio stream, random sounds, or machine data" in core,
