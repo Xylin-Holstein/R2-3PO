@@ -9168,10 +9168,11 @@ static char *r2_talk_impl(const char *message)
         }
 
         char *sound_clean_reply = r2_sounds_process_reply(reply);
-        if (!sound_clean_reply) {
+        if (!reply_has_visible_text(sound_clean_reply)) {
             free(reply);
+            free(sound_clean_reply);
             message_rollback_turn(message);
-            fprintf(stderr, "[R2] Could not safely remove sound control markers from tool follow-up; discarded this turn.\n");
+            fprintf(stderr, "[R2] Tool follow-up became empty after sound-marker cleanup; discarded this turn instead of returning a blank answer.\n");
             return NULL;
         }
         free(reply);
@@ -9181,10 +9182,11 @@ static char *r2_talk_impl(const char *message)
         free(stripped_reply);
         /* Only a final, user-facing response may trigger an effect. */
         char *sound_clean_reply = r2_sounds_process_reply(reply);
-        if (!sound_clean_reply) {
+        if (!reply_has_visible_text(sound_clean_reply)) {
             free(reply);
+            free(sound_clean_reply);
             message_rollback_turn(message);
-            fprintf(stderr, "[R2] Could not safely remove sound control markers; discarded this turn.\n");
+            fprintf(stderr, "[R2] Reply became empty after sound-marker cleanup; discarded this turn instead of returning a blank answer.\n");
             return NULL;
         }
         free(reply);
