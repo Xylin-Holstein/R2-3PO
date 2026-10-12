@@ -618,11 +618,12 @@ static void shell_talk(const char *message)
 
     char *reply = r2_talk(message);
 
-    if (!reply) {
+    if (!reply || !*reply) {
         fprintf(
             stderr,
-            "[R2] Conversation request failed.\n"
+            "[R2] Conversation produced no visible answer. Check the preceding Ollama/R2 diagnostics; the shell will remain available.\n"
         );
+        free(reply);
         return;
     }
 
