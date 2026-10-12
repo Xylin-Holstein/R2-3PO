@@ -609,7 +609,7 @@ static void shell_status(void)
 static void shell_talk(const char *message)
 {
     if (message)
-        fprintf(stderr, "[R2 Input Audit] shell_message_chars=%zu\\n", strlen(message));
+        fprintf(stderr, "[R2 Input Audit] shell_message_chars=%zu\n", strlen(message));
 
     if (!message || !*message) {
         printf("Usage: talk <message>\n");
