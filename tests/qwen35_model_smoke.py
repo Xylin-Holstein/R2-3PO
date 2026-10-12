@@ -269,6 +269,14 @@ require(
     and "goto finalize_reply;" in core,
     "tool/action, parser, and sound-cleanup failures return a visible answer instead of silently rolling back the turn",
 )
+
+require(
+    "static int message_add_pair(" in core
+    and "message_add_pair(\"assistant\", reply, \"user\", tools)" in core
+    and "Append the internal assistant tool-call and its tool-result as one logical" in core
+    and "Cannot fit complete assistant/tool history pair without evicting pinned context." in core,
+    "tool-call and tool-result history is appended atomically, preventing half-written turns",
+)
 require(
     'bridge_event("prolonged_starvation"' in reality
     and '"R2 reached 72 modeled hours without a qualifying meal."' in reality
