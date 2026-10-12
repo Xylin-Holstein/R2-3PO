@@ -37,7 +37,7 @@
 */
 #define MAX_STARTUP_MEMORIES 100
 #define MAX_RELEVANT_MEMORIES 20
-#define MAX_MEMORY_KEYWORDS 16
+#define MAX_MEMORY_KEYWORDS 48
 #define MIN_MEMORY_KEYWORD_LENGTH 3
 
 /* Bound prompts for the local Gemma 3 4B model: keep system instructions and recent turns. */
@@ -4438,7 +4438,7 @@ static char *r2_build_associative_search_query(const char *query)
 
     size_t query_length = strlen(query);
     size_t concepts_length = strlen(clean);
-    const char heading[] = "\\n\\nASSOCIATIVE SEARCH CONCEPTS (retrieval cues only):\\n";
+    const char heading[] = "\n\nORIGINAL USER MESSAGE (retrieval input only):\n";
     size_t total = query_length + sizeof(heading) - 1 + concepts_length + 1;
     char *combined = malloc(total);
     if (!combined) {
@@ -4446,7 +4446,7 @@ static char *r2_build_associative_search_query(const char *query)
         return xstrdup(query);
     }
 
-    snprintf(combined, total, "%s%s%s", query, heading, clean);
+    snprintf(combined, total, "%s%s%s", clean, heading, query);
     fprintf(stderr,
             "[R2 Association] Generated associative retrieval cues (%zu chars); original user text remains unchanged.\\n",
             concepts_length);
@@ -4473,7 +4473,7 @@ static char *chat_with_relevant_memories(
     size_t history_char_limit = explicit_recall ? R2_RECALL_HISTORY_CHARS
                                                 : R2_TURN_HISTORY_CHARS;
     int history_search_limit = explicit_recall ? R2_RECALL_HISTORY_SEARCHES
-                                               : R2_TURN_HISTORY_SEARCHES;
+                                               : 6;
 
     /* Semantic interpretation supplies database search cues for every turn.
        The original query remains authoritative and is never rewritten. */
