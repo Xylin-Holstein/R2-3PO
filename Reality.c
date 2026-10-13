@@ -1438,7 +1438,7 @@ char *r2_reality_context(void)
         "WORLD ACTIONS: Put one action on its own line. Use [WORLD] look to inspect the room; "
         "[WORLD] add|name|description|container|quantity to collect/add a stack (adds to an existing stack and records a collection memory); "
         "[WORLD] move|name|container to relocate an existing item without counting a new collection; [WORLD] remove|name to remove it; "
-        "[WORLD] eat|food|fullness_points (or auto for XML) to update hunger; "
+        "[WORLD] eat|EXACT_ITEM_NAME|auto to consume one tracked food item using its configured XML metric; "
         "[WORLD] sleep|hours to advance sleep recovery and trigger a private dream simulation; "
         "[WORLD] dream|description to record a reported dream; "
         "[WORLD] ratefood|food|-2..2|reason to rate the most recent unrated eating experience. "
@@ -1583,7 +1583,7 @@ int r2_reality_move_item(const char *name,const char *container)
         char ingredients[1024] = {0}, taste[1024] = {0};
         food_attributes(name, ingredients, sizeof(ingredients), taste, sizeof(taste));
         double fullness = 0.0, energy = 0.0;
-        (void)food_metric(name, &fullness, &energy);
+        if (food_metric(name, &fullness, &energy) != 0) return -1;
         int prior_fridge_quantity = 0;
         pthread_mutex_lock(&fridge_lock);
         sqlite3_stmt *prior_fridge = NULL;
