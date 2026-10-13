@@ -38,6 +38,11 @@ require(
     "failed inference produces a visible allocated fallback instead of returning NULL",
 )
 require(
+    "The action result is still in the conversation; please ask me again" in talk
+    and "does not rerun the completed action" in talk,
+    "failed post-action generation preserves the completed action result without replaying the action",
+)
+require(
     "if (!reply || !*reply)" in shell_talk
     and "the shell is showing a fallback instead of silently dropping the turn" in shell_talk
     and "Your message reached me, but I couldn't answer it this time." in shell_talk,
