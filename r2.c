@@ -69,6 +69,7 @@ static long OLLAMA_TIMEOUT_SECONDS = 21600L;
 #include <time.h>
 #include <regex.h>
 #include <stdint.h>
+#include <stdatomic.h>
 #include <math.h>
 
 #include <curl/curl.h>
@@ -119,6 +120,7 @@ static pthread_mutex_t tasks_lock =
     PTHREAD_MUTEX_INITIALIZER;
 
 static volatile sig_atomic_t shutting_down = 0;
+static atomic_int foreground_conversation_waiting = ATOMIC_VAR_INIT(0);
 
 /* ============================================================
    CORE LIFECYCLE STATE
@@ -6434,7 +6436,7 @@ static char *strip_action_markers(const char *input)
     return out;
 }
 
-char *r2_talk(const char *message)
+static char *r2_talk_impl(const char *message)
 {
     if (!core_initialized || shutting_down || !message)
         return NULL;
@@ -6629,6 +6631,18 @@ char *r2_talk(const char *message)
         free(md);
     }
 
+    return reply;
+}
+
+
+char *r2_talk(const char *message)
+{
+    /* Announce every active foreground turn before it can reach tool routing.
+       The needs worker yields while this counter is nonzero, preventing a
+       background meal from racing with a model-selected eat action. */
+    atomic_fetch_add(&foreground_conversation_waiting, 1);
+    char *reply = r2_talk_impl(message);
+    atomic_fetch_sub(&foreground_conversation_waiting, 1);
     return reply;
 }
 
