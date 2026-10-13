@@ -18,9 +18,9 @@ import preflight_ollama_model as probe  # noqa: E402
 class OllamaPreflightSmoke(unittest.TestCase):
     def test_model_and_real_chat_completion_are_required(self) -> None:
         replies = [
-            {"models": [{"name": "qwen3.5:9b"}]},
+            {"models": [{"name": "gemma3:4b"}]},
             {"message": {"content": "R2_READY"}},
-            {"models": [{"name": "qwen3.5:9b", "size_vram": 123456}]},
+            {"models": [{"name": "gemma3:4b", "size_vram": 123456}]},
         ]
         gpu_result = SimpleNamespace(
             returncode=0, stdout="Test GPU, 4096 MiB, 123 MiB", stderr=""
@@ -32,7 +32,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         self.assertTrue(read.call_args_list[0].args[0].endswith("/api/tags"))
         self.assertTrue(read.call_args_list[1].args[0].endswith("/api/chat"))
         payload = read.call_args_list[1].kwargs["payload"]
-        self.assertEqual(payload["model"], "qwen3.5:9b")
+        self.assertEqual(payload["model"], "gemma3:4b")
         self.assertIs(payload["think"], False)
         self.assertEqual(payload["options"]["num_predict"], 128)
         self.assertTrue(read.call_args_list[2].args[0].endswith("/api/ps"))
@@ -43,7 +43,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         # ready if /api/ps or nvidia-smi is unavailable.
         errors = io.StringIO()
         with patch.object(probe, "_read_json", side_effect=[
-            {"models": [{"name": "qwen3.5:9b"}]},
+            {"models": [{"name": "gemma3:4b"}]},
             {"message": {"content": "R2_READY"}},
             OSError("simulated /api/ps unavailable"),
         ]), patch.object(probe.subprocess, "run", side_effect=FileNotFoundError("nvidia-smi")):
@@ -57,12 +57,12 @@ class OllamaPreflightSmoke(unittest.TestCase):
             with contextlib.redirect_stderr(errors):
                 self.assertFalse(probe.preflight(wait_seconds=0, timeout=1))
         self.assertEqual(read.call_count, 1)
-        self.assertIn("required local model qwen3.5:9b is not installed", errors.getvalue())
+        self.assertIn("required local model gemma3:4b is not installed", errors.getvalue())
 
     def test_listed_model_without_chat_text_fails(self) -> None:
         errors = io.StringIO()
         with patch.object(probe, "_read_json", side_effect=[
-            {"models": [{"name": "qwen3.5:9b"}]},
+            {"models": [{"name": "gemma3:4b"}]},
             {"message": {"content": "   "}},
         ]):
             with contextlib.redirect_stderr(errors):
