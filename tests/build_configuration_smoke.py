@@ -13,7 +13,7 @@ reality = (ROOT / "Reality.c").read_text(encoding="utf-8")
 
 required_sources = (
     "r2.c", "shell.c", "r2_diary.c", "Log.c", "Reality.c", "Addiction.c",
-    "Reward.c", "AlternateSelf.c", "Visual.c", "Ears.c", "Eyes.c",
+    "Reward.c", "AlternateSelf.c", "Imagination.c", "Visual.c", "Ears.c", "Eyes.c",
     "R2Sounds.c", "R2Reply.c",
 )
 
@@ -45,6 +45,8 @@ require(
 )
 source_block = re.search(r"^SOURCES\s*=\s*(.+)$", makefile, re.MULTILINE)
 require(source_block is not None, "Makefile declares its production source list")
+require("Imagination.h" in makefile and '"$R2_SOURCE/Imagination.h"' in launcher,
+        "Makefile and launcher require the Imagination public header")
 for source in required_sources:
     require(source in source_block.group(1), f"Makefile includes {source}")
     require(f'"$R2_SOURCE/{source}"' in launcher, f"launcher includes {source}")
