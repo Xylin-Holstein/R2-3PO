@@ -71,8 +71,11 @@ The build requires these thirteen C translation units:
 - `Visual.c` — vision-model integration
 - `Ears.c` — audio input
 - `Eyes.c` — visual input
+- `V-Webcam.py` — display-only mirror of Eyes frames with a model-reported focus overlay; it does not open a second camera or control VLC.
 - `R2Sounds.c` — state-aware local sound-effect selection and playback
 - `R2Reply.c` — strips private control/reasoning markers from user-facing replies
+
+When an Eyes source opens in an interactive session, the display-only V-Webcam window mirrors that existing frame stream. Visual inference can publish a normalized focus region for an overlay; the window never opens a second capture device or feeds frames back into perception.
 
 Their matching headers are included in the repository: `r2.h`, `shell.h`, `r2_diary.h`, `Log.h`, `Reality.h`, `Addiction.h`, `Reward.h`, `AlternateSelf.h`, `Visual.h`, `Ears.h`, `Eyes.h`, `R2Sounds.h`, and `R2Reply.h`.
 
