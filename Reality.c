@@ -1113,19 +1113,39 @@ static int migrate_legacy_reality(void)
         result = exec_sql(sql);
     }
     if (result == 0 && legacy_table_exists("r2_reality_self")) {
+        const char *hunger = legacy_column_exists("r2_reality_self", "hunger") ? "hunger" : "100";
         const char *since = legacy_column_exists("r2_reality_self", "seconds_since_meal") ? "seconds_since_meal" : "0";
         const char *sleep = legacy_column_exists("r2_reality_self", "sleepiness") ? "sleepiness" : "0";
         const char *energy = legacy_column_exists("r2_reality_self", "energy") ? "energy" : "100";
+        const char *satisfaction = legacy_column_exists("r2_reality_self", "satisfaction") ? "satisfaction" : "100";
         const char *last = legacy_column_exists("r2_reality_self", "last_tick") ? "last_tick" : "0";
-        char sql[1024];
+        char sql[2048];
         snprintf(sql, sizeof(sql),
-            "INSERT OR REPLACE INTO main.r2_reality_self(id,hunger,seconds_since_meal,sleepiness,energy,last_tick) "
-            "SELECT id,hunger,%s,%s,%s,%s FROM legacy.r2_reality_self",
-            since, sleep, energy, last);
+            "UPDATE main.r2_reality_self SET hunger=(SELECT %s FROM legacy.r2_reality_self WHERE id=1), "
+            "seconds_since_meal=(SELECT %s FROM legacy.r2_reality_self WHERE id=1), "
+            "sleepiness=(SELECT %s FROM legacy.r2_reality_self WHERE id=1), "
+            "energy=(SELECT %s FROM legacy.r2_reality_self WHERE id=1), "
+            "satisfaction=(SELECT %s FROM legacy.r2_reality_self WHERE id=1), "
+            "last_tick=(SELECT %s FROM legacy.r2_reality_self WHERE id=1) "
+            "WHERE id=1 AND last_tick=0 AND hunger=100 AND seconds_since_meal=0 "
+            "AND sleepiness=0 AND energy=100 AND satisfaction=100 "
+            "AND EXISTS(SELECT 1 FROM legacy.r2_reality_self WHERE id=1)",
+            hunger, since, sleep, energy, satisfaction, last);
         result = exec_sql(sql);
     }
-    if (result == 0 && legacy_table_exists("r2_reality_meta"))
-        result = exec_sql("UPDATE main.r2_reality_meta SET value=(SELECT value FROM legacy.r2_reality_meta WHERE legacy.r2_reality_meta.key=main.r2_reality_meta.key) WHERE key IN (SELECT key FROM legacy.r2_reality_meta)");
+    if (result == 0 && legacy_table_exists("r2_reality_meta")) {
+        result = exec_sql("INSERT OR IGNORE INTO main.r2_reality_meta(key,value) SELECT key,value FROM legacy.r2_reality_meta");
+        if (result == 0)
+            result = exec_sql("UPDATE main.r2_reality_meta SET value=(SELECT value FROM legacy.r2_reality_meta WHERE key='world_elapsed_seconds') WHERE key='world_elapsed_seconds' AND value='0' AND EXISTS(SELECT 1 FROM legacy.r2_reality_meta WHERE key='world_elapsed_seconds')");
+        if (result == 0)
+            result = exec_sql("UPDATE main.r2_reality_meta SET value=(SELECT value FROM legacy.r2_reality_meta WHERE key='current_location') WHERE key='current_location' AND value='home' AND EXISTS(SELECT 1 FROM legacy.r2_reality_meta WHERE key='current_location')");
+        if (result == 0)
+            result = exec_sql("UPDATE main.r2_reality_meta SET value='1' WHERE key='initial_cash_seeded' AND EXISTS(SELECT 1 FROM legacy.r2_reality_meta WHERE key='initial_cash_seeded' AND value='1')");
+    }
+    /* An existing legacy money account means the old setup already existed;
+       don't add a second synthetic $5 when the initial-cash flag was absent. */
+    if (result == 0 && legacy_table_exists("r2_money_account"))
+        result = exec_sql("UPDATE main.r2_reality_meta SET value='1' WHERE key='initial_cash_seeded'");
     if (result == 0)
         result = exec_sql("INSERT INTO r2_reality_meta(key,value) VALUES('legacy_reality_migrated','yes') ON CONFLICT(key) DO UPDATE SET value='yes'");
     (void)sqlite3_exec(reality_db, "DETACH DATABASE legacy", NULL, NULL, NULL);
