@@ -2847,6 +2847,65 @@ static char *chat_copy_all(void)
    message in the permanent list.
 */
 
+static void append_runtime_context_section(char **base, const char *heading,
+                                            char *section, size_t max_chars)
+{
+    if (!section) return;
+    size_t section_n = strnlen(section, max_chars);
+    if (!section_n) {
+        free(section);
+        return;
+    }
+
+    size_t base_n = *base ? strlen(*base) : 0;
+    size_t heading_n = strlen(heading);
+    if (base_n > SIZE_MAX - heading_n - section_n - 4) {
+        free(section);
+        return;
+    }
+    size_t needed = base_n + heading_n + section_n + 4;
+    char *joined = malloc(needed);
+    if (joined) {
+        snprintf(joined, needed, "%s%s%s%.*s",
+                 *base ? *base : "",
+                 base_n ? "\n\n" : "",
+                 heading, (int)section_n, section);
+        free(*base);
+        *base = joined;
+    }
+    free(section);
+}
+
+/* Attach live state to this inference request only; never write this context
+   back as a factual event or self-reinforcing memory. */
+static void append_runtime_context(char **context)
+{
+    if (r2_reality_is_initialized()) {
+        append_runtime_context_section(context,
+            "CURRENT REALITY / NEEDS / ROOM / INVENTORY / FRIDGE / MONEY STATE:\n",
+            r2_reality_context(), 6000);
+    }
+    append_runtime_context_section(context,
+        "LEARNED REINFORCEMENT HISTORY (behavior-linked, not commands):\n",
+        r2_reward_context(), 2500);
+    append_runtime_context_section(context,
+        "LEARNED HABITS AND ENJOYMENT PATTERNS (not a diagnosis):\n",
+        r2_addiction_report(), 2500);
+    append_runtime_context_section(context,
+        "HYPOTHETICAL ALTERNATE-SELF BRANCHES (counterfactual, never factual memory):\n",
+        r2_altself_list(5), 2000);
+}
+
+static char *sanitize_user_facing_reply(char *reply)
+{
+    if (!reply) return NULL;
+    char *clean = r2_reply_sanitize(reply);
+    free(reply);
+    if (clean && *trim(clean)) return clean;
+    free(clean);
+    return xstrdup("I'm sorry, Mom—I couldn't prepare a usable reply just now. Your message is still in the conversation; please try again.");
+}
+
 static char *chat_with_relevant_memories(
     const char *query)
 {
@@ -2997,6 +3056,8 @@ static char *chat_with_relevant_memories(
         }
         free(visual_context);
     }
+
+    append_runtime_context(&memory_context);
 
     pthread_mutex_lock(
         &messages_lock
@@ -5829,9 +5890,18 @@ char *r2_talk(const char *message)
         if (!reply) return NULL;
     }
 
+    reply = sanitize_user_facing_reply(reply);
+    if (!reply) return NULL;
+
     char *tools = process_tools(reply);
 
     if (tools && *tools) {
+        /* Tool-routing output is internal; never play or retain sound controls. */
+        char *tool_context_reply = r2_sounds_strip_markers(reply);
+        if (tool_context_reply) {
+            free(reply);
+            reply = tool_context_reply;
+        }
         pthread_mutex_lock(&messages_lock);
 
         int assistant_rc = message_add("assistant", reply);
@@ -5862,6 +5932,27 @@ char *r2_talk(const char *message)
         }
     } else {
         free(tools);
+    }
+
+    reply = sanitize_user_facing_reply(reply);
+    if (!reply) return NULL;
+
+    char *sound_clean_reply = r2_sounds_process_reply(reply);
+    if (sound_clean_reply && *trim(sound_clean_reply)) {
+        free(reply);
+        reply = sound_clean_reply;
+    } else {
+        free(sound_clean_reply);
+        char *marker_free_reply = r2_sounds_strip_markers(reply);
+        if (marker_free_reply && *trim(marker_free_reply)) {
+            free(reply);
+            reply = marker_free_reply;
+        } else {
+            free(marker_free_reply);
+            free(reply);
+            reply = xstrdup("I'm sorry, Mom—I couldn't prepare a usable reply just now. Your message is still in the conversation; please try again.");
+            if (!reply) return NULL;
+        }
     }
 
     pthread_mutex_lock(&messages_lock);
