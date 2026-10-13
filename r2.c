@@ -3404,7 +3404,7 @@ int r2_ollama_chat_url(char *out, size_t out_cap)
     if (strcmp(base, "http://127.0.0.1:11434") != 0 &&
         strcmp(base, "http://127.0.0.1:11435") != 0) {
         fprintf(stderr,
-                "[R2 Ollama] Refusing unapproved endpoint; use localhost port 11434 or 11435.\\n");
+                "[R2 Ollama] Refusing unapproved endpoint; use localhost port 11434 or 11435.\n");
         out[0] = '\0';
         return -1;
     }
