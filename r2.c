@@ -1349,6 +1349,19 @@ static size_t extract_memory_keywords(
     return count;
 }
 
+/* Match keywords as whole tokens; do not let 'art' match 'party'. */
+static int r2_memory_has_keyword(const char *text, const char *keyword)
+{
+    if (!text || !keyword || !*keyword) return 0;
+    size_t length = strlen(keyword);
+    for (const char *match = text; (match = strcasestr(match, keyword)) != NULL; ++match) {
+        unsigned char before = match == text ? 0 : (unsigned char)match[-1];
+        unsigned char after = (unsigned char)match[length];
+        if ((!before || !isalnum(before)) && (!after || !isalnum(after))) return 1;
+    }
+    return 0;
+}
+
 static char *get_relevant_memories(
     const char *query,
     int limit)
@@ -1491,21 +1504,18 @@ static char *get_relevant_memories(
                 }
 
                 int score = 0;
+                int matched_keywords = 0;
 
-                for (
-                    size_t k = 0;
-                    k < keyword_count;
-                    ++k
-                ) {
-
-                    if (
-                        strstr(
-                            combined,
-                            keywords[k]
-                        )
-                    )
-                        score++;
+                for (size_t k = 0; k < keyword_count; ++k) {
+                    if (!r2_memory_has_keyword(combined, keywords[k]))
+                        continue;
+                    size_t keyword_length = strlen(keywords[k]);
+                    score += keyword_length >= 9 ? 4 :
+                             keyword_length >= 6 ? 2 : 1;
+                    matched_keywords++;
                 }
+                if (matched_keywords > 1)
+                    score += matched_keywords - 1;
 
                 free(combined);
 
