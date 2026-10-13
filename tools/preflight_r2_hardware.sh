@@ -94,7 +94,7 @@ else printf 'GPU: no NVIDIA runtime detected; CPU inference may still work.\n'; 
 
 section "Required files and build tools"
 # These commands are used directly by the interactive launcher or overnight installer.
-for tool in bash make gcc curl python3 sudo setpriv pgrep date find grep cmp; do
+for tool in bash make gcc curl python3 sudo setpriv pgrep date find grep cmp iptables ip6tables; do
   if have "$tool"; then pass "$tool installed"; else fail "$tool missing"; fi
 done
 if have xhost; then pass "xhost available for optional Observer GUI access"; else warn "xhost missing; Observer may not be able to grant the r2 account X display access."; fi
