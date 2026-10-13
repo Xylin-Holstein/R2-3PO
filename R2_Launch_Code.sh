@@ -238,6 +238,12 @@ gcc -std=c11 -Wall -Wextra -O2 \
     "$R2_SOURCE/shell.c" \
     "$R2_SOURCE/r2_diary.c" \
     "$R2_SOURCE/Log.c" \
+    "$R2_SOURCE/Reality.c" \
+    "$R2_SOURCE/Addiction.c" \
+    "$R2_SOURCE/Reward.c" \
+    "$R2_SOURCE/AlternateSelf.c" \
+    "$R2_SOURCE/R2Reply.c" \
+    "$R2_SOURCE/R2Sounds.c" \
     "$R2_SOURCE/Visual.c" \
     "$R2_SOURCE/Ears.c" \
     "$R2_SOURCE/Eyes.c" \
@@ -277,6 +283,12 @@ echo "    r2.c"
 echo "    shell.c"
 echo "    r2_diary.c"
 echo "    Log.c"
+echo "    Reality.c"
+echo "    Addiction.c"
+echo "    Reward.c"
+echo "    AlternateSelf.c"
+echo "    R2Reply.c"
+echo "    R2Sounds.c"
 echo "    Visual.c"
 echo "    Ears.c"
 echo "    Eyes.c"
