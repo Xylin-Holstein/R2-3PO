@@ -443,7 +443,7 @@ static char *food_metrics_context(void)
         char *end = NULL;
         double f = strtod(full, &end);
         if (end == full || *end || f < 0.0 || f > 100.0) continue;
-        double e = f * 0.1;
+        double e = 0.0;
         if (xml_attribute(line, "energy", en, sizeof(en)) == 0) {
             end = NULL;
             double parsed = strtod(en, &end);
