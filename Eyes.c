@@ -10,6 +10,7 @@
 #include <signal.h>
 #include <stdint.h>
 #include <sys/stat.h>
+#include <sys/prctl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -277,11 +278,16 @@ static void r2_vwebcam_start_viewer(void)
     if (n < 0 || (size_t)n >= sizeof(viewer))
         return;
     char *const argv[] = {"/usr/bin/python3", viewer, NULL};
+    pid_t parent_pid = getpid();
 
     pid_t child = fork();
     if (child < 0)
         return;
     if (child == 0) {
+        /* A detached viewer must not outlive the R2 process if it crashes or
+           is terminated before the normal Eyes shutdown path can reap it. */
+        if (prctl(PR_SET_PDEATHSIG, SIGTERM) != 0 || getppid() != parent_pid)
+            _exit(126);
         (void)setsid();
         int fd = open("/dev/null", O_RDWR);
         if (fd >= 0) {
