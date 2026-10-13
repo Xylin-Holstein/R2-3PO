@@ -272,7 +272,6 @@ echo "Unified conversation/vision model: $R2_MODEL"
 echo "R2's C conversation core and visual subsystem will both use this model by default."
 echo "The Ollama API must have this model installed before R2 starts."
 echo
-echo
 echo "Modules compiled:"
 echo "    r2.c"
 echo "    shell.c"
