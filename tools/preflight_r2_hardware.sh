@@ -130,7 +130,7 @@ for file in \
   R2Sounds.c R2Sounds.h \
   R2Reply.c R2Reply.h \
   shell.c shell.h \
-  Observer.py; do
+  Observer.py TV.py GameBoyAdvance.py; do
   if [[ -r "$R2_SOURCE/$file" ]]; then pass "source readable: $file"; else fail "missing/unreadable: $R2_SOURCE/$file"; fi
 done
 for file in \
