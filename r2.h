@@ -243,6 +243,9 @@ int r2_is_initialized(void);
  */
 const char *r2_model_name(void);
 
+/* Generate isolated subsystem text using the same configured conversation model. */
+char *r2_model_generate(const char *system, const char *prompt, int max_tokens);
+
 
 /* ============================================================
    EYES
