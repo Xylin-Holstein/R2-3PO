@@ -6700,7 +6700,7 @@ static int configure_ollama_timeout(void)
     if (errno || end == configured || *end || seconds < 30L || seconds > default_timeout) {
         fprintf(stderr,
                 "[R2] Invalid R2_OLLAMA_TIMEOUT_SECONDS; using the six-hour default. "
-                "Choose an integer from 30 to 21600.\\n");
+                "Choose an integer from 30 to 21600.\n");
         return 0;
     }
     OLLAMA_TIMEOUT_SECONDS = seconds;
