@@ -2,11 +2,13 @@
 
 R2 already has a headless shell mode, a supervised systemd unit, a local-model preflight, a private 1999 clock, and a sleep-inhibitor attempt. Use the existing deployment files below; do not create a second service or run the interactive launcher alongside it.
 
-- Runner: `tools/r2_service_runner.sh`
-- Unit: `deploy/r2-3po.service`
+- R2 runner: `tools/r2_service_runner.sh`
+- R2 unit: `deploy/r2-3po.service`
+- Dedicated model-server runner/unit: `tools/r2_ollama_runner.sh`, `deploy/r2-ollama.service`
+- Local model copier: `tools/copy_ollama_model.py`
 - Installer: `tools/install_r2_overnight.sh`
 
-The overnight service uses the same persistent databases as the desktop launcher. **Only one R2 core may run at a time.** Both launch paths keep `HOME` set to `/home/x/R2_Home`, while the process UID remains `r2`; `/home/r2` is not an alternate memory, diary, or workspace location. While R2 runs, a UID-matched firewall rule allows its IP traffic only to local Ollama at `127.0.0.1:11434`; IPv6 egress and all other IPv4 egress for UID `r2` are rejected. The rule does not disable Wi-Fi or affect the desktop account. The interactive launcher removes its temporary rules when it exits; the systemd unit installs and removes the equivalent rules around the service lifecycle. The installer refuses to rebuild while an R2 process is already running, checks database paths and permissions, takes a private SQLite snapshot, requires a clean integrity audit, builds to a process-specific temporary executable, preserves the previous binary, and only then enables/starts the service. If activation or core initialization fails, it attempts to restore and restart the previous executable.
+The overnight core uses the same persistent R2 databases as the interactive launcher, but its inference server is separate: the installer copies the already-installed `qwen3.5:9b` model from the host Ollama service at `127.0.0.1:11434` into `/home/x/R2_Home/.ollama/models`, then runs an `r2`-owned Ollama server on `127.0.0.1:11435`. It does not download model weights or modify the host Ollama service. **Only one R2 core may run at a time.** Both launch paths keep `HOME` set to `/home/x/R2_Home`, while the process UID remains `r2`; `/home/r2` is not an alternate memory, diary, or workspace location. While the overnight services run, UID-scoped firewall chains allow only local Ollama ports 11434 and 11435; IPv6 egress and all other IPv4 egress for UID `r2` are rejected. Port 11434 remains available for the interactive launcher, while the overnight core uses port 11435. The separate chains are cleaned up independently so stopping one service does not remove the other's rules. The installer refuses to rebuild while an R2 process is already running, checks database paths and permissions, takes a private SQLite snapshot, requires a clean integrity audit, copies only an already-installed model, builds to a process-specific temporary executable, preserves the previous binary, and starts the private model server only after installation checks. If the private model preflight fails, R2 is not started; if R2 activation fails, it attempts to restore and restart the previous executable.
 
 ## One-time host preparation
 
@@ -38,7 +40,7 @@ It checks the source/deployment files, the local Ollama API and `qwen3.5:9b`, re
    curl -fsS http://127.0.0.1:11434/api/tags
    ```
 
-   If Ollama is installed without a system unit named `ollama.service`, start it using the host's existing method. The R2 runner waits up to 60 seconds for the local API/model, then uses `tools/preflight_ollama_model.py` to require one real `qwen3.5:9b` chat completion (up to 180 seconds) before starting the core. This is a localhost-only inference check; it does not download model weights or contact an external API.
+   If Ollama is installed without a system unit named `ollama.service`, start it using the host's existing method. The installer copies the already-installed `qwen3.5:9b` blobs into R2's private model store and starts `r2-ollama.service` on port 11435. It then uses `tools/preflight_ollama_model.py` to require one real local `qwen3.5:9b` chat completion (up to 180 seconds) before starting the R2 core. The copy and inference checks do not download model weights or contact an external API; the host Ollama service on port 11434 is left running and unmodified.
 
 5. Confirm the service account can access the existing workspace and local FX assets. Do not solve permission problems with broad `chmod 777` permissions:
 
