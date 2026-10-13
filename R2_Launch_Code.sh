@@ -91,7 +91,7 @@ for group in audio video render; do
         R2_RUNTIME_GROUP_LIST="$R2_RUNTIME_GROUP_LIST $group_id"
     fi
 done
-R2_RUNTIME_GROUPS="$(printf '%s\\n' "$R2_RUNTIME_GROUP_LIST" | xargs | tr ' ' ',')"
+R2_RUNTIME_GROUPS="$(printf '%s\n' "$R2_RUNTIME_GROUP_LIST" | xargs | tr ' ' ',')"
 
 # Read-only host/database/device checks run before build or runtime setup.
 R2_PREFLIGHT="$R2_SOURCE/tools/preflight_r2_hardware.sh"
