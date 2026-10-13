@@ -5000,7 +5000,7 @@ char *r2_recent_conversation_context(const char *exclude_latest, size_t max_char
     for (size_t n = found; n > 0 && used < max_chars; --n) {
         const Message *m = &messages.items[selected[n - 1]];
         size_t remaining = max_chars - used;
-        int written = snprintf(out + used, remaining + 1, "%s: %.1000s\\n",
+        int written = snprintf(out + used, remaining + 1, "%s: %.1000s\n",
             strcmp(m->role, "user") == 0 ? "User" : "R2", m->content);
         if (written < 0) break;
         if ((size_t)written > remaining) {
