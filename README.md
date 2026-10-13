@@ -243,7 +243,7 @@ Ollama requests are serialized. Foreground conversations take priority over oppo
 
 If the text model returns a recognizable failure that labels an ordinary typed message as unintelligible audio/noise instead of answering it, R2 makes one bounded corrective attempt with the original conversation, retrieved context, and exact active user turn retained. Normal replies do not incur an extra model call. The retry is a targeted safeguard, not a general semantic guarantee. If the retry fails or repeats the same recognizable misclassification, R2 discards that draft and asks an honest clarification; real-world response quality must still be checked on the host.
 
-Foreground conversation and its corrective retry allow up to six hours per request by default. Qwen's reasoning channel is enabled for those foreground answer calls, while structured/background helper calls remain in non-thinking mode; the private reasoning field is never shown as R2's reply. Foreground generation budgets are larger (up to 8,192 output tokens when context allows) so reasoning is less likely to consume the entire output allowance before a final answer. Set `R2_OLLAMA_TIMEOUT_SECONDS` before launching R2 to choose a timeout from 30 seconds up to 6 hours; for example, `export R2_OLLAMA_TIMEOUT_SECONDS=2700` sets a 45-minute limit. Invalid values fall back to the six-hour default. This changes the wait limit, not model speed, and shutdown can still interrupt an in-flight request.
+Foreground conversation and its corrective retry allow up to six hours per request by default. Gemma 3:4B is used for both conversation and vision; the C runtime only presents the final chat content to the user and never exposes internal tool markers as R2's reply. Foreground generation budgets are larger (up to 8,192 output tokens when context allows) so reasoning is less likely to consume the entire output allowance before a final answer. Set `R2_OLLAMA_TIMEOUT_SECONDS` before launching R2 to choose a timeout from 30 seconds up to 6 hours; for example, `export R2_OLLAMA_TIMEOUT_SECONDS=2700` sets a 45-minute limit. Invalid values fall back to the six-hour default. This changes the wait limit, not model speed, and shutdown can still interrupt an in-flight request.
 
 ## Overnight service (start at boot and recover from crashes)
 
@@ -252,7 +252,7 @@ For an unattended session, install the systemd service from the repository at it
 Before installing, make sure the local Ollama installation has the required model. This project intentionally does not download models or update package indexes during service startup:
 
 ```sh
-ollama pull qwen3.5:9b
+ollama pull gemma3:4b
 ```
 
 Then, from the repository directory:
@@ -262,11 +262,12 @@ cd /home/x/R2_Home/R2
 bash tools/install_r2_overnight.sh
 ```
 
-The installer refuses to rebuild while an R2 process is already running, prepares missing data-only folders as the `r2` account, then creates a private, consistent snapshot of all five SQLite databases and requires their integrity audit to pass before activation. It also checks existing database-file permissions. Only then does it compile the current source to a process-specific temporary executable, preserve the previous binary, install `r2-3po.service`, and request immediate startup. If activation or core initialization fails, it attempts to restore and restart the previous executable; if no previous binary exists, it stops the failed service and reports that rollback is unavailable.
+The installer refuses to rebuild while an R2 process is already running, prepares missing data-only folders as the `r2` account, then creates a private, consistent snapshot of all five SQLite databases and requires their integrity audit to pass before activation. It also checks existing database-file permissions. Only then does it copy the existing model into R2's private store, compile the current source as `r2` to a process-specific temporary executable, preserve the previous binary, install `r2-ollama.service` and `r2-3po.service`, and start the private inference server before the core. If activation or core initialization fails, it attempts to restore and restart the previous executable; if no previous binary exists, it stops the failed service and reports that rollback is unavailable.
 
 Useful operations:
 
 ```sh
+sudo systemctl status r2-ollama.service
 sudo systemctl status r2-3po.service
 journalctl -u r2-3po.service -f
 sudo systemctl stop r2-3po.service
@@ -274,7 +275,7 @@ sudo systemctl start r2-3po.service
 sudo systemctl disable r2-3po.service
 ```
 
-The supervisor restarts unexpected exits, waits up to 60 seconds for the local Ollama API/model, then performs one real `qwen3.5:9b` chat completion with a bounded 180-second timeout before starting the core. The installer waits for a readiness marker emitted after core initialization—not merely the runner's dependency-check log—and applies the same readiness check when rolling back. The runner uses the existing `libfaketime` installation to keep R2's private clock starting in 1999 and advancing continuously; it does not alter Linux's actual clock, run `apt-get update`, or pull models automatically. A sleep inhibitor requests that the host not suspend during the session; firmware, power loss, forced shutdown, and administrative overrides can still stop it.
+The supervisor restarts unexpected exits, waits up to 60 seconds for the private Ollama API, then performs one real `gemma3:4b` chat completion with a bounded 180-second timeout before starting the core. The installer waits for a readiness marker emitted after core initialization—not merely the runner's dependency-check log—and applies the same readiness check when rolling back. The runner uses the existing `libfaketime` installation to keep R2's private clock starting in 1999 and advancing continuously; it does not alter Linux's actual clock, run `apt-get update`, or pull models automatically. A sleep inhibitor requests that the host not suspend during the session; firmware, power loss, forced shutdown, and administrative overrides can still stop it.
 
 Sound assets remain host-local at `/home/x/R2_Home/R2_sounds/FX`. Service startup checks core prerequisites but does not prove speaker playback, camera permissions, microphone capture, or GUI/VLC integration. Verify those against the actual desktop/audio session after startup. Use `R2_Launch_Code.sh` for the existing interactive desktop shell and Observer window.
 
