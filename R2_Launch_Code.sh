@@ -10,11 +10,12 @@ export R2_FX_DIR
 R2_MODEL="${R2_MODEL:-gemma3:4b}"
 R2_VISION_MODEL="$R2_MODEL"
 R2_OLLAMA_BASE_URL="${R2_OLLAMA_BASE_URL:-http://127.0.0.1:11435}"
+R2_OLLAMA_TIMEOUT_SECONDS="${R2_OLLAMA_TIMEOUT_SECONDS:-21600}"
 if [ "$R2_OLLAMA_BASE_URL" != "http://127.0.0.1:11435" ]; then
     echo "ERROR: R2 must use its dedicated r2-owned Ollama endpoint at http://127.0.0.1:11435."
     exit 1
 fi
-export R2_MODEL R2_VISION_MODEL R2_OLLAMA_BASE_URL
+export R2_MODEL R2_VISION_MODEL R2_OLLAMA_BASE_URL R2_OLLAMA_TIMEOUT_SECONDS
 
 echo "========================================"
 echo "        R2-3PO LAUNCH SEQUENCE"
@@ -425,6 +426,7 @@ sudo -n setpriv --reuid="$R2_UID" --regid="$R2_GID" --groups="$R2_RUNTIME_GROUPS
     R2_MODEL="$R2_MODEL" \
     R2_VISION_MODEL="$R2_VISION_MODEL" \
     R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
+    R2_OLLAMA_TIMEOUT_SECONDS="$R2_OLLAMA_TIMEOUT_SECONDS" \
     R2_FX_DIR="$R2_FX_DIR" \
     sh -c 'exec "$1" 2>>"$2"' _ "$R2_EXEC" "$R2_ROOT/R2_Log/Debug.txt"
 
