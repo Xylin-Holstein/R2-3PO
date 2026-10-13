@@ -7,6 +7,24 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class OvernightServiceTests(unittest.TestCase):
+    def test_fixed_private_clock_offset_rolls_over_without_rebasing(self):
+        from datetime import datetime, timezone
+
+        offset = -852076800
+        baseline = datetime(2026, 10, 13, 12, 0, 0, tzinfo=timezone.utc)
+        baseline_virtual = datetime.fromtimestamp(baseline.timestamp() + offset, timezone.utc)
+        self.assertEqual(
+            baseline_virtual,
+            datetime(1999, 10, 13, 12, 0, 0, tzinfo=timezone.utc),
+        )
+
+        before = datetime(1999, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
+        host_before = before.timestamp() - offset
+        virtual_before = datetime.fromtimestamp(host_before + offset, timezone.utc)
+        virtual_after = datetime.fromtimestamp(host_before + 1 + offset, timezone.utc)
+        self.assertEqual(virtual_before, before)
+        self.assertEqual(virtual_after, datetime(2000, 1, 1, 0, 0, 0, tzinfo=timezone.utc))
+
     def test_shell_has_signal_driven_noninteractive_mode(self):
         source = (ROOT / "shell.c").read_text(encoding="utf-8")
         self.assertIn('getenv("R2_SERVICE_MODE")', source)
@@ -63,8 +81,10 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn('"HOME=$R2_ROOT"', source)
         self.assertIn("systemd-inhibit --what=sleep", source)
         self.assertLess(source.index("exec systemd-inhibit"), source.index('log "Waiting for local Qwen 3.5 model availability and a real chat completion..."'))
-        self.assertIn('if [[ "$CURRENT_MONTH$CURRENT_DAY" == "0229" ]]', source)
-        self.assertIn('R2_START="1999-03-01', source)
+        self.assertIn("FAKETIME_OFFSET=-852076800", source)
+        self.assertIn("R2_EPOCH=$((REAL_EPOCH + FAKETIME_OFFSET))", source)
+        self.assertNotIn('R2_START="1999-${CURRENT_MONTH}', source)
+        self.assertNotIn("FAKETIME_OFFSET=$((R2_EPOCH - REAL_EPOCH))", source)
         self.assertNotIn("apt-get update", source)
         self.assertNotIn("ollama pull", source)
 
@@ -117,10 +137,13 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn('HOME="$R2_ROOT"', launcher)
         self.assertIn("An R2 core is already running", launcher)
         self.assertIn('REAL_EPOCH="$(date \'+%s\')"' , launcher)
-        self.assertIn('date -d "@$REAL_EPOCH"', launcher)
+        self.assertIn("FAKETIME_OFFSET=-852076800", launcher)
+        self.assertIn("R2_EPOCH=$((REAL_EPOCH + FAKETIME_OFFSET))", launcher)
+        self.assertNotIn('R2_START="1999-${CURRENT_MONTH}', launcher)
+        self.assertNotIn("FAKETIME_OFFSET=$((R2_EPOCH - REAL_EPOCH))", launcher)
+        self.assertIn("no relaunch reset", launcher)
         self.assertIn('R2_OLLAMA_TIMEOUT_SECONDS="${R2_OLLAMA_TIMEOUT_SECONDS:-}"', launcher)
         self.assertIn('sudo -n -u r2 -- gcc -std=c11 -Wall -Wextra -Werror -O2', launcher)
-        self.assertIn('R2_START="1999-03-01', launcher)
         self.assertIn('if [[ -z "${R2_OLLAMA_NUM_GPU+x}" ]]; then', launcher)
         self.assertIn("GTX 1050 Ti", launcher)
         self.assertIn("export R2_OLLAMA_NUM_GPU=20", launcher)

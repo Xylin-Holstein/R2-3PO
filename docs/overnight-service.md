@@ -1,6 +1,6 @@
 # Running R2-3PO overnight with systemd
 
-R2 already has a headless shell mode, a supervised systemd unit, a local-model preflight, a private 1999 clock, and a sleep-inhibitor attempt. Use the existing deployment files below; do not create a second service or run the interactive launcher alongside it.
+R2 already has a headless shell mode, a supervised systemd unit, a local-model preflight, a private continuously advancing clock, and a sleep-inhibitor attempt. Both launch paths use the fixed `-852076800`-second offset; they must not recompute a 1999 start date on relaunch, because the clock must roll naturally into 2000 and beyond. Use the existing deployment files below; do not create a second service or run the interactive launcher alongside it.
 
 - R2 runner: `tools/r2_service_runner.sh`
 - R2 unit: `deploy/r2-3po.service`

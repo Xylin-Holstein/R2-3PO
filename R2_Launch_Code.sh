@@ -441,31 +441,15 @@ echo "    $FAKETIME_LIB"
 echo
 
 # ------------------------------------------------------------
-# R2 PRIVATE 1999 CLOCK
+# R2 PRIVATE CONTINUOUS CLOCK
 #
-# We do NOT modify Linux's actual system clock.
-#
-# We calculate the exact timestamp corresponding to the
-# current real date/time with the YEAR changed to 1999.
-#
-# The resulting difference is supplied to libfaketime as a
-# timestamp offset.
-#
-# Because this is an offset from the real running clock,
-# time continues moving normally.
-#
-# Therefore:
-#
-#   1999-12-31 23:59:59
-#              ↓
-#   2000-01-01 00:00:00
-#
-# happens naturally.
-#
-# The user's normal Linux environment is untouched.
+# Keep one fixed timestamp offset. Recomputing an offset from "current date
+# with year 1999" on every launch silently rewinds the clock at year rollover.
+# This offset maps the 2026-10-13 baseline to 1999-10-13 and then lets the
+# virtual clock advance naturally into 2000, 2001, and beyond, including across
+# process restarts. Only R2 receives the offset; the host clock is untouched.
 # ------------------------------------------------------------
 
-# Capture one host epoch so a midnight boundary cannot mix date fields.
 REAL_EPOCH="$(date '+%s')"
 if [[ ! "$REAL_EPOCH" =~ ^-?[0-9]+$ ]]; then
     echo "ERROR: Could not read the real system epoch."
@@ -473,35 +457,13 @@ if [[ ! "$REAL_EPOCH" =~ ^-?[0-9]+$ ]]; then
     exit 1
 fi
 REAL_NOW="$(date -d "@$REAL_EPOCH" '+%Y-%m-%d %H:%M:%S')"
-CURRENT_MONTH="$(date -d "@$REAL_EPOCH" '+%m')"
-CURRENT_DAY="$(date -d "@$REAL_EPOCH" '+%d')"
-CURRENT_HOUR="$(date -d "@$REAL_EPOCH" '+%H')"
-CURRENT_MINUTE="$(date -d "@$REAL_EPOCH" '+%M')"
-CURRENT_SECOND="$(date -d "@$REAL_EPOCH" '+%S')"
-
-R2_START="1999-${CURRENT_MONTH}-${CURRENT_DAY} ${CURRENT_HOUR}:${CURRENT_MINUTE}:${CURRENT_SECOND}"
-if ! R2_EPOCH="$(date -d "$R2_START" '+%s' 2>/dev/null)"; then
-    # 1999 was not a leap year. Map Feb 29 to Mar 1 instead of failing startup.
-    if [[ "${CURRENT_MONTH}${CURRENT_DAY}" == "0229" ]]; then
-        R2_START="1999-03-01 ${CURRENT_HOUR}:${CURRENT_MINUTE}:${CURRENT_SECOND}"
-        R2_EPOCH="$(date -d "$R2_START" '+%s')" || {
-            echo "ERROR: Could not calculate R2 virtual time."
-            echo "R2 was NOT launched."
-            exit 1
-        }
-    else
-        echo "ERROR: Could not calculate R2 virtual time."
-        echo "R2 was NOT launched."
-        exit 1
-    fi
-fi
-if [[ ! "$R2_EPOCH" =~ ^-?[0-9]+$ ]]; then
-    echo "ERROR: Could not calculate R2 virtual time."
+FAKETIME_OFFSET=-852076800
+R2_EPOCH=$((REAL_EPOCH + FAKETIME_OFFSET))
+if ! R2_START="$(date -d "@$R2_EPOCH" '+%Y-%m-%d %H:%M:%S' 2>/dev/null)" || [[ -z "$R2_START" ]]; then
+    echo "ERROR: Could not calculate R2 virtual time from the fixed clock offset."
     echo "R2 was NOT launched."
     exit 1
 fi
-
-FAKETIME_OFFSET=$((R2_EPOCH - REAL_EPOCH))
 
 echo "Real system time:"
 echo "    $REAL_NOW"
@@ -516,10 +478,10 @@ echo "    ${FAKETIME_OFFSET} seconds"
 echo
 
 echo "R2 clock mode:"
-echo "    PRIVATE / CONTINUOUS"
+echo "    PRIVATE / CONTINUOUS (fixed offset; no relaunch reset)"
 echo
 echo "The Linux system clock will NOT be changed."
-echo "R2 will begin in 1999 and continue normally into 2000."
+echo "R2's clock will roll naturally through year boundaries and remain continuous on relaunch."
 echo
 
 echo "[3/4] Recompiling R2..."

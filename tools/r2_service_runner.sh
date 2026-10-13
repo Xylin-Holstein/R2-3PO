@@ -108,29 +108,17 @@ if ! python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 60 --ti
     fail "Ollama did not complete a real qwen3.5:9b chat preflight. Check the local model/server; systemd will retry automatically."
 fi
 
-# Preserve the established private, continuously advancing 1999 clock. The host clock is untouched.
-# Capture the host epoch once so a midnight boundary cannot mix two dates.
+# Use the same fixed timestamp offset as the interactive launcher. Do not
+# rebase the private clock to 1999 on each start: it must roll into 2000+ and
+# remain continuous across service restarts.
 REAL_EPOCH="$(date '+%s')"
-REAL_NOW="$(date -d "@$REAL_EPOCH" '+%Y-%m-%d %H:%M:%S')"
-CURRENT_MONTH="$(date -d "@$REAL_EPOCH" '+%m')"
-CURRENT_DAY="$(date -d "@$REAL_EPOCH" '+%d')"
-CURRENT_HOUR="$(date -d "@$REAL_EPOCH" '+%H')"
-CURRENT_MINUTE="$(date -d "@$REAL_EPOCH" '+%M')"
-CURRENT_SECOND="$(date -d "@$REAL_EPOCH" '+%S')"
-R2_START="1999-${CURRENT_MONTH}-${CURRENT_DAY} ${CURRENT_HOUR}:${CURRENT_MINUTE}:${CURRENT_SECOND}"
-if ! R2_EPOCH="$(date -d "$R2_START" '+%s' 2>/dev/null)"; then
-    # 1999 was not a leap year. Map Feb 29 to Mar 1 instead of failing startup.
-    if [[ "$CURRENT_MONTH$CURRENT_DAY" == "0229" ]]; then
-        R2_START="1999-03-01 ${CURRENT_HOUR}:${CURRENT_MINUTE}:${CURRENT_SECOND}"
-        R2_EPOCH="$(date -d "$R2_START" '+%s')" || fail "could not calculate R2's private clock."
-    else
-        fail "could not calculate R2's private clock."
-    fi
-fi
-[[ "$REAL_EPOCH" =~ ^-?[0-9]+$ && "$R2_EPOCH" =~ ^-?[0-9]+$ ]] || fail "could not calculate R2's private clock."
-FAKETIME_OFFSET=$((R2_EPOCH - REAL_EPOCH))
+[[ "$REAL_EPOCH" =~ ^-?[0-9]+$ ]] || fail "could not read the host system epoch."
+REAL_NOW="$(date -d "@$REAL_EPOCH" '+%Y-%m-%d %H:%M:%S')" || fail "could not format the host system time."
+FAKETIME_OFFSET=-852076800
+R2_EPOCH=$((REAL_EPOCH + FAKETIME_OFFSET))
+R2_START="$(date -d "@$R2_EPOCH" '+%Y-%m-%d %H:%M:%S')" || fail "could not calculate R2's private clock."
 
-log "Starting R2 with private clock $R2_START; host system time will not change."
+log "Host time: $REAL_NOW; R2 private time: $R2_START (fixed offset ${FAKETIME_OFFSET}s; host clock unchanged)."
 log "Sound assets: $R2_FX_DIR"
 SOUND_AUDIT="$R2_SOURCE/tools/audit_r2_sound_assets.py"
 if [[ -f "$SOUND_AUDIT" ]]; then
@@ -140,7 +128,7 @@ else
 fi
 
 # Keep the host clock and service-manager tools on real time. Apply faketime only
-# to R2 itself; otherwise systemd-inhibit would inherit the private 1999 clock.
+# to R2 itself; otherwise systemd-inhibit would inherit the private clock.
 R2_ENV=(/usr/bin/env
     "HOME=$R2_ROOT"
     "USER=r2"
