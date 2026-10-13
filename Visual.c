@@ -288,7 +288,7 @@ static int configure_vision_endpoint(void)
     if (!n || n >= sizeof(local)) return -1;
     memcpy(local, base, n);
     local[n] = '\0';
-    if (strncmp(local, "http://127.0.0.1:", 16) != 0 &&
+    if (strncmp(local, "http://127.0.0.1:", 17) != 0 &&
         strncmp(local, "http://localhost:", 17) != 0) return -1;
     if (strchr(local + 7, '/') || strchr(local, '@') ||
         strchr(local, '?') || strchr(local, '#')) return -1;
