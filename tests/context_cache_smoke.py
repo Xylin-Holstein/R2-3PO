@@ -1,37 +1,27 @@
 #!/usr/bin/env python3
-"""Guard the bounded RAM context cache and per-inference hardware telemetry."""
+"""Regression checks for bounded memory retrieval and fresh runtime context."""
 from pathlib import Path
-import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 core = (ROOT / "r2.c").read_text(encoding="utf-8")
 
-
-def require(condition: bool, message: str) -> None:
-    if not condition:
-        print(f"FAIL: {message}", file=sys.stderr)
-        raise SystemExit(1)
+def require(token: str, message: str) -> None:
+    if token not in core:
+        raise SystemExit(f"FAIL: {message} (missing {token!r})")
     print(f"PASS: {message}")
 
-
-for token, message in (
-    ("#define R2_CONTEXT_CACHE_ENTRIES 12", "RAM cache has a fixed entry bound"),
-    ("#define R2_CONTEXT_CACHE_TTL_SECONDS 12", "RAM cache entries expire quickly"),
-    ("#define R2_CONTEXT_CACHE_MAX_VALUE (32U * 1024U)", "each cached value has a hard size limit"),
-    ("clock_gettime(CLOCK_MONOTONIC", "cache expiry uses monotonic time rather than the private wall clock"),
-    ("context_cache_invalidate();", "writes invalidate cached evidence"),
-    ("context_cache_store(query ? query : \"\", memory_limit,", "focused and recall memory results are cached under their selected limit"),
-    ("context_cache_get(query ? query : \"\",", "the conversation path reuses cached persistent-memory results"),
-    ("char *visual_context = NULL;", "live visual context is still assembled separately on each turn"),
-    ("char *context = r2_reality_context();", "Reality remains refreshed rather than served from historical cache"),
-    ("prompt_tokens=%lld prompt_s=%.3f", "inference logs include prompt processing metrics"),
-    ("generated_tokens=%lld generation_s=%.3f tok_s=%.2f", "inference logs include generated tokens and measured generation rate"),
-    ("gpu_layer_policy=%s available_ram_gib=%.2f", "inference logs expose GPU policy and current available RAM"),
-):
-    require(token in core, message)
-
-require(
-    core.find("context_cache_store(query ? query : \"\", memory_limit,") < core.find("Conversation continuity: the Life Log"),
-    "Life Log history is searched fresh after the cached memory lookup",
-)
-print("RAM context cache and hardware telemetry smoke passed.")
+require("#define MAX_RELEVANT_MEMORIES 20", "persistent-memory retrieval has a strict per-turn record bound")
+require("if (limit > MAX_RELEVANT_MEMORIES)" , "callers cannot request unbounded memory records")
+require("extract_memory_keywords(" , "query keywords guide retrieval rather than dumping the whole database")
+require("size_t capacity = 0;" , "memory candidates are dynamically allocated from the actual result set")
+require("capacity *= 2;" , "candidate buffers grow geometrically rather than reallocating per row")
+require("r2_log_search(keywords[k], 3)" , "related Life Log history is retrieved from current query terms")
+require("RELATED LIFE LOG HISTORY" , "historical conversation evidence is labeled separately from current state")
+require("append_runtime_context(&memory_context)" , "Reality, reinforcement, habits, and Choice Lab are refreshed each turn")
+require("char *visual_context = NULL;" , "live visual context is assembled separately from cached text memory")
+require("query_requests_visual_context(query)" , "a fresh frame is requested only for explicit visual questions or an open observer")
+require("vision_analyze_current_frame(" , "the live frame is analyzed through the existing vision subsystem")
+require("Never activate a camera silently from an ordinary conversation turn." , "normal conversation does not open the camera implicitly")
+require("CURLOPT_TIMEOUT" , "model calls have an explicit timeout rather than an unbounded socket wait")
+require("600L" , "the configured model request timeout allows long-running local inference")
+print("Bounded memory retrieval and fresh runtime/visual context smoke passed.")
