@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Guard the bounded RAM context cache and per-inference hardware telemetry."""
+"""Guard that the latest core refreshes live state and retrieves continuity per turn."""
 from pathlib import Path
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 core = (ROOT / "r2.c").read_text(encoding="utf-8")
-
+start = core.find("static char *chat_with_relevant_memories(")
+end = core.find("/* ============================================================\n   STRING HELPERS", start)
+if start < 0 or end < 0:
+    raise SystemExit("Could not isolate the current context builder.")
+builder = core[start:end]
 
 def require(condition: bool, message: str) -> None:
     if not condition:
@@ -13,25 +17,12 @@ def require(condition: bool, message: str) -> None:
         raise SystemExit(1)
     print(f"PASS: {message}")
 
-
-for token, message in (
-    ("#define R2_CONTEXT_CACHE_ENTRIES 12", "RAM cache has a fixed entry bound"),
-    ("#define R2_CONTEXT_CACHE_TTL_SECONDS 12", "RAM cache entries expire quickly"),
-    ("#define R2_CONTEXT_CACHE_MAX_VALUE (32U * 1024U)", "each cached value has a hard size limit"),
-    ("clock_gettime(CLOCK_MONOTONIC", "cache expiry uses monotonic time rather than the private wall clock"),
-    ("context_cache_invalidate();", "writes invalidate cached evidence"),
-    ("context_cache_store(query ? query : \"\", memory_limit,", "focused and recall memory results are cached under their selected limit"),
-    ("context_cache_get(query ? query : \"\",", "the conversation path reuses cached persistent-memory results"),
-    ("char *visual_context = NULL;", "live visual context is still assembled separately on each turn"),
-    ("char *context = r2_reality_context();", "Reality remains refreshed rather than served from historical cache"),
-    ("prompt_tokens=%lld prompt_s=%.3f", "inference logs include prompt processing metrics"),
-    ("generated_tokens=%lld generation_s=%.3f tok_s=%.2f", "inference logs include generated tokens and measured generation rate"),
-    ("gpu_layer_policy=%s available_ram_gib=%.2f", "inference logs expose GPU policy and current available RAM"),
-):
-    require(token in core, message)
-
-require(
-    core.find("context_cache_store(query ? query : \"\", memory_limit,") < core.find("Conversation continuity: the Life Log"),
-    "Life Log history is searched fresh after the cached memory lookup",
-)
-print("RAM context cache and hardware telemetry smoke passed.")
+require("r2_reality_context()" in builder, "live Reality is fetched for each current turn")
+require("r2_log_search(keywords[k], 3)" in builder, "historical continuity is searched from current-turn keywords")
+require("append_context_block(&memory_context" in builder, "current state is composed with retrieved memories additively")
+require("r2_reward_context()" in builder and "r2_addiction_report()" in builder,
+        "learned reward and habit evidence can join the current context")
+require("r2_altself_list(5)" in builder, "hypothetical state is included only for relevant questions")
+require("context_cache_get(" not in core and "R2_CONTEXT_CACHE_ENTRIES" not in core,
+        "the latest core does not reuse stale cached Reality or memory evidence")
+print("Live current-turn context refresh smoke passed.")
