@@ -18,7 +18,6 @@ on:
   pull_request:
     branches:
       - main
-      - 'integrate/**'
       - clean-copy-r2-audit-2026-10-09
       - r2-hunger-reflection-fix-2026-10-10
       - consolidate/b2-5w2-latest-audit-2026-10-11
