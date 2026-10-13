@@ -3819,14 +3819,15 @@ static void execute_task(
         len = total;
         out[len] = '\0';
 
-        printf(
+        fprintf(
+            stderr,
             "[HAND %s] %.*s",
             id,
             (int)got,
             buf
         );
 
-        fflush(stdout);
+        fflush(stderr);
     }
 
     close(pipefd[0]);
