@@ -4662,7 +4662,7 @@ static char *process_tools(
         if (!request) break;
         char *scenario = r2_imagination_create(trim(request));
         if (scenario) {
-            APPEND("IMAGINATION RESULT:\\n%s\\n", scenario);
+            APPEND("IMAGINATION RESULT:\n%s\n", scenario);
             free(scenario);
         } else {
             APPEND("IMAGINATION ERROR: could not generate or persist the hypothetical scenario; no factual memory or real-world state was changed.\\n");
@@ -4680,7 +4680,7 @@ static char *process_tools(
         int valid = count == 3 && parse_tool_int(fields[0], &branch_id) && branch_id > 0 &&
                     *fields[1];
         int rc = valid ? r2_imagination_feedback((long long)branch_id, fields[1], fields[2]) : -1;
-        APPEND("IMAGINATION FEEDBACK %s.\\n",
+        APPEND("IMAGINATION FEEDBACK %s.\n",
                rc == 0 ? "RESULT: feedback saved; only evidence-backed accuracy can earn positive reinforcement" :
                rc == 1 ? "RESULT: feedback saved; reinforcement ledger unavailable" :
                rc == 2 ? "RESULT: feedback saved; this branch was already rewarded" :
