@@ -48,7 +48,6 @@
 #define OLLAMA_MAX_TOTAL_CHARS 48000
 #define OLLAMA_MAX_RESPONSE_BYTES (16U * 1024U * 1024U)
 
-#define OLLAMA_URL "http://127.0.0.1:11434/api/chat"
 
 #define DB_PATH R2_DIARY_DATABASE
 #define ORIGINAL_CONVERSATION \
@@ -3392,6 +3391,31 @@ static size_t r2_order_inference_messages(const Message *msgs,
     return used;
 }
 
+/* Resolve the same loopback-only Ollama endpoint for text and vision.
+ * Interactive sessions default to 11434; the isolated overnight service
+ * explicitly selects its private 11435 instance. Never accept remote hosts. */
+int r2_ollama_chat_url(char *out, size_t out_cap)
+{
+    if (!out || out_cap == 0)
+        return -1;
+    const char *base = getenv("R2_OLLAMA_BASE_URL");
+    if (!base || !*base)
+        base = "http://127.0.0.1:11434";
+    if (strcmp(base, "http://127.0.0.1:11434") != 0 &&
+        strcmp(base, "http://127.0.0.1:11435") != 0) {
+        fprintf(stderr,
+                "[R2 Ollama] Refusing unapproved endpoint; use localhost port 11434 or 11435.\\n");
+        out[0] = '\0';
+        return -1;
+    }
+    int n = snprintf(out, out_cap, "%s/api/chat", base);
+    if (n < 0 || (size_t)n >= out_cap) {
+        out[0] = '\0';
+        return -1;
+    }
+    return 0;
+}
+
 static char *ollama_chat_with_limit(
     Message *msgs,
     size_t count,
@@ -3869,6 +3893,12 @@ static char *ollama_chat_with_limit(
     /* Capture exactly what will be sent to Ollama only when the owner opts in. */
     ollama_trace_prompt_if_enabled(payload);
 
+    char ollama_url[128];
+    if (r2_ollama_chat_url(ollama_url, sizeof(ollama_url)) != 0) {
+        json_object_put(root);
+        return NULL;
+    }
+
     CURL *curl = curl_easy_init();
     if (!curl) {
         json_object_put(root);
@@ -3885,7 +3915,7 @@ static char *ollama_chat_with_limit(
     }
     char curl_error[CURL_ERROR_SIZE] = {0};
 
-    curl_easy_setopt(curl, CURLOPT_URL, OLLAMA_URL);
+    curl_easy_setopt(curl, CURLOPT_URL, ollama_url);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl, CURLOPT_POST, 1L);
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload);
