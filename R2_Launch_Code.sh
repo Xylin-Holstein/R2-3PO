@@ -246,7 +246,15 @@ echo
 echo "[3/4] Recompiling R2..."
 echo
 
-gcc -std=c11 -Wall -Wextra -O2 \
+TEMP_EXEC="${R2_EXEC}.tmp.${BASHPID}"
+if ! sudo -n -u r2 -- test -r "$R2_SOURCE/r2.c" ||
+   ! sudo -n -u r2 -- test -w "$R2_ROOT"; then
+    echo "ERROR: Linux user r2 cannot read the source or write the atomic build destination."
+    echo "Fix R2 workspace ownership/permissions; the existing executable was not changed."
+    exit 1
+fi
+
+sudo -n -u r2 -- gcc -std=c11 -Wall -Wextra -Werror -O2 \
     "$R2_SOURCE/r2.c" \
     "$R2_SOURCE/shell.c" \
     "$R2_SOURCE/r2_diary.c" \
@@ -260,7 +268,7 @@ gcc -std=c11 -Wall -Wextra -O2 \
     "$R2_SOURCE/Visual.c" \
     "$R2_SOURCE/Ears.c" \
     "$R2_SOURCE/Eyes.c" \
-    -o "$R2_EXEC" \
+    -o "$TEMP_EXEC" \
     -lcurl \
     -lsqlite3 \
     -lpthread \
@@ -272,9 +280,11 @@ gcc -std=c11 -Wall -Wextra -O2 \
 status=$?
 
 if [ $status -ne 0 ]; then
+    rm -f "$TEMP_EXEC"
     echo
     echo "========================================"
     echo "ERROR: R2 compilation failed."
+    echo "The last known-good executable was preserved."
     echo "R2 was NOT launched."
     echo "========================================"
     echo
@@ -282,7 +292,13 @@ if [ $status -ne 0 ]; then
     exit $status
 fi
 
-echo
+if ! mv -f "$TEMP_EXEC" "$R2_EXEC"; then
+    rm -f "$TEMP_EXEC"
+    echo "ERROR: Atomic replacement of the R2 executable failed."
+    echo "The previous executable was not intentionally removed."
+    exit 1
+fi
+
 echo "Compilation successful."
 echo "Executable updated:"
 echo "    $R2_EXEC"
