@@ -21,6 +21,8 @@ def main() -> None:
     assert "Display only" in viewer and "Pause display" in viewer
     assert "not os.environ.get(\"DISPLAY\")" in viewer
     assert "DATA_DIR.lstat()" in viewer and "os.geteuid()" in viewer
+    assert "if self.paused:" in viewer and "self.display_focus = self.focus()" in viewer
+    assert "focus = self.display_focus" in viewer
     assert "R2_VWEBCAM_DIR" in eyes and "r2_vwebcam_publish_frame(eyes)" in eyes
     assert "r2_vwebcam_start_viewer()" in eyes and "r2_vwebcam_stop_viewer()" in eyes
     assert "R2_VWEBCAM_MAX_W 960U" in eyes
