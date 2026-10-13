@@ -103,6 +103,8 @@ int r2_ollama_vision_request_should_abort(void);
  * by the caller with free().
  */
 char *r2_talk(const char *message);
+/* Caller frees; returns a bounded recent user/assistant transcript with tool payloads excluded. */
+char *r2_recent_conversation_context(const char *exclude_latest, size_t max_chars);
 
 
 /*
