@@ -60,6 +60,13 @@ static int token_is_state(const char *token)
     return 0;
 }
 
+static int token_is_generic_state(const char *token)
+{
+    return token && (!strcmp(token, "default") || !strcmp(token, "generic") ||
+                     !strcmp(token, "normal") || !strcmp(token, "idle") ||
+                     !strcmp(token, "neutral"));
+}
+
 static int token_is_kind(const char *token, const char *kind)
 {
     if (!strcmp(kind, "beep"))
@@ -171,19 +178,18 @@ static int filename_score(const char *name, const char *kind, const char *state)
     int has_kind = 0, generic = 0, has_other_state = 0;
     for (int i = 0; i < count; ++i) {
         if (token_is_kind(tokens[i], kind)) has_kind = 1;
-        if (!strcmp(tokens[i], "default") || !strcmp(tokens[i], "generic") ||
-            !strcmp(tokens[i], "normal") || !strcmp(tokens[i], "idle") ||
-            !strcmp(tokens[i], "neutral"))
+        if (token_is_generic_state(tokens[i]))
             generic = 1;
-        if (token_is_state(tokens[i])) has_other_state = 1;
+        else if (token_is_state(tokens[i]))
+            has_other_state = 1;
     }
     if (!has_kind) return -1;
     int exact_state = state_score(tokens, count, state);
     if (exact_state) return 1000 + exact_state;
-    if (generic) return 200;
-    /* Never play a different explicitly state-labeled effect as a fallback.
-       Only an untagged kind-specific file can serve as the last resort. */
+    /* A generic suffix cannot override a conflicting explicit state label. */
     if (has_other_state) return -1;
+    if (generic) return 200;
+    /* Only an untagged kind-specific file can serve as the last resort. */
     return 100;
 }
 
