@@ -246,6 +246,15 @@ jobs:
       - name: Compile R2 with the same sources and flags as the launcher
         run: make clean all CFLAGS="-std=c11 -Wall -Wextra -Werror -O2"
 
+      - name: Validate deployment scripts and private model copier
+        run: |
+          bash -n R2_Launch_Code.sh
+          bash -n tools/r2_service_runner.sh
+          bash -n tools/r2_ollama_runner.sh
+          bash -n tools/install_r2_overnight.sh
+          bash -n tools/preflight_r2_hardware.sh
+          python3 -m py_compile tools/copy_ollama_model.py
+
       - name: Run isolated overnight SIGTERM lifecycle integration
         run: |
           python3 -m py_compile tests/r2_service_signal_integration.py
