@@ -51,6 +51,6 @@ assert "r2_reality_move_item" in core and "r2_eat_and_learn" in core
 # Ensure this integration doesn't discard the current-turn and reply safeguards.
 assert "conversation_turn_lock" in core
 assert "r2_reply_reverses_speaker_roles" in core
-assert 'if (strcmp(m->role, "user") == 0 &&\\n            r2_recent_message_is_tool_payload(m->content))' not in core
+assert 'if (strcmp(m->role, "user") == 0 &&\n            r2_recent_message_is_tool_payload(m->content))' not in core
 
 print("Imagination, Sensory Journal, Reality, and conversation wiring smoke passed.")
