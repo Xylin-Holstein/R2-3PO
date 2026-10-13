@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify the local Qwen 3.5 multimodal model can perform a real chat completion before R2 starts."""
+"""Verify the configured local Gemma model can perform a real chat completion before R2 starts."""
 from __future__ import annotations
 
 import argparse
@@ -12,8 +12,8 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-API_BASE = "http://127.0.0.1:11434"
-MODEL = "qwen3.5:9b"
+API_BASE = os.environ.get("R2_OLLAMA_BASE_URL", "http://127.0.0.1:11435").rstrip("/")
+MODEL = os.environ.get("R2_MODEL", "gemma3:4b")
 
 
 def _read_json(url: str, timeout: float, payload: dict[str, Any] | None = None) -> dict[str, Any]:
