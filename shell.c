@@ -1537,6 +1537,14 @@ int r2_shell_run(void)
     shell_shutdown = 0;
     shell_running = 1;
 
+    if (tv_control_start() != 0) {
+        fprintf(stderr, "[R2 Shell] WARNING: TV/VCR control socket could not start; TV GUI commands will be unavailable.\\n");
+        r2_log_event(R2_LOG_ERROR, "tv_control_socket_start_failed",
+                     "R2's private TV/VCR control socket could not start.",
+                     "The conversation shell remains available; inspect stale socket ownership and R2_TV_SOCKET permissions.",
+                     "r2_shell_run");
+    }
+
     signal(
         SIGINT,
         shell_signal_handler
@@ -1603,6 +1611,7 @@ int r2_shell_run(void)
         watch_running = 0;
     }
 
+    tv_control_stop_server();
     free(line);
 
     return 0;
@@ -1631,6 +1640,7 @@ int r2_shell_watch_is_running(void)
 
 void r2_shell_shutdown(void)
 {
+    tv_control_stop_server();
     if (watch_running) {
         r2_watch_stop();
         watch_running = 0;
