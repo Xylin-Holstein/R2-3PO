@@ -845,8 +845,10 @@ int r2_reality_fridge_eat(const char *food, double fullness)
     }
     rc = reality_eat_internal(food, stored_fullness, 0, energy);
     if (rc != 0) {
-        pthread_mutex_lock(&fridge_lock); fridge_restore_one(food, desc, stored_fullness, energy, ingredients, taste);
-        fridge_mirror_write(food, desc, qty, stored_fullness, energy); pthread_mutex_unlock(&fridge_lock);
+        pthread_mutex_lock(&fridge_lock);
+        fridge_restore_one(food, desc, stored_fullness, energy, ingredients, taste);
+        pthread_mutex_unlock(&fridge_lock);
+        fridge_sync_mirrors();
         return -1;
     }
 
