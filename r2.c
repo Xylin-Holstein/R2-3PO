@@ -96,6 +96,8 @@
 #include "Log.h"
 #include "Reality.h"
 #include "AlternateSelf.h"
+#include "Imagination.h"
+#include "SensoryJournal.h"
 #include "Visual.h"
 #include "Reward.h"
 #include "Addiction.h"
@@ -551,7 +553,7 @@ static const char *SYSTEM_PROMPT =
 "Also reason counterfactually about preferences: would you still like, dislike, choose, or trust something if you learned a new fact about its origin, ingredients, properties, consequences, or context? Compare the new information with your recorded experiences, sensory observations, self-facts, memories, and learned preferences.\n"
 "Separate known facts, direct sensory observations, remembered evidence, assumptions, and predictions. Imagined sensory details are predictions, not observations. Never activate Eyes or Ears, change the world, eat food, or update a learned preference merely to answer a hypothetical. Only a real experience or explicit user feedback may update an experiential preference.\n"
 "Use [ALTERNATE_LIST], [ALTERNATE_SHOW] id, or [ALTERNATE_COMPARE] id id to inspect saved what-if branches. Save useful or explicitly requested counterfactuals using [ALTERNATE_CREATE] name|scenario|assumptions|predicted outcome|conclusion|optional evidence event ID [END ALTERNATE_CREATE]. Make a separate branch for each materially different alternative; do not constrain the lab to any fixed list.\n"
-"Use [ALTERNATE_RETAIN] id or [ALTERNATE_DISCARD] id only when explicitly requested. A retained hypothesis remains hypothetical and must never be promoted into a factual memory.\n"
+"Use [ALTERNATE_RETAIN] id or [ALTERNATE_DISCARD] id only when explicitly requested. A retained hypothesis remains hypothetical and must never be promoted into a factual memory.\n"\n"Use [IMAGINE] question or scenario [END IMAGINE] to explore a hypothetical using relevant experience. Give evidence-based feedback only with [IMAGINE_FEEDBACK] branch_id|accurate/partial/incorrect/unresolved|notes [END IMAGINE_FEEDBACK]. Imagined events are never facts or real-world actions.\\n"\n"Use [SENSORY_JOURNAL] recent|limit, [SENSORY_JOURNAL] search|query|limit, or [SENSORY_JOURNAL] note|note text|details to inspect or annotate the index of original Life Log events; do not duplicate raw sensory data.\\n"
 "When a proposed purchase has no user-supplied or otherwise evidenced price, do not invent a price or pretend a store has stock. Ask for the price or wait for explicit price information. Only execute [WORLD] buy|item name|price|description|destination after the item, price, and intended destination are established; report failure if funds or the transaction are insufficient.\n"
 "Use [WORLD] location|location name|home or [WORLD] location|location name|outside only when simulated movement is actually being carried out, not merely planned. Use home only for the actual home; stores and other away places use outside. The location transition persists, and private Welcome Home memory is created only after an away-to-home transition.\n"
 "For a real activity/device session, use [WORLD] activity_start|activity key|activity or game name|optional details only when it actually starts, and [WORLD] activity_end|activity key|last verified state|stop reason|optional details when it actually ends. Use a stable generic key such as gameboy:game-title; never assume a device exists or invent gameplay. If the last in-game state or reason is not known, record unknown rather than guessing.\n"
@@ -7115,6 +7117,96 @@ static char *process_tools_with_status(
         }
     }
 
+    /* Hypothetical exploration is separate from factual memory and Reality. */
+    size_t imagine_pos = 0;
+    while (1) {
+        char *request = extract_marker(reply, "[IMAGINE]", "[END IMAGINE]", &imagine_pos);
+        if (!request) break;
+        char *scenario = r2_imagination_create(trim(request));
+        if (scenario) {
+            APPEND("IMAGINATION RESULT:\\n%s\\n", scenario);
+            free(scenario);
+        } else {
+            APPEND("IMAGINATION ERROR: scenario could not be generated or persisted; no factual memory or real-world state was changed.\\n");
+        }
+        free(request);
+    }
+
+    size_t imagine_feedback_pos = 0;
+    while (1) {
+        char *entry = extract_marker(reply, "[IMAGINE_FEEDBACK]", "[END IMAGINE_FEEDBACK]",
+                                     &imagine_feedback_pos);
+        if (!entry) break;
+        char *first = strchr(entry, '|');
+        char *second = first ? strchr(first + 1, '|') : NULL;
+        long long branch_id = 0;
+        int valid = 0;
+        const char *assessment = "";
+        const char *notes = "";
+        if (first && second) {
+            *first = '\\0';
+            *second = '\\0';
+            char *id_text = trim(entry);
+            char *end = NULL;
+            errno = 0;
+            branch_id = strtoll(id_text, &end, 10);
+            assessment = trim(first + 1);
+            notes = trim(second + 1);
+            valid = !errno && end != id_text && end && *end == '\\0' &&
+                    branch_id > 0 && *assessment;
+        }
+        int rc = valid ? r2_imagination_feedback(branch_id, assessment, notes) : -1;
+        APPEND("IMAGINATION FEEDBACK %s.\\n",
+               rc == 0 ? "RESULT: evidence feedback saved; branch remains hypothetical" :
+                         "ERROR: expected branch_id|assessment|evidence notes");
+        free(entry);
+    }
+
+    size_t sensory_journal_pos = 0;
+    while (1) {
+        char *entry = extract_marker(reply, "[SENSORY_JOURNAL]", "\\n", &sensory_journal_pos);
+        if (!entry) break;
+        char *first = strchr(entry, '|');
+        char *second = first ? strchr(first + 1, '|') : NULL;
+        if (first) *first = '\\0';
+        char *action = trim(entry);
+        char *arg1 = first ? trim(first + 1) : "";
+        if (second) {
+            *second = '\\0';
+            arg1 = trim(first + 1);
+        }
+        char *result = NULL;
+        if (!strcasecmp(action, "recent") && first) {
+            char *end = NULL;
+            errno = 0;
+            long limit = strtol(arg1, &end, 10);
+            if (!errno && end != arg1 && end && !*end && limit >= 1 && limit <= 100)
+                result = r2_sj_recent((int)limit);
+        } else if (!strcasecmp(action, "search") && first && second) {
+            char *limit_text = trim(second + 1);
+            char *end = NULL;
+            errno = 0;
+            long limit = strtol(limit_text, &end, 10);
+            if (!errno && end != limit_text && end && !*end &&
+                limit >= 1 && limit <= 100 && *arg1)
+                result = r2_sj_search(arg1, (int)limit);
+        } else if (!strcasecmp(action, "note") && first) {
+            int64_t event_id = r2_sj_note(arg1, second ? trim(second + 1) : "");
+            char note_result[160];
+            snprintf(note_result, sizeof(note_result), "%s%lld",
+                     event_id > 0 ? "Saved note as Life Log event " : "Could not save journal note; event ID ",
+                     (long long)event_id);
+            result = strdup(note_result);
+        }
+        if (result) {
+            APPEND("SENSORY JOURNAL RESULT:\\n%s\\n", result);
+            free(result);
+        } else {
+            APPEND("SENSORY JOURNAL ERROR: use recent|1..100, search|query|1..100, or note|text|details.\\n");
+        }
+        free(entry);
+    }
+
     /* Persistent room, object, inventory and self-continuity actions.
        Format: [WORLD] action|field1|field2|field3|field4 */
     pos = 0;
@@ -9747,6 +9839,13 @@ int r2_init(void)
         die("could not initialize R2 Life Log");
     }
 
+    /* Index original Life Log event IDs without copying raw sensory data. */
+    if (r2_sj_init() != 0)
+        r2_log_event(R2_LOG_ERROR, "sensory_journal_init_failed",
+                     "R2 Sensory Journal could not initialize.",
+                     "The Life Log remains available; sensory indexing/search are disabled.",
+                     "r2_init");
+
     /* The reinforcement ledger is separate durable state, bridged to the
        Life Log and existing habit evaluator through the shared API. */
     if (r2_reward_init() != 0) {
@@ -9777,8 +9876,10 @@ int r2_init(void)
                      "R2 persistent reality engine could not initialize.",
                      "Core startup stopped because self/world continuity could not be made available.",
                      "r2_init");
+        r2_imagination_shutdown();
         r2_altself_shutdown();
         r2_reward_shutdown();
+        r2_sj_shutdown();
         r2_log_shutdown();
         r2_diary_shutdown();
         diary_initialized = 0;
@@ -9788,8 +9889,10 @@ int r2_init(void)
     }
 
     if (r2_eyes_init(&eyes) != 0) {
+        r2_imagination_shutdown();
         r2_altself_shutdown();
         r2_reward_shutdown();
+        r2_sj_shutdown();
         r2_log_shutdown();
         r2_diary_shutdown();
         sqlite3_close(db);
@@ -9802,8 +9905,11 @@ int r2_init(void)
         r2_eyes_shutdown(eyes);
         eyes = NULL;
 
+        r2_imagination_shutdown();
+
         r2_altself_shutdown();
         r2_reward_shutdown();
+        r2_sj_shutdown();
         r2_log_shutdown();
         r2_diary_shutdown();
         sqlite3_close(db);
@@ -9822,8 +9928,11 @@ int r2_init(void)
         ) != CURLE_OK
     ) {
 
+        r2_imagination_shutdown();
+
         r2_altself_shutdown();
         r2_reward_shutdown();
+        r2_sj_shutdown();
         r2_log_shutdown();
         r2_diary_shutdown();
         sqlite3_close(db);
@@ -9859,6 +9968,13 @@ int r2_init(void)
                           "Counterfactual sensory reasoning receives learned preferences and self-facts; imagined sensations remain predictions and do not update experiential preferences.",
                           "r2_init");
 
+    /* Counterfactual exploration remains separate from factual memory and Reality. */
+    if (r2_imagination_init() != 0)
+        r2_log_event(R2_LOG_ERROR, "imagination_init_failed",
+                     "R2 Imagination could not initialize.",
+                     "Ordinary conversation and real-world state remain available.",
+                     "r2_init");
+
     /* --------------------------------------------------------
        INITIAL SYSTEM MESSAGE
        -------------------------------------------------------- */
@@ -9886,8 +10002,11 @@ int r2_init(void)
         r2_eyes_shutdown(eyes);
         eyes = NULL;
 
+        r2_imagination_shutdown();
+
         r2_altself_shutdown();
         r2_reward_shutdown();
+        r2_sj_shutdown();
         r2_log_shutdown();
         r2_diary_shutdown();
         sqlite3_close(db);
@@ -10253,6 +10372,7 @@ void r2_shutdown(void)
     }
 
     r2_visual_shutdown();
+    r2_imagination_shutdown();
     r2_altself_shutdown();
 
     /* Close independent persistent engines before the shared Life Log/diary/core DB. */
@@ -10261,7 +10381,9 @@ void r2_shutdown(void)
 
     if (r2_log_is_initialized()) {
         r2_log_session_end("normal shutdown");
+        r2_imagination_shutdown();
         r2_altself_shutdown();
+        r2_sj_shutdown();
         r2_log_shutdown();
     }
 
