@@ -7,7 +7,13 @@ R2_SOURCE="$R2_ROOT/R2"
 R2_EXEC="$R2_ROOT/r2"
 UNIT_SOURCE="$R2_SOURCE/deploy/r2-3po.service"
 RUNNER_SOURCE="$R2_SOURCE/tools/r2_service_runner.sh"
+OLLAMA_RUNNER_SOURCE="$R2_SOURCE/tools/r2_ollama_runner.sh"
+OLLAMA_UNIT_SOURCE="$R2_SOURCE/deploy/r2-ollama.service"
+MODEL_COPY_SCRIPT="$R2_SOURCE/tools/copy_ollama_model.py"
+R2_MODEL="qwen3.5:9b"
+R2_OLLAMA_BASE_URL="http://127.0.0.1:11435"
 UNIT_DEST="/etc/systemd/system/r2-3po.service"
+OLLAMA_UNIT_DEST="/etc/systemd/system/r2-ollama.service"
 TEMP_EXEC="${R2_ROOT}/r2.new.${BASHPID}"
 
 log() { printf '[R2 installer] %s\n' "$*"; }
@@ -81,12 +87,13 @@ rollback_previous_executable() {
 }
 
 [[ -d "$R2_SOURCE" ]] || fail "expected source tree at $R2_SOURCE. Copy/clone this repository there first, then rerun."
-[[ -f "$R2_SOURCE/Makefile" && -f "$UNIT_SOURCE" && -f "$RUNNER_SOURCE" ]] || fail "repository files are incomplete; expected Makefile, deploy/r2-3po.service, and tools/r2_service_runner.sh."
+[[ -f "$R2_SOURCE/Makefile" && -f "$UNIT_SOURCE" && -f "$RUNNER_SOURCE" && -f "$OLLAMA_UNIT_SOURCE" && -f "$OLLAMA_RUNNER_SOURCE" && -f "$MODEL_COPY_SCRIPT" ]] || fail "repository files are incomplete; expected Makefile, both service units, both runners, and the model-copy tool."
 id r2 >/dev/null 2>&1 || fail "Linux account 'r2' does not exist. Create the dedicated runtime account first."
 command -v make >/dev/null 2>&1 || fail "make is missing."
 command -v gcc >/dev/null 2>&1 || fail "gcc is missing."
 command -v systemctl >/dev/null 2>&1 || fail "systemd/systemctl is required."
 command -v curl >/dev/null 2>&1 || fail "curl is required."
+command -v ollama >/dev/null 2>&1 || fail "ollama is required to run R2-owned inference."
 command -v python3 >/dev/null 2>&1 || fail "python3 is required."
 
 FAKETIME_FOUND=0
@@ -122,8 +129,9 @@ run_as_r2 mkdir -p \
     "$R2_ROOT/room/box" \
     "$R2_ROOT/room/piggybank" \
     "$R2_ROOT/Pockets/Wallet" \
-    "$R2_ROOT/fridge" || fail "could not create the runtime data directories as r2."
-for path in "$R2_ROOT/R2_Diary" "$R2_ROOT/room" "$R2_ROOT/Pockets" "$R2_ROOT/fridge"; do
+    "$R2_ROOT/fridge" \
+    "$R2_ROOT/.ollama/models" || fail "could not create the runtime data directories as r2."
+for path in "$R2_ROOT/R2_Diary" "$R2_ROOT/room" "$R2_ROOT/Pockets" "$R2_ROOT/fridge" "$R2_ROOT/.ollama" "$R2_ROOT/.ollama/models"; do
     run_as_r2 test -x "$path" && run_as_r2 test -r "$path" && run_as_r2 test -w "$path" ||
         fail "Linux user r2 needs read/write/traverse access to $path before activation."
 done
@@ -144,6 +152,14 @@ log "Creating a private SQLite snapshot and checking database integrity..."
 run_as_r2 python3 "$AUDIT_SCRIPT" --root "$R2_SOURCE" --snapshot-dir "$SNAPSHOT_DIR" ||
     fail "database snapshot/integrity audit failed. R2 was not activated; inspect the report and preserve the snapshot/source databases."
 log "Database snapshot and integrity audit passed: $SNAPSHOT_DIR"
+
+# Keep the desktop user's Ollama service untouched. Copy only the already
+# installed model into the dedicated r2-owned model store; never download it.
+root_run systemctl stop r2-ollama.service >/dev/null 2>&1 || true
+log "Copying the already-installed $R2_MODEL into R2's private model store..."
+root_run python3 "$MODEL_COPY_SCRIPT" --model "$R2_MODEL" \
+    --destination-root "$R2_ROOT/.ollama/models" --owner r2 ||
+    fail "could not prepare R2's private model store. Ensure $R2_MODEL is installed in the existing local Ollama store; no external download was attempted."
 
 # Compile to a new path first. A failed build never replaces the last known executable.
 # Make's clean target removes TARGET, so never let it remove an unexpected stale
@@ -181,10 +197,23 @@ mv -f "$TEMP_EXEC" "$R2_EXEC"
 root_run chown r2:r2 "$R2_EXEC"
 root_run chmod 0755 "$R2_EXEC"
 
-# Install only the launcher and unit. The FX collection stays on the host at R2_sounds/FX.
-chmod 0755 "$RUNNER_SOURCE"
+# Install both isolated model and R2 units. The FX collection stays on the host at R2_sounds/FX.
+chmod 0755 "$RUNNER_SOURCE" "$OLLAMA_RUNNER_SOURCE"
+root_run install -m 0644 "$OLLAMA_UNIT_SOURCE" "$OLLAMA_UNIT_DEST"
 root_run install -m 0644 "$UNIT_SOURCE" "$UNIT_DEST"
 root_run systemctl daemon-reload
+
+log "Starting R2's dedicated Ollama server as user r2..."
+if ! root_run systemctl enable --now r2-ollama.service; then
+    root_run systemctl --no-pager --full status r2-ollama.service || true
+    root_run journalctl -u r2-ollama.service -n 80 --no-pager || true
+    fail "R2's private Ollama server could not start. The existing user's Ollama service was not modified."
+fi
+if ! run_as_r2 env R2_MODEL="$R2_MODEL" R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
+    python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 60 --timeout 180; then
+    root_run systemctl stop r2-ollama.service >/dev/null 2>&1 || true
+    fail "R2's private Ollama server did not pass a real $R2_MODEL generation test; R2 was not started."
+fi
 
 log "Enabling R2 at boot and starting the overnight service..."
 STARTED_AT="$(date '+%Y-%m-%d %H:%M:%S')"
