@@ -48,6 +48,60 @@ static void read_needs(double *hunger, double *sleepiness, double *energy,
     sqlite3_close(db);
 }
 
+static sqlite3_int64 read_world_elapsed(void)
+{
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/r2_reality.db", R2_HOME);
+    sqlite3 *db = NULL;
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not open Reality database for world time");
+    if (sqlite3_prepare_v2(db,
+        "SELECT CAST(value AS INTEGER) FROM r2_reality_meta WHERE key='world_elapsed_seconds'",
+        -1, &st, NULL) != SQLITE_OK) fail("could not prepare world-time query");
+    if (sqlite3_step(st) != SQLITE_ROW) fail("world-time row missing");
+    sqlite3_int64 value = sqlite3_column_int64(st, 0);
+    sqlite3_finalize(st);
+    sqlite3_close(db);
+    return value;
+}
+
+static int starvation_flag_is_yes(void)
+{
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/r2_reality.db", R2_HOME);
+    sqlite3 *db = NULL;
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not open Reality database for starvation flag");
+    if (sqlite3_prepare_v2(db,
+        "SELECT value FROM r2_reality_self_facts WHERE key='starvation_72h_logged'",
+        -1, &st, NULL) != SQLITE_OK) fail("could not prepare starvation-flag query");
+    int yes = sqlite3_step(st) == SQLITE_ROW &&
+              strcmp((const char *)sqlite3_column_text(st, 0), "yes") == 0;
+    sqlite3_finalize(st);
+    sqlite3_close(db);
+    return yes;
+}
+
+static void seed_eight_day_gap(const char *path)
+{
+    sqlite3 *db = NULL;
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not open Reality database for long-gap test");
+    if (sqlite3_prepare_v2(db,
+        "UPDATE r2_reality_self SET hunger=100,sleepiness=0,energy=100,"
+        "satisfaction=100,seconds_since_meal=10000,last_tick=? WHERE id=1",
+        -1, &st, NULL) != SQLITE_OK) fail("could not prepare long-gap state");
+    sqlite3_bind_int64(st, 1, (sqlite3_int64)time(NULL) - 8 * 86400);
+    if (sqlite3_step(st) != SQLITE_DONE) fail("could not seed long-gap state");
+    sqlite3_finalize(st);
+    if (sqlite3_exec(db,
+        "INSERT INTO r2_reality_self_facts(key,value,evidence) "
+        "VALUES('starvation_72h_logged','no','Long-gap regression reset') "
+        "ON CONFLICT(key) DO UPDATE SET value='no',evidence='Long-gap regression reset',updated_at=CURRENT_TIMESTAMP",
+        NULL, NULL, NULL) != SQLITE_OK) fail("could not reset starvation marker for long-gap test");
+    sqlite3_close(db);
+}
+
 static void seed_legacy_fridge_schema(void)
 {
     if (mkdir(R2_ROOT, 0700) != 0 && errno != EEXIST) {
@@ -917,6 +971,33 @@ int main(void)
     if (!status || !strstr(status, "(starving)"))
         fail("hunger at the 72-hour starvation threshold should be labeled starving");
     free(status);
+
+    /* Gaps longer than a week must still advance needs and world time. The
+       former seven-day guard discarded the entire interval and could prevent
+       the 72-hour starvation marker from ever being recorded after downtime. */
+    sqlite3_int64 world_before = read_world_elapsed();
+    seed_eight_day_gap(path);
+    if (r2_reality_tick() != 0) fail("runtime tick rejected an eight-day elapsed gap");
+    read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
+    if (hunger > 0.1) fail("runtime catch-up must drain fullness after an eight-day gap");
+    if (since_meal < 72.0 * 3600.0) fail("runtime catch-up must preserve elapsed time since meal");
+    if (read_world_elapsed() - world_before < 8 * 86400 - 5)
+        fail("runtime catch-up must advance modeled world time across a long gap");
+    if (!starvation_flag_is_yes())
+        fail("runtime catch-up must record prolonged starvation after a long gap");
+
+    r2_reality_shutdown();
+    world_before = read_world_elapsed();
+    seed_eight_day_gap(path);
+    if (r2_reality_init() != 0) fail("Reality restart failed for long-gap catch-up test");
+    if (r2_reality_tick() != 0) fail("post-startup tick failed after long-gap catch-up");
+    read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
+    if (hunger > 0.1) fail("startup catch-up must drain fullness after an eight-day gap");
+    if (since_meal < 72.0 * 3600.0) fail("startup catch-up must preserve elapsed time since meal");
+    if (read_world_elapsed() - world_before < 8 * 86400 - 5)
+        fail("startup catch-up must advance modeled world time across a long gap");
+    if (!starvation_flag_is_yes())
+        fail("startup catch-up must record prolonged starvation after a long gap");
 
     /* Inject a failure after sleep has advanced fullness decay but before it restores
        sleepiness. The enclosing transaction must roll the entire transition
