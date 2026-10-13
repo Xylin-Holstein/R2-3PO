@@ -255,11 +255,16 @@ static void r2_vwebcam_start_viewer(void)
         return;
     if (r2_vwebcam_pid > 0) {
         int status = 0;
-        pid_t ended = waitpid(r2_vwebcam_pid, &status, WNOHANG);
+        pid_t ended;
+        do {
+            ended = waitpid(r2_vwebcam_pid, &status, WNOHANG);
+        } while (ended < 0 && errno == EINTR);
         if (ended == 0)
             return;
         if (ended == r2_vwebcam_pid || (ended < 0 && errno == ECHILD))
             r2_vwebcam_pid = -1;
+        else
+            return;
     }
 
     pid_t child = fork();
