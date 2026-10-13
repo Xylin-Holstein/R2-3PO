@@ -18,7 +18,14 @@ Environment=R2_SOURCE=/home/x/R2_Home/R2
 Environment=R2_EXEC=/home/x/R2_Home/r2
 Environment=R2_FX_DIR=/home/x/R2_Home/R2_sounds/FX
 Environment=R2_SERVICE_MODE=1
+# Per-UID egress isolation: only local Ollama TCP port 11434 is allowed for r2.
+# These inline root commands avoid executing a mutable script from R2's
+# runtime-writable source/data directory as root.
+ExecStartPre=+/bin/sh -c 'set -eu; while /usr/sbin/iptables -w -C OUTPUT -m owner --uid-owner r2 -j R2_UID_NETLOCK 2>/dev/null; do /usr/sbin/iptables -w -D OUTPUT -m owner --uid-owner r2 -j R2_UID_NETLOCK; done; /usr/sbin/iptables -w -N R2_UID_NETLOCK 2>/dev/null || true; /usr/sbin/iptables -w -F R2_UID_NETLOCK; /usr/sbin/iptables -w -A R2_UID_NETLOCK -o lo -d 127.0.0.1/32 -p tcp --dport 11434 -j ACCEPT; /usr/sbin/iptables -w -A R2_UID_NETLOCK -o lo -s 127.0.0.1/32 -p tcp --sport 11434 -j ACCEPT; /usr/sbin/iptables -w -A R2_UID_NETLOCK -j REJECT; /usr/sbin/iptables -w -I OUTPUT 1 -m owner --uid-owner r2 -j R2_UID_NETLOCK'
+ExecStartPre=+/bin/sh -c 'set -eu; while /usr/sbin/ip6tables -w -C OUTPUT -m owner --uid-owner r2 -j R2_UID_NETLOCK 2>/dev/null; do /usr/sbin/ip6tables -w -D OUTPUT -m owner --uid-owner r2 -j R2_UID_NETLOCK; done; /usr/sbin/ip6tables -w -N R2_UID_NETLOCK 2>/dev/null || true; /usr/sbin/ip6tables -w -F R2_UID_NETLOCK; /usr/sbin/ip6tables -w -A R2_UID_NETLOCK -j REJECT; /usr/sbin/ip6tables -w -I OUTPUT 1 -m owner --uid-owner r2 -j R2_UID_NETLOCK'
 ExecStart=/home/x/R2_Home/R2/tools/r2_service_runner.sh
+# Always remove the temporary rules after service shutdown or failed startup.
+ExecStopPost=+/bin/sh -c 'while /usr/sbin/iptables -w -C OUTPUT -m owner --uid-owner r2 -j R2_UID_NETLOCK 2>/dev/null; do /usr/sbin/iptables -w -D OUTPUT -m owner --uid-owner r2 -j R2_UID_NETLOCK 2>/dev/null || break; done; /usr/sbin/iptables -w -F R2_UID_NETLOCK 2>/dev/null || true; /usr/sbin/iptables -w -X R2_UID_NETLOCK 2>/dev/null || true; while /usr/sbin/ip6tables -w -C OUTPUT -m owner --uid-owner r2 -j R2_UID_NETLOCK 2>/dev/null; do /usr/sbin/ip6tables -w -D OUTPUT -m owner --uid-owner r2 -j R2_UID_NETLOCK 2>/dev/null || break; done; /usr/sbin/ip6tables -w -F R2_UID_NETLOCK 2>/dev/null || true; /usr/sbin/ip6tables -w -X R2_UID_NETLOCK 2>/dev/null || true; exit 0'
 Restart=always
 RestartSec=10
 KillSignal=SIGTERM
