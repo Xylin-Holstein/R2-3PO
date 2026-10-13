@@ -22,7 +22,7 @@ launcher = (ROOT / "R2_Launch_Code.sh").read_text(encoding="utf-8")
 reality = (ROOT / "Reality.c").read_text(encoding="utf-8")
 
 require(
-    re.search(r'^static char MODEL\\[256\\] = "gemma3:4b";$', core, re.MULTILINE) is not None,
+    re.search(r'^static char MODEL\[256\] = "gemma3:4b";$', core, re.MULTILINE) is not None,
     "the C conversation core defaults to Gemma 3 4B",
 )
 require(
