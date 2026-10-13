@@ -24,4 +24,4 @@ assert 'shell_tv(shell_starts_with(command, "tv ") ? shell_trim(command + 3) : N
 assert "tv_control_start() != 0" in shell and "tv_control_stop_server();" in shell
 assert 'sub.add_parser("status"' in gameboy and 'sub.add_parser("insert"' in gameboy
 assert 'choices=("pockets", "shelf", "box", "room")' in gameboy
-print("R2 Game Boy shell control-plane smoke passed.")
+print("R2 TV/VCR and Game Boy shell control-plane smoke passed.")
