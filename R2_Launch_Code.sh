@@ -4,6 +4,10 @@ R2_ROOT="/home/x/R2_Home"
 R2_SOURCE="$R2_ROOT/R2"
 R2_EXEC="$R2_ROOT/r2"
 
+# One multimodal model handles both conversation and visual perception.
+R2_MODEL="${R2_MODEL:-gemma3:4b}"
+R2_VISION_MODEL="${R2_VISION_MODEL:-$R2_MODEL}"
+
 echo "========================================"
 echo "        R2-3PO LAUNCH SEQUENCE"
 echo "========================================"
@@ -264,9 +268,10 @@ echo "Compilation successful."
 echo "Executable updated:"
 echo "    $R2_EXEC"
 echo
-echo "Default vision model: qwen2.5vl:3b"
-echo "R2's conversation model remains llama3; vision perception is handled by the separate local model."
-echo "If it is not installed, run: ollama pull qwen2.5vl:3b"
+echo "Unified conversation/vision model: $R2_MODEL"
+echo "R2's C conversation core and visual subsystem will both use this model by default."
+echo "The Ollama API must have this model installed before R2 starts."
+echo
 echo
 echo "Modules compiled:"
 echo "    r2.c"
@@ -285,6 +290,38 @@ echo "Launching R2..."
 echo
 
 # ------------------------------------------------------------
+# VERIFY THE REAL OLLAMA ENDPOINT AND SELECTED MODEL
+# ------------------------------------------------------------
+# The request is made as r2, the same Linux identity that will run
+# the R2 kernel. This catches a missing server/model before the shell
+# starts and avoids mistaking a shell launch for a working model link.
+
+echo "Checking Ollama API and model as user r2..."
+if ! sudo -u r2 env R2_MODEL="$R2_MODEL" python3 -c '
+import json, os, sys, urllib.request
+wanted = os.environ["R2_MODEL"]
+try:
+    with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=8) as response:
+        payload = json.load(response)
+    names = {item.get("name", "") for item in payload.get("models", [])}
+    if wanted not in names:
+        print("ERROR: Ollama is reachable, but the requested model is not installed:", wanted, file=sys.stderr)
+        print("Installed models:", ", ".join(sorted(names)) or "(none)", file=sys.stderr)
+        sys.exit(2)
+except Exception as exc:
+    print("ERROR: R2 cannot reach the Ollama API at 127.0.0.1:11434:", exc, file=sys.stderr)
+    sys.exit(1)
+print("Ollama API reachable; model is installed:", wanted)
+'; then
+    echo
+    echo "R2 was NOT launched because its configured model is unavailable."
+    echo "Install it with: ollama pull $R2_MODEL"
+    echo "Then rerun this launcher."
+    read -p "Press Enter to exit..."
+    exit 1
+fi
+
+# ------------------------------------------------------------
 # START R2 WITH ITS PRIVATE CLOCK
 # ------------------------------------------------------------
 
@@ -295,7 +332,8 @@ sudo -u r2 \
     LD_PRELOAD="$FAKETIME_LIB" \
     FAKETIME="${FAKETIME_OFFSET}" \
     FAKETIME_DONT_RESET=1 \
-    R2_VISION_MODEL="${R2_VISION_MODEL:-qwen2.5vl:3b}" \
+    R2_MODEL="$R2_MODEL" \
+    R2_VISION_MODEL="$R2_VISION_MODEL" \
     "$R2_EXEC"
 
 status=$?
