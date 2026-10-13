@@ -4,7 +4,7 @@ R2-3PO is a C program with separate core, shell, diary, life-log, visual, eye, a
 
 For unattended overnight operation, boot-time activation, crash recovery, and sleep-inhibitor behavior, see [the overnight service guide](docs/overnight-service.md). The installer performs a database snapshot/integrity preflight before enabling the service. Do not run the systemd service and the interactive launcher at the same time.
 
-`R2_Launch_Code.sh` checks for an existing R2 process, applies a temporary UID-scoped firewall policy that allows Linux user `r2` to access only local Ollama at `127.0.0.1:11434`, then runs the read-only hardware preflight before compiling, opening the Observer, or launching R2. The firewall does not disable Wi-Fi or affect the desktop account, and is removed when the launcher exits. R2-side preflight, Ollama generation, compilation, workspace writes, Observer, and the core run as `r2`; their `HOME` is set to `/home/x/R2_Home` so `/home/r2` does not become a second project/data location. Review every `[FAIL]` and resolve it before continuing; `[WARN]` items identify optional or host-specific features that still need checking. You can also run `bash /home/x/R2_Home/R2/tools/preflight_r2_hardware.sh` manually before deployment. The launcher compiles with warnings treated as errors (`-Werror`), matching CI. See the guide for activation and live-device verification.
+`R2_Launch_Code.sh` checks for an existing R2 process and runs the read-only hardware preflight before building or launching. Conversation and vision both use `gemma3:4b` through a dedicated `r2-ollama.service`: the Ollama inference process runs as Linux user `r2` on `127.0.0.1:11435`, with model files in `/home/x/R2_Home/.ollama/models`. The service applies UID-scoped IPv4/IPv6 egress isolation that permits only the local Ollama API; the policy remains active while the model server is running, including after the interactive launcher exits. It does not disable Wi-Fi or affect the desktop account. The installer copies the already-installed model from the host's existing local Ollama store (normally port `11434`) into R2's private store; it does not download model weights or alter the user's existing Ollama service. R2-side compilation, inference client, workspace writes, Observer, and core run as `r2`; their `HOME` is `/home/x/R2_Home` so `/home/r2` does not become a second project/data location. Review every `[FAIL]` and resolve it before continuing; `[WARN]` items identify optional or host-specific features that still need checking. You can also run `bash /home/x/R2_Home/R2/tools/preflight_r2_hardware.sh` manually before deployment. The launcher compiles with warnings treated as errors (`-Werror`), matching CI. See the guide for activation and live-device verification.
 
 ## Build on Ubuntu/Debian
 
@@ -25,22 +25,18 @@ The resulting executable is `./r2`. To remove it, run `make clean`.
 
 ## Ollama model: conversation and vision
 
-R2's default conversation model and visual-perception model are both `qwen3.5:9b`.
-Foreground answers and their corrective retry use Qwen 3.5's thinking mode with its recommended general-task sampler (`temperature=1.0`, `top_p=0.95`, `top_k=20`, `min_p=0`, `presence_penalty=1.5`, `repeat_penalty=1.0`). Vision and structured/background helper calls stay in non-thinking mode with the general-task instruct sampler (`temperature=0.7`, `top_p=0.8`) so their compact structured outputs do not spend tokens on a separate reasoning channel. The user-facing conversation reads only the final `message.content` field; private `message.thinking` is not shown.
-Install the model locally before launching R2:
+R2's default conversation model and visual-perception model are both `gemma3:4b`. The C conversation kernel sends its system prompt, conversation history, retrieved memories, and live Reality context directly to the local Ollama chat API. Model-generated world actions are executed through R2's C APIs, and internal action markers are removed before the final reply is shown.
+
+Install the model in the existing local Ollama service before running the R2 installer:
 
 ```sh
-ollama pull qwen3.5:9b
-ollama run qwen3.5:9b
+ollama pull gemma3:4b
+ollama run gemma3:4b
 ```
 
-At the Ollama prompt, test a short message and then enter `/bye`. The launch script
-also reports the expected model name. Qwen 3.5 9B uses the same model for text and image input; it does not accept raw microphone PCM as a chat input. Ears therefore remains a format-agnostic PCM capture layer, and speech transcription requires a separate audio/ASR component;
-visual inference shares the Ollama request lock with conversation and yields when a
-foreground conversation is waiting. Ordinary conversation does not trigger a new frame
-analysis unless the user asks about visual context; ongoing Eyes/VLC observation can
-continue through its existing watcher. If a vision request cannot run, its incomplete
-result is discarded rather than being treated as a valid observation.
+Test a short message and enter `/bye`. Then run `sudo bash /home/x/R2_Home/R2/tools/install_r2_overnight.sh`; the installer copies the model manifest and blobs into R2's private `r2`-owned store and starts the dedicated inference server on port `11435`. The existing user Ollama service on port `11434` is left running and unchanged. The interactive launcher and overnight service both refuse to use the shared service as R2's inference endpoint.
+
+Gemma 3 4B supports text and image input, but it does not accept raw microphone PCM as a chat input. Ears therefore remains a format-agnostic PCM capture layer, and speech transcription requires a separate audio/ASR component. Visual inference shares the local Ollama endpoint with conversation and yields when a foreground conversation is waiting. Ordinary conversation does not trigger a new frame analysis unless the user asks about visual context; ongoing Eyes/VLC observation can continue through its existing watcher. If a vision request cannot run, its incomplete result is discarded rather than being treated as a valid observation.
 
 R2 builds a completed conversational response from the current user message and
 relevant memories/perceptions. A separate intent-summary inference is not used as an
