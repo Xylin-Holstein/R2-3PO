@@ -31,6 +31,14 @@ assert 'char *r2_model_generate(const char *system, const char *prompt, int max_
 assert 'r2_model_generate(const char *system, const char *prompt, int max_tokens)' in header
 assert 'ollama_chat_limited(&request, 1, system, max_tokens)' in core
 assert '"num_predict"' in core
+assert 'static long OLLAMA_TIMEOUT_SECONDS = 21600L;' in core
+assert 'getenv("R2_OLLAMA_TIMEOUT_SECONDS")' in core
+assert 'CURLOPT_TIMEOUT,\\n        OLLAMA_TIMEOUT_SECONDS' in core
+assert 'CURLOPT_CONNECTTIMEOUT, 30L' in core
+assert 'static long R2_VISION_TIMEOUT_SECONDS = 21600L;' in visual
+assert 'getenv("R2_OLLAMA_TIMEOUT_SECONDS")' in visual
+assert 'CURLOPT_TIMEOUT, R2_VISION_TIMEOUT_SECONDS' in visual
+assert 'CURLOPT_CONNECTTIMEOUT, 30L' in visual
 
 for api in ("r2_imagination_init", "r2_imagination_shutdown", "r2_imagination_create", "r2_imagination_feedback"):
     assert api in imagination and api in imagination_header
