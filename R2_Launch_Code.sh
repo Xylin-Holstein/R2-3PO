@@ -1,6 +1,7 @@
 #!/bin/bash
 
 R2_ROOT="/home/x/R2_Home"
+R2_FX_DIR="${R2_FX_DIR:-$R2_ROOT/R2_sounds/FX}"
 R2_SOURCE="$R2_ROOT/R2"
 R2_EXEC="$R2_ROOT/r2"
 R2_MODEL="${R2_MODEL:-gemma3:4b}"
@@ -403,6 +404,7 @@ sudo -u r2 \
     R2_MODEL="$R2_MODEL" \
     R2_VISION_MODEL="$R2_VISION_MODEL" \
     R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
+    R2_FX_DIR="$R2_FX_DIR" \
     DISPLAY="${DISPLAY:-}" \
     XAUTHORITY="${XAUTHORITY:-}" \
     LD_PRELOAD="$FAKETIME_LIB" \
