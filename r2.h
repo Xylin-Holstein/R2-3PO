@@ -8,7 +8,7 @@
  *
  * r2.c owns the actual implementation:
  *
- *   - Ollama / llama3
+ *   - Ollama / configured conversation model
  *   - conversation
  *   - memory
  *   - relevant-memory retrieval
@@ -237,7 +237,7 @@ int r2_is_initialized(void);
  *
  * Example:
  *
- *   llama3
+ *   configured conversation model
  *
  * The returned pointer is owned by R2 and must NOT be freed.
  */
