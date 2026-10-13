@@ -1132,11 +1132,11 @@ static int migrate_legacy_reality(void)
     if (result == 0)
         result = legacy_copy_table("r2_tv_state", tv_state_cols, tv_state_defaults,
                                    sizeof(tv_state_cols)/sizeof(tv_state_cols[0]),
-                                   tv_state_required, sizeof(tv_state_required)/sizeof(tv_state_required[0]), 1);
+                                   tv_state_required, sizeof(tv_state_required)/sizeof(tv_state_required[0]), 0);
     if (result == 0)
         result = legacy_copy_table("r2_tv_vcr_state", vcr_state_cols, vcr_state_defaults,
                                    sizeof(vcr_state_cols)/sizeof(vcr_state_cols[0]),
-                                   vcr_state_required, sizeof(vcr_state_required)/sizeof(vcr_state_required[0]), 1);
+                                   vcr_state_required, sizeof(vcr_state_required)/sizeof(vcr_state_required[0]), 0);
 
     if (result == 0 && legacy_table_exists("r2_reality_meta"))
         result = exec_sql(
@@ -1262,12 +1262,10 @@ int r2_reality_init(void)
         "CREATE TABLE IF NOT EXISTS r2_money_account (id INTEGER PRIMARY KEY CHECK(id=1),cash_cents INTEGER NOT NULL DEFAULT 0 CHECK(cash_cents>=0),bank_cents INTEGER NOT NULL DEFAULT 0 CHECK(bank_cents>=0),updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "INSERT OR IGNORE INTO r2_money_account(id,cash_cents,bank_cents) VALUES(1,0,0);"
         "CREATE TABLE IF NOT EXISTS r2_tv_state (id INTEGER PRIMARY KEY CHECK(id=1), power INTEGER NOT NULL DEFAULT 0 CHECK(power IN (0,1)), source_kind TEXT NOT NULL DEFAULT 'input', source_value INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
-        "INSERT OR IGNORE INTO r2_tv_state(id,power,source_kind,source_value) VALUES(1,0,'input',1);"
         "CREATE TABLE IF NOT EXISTS r2_tv_devices (name TEXT PRIMARY KEY COLLATE NOCASE, connection_kind TEXT NOT NULL CHECK(connection_kind IN ('input','rf')), port INTEGER NOT NULL, connected INTEGER NOT NULL DEFAULT 1 CHECK(connected IN (0,1)), updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, CHECK((connection_kind='input' AND port BETWEEN 2 AND 4) OR (connection_kind='rf' AND port BETWEEN 2 AND 13)));"
         "CREATE UNIQUE INDEX IF NOT EXISTS r2_tv_one_device_per_port ON r2_tv_devices(connection_kind,port) WHERE connected=1;"
         "CREATE TABLE IF NOT EXISTS r2_tv_vcr_tapes (media_path TEXT PRIMARY KEY, position_seconds REAL NOT NULL DEFAULT 0 CHECK(position_seconds>=0), updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "CREATE TABLE IF NOT EXISTS r2_tv_vcr_state (id INTEGER PRIMARY KEY CHECK(id=1), cassette_path TEXT, transport TEXT NOT NULL DEFAULT 'stop' CHECK(transport IN ('play','pause','stop')), updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(cassette_path) REFERENCES r2_tv_vcr_tapes(media_path));"
-        "INSERT OR IGNORE INTO r2_tv_vcr_state(id,cassette_path,transport) VALUES(1,NULL,'stop');"
         "CREATE TABLE IF NOT EXISTS r2_reality_containers (name TEXT PRIMARY KEY, kind TEXT NOT NULL, description TEXT, parent TEXT, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "CREATE TABLE IF NOT EXISTS r2_reality_objects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL COLLATE NOCASE UNIQUE, description TEXT, quantity INTEGER NOT NULL DEFAULT 1 CHECK(quantity>0), container TEXT NOT NULL DEFAULT 'room', owner TEXT NOT NULL DEFAULT 'R2', created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(container) REFERENCES r2_reality_containers(name));"
         "CREATE INDEX IF NOT EXISTS r2_reality_objects_container_idx ON r2_reality_objects(container);"
@@ -1295,6 +1293,15 @@ int r2_reality_init(void)
     }
     if (migrate_legacy_reality() != 0) {
         fprintf(stderr, "[R2 Reality] Legacy migration failed; refusing to discard old state.\n");
+        sqlite3_close(reality_db); reality_db = NULL;
+        pthread_mutex_unlock(&reality_lock); return -1;
+    }
+    /* Seed only missing TV/VCR singleton rows after legacy migration, so
+       existing device state wins and old state can be imported without REPLACE. */
+    if (exec_sql(
+        "INSERT OR IGNORE INTO r2_tv_state(id,power,source_kind,source_value) VALUES(1,0,'input',1);"
+        "INSERT OR IGNORE INTO r2_tv_vcr_state(id,cassette_path,transport) VALUES(1,NULL,'stop');") != 0) {
+        fprintf(stderr, "[R2 Reality] Could not initialize missing TV/VCR state rows.\\n");
         sqlite3_close(reality_db); reality_db = NULL;
         pthread_mutex_unlock(&reality_lock); return -1;
     }
