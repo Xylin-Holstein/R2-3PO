@@ -6,7 +6,7 @@ R2_EXEC="$R2_ROOT/r2"
 
 # One multimodal model handles both conversation and visual perception.
 R2_MODEL="${R2_MODEL:-gemma3:4b}"
-R2_VISION_MODEL="${R2_VISION_MODEL:-$R2_MODEL}"
+R2_VISION_MODEL="$R2_MODEL"
 
 echo "========================================"
 echo "        R2-3PO LAUNCH SEQUENCE"
