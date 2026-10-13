@@ -5377,13 +5377,8 @@ static void *autonomous_thinking(
                               "R2 periodically reflects on supplied persistent context.",
                               "completed", NULL, "autonomous_thinking");
 
-            printf(
-                "\n[R2 autonomous diary reflection written]\n"
-                "%s\n\n",
-                reflection
-            );
-
-            fflush(stdout);
+            /* Private reflection is persisted and logged, never printed over
+               the interactive conversation stream. */
 
         } else {
             r2_log_event(R2_LOG_ERROR, "reflection_write_failed",
