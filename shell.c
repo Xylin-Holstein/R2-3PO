@@ -589,6 +589,7 @@ static void shell_conversation(const char *message)
     if (!message || !*message)
         return;
 
+    fprintf(stderr, "[R2 Input Audit] shell_message_chars=%zu\\n", strlen(message));
     shell_talk(message);
 }
 
