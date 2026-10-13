@@ -127,6 +127,9 @@ static int r2_vwebcam_prepare_dir(void)
 
 static void r2_vwebcam_write_status(const R2Eyes *eyes, int active)
 {
+    const char *display = getenv("DISPLAY");
+    if (!display || !*display)
+        return;
     uint64_t now_ms = eyes ? eyes->timestamp : 0;
     if (active && eyes && eyes->frame_count == 0) {
         r2_vwebcam_last_publish_ms = 0;
@@ -180,6 +183,9 @@ static void r2_vwebcam_write_status(const R2Eyes *eyes, int active)
 
 static void r2_vwebcam_publish_frame(const R2Eyes *eyes)
 {
+    const char *display = getenv("DISPLAY");
+    if (!display || !*display)
+        return;
     if (eyes && eyes->timestamp && r2_vwebcam_last_publish_ms &&
         eyes->timestamp >= r2_vwebcam_last_publish_ms &&
         eyes->timestamp - r2_vwebcam_last_publish_ms < 100)
