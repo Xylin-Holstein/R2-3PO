@@ -56,6 +56,13 @@ require(
     "launcher explicitly selects the unified vision model",
 )
 require(
+    'R2_OLLAMA_BASE_URL="${R2_OLLAMA_BASE_URL:-http://127.0.0.1:11434}"' in launcher
+    and 'R2_OLLAMA_BASE_URL="http://127.0.0.1:11434"' not in launcher
+    and 'R2_OLLAMA_BASE_URL="${R2_OLLAMA_BASE_URL:-http://127.0.0.1:11435}"' in read("tools/r2_service_runner.sh")
+    and 'overnight R2 must use its permitted isolated Ollama endpoint 127.0.0.1:11435.' in read("tools/r2_service_runner.sh"),
+    "interactive and overnight launchers pin their endpoints to their respective firewall policies",
+)
+require(
     'getenv("R2_OLLAMA_NUM_GPU")' in visual
     and 'json_object_object_add(options, "num_gpu"' in visual,
     "vision inference follows the same configurable GPU layer policy as chat",
