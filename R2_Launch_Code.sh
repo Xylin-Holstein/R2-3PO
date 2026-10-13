@@ -296,6 +296,7 @@ gcc -std=c11 -Wall -Wextra -Werror -O2 \
     -lcurl \
     -lsqlite3 \
     -lpthread \
+    -lpthread \
     -ljson-c \
     -lpulse-simple \
     -lpulse \
