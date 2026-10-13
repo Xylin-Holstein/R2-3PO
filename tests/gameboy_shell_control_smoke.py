@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 shell = (ROOT / "shell.c").read_text(encoding="utf-8")
 gameboy = (ROOT / "GameBoyAdvance.py").read_text(encoding="utf-8")
 
-start = shell.find("static int shell_gameboy(const char *arg)")
+start = shell.find("static int shell_gameboy(const char *arg)\\n{")
 end = shell.find("\nstatic int shell_parse_amount(", start)
 assert start >= 0 and end > start, "single lifecycle-aware Game Boy handler must exist"
 handler = shell[start:end]
