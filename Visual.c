@@ -16,6 +16,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <limits.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -387,6 +388,7 @@ static char *call_vision_model(const char *image_base64, const char *question,
     json_object_object_add(root, "model", json_object_new_string(model));
     json_object_object_add(root, "stream", json_object_new_boolean(0));
     json_object_object_add(root, "think", json_object_new_boolean(0));
+    json_object_object_add(root, "format", json_object_new_string("json"));
     json_object_object_add(root, "keep_alive", json_object_new_string("10m"));
 
     /*
