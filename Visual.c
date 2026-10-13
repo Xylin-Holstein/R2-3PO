@@ -210,18 +210,38 @@ static char *call_vision_model(const char *image_base64, const char *question)
     json_object *sys = json_object_new_object();
     json_object *user = json_object_new_object();
     json_object *images = json_object_new_array();
-    if (!root || !messages || !sys || !user || !images || !system_prompt) {
+    json_object *options = json_object_new_object();
+    if (!root || !messages || !sys || !user || !images || !options || !system_prompt) {
         if (root) json_object_put(root);
         if (messages) json_object_put(messages);
         if (sys) json_object_put(sys);
         if (user) json_object_put(user);
         if (images) json_object_put(images);
+        if (options) json_object_put(options);
         free(system_prompt);
         return NULL;
     }
     json_object_object_add(root, "model", json_object_new_string(visual_model));
     json_object_object_add(root, "stream", json_object_new_boolean(0));
     json_object_object_add(root, "keep_alive", json_object_new_string("10m"));
+
+    /* Keep vision inference on the same requested GPU/CPU layer policy as chat. */
+    const char *gpu_layers_env = getenv("R2_OLLAMA_NUM_GPU");
+    if (gpu_layers_env && *gpu_layers_env) {
+        errno = 0;
+        char *gpu_end = NULL;
+        long gpu_layers = strtol(gpu_layers_env, &gpu_end, 10);
+        if (!errno && gpu_end != gpu_layers_env && *gpu_end == '\0' &&
+            gpu_layers >= -1 && gpu_layers <= 999) {
+            if (gpu_layers != 0) {
+                json_object_object_add(options, "num_gpu",
+                                       json_object_new_int((int)gpu_layers));
+            }
+        } else {
+            fprintf(stderr, "[R2 Vision] Ignoring invalid R2_OLLAMA_NUM_GPU value.\n");
+        }
+    }
+    json_object_object_add(root, "options", options);
     json_object_object_add(sys, "role", json_object_new_string("system"));
     json_object_object_add(sys, "content", json_object_new_string(system_prompt));
     json_object_object_add(user, "role", json_object_new_string("user"));
