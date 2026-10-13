@@ -1508,6 +1508,8 @@ char *r2_log_status_report(void)
 }
 
 /* ------------------------------------------------------------
+ * SEARCH / QUERY EVENTS
+ * ------------------------------------------------------------ */
 
 static char *query_events(const char *query, int limit)
 {
