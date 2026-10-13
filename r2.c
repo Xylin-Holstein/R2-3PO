@@ -2725,6 +2725,30 @@ static char *ollama_chat(
     json_object_object_add(root, "model", json_object_new_string(MODEL));
     json_object_object_add(root, "stream", json_object_new_boolean(0));
 
+    struct json_object *options = json_object_new_object();
+    if (!options) {
+        json_object_put(root);
+        free(limits);
+        free(include);
+        return NULL;
+    }
+    const char *gpu_layers_env = getenv("R2_OLLAMA_NUM_GPU");
+    if (gpu_layers_env && *gpu_layers_env) {
+        errno = 0;
+        char *gpu_end = NULL;
+        long gpu_layers = strtol(gpu_layers_env, &gpu_end, 10);
+        if (!errno && gpu_end != gpu_layers_env && *gpu_end == '\0' &&
+            gpu_layers >= -1 && gpu_layers <= 999) {
+            if (gpu_layers != 0) {
+                json_object_object_add(options, "num_gpu",
+                                       json_object_new_int((int)gpu_layers));
+            }
+        } else {
+            fprintf(stderr, "[R2] Ignoring invalid R2_OLLAMA_NUM_GPU value.\n");
+        }
+    }
+    json_object_object_add(root, "options", options);
+
     if (system_override) {
         struct json_object *override_message = json_object_new_object();
         struct json_object *bounded_override =
