@@ -13,6 +13,7 @@ on:
       - b2.5w2-system-prompt-budget-2026-10-11
       - consolidate/b2-5w2-latest-audit-2026-10-11
       - deploy/r2-hardware-ready-2026-10-11
+      - deploy/r2-model-output-network-isolation-2026-10-12
   pull_request:
     branches:
       - main
