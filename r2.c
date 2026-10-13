@@ -12,7 +12,7 @@
    FEATURE CONFIGURATION
    ============================================================ */
 
-#define MODEL "llama3"
+static char MODEL[256] = "gemma3:4b";
 
 #define THINK_INTERVAL 900
 
@@ -39,7 +39,7 @@
 #define MAX_MEMORY_KEYWORDS 16
 #define MIN_MEMORY_KEYWORD_LENGTH 3
 
-#define OLLAMA_URL "http://127.0.0.1:11434/api/chat"
+static char OLLAMA_URL[512] = "http://127.0.0.1:11434/api/chat";
 
 #define DB_PATH R2_DIARY_DATABASE
 #define ORIGINAL_CONVERSATION \
@@ -82,6 +82,12 @@
 #include "Ears.h"
 #include "Log.h"
 #include "Visual.h"
+#include "Reality.h"
+#include "Addiction.h"
+#include "Reward.h"
+#include "AlternateSelf.h"
+#include "R2Reply.h"
+#include "R2Sounds.h"
 
 
 /* ============================================================
@@ -5985,8 +5991,64 @@ int r2_conversation(void)
    CORE INITIALIZATION / SHUTDOWN
    ============================================================ */
 
+static int configure_ollama_endpoint(void)
+{
+    const char *base = getenv("R2_OLLAMA_BASE_URL");
+    if (!base || !*base) return 0;
+    char local[384];
+    size_t n = strlen(base);
+    while (n && base[n - 1] == '/') --n;
+    if (!n || n >= sizeof(local)) return -1;
+    memcpy(local, base, n);
+    local[n] = '\0';
+    if (strncmp(local, "http://127.0.0.1:", 17) != 0 &&
+        strncmp(local, "http://localhost:", 17) != 0) return -1;
+    if (strchr(local + 7, '/') || strchr(local, '@') ||
+        strchr(local, '?') || strchr(local, '#')) return -1;
+    int written = snprintf(OLLAMA_URL, sizeof(OLLAMA_URL), "%s/api/chat", local);
+    return written > 0 && (size_t)written < sizeof(OLLAMA_URL) ? 0 : -1;
+}
+
+static int configure_conversation_model(void)
+{
+    const char *requested = getenv("R2_MODEL");
+    if (!requested || !*requested) return 0;
+    size_t length = strlen(requested);
+    if (length >= sizeof(MODEL)) return -1;
+    for (const unsigned char *p = (const unsigned char *)requested; *p; ++p) {
+        if (!( (*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
+               (*p >= '0' && *p <= '9') || *p == ':' || *p == '_' ||
+               *p == '-' || *p == '.' || *p == '/')) return -1;
+    }
+    memcpy(MODEL, requested, length + 1);
+    return 0;
+}
+
+static int append_context_block(char **context, const char *heading, const char *extra)
+{
+    if (!context || !*context || !heading || !extra || !*extra) return 0;
+    size_t old_len = strlen(*context), heading_len = strlen(heading), extra_len = strlen(extra);
+    if (old_len > SIZE_MAX - heading_len - extra_len - 4) return -1;
+    size_t total = old_len + heading_len + extra_len + 4;
+    char *grown = realloc(*context, total);
+    if (!grown) return -1;
+    snprintf(grown + old_len, total - old_len, "%s%s%s",
+             old_len ? "\n\n" : "", heading, extra);
+    *context = grown;
+    return 0;
+}
+
 int r2_init(void)
 {
+    if (configure_conversation_model() != 0) {
+        fprintf(stderr, "[R2] Invalid R2_MODEL value; refusing to start.\n");
+        return -1;
+    }
+    if (configure_ollama_endpoint() != 0) {
+        fprintf(stderr, "[R2] R2_OLLAMA_BASE_URL must be a localhost HTTP endpoint.\n");
+        return -1;
+    }
+    r2_sounds_init();
     shutting_down = 0;
     watch_running = 0;
     startup_memory_loaded = 0;
@@ -6047,6 +6109,33 @@ int r2_init(void)
         sqlite3_close(db);
         db = NULL;
         die("could not initialize R2 Life Log");
+    }
+    /* Initialize the persistent behavior/reality systems on top of the latest
+       core and Life Log. Reality owns Addiction initialization and shutdown. */
+    if (r2_reward_init() != 0) {
+        r2_log_event(R2_LOG_ERROR, "reward_init_failed",
+                     "R2's reinforcement ledger could not initialize.",
+                     "Conversation remains available; reward learning is unavailable.",
+                     "r2_init");
+    }
+    if (r2_reality_init() != 0) {
+        r2_log_event(R2_LOG_ERROR, "reality_init_failed",
+                     "R2's persistent Reality engine could not initialize.",
+                     "Startup is stopped rather than silently disconnecting persistent world state.",
+                     "r2_init");
+        r2_reward_shutdown();
+        r2_log_shutdown();
+        r2_diary_shutdown();
+        diary_initialized = 0;
+        sqlite3_close(db);
+        db = NULL;
+        die("could not initialize R2 Reality");
+    }
+    if (r2_altself_init() != 0) {
+        r2_log_event(R2_LOG_ERROR, "alternate_self_init_failed",
+                     "R2's Alternate-Self Lab could not initialize.",
+                     "Hypothetical branches are unavailable; ordinary conversation remains available.",
+                     "r2_init");
     }
 
     if (r2_eyes_init(&eyes) != 0) {
@@ -6497,6 +6586,10 @@ void r2_shutdown(void)
     }
 
     r2_visual_shutdown();
+    r2_reality_shutdown();
+    r2_altself_shutdown();
+    r2_reward_shutdown();
+    r2_sounds_shutdown();
 
     if (r2_log_is_initialized()) {
         r2_log_session_end("normal shutdown");
