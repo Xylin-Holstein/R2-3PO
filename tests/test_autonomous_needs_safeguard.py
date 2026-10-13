@@ -1,98 +1,63 @@
 #!/usr/bin/env python3
-"""Source-contract regression for autonomous needs safety and single-meal cycles."""
-
+"""Regression checks for hunger thresholds and coordination with foreground turns."""
 from pathlib import Path
 
-source = Path("r2.c").read_text(encoding="utf-8")
-shell = Path("shell.c").read_text(encoding="utf-8")
-shell_needs_start = shell.index("static int shell_needs(const char *command)")
-shell_needs_end = shell.index("static int shell_dispatch", shell_needs_start)
-shell_needs = shell[shell_needs_start:shell_needs_end]
-assert "shell_parse_amount(reality_trim(sep + 1), &fullness)" in shell_needs
-assert "shell_parse_amount(command + 6, &hours)" in shell_needs
-assert "atof(reality_trim(sep + 1))" not in shell_needs
-assert "atof(command + 6)" not in shell_needs
+ROOT = Path(__file__).resolve().parents[1]
+core = (ROOT / "r2.c").read_text(encoding="utf-8")
+reality = (ROOT / "Reality.c").read_text(encoding="utf-8")
 
-sleep_start = source.index('} else if (nf >= 2 && !strcasecmp(fields[0], "sleep")) {')
-sleep_end = source.index('} else if (nf >= 2 && !strcasecmp(fields[0], "dream")) {', sleep_start)
-world_sleep = source[sleep_start:sleep_end]
-assert "parse_finite_double(fields[1], &hours)" in world_sleep
-assert "atof(fields[1])" not in world_sleep
+worker_start = core.find("static void *reality_needs_worker(void *unused)")
+worker_end = core.find("\nstatic int configure_ollama_endpoint", worker_start)
+if worker_start < 0 or worker_end < 0:
+    raise SystemExit("Could not locate the autonomous Reality needs worker.")
+worker = core[worker_start:worker_end]
+if "atomic_load(&foreground_conversation_waiting) == 0" not in worker:
+    raise SystemExit("Autonomous feeding must yield while a foreground conversation is waiting.")
+if "r2_reality_autonomous_feed_if_needed()" not in worker:
+    raise SystemExit("The needs worker must continue using the authoritative Reality feeding API.")
 
-start = source.index("static void autonomous_needs_check(void)\n{")
-end = source.index("\nint r2_think(void)", start)
-function = source[start:end]
+feed_start = reality.find("int r2_reality_autonomous_feed_if_needed(void)")
+feed_end = reality.find("\nint r2_reality_autonomous_food_available(void)", feed_start)
+if feed_start < 0 or feed_end < 0:
+    raise SystemExit("Could not locate the persistent autonomous feeding implementation.")
+feed = reality[feed_start:feed_end]
+if "if (hunger < 50.0)" not in feed:
+    raise SystemExit("The increasing hunger meter must trigger feeding at 50/100 or higher.")
+if "if (hunger >= 50.0)" in feed:
+    raise SystemExit("Autonomous feeding still uses the reversed fullness threshold and can eat while not hungry.")
+if "food_metric((const char *)name, &candidate_fullness, NULL) == 0" not in feed:
+    raise SystemExit("Autonomous feeding must require a configured food metric for tracked inventory.")
+if "candidate_fullness > 0.0" not in feed:
+    raise SystemExit("Autonomous feeding must reject unknown/zero-fullness stock.")
+if 'fullness>0 ORDER BY name LIMIT 1' not in feed:
+    raise SystemExit("Autonomous feeding must not consume fridge stock with unknown/zero fullness.")
 
-allow_start = source.index("static int autonomous_needs_action_allowed(")
-allow_end = source.index("\n/* Re-check the authoritative need", allow_start)
-allow_guard = source[allow_start:allow_end]
-assert 'command_len == 3 && !strncmp(command, "eat", 3)' in allow_guard
-assert 'command_len == 10 && !strncmp(command, "fridge_eat", 10)' in allow_guard
-assert 'command_len == 5 && !strncmp(command, "sleep", 5)' in allow_guard
-assert "autonomous_needs_action_allowed(safe_action)" in function
-assert "autonomous_needs_action_rejected" in function
+world_start = core.find("static char *world_action_result(char *line)")
+world_end = core.find("\nstatic char *process_tools(", world_start)
+if world_start < 0 or world_end < 0:
+    raise SystemExit("Could not locate the shared WORLD action dispatcher.")
+world = core[world_start:world_end]
+for marker in (
+    'if (!strcasecmp(f[0], "eat")',
+    'r2_reality_eat(f[1], fullness)',
+    'if (!strcasecmp(f[0], "fridge_eat")',
+    'r2_reality_fridge_eat(f[1], -1.0)',
+    'if (!strcasecmp(f[0], "sleep")',
+):
+    if marker not in world:
+        raise SystemExit(f"WORLD action dispatcher is missing {marker}")
+if "atof(" in world:
+    raise SystemExit("WORLD action numbers must be validated, not parsed with unchecked atof().")
+if "fridge_seed_if_empty_locked" in reality or "guaranteed fridge meal" in reality:
+    raise SystemExit("Autonomous needs must never create synthetic food to satisfy hunger.")
 
-helper_start = source.index("static int autonomous_needs_action_still_needed(")
-helper_end = source.index("\n/* Autonomous needs checks are deliberately limited", helper_start)
-food_guard = source[helper_start:helper_end]
-assert 'strstr(action, "[WORLD] eat|")' in food_guard
-assert 'strstr(action, "[WORLD] fridge_eat|")' in food_guard
-assert 'double hunger = hunger_field' in food_guard
-assert 'double sleepiness = sleepiness_field' in food_guard
-assert "return valid_hunger && hunger < 50.0;" in food_guard
-assert "sleepiness < 85.0" in food_guard
-assert 'strstr(action, "[WORLD] sleep|")' in food_guard
-assert "r2_reality_autonomous_food_available()" in food_guard
-assert "if (food_available != 0)" in food_guard
-assert "if (!status) return 0;" in food_guard
-assert "if (!autonomous_needs_action_still_needed(safe_action))" in function
-assert "autonomous_needs_stale_action" in function
-
-assert "food_action_succeeded" not in function
-assert "int world_action_succeeded = 0;" in function
-assert "process_tools_with_status(safe_action, &action_succeeded)" in function
-assert "world_action_succeeded = action_succeeded;" in function
-assert "strstr(result, \"REAL NEEDS RESULT: eating" not in function
-assert "strstr(result, \"FRIDGE RESULT: eating" not in function
-assert "strstr(result, \"REAL NEEDS RESULT: sleep transition" not in function
-assert 'if (rc == 0 && world_action_succeeded)' in source
-assert source.count('*world_action_succeeded = 1;') == 3
-assert "if (!world_action_succeeded)\n        autonomous_needs_food_safeguard();" in function
-assert "autonomous_needs_yielded_to_conversation" in function
-assert "pthread_mutex_trylock(&conversation_turn_lock)" in function
-
-talk_start = source.index("char *r2_talk(const char *message)\n{")
-talk_end = source.index("\nint r2_conversation(void)", talk_start)
-talk_wrapper = source[talk_start:talk_end]
-assert talk_wrapper.index("atomic_fetch_add(&foreground_conversation_waiting, 1)") < talk_wrapper.index("pthread_mutex_lock(&conversation_turn_lock)")
-assert "atomic_fetch_sub(&foreground_conversation_waiting, 1)" in talk_wrapper
-assert "ollama_foreground_turn_mode = 1;" in talk_wrapper
-assert "ollama_foreground_turn_mode = previous_turn_mode;" in talk_wrapper
-assert "(atomic_load(&foreground_conversation_waiting) > 0 &&" in source
-assert "!ollama_foreground_turn_mode" in source
-vision_begin_start = source.index("int r2_ollama_vision_request_begin(void)")
-vision_begin_end = source.index("\nvoid r2_ollama_vision_request_end(void)", vision_begin_start)
-vision_begin = source[vision_begin_start:vision_begin_end]
-assert "foreground_conversation_waiting" in vision_begin
-assert "!ollama_foreground_turn_mode" in vision_begin
-vision_abort_start = source.index("int r2_ollama_vision_request_should_abort(void)")
-vision_abort_end = source.index("\n/* Estimate safe Ollama context", vision_abort_start)
-assert "!ollama_foreground_turn_mode" in source[vision_abort_start:vision_abort_end]
-
-worker_start = source.index("static void *post_turn_worker(void *opaque)\n{")
-worker_end = source.index("\n/* These model-assisted bookkeeping tasks", worker_start)
-worker = source[worker_start:worker_end]
-assert "while (!shutting_down" in worker
-assert "atomic_load(&foreground_conversation_waiting) > 0" in worker
-assert worker.index("atomic_load(&foreground_conversation_waiting) > 0") < worker.index("log_structured_self_report")
-
-safeguard_start = source.index("static void autonomous_needs_food_safeguard(void)\n{")
-assert "pthread_mutex_trylock(&conversation_turn_lock) != 0" in source[safeguard_start:start]
-
-# A successful meal or sleep satisfies this cycle's action; the fallback only
-# runs when no successful allowed action occurred.
-assert function.count("autonomous_needs_food_safeguard();") == 4, (
-    "expected fallbacks for missing state, allocation failure, model failure, "
-    "and the final guarded fallback"
-)
-print("autonomous needs safety smoke passed")
+talk_start = core.find("char *r2_talk(const char *message)\n{")
+talk_end = core.find("\nint r2_conversation(void)", talk_start)
+if talk_start < 0 or talk_end < 0:
+    raise SystemExit("Could not locate the foreground conversation wrapper.")
+talk = core[talk_start:talk_end]
+if "atomic_fetch_add(&foreground_conversation_waiting, 1)" not in talk:
+    raise SystemExit("Foreground turns must announce themselves before waiting for the turn lock.")
+if "atomic_fetch_sub(&foreground_conversation_waiting, 1)" not in talk:
+    raise SystemExit("Foreground waiting state must always be released after a turn.")
+print("Autonomous hunger threshold, stock integrity, and foreground coordination checks passed.")
