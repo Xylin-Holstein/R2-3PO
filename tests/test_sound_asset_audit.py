@@ -48,6 +48,18 @@ class SoundAssetAuditTests(unittest.TestCase):
                      for p in root.iterdir()}
             self.assertEqual(before, after)
 
+    def test_conflicting_state_label_is_not_reported_as_generic_fallback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "R2_Beep_Sleepy_Default.mp3").write_bytes(b"fixture-not-a-real-mp3")
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                self.assertEqual(audit.audit_root(root), 0)
+            report = output.getvalue()
+            self.assertIn("State sleepy: exact=beep", report)
+            self.assertIn("State curious: no named match", report)
+            self.assertIn("State happy: no named match", report)
+
     def test_missing_directory_is_reported_without_creating_it(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "missing"
