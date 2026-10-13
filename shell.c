@@ -38,10 +38,18 @@
 #include <time.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <math.h>
+#include <limits.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <sys/stat.h>
+#include <pthread.h>
+#include <stdatomic.h>
 
 #include "shell.h"
 #include "r2.h"
 #include "Log.h"
+#include "Reality.h"
 
 
 /* ============================================================
@@ -64,6 +72,187 @@ static volatile sig_atomic_t shell_shutdown = 0;
 
 static int shell_running = 0;
 static int watch_running = 0;
+
+
+/* The GUI talks to this local socket; all writes still pass through Reality APIs. */
+static pthread_t tv_control_thread;
+static int tv_control_started = 0;
+static int tv_control_fd = -1;
+static atomic_int tv_control_stop = ATOMIC_VAR_INIT(0);
+static char tv_control_path[sizeof(((struct sockaddr_un *)0)->sun_path)];
+
+static void *tv_control_server(void *unused)
+{
+    (void)unused;
+    /* Keep a stable descriptor value while the main thread shuts the socket down. */
+    int server_fd = tv_control_fd;
+    while (!atomic_load(&tv_control_stop)) {
+        int client = accept(server_fd, NULL, NULL);
+        if (client < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+
+        char command[1200] = {0};
+        size_t used = 0;
+        while (used < sizeof(command) - 1) {
+            ssize_t got = recv(client, command + used, sizeof(command) - 1 - used, 0);
+            if (got <= 0) break;
+            used += (size_t)got;
+            if (memchr(command, '\n', used)) break;
+        }
+        command[used] = '\0';
+        ssize_t got = (ssize_t)used;
+        while (got > 0 && (command[got - 1] == '\n' || command[got - 1] == '\r'))
+            command[--got] = '\0';
+
+        const char *reply = "ERROR invalid command";
+        char *status = NULL;
+        if (got > 0 && !strcmp(command, "status")) {
+            status = r2_reality_tv_status();
+            reply = status ? status : "ERROR unable to read TV state";
+        } else if (!strcmp(command, "display opened")) {
+            reply = r2_reality_tv_display_event(1) == 0 ? "OK TV display-open event recorded" : "ERROR could not record TV display-open event";
+        } else if (!strcmp(command, "display closed")) {
+            reply = r2_reality_tv_display_event(0) == 0 ? "OK TV display-close event recorded" : "ERROR could not record TV display-close event";
+        } else if (!strcmp(command, "power on")) {
+            reply = r2_reality_tv_power(1) == 0 ? "OK powered on" : "ERROR power-on failed";
+        } else if (!strcmp(command, "power off")) {
+            reply = r2_reality_tv_power(0) == 0 ? "OK powered off" : "ERROR power-off failed";
+        } else if (!strncmp(command, "input ", 6)) {
+            char *end = NULL;
+            long n = strtol(command + 6, &end, 10);
+            if (end != command + 6 && *end == '\0' && n >= 1 && n <= 4)
+                reply = r2_reality_tv_select_input((int)n) == 0 ? "OK input selected" : "ERROR input selection failed";
+            else reply = "ERROR input must be 1..4";
+        } else if (!strncmp(command, "tune ", 5)) {
+            char *end = NULL;
+            long n = strtol(command + 5, &end, 10);
+            if (end != command + 5 && *end == '\0' && n >= 2 && n <= 13)
+                reply = r2_reality_tv_tune_rf((int)n) == 0 ? "OK RF channel tuned" : "ERROR RF tuning failed";
+            else reply = "ERROR RF channel must be 2..13";
+        } else if (!strncmp(command, "media ", 6)) {
+            char *payload = command + 6;
+            char *separator = strchr(payload, '|');
+            if (separator) {
+                *separator = '\0';
+                const char *path = separator + 1;
+                const char *allowed_actions[] = {
+                    "vcr_playback_started", "vcr_playback_paused",
+                    "vcr_playback_stopped", "vcr_playback_ended",
+                    "vcr_playback_error"
+                };
+                int allowed = 0;
+                for (size_t i = 0; i < sizeof(allowed_actions) / sizeof(allowed_actions[0]); ++i)
+                    if (!strcmp(payload, allowed_actions[i])) { allowed = 1; break; }
+                if (allowed && path[0] == '/' && *path &&
+                    !strchr(path, '\n') && !strchr(path, '\r') &&
+                    strlen(path) < 1100) {
+                    reply = r2_log_media_event(payload, "media", path,
+                        "Observed from the CRT built-in VCR's VLC player; this records renderer state, not proof of what a person watched.") >= 0
+                        ? "OK media event recorded" : "ERROR could not record media event";
+                } else {
+                    reply = "ERROR invalid media event";
+                }
+            } else {
+                reply = "ERROR invalid media event";
+            }
+        } else if (!strncmp(command, "vcr insert ", 11)) {
+            const char *path = command + 11;
+            reply = *path && r2_reality_tv_vcr_insert(path) == 0
+                ? "OK VCR tape inserted" : "ERROR unsupported or unreadable media file";
+        } else if (!strcmp(command, "vcr play")) {
+            reply = r2_reality_tv_vcr_transport("play") == 0 ? "OK VCR playing" : "ERROR no tape inserted";
+        } else if (!strcmp(command, "vcr pause")) {
+            reply = r2_reality_tv_vcr_transport("pause") == 0 ? "OK VCR paused" : "ERROR no tape inserted";
+        } else if (!strcmp(command, "vcr stop")) {
+            reply = r2_reality_tv_vcr_transport("stop") == 0 ? "OK VCR stopped" : "ERROR no tape inserted";
+        } else if (!strcmp(command, "vcr eject")) {
+            reply = r2_reality_tv_vcr_transport("eject") == 0 ? "OK VCR tape ejected" : "ERROR no tape inserted";
+        } else if (!strncmp(command, "vcr position ", 13)) {
+            char *end = NULL;
+            double seconds = strtod(command + 13, &end);
+            if (end != command + 13 && *end == '\0' && isfinite(seconds) && seconds >= 0.0)
+                reply = r2_reality_tv_vcr_set_position(seconds) == 0 ? "OK VCR position saved" : "ERROR no inserted tape";
+            else reply = "ERROR invalid VCR position";
+        }
+
+        size_t reply_len = strlen(reply);
+        size_t reply_sent = 0;
+        while (reply_sent < reply_len) {
+            ssize_t sent = send(client, reply + reply_sent,
+                                reply_len - reply_sent, MSG_NOSIGNAL);
+            if (sent < 0 && errno == EINTR) continue;
+            if (sent <= 0) break;
+            reply_sent += (size_t)sent;
+        }
+        free(status);
+        close(client);
+    }
+    return NULL;
+}
+
+static int tv_control_start(void)
+{
+    if (tv_control_started) return 0;
+    const char *configured_path = getenv("R2_TV_SOCKET");
+    const char *default_path = "/home/x/R2_Home/R2/tv-control.sock";
+    int n = snprintf(tv_control_path, sizeof(tv_control_path), "%s",
+                     configured_path && *configured_path ? configured_path : default_path);
+    if (n < 0 || (size_t)n >= sizeof(tv_control_path)) return -1;
+
+    struct stat st;
+    if (lstat(tv_control_path, &st) == 0) {
+        if (!S_ISSOCK(st.st_mode)) return -1;
+        int probe = socket(AF_UNIX, SOCK_STREAM, 0);
+        if (probe < 0) return -1;
+        struct sockaddr_un existing;
+        memset(&existing, 0, sizeof(existing));
+        existing.sun_family = AF_UNIX;
+        snprintf(existing.sun_path, sizeof(existing.sun_path), "%s", tv_control_path);
+        int connected = connect(probe, (struct sockaddr *)&existing, sizeof(existing));
+        int connect_error = errno;
+        close(probe);
+        if (connected == 0 || connect_error != ECONNREFUSED) return -1;
+        if (unlink(tv_control_path) != 0) return -1; /* stale socket only */
+    } else if (errno != ENOENT) return -1;
+
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+    struct sockaddr_un address;
+    memset(&address, 0, sizeof(address));
+    address.sun_family = AF_UNIX;
+    snprintf(address.sun_path, sizeof(address.sun_path), "%s", tv_control_path);
+    if (bind(fd, (struct sockaddr *)&address, sizeof(address)) != 0 ||
+        chmod(tv_control_path, S_IRUSR | S_IWUSR) != 0 || listen(fd, 4) != 0) {
+        close(fd);
+        unlink(tv_control_path);
+        return -1;
+    }
+    tv_control_fd = fd;
+    atomic_store(&tv_control_stop, 0);
+    if (pthread_create(&tv_control_thread, NULL, tv_control_server, NULL) != 0) {
+        close(fd);
+        tv_control_fd = -1;
+        unlink(tv_control_path);
+        return -1;
+    }
+    tv_control_started = 1;
+    return 0;
+}
+
+static void tv_control_stop_server(void)
+{
+    if (!tv_control_started) return;
+    atomic_store(&tv_control_stop, 1);
+    shutdown(tv_control_fd, SHUT_RDWR);
+    close(tv_control_fd);
+    tv_control_fd = -1;
+    pthread_join(tv_control_thread, NULL);
+    unlink(tv_control_path);
+    tv_control_started = 0;
+}
+
 
 
 /* ============================================================
