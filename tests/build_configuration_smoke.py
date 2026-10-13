@@ -69,7 +69,15 @@ require(
     and "r2_food_experiences" in reality
     and "r2_food_preferences" in reality
     and "r2_money_account" in reality
+    and "r2_tv_state" in reality
+    and "r2_tv_vcr_state" in reality
     and "legacy_reality_migrated" in reality,
-    "legacy Reality migration preserves item memory, food history/preferences, money, and self state",
+    "legacy Reality migration preserves item memory, food history/preferences, money, TV, VCR, and self state",
+)
+require(
+    "fridge_seed_if_empty_locked" not in reality
+    and "guaranteed fridge meal" not in reality
+    and 'name=\\"burger\\" fullness=\\"100\\"' not in reality,
+    "an empty fridge stays empty; food and nutrition are never synthesized as a hardcoded burger",
 )
 print("R2 build configuration smoke test passed.")
