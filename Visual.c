@@ -70,6 +70,13 @@ static void publish_focus_region(json_object *focus)
         (void)unlink(path);
         return;
     }
+    if ((!json_object_is_type(xv, json_type_double) && !json_object_is_type(xv, json_type_int)) ||
+        (!json_object_is_type(yv, json_type_double) && !json_object_is_type(yv, json_type_int)) ||
+        (!json_object_is_type(wv, json_type_double) && !json_object_is_type(wv, json_type_int)) ||
+        (!json_object_is_type(hv, json_type_double) && !json_object_is_type(hv, json_type_int))) {
+        (void)unlink(path);
+        return;
+    }
     double x = json_object_get_double(xv), y = json_object_get_double(yv);
     double w = json_object_get_double(wv), h = json_object_get_double(hv);
     if (!isfinite(x) || !isfinite(y) || !isfinite(w) || !isfinite(h) ||
