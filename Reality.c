@@ -1435,7 +1435,7 @@ char *r2_reality_context(void)
     if(out)snprintf(out,n,
         "PERSISTENT REALITY CONTEXT (authoritative database state; do not invent changes):\n"
         "%s\n%s\n%s\n%s\n%s\nRECENT LIFE LOG EVIDENCE (events and observations; not automatically current):\n%s\nRECENT VISUAL EXPERIENCES (actual stored observations; not necessarily current):\n%s\nSELF-CONTINUITY FACTS:\n%s\nCOLLECTION MEMORIES (precision intentionally fades; not current inventory):\n%s\nLEARNED FOOD/INGREDIENT PREFERENCES (subjective scores):\n%s\nRECENT RATED FOOD EXPERIENCES:\n%s\nAVAILABLE FOOD METRICS:\n%s\n"
-        "WORLD ACTIONS: Put one action on its own line. Use [WORLD] look to inspect the room; "
+        "WORLD ACTIONS: Put one action on its own line. Hunger rises over time; when hunger reaches 50/100 or higher, consider eating one metric-backed tracked item if one is available. If no accessible tracked food is available but the fridge lists stock with configured fullness above zero, use fridge_eat. The C layer uses XML or stored nutrition metrics and ignores caller-invented values. Use [WORLD] look to inspect the room; "
         "[WORLD] add|name|description|container|quantity to collect/add a stack (adds to an existing stack and records a collection memory); "
         "[WORLD] move|name|container to relocate an existing item without counting a new collection; [WORLD] remove|name to remove it; "
         "[WORLD] eat|EXACT_ITEM_NAME|auto to consume one tracked food item using its configured XML metric; "
