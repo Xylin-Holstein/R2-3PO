@@ -17,7 +17,7 @@ import subprocess
 import sys
 
 
-def service_model_root() -> Path | None:
+def service_model_root(model: str) -> Path | None:
     env_text = ""
     service_user = "ollama"
     try:
@@ -37,7 +37,12 @@ def service_model_root() -> Path | None:
         if item.startswith("OLLAMA_MODELS="):
             value = item.split("=", 1)[1].strip().strip('"')
             if value:
-                return Path(value)
+                configured = Path(value)
+                try:
+                    if (configured / model_manifest_relative(model)).is_file():
+                        return configured
+                except ValueError:
+                    pass
     try:
         home = Path(pwd.getpwnam(service_user).pw_dir)
     except KeyError:
@@ -48,7 +53,7 @@ def service_model_root() -> Path | None:
         Path("/var/lib/ollama/.ollama/models"),
         Path("/home/x/.ollama/models"),
     ]
-    return next((p for p in candidates if p.is_dir()), None)
+    return next((p for p in candidates if p.is_dir() and (p / model_manifest_relative(model)).is_file()), None)
 
 
 def model_manifest_relative(model: str) -> Path:
@@ -114,7 +119,14 @@ def copy_model(source_root: Path, destination_root: Path, model: str, owner: str
     os.replace(tmp_manifest, target_manifest)
     if uid is not None:
         os.chown(target_manifest, uid, gid)
-    for directory in [destination_root, destination_root / "blobs", target_manifest.parent]:
+    manifest_parents = []
+    parent = target_manifest.parent
+    while parent == destination_root or destination_root in parent.parents:
+        manifest_parents.append(parent)
+        if parent == destination_root:
+            break
+        parent = parent.parent
+    for directory in [destination_root, destination_root / "blobs", *manifest_parents]:
         if uid is not None:
             os.chown(directory, uid, gid)
         os.chmod(directory, 0o755)
@@ -128,7 +140,7 @@ def main() -> int:
     parser.add_argument("--destination-root", type=Path, default=Path("/home/x/R2_Home/.ollama/models"))
     parser.add_argument("--owner", default="r2")
     args = parser.parse_args()
-    source = args.source_root or service_model_root()
+    source = args.source_root or service_model_root(args.model)
     if source is None or not source.is_dir():
         print("ERROR: could not locate the existing local Ollama model store. Use --source-root.", file=sys.stderr)
         return 1
