@@ -36,6 +36,16 @@ if 'fridge_seed_if_empty_locked' in reality or 'guaranteed fridge meal' in reali
     raise SystemExit("Reality must not fabricate food when the fridge is empty")
 if 'fridge_ensure_column("fullness", "REAL NOT NULL DEFAULT 0")' not in reality:
     raise SystemExit("Legacy fridge databases must migrate missing nutrition columns without inventing metrics")
+for migration in (
+    "INSERT OR IGNORE INTO main.r2_reality_item_memory",
+    "INSERT OR IGNORE INTO main.r2_food_experiences",
+    "INSERT OR IGNORE INTO main.r2_food_preferences",
+    "INSERT OR IGNORE INTO main.r2_food_ingredient_preferences",
+    "INSERT OR IGNORE INTO main.r2_food_experience_meta",
+    "UPDATE main.r2_money_account SET",
+):
+    if migration not in reality:
+        raise SystemExit(f"Legacy Reality migration omits {migration}")
 if 'r2_addiction_report' not in addiction or 'r2_addiction_init' not in addiction:
     raise SystemExit("Addiction persistence/report API is missing")
 if 'r2_reward_context' not in reward or 'r2_reward_init' not in reward:
