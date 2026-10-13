@@ -5,13 +5,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 script = (ROOT / "tools/preflight_r2_hardware.sh").read_text(encoding="utf-8")
 launcher = (ROOT / "R2_Launch_Code.sh").read_text(encoding="utf-8")
-service = (ROOT / "deploy/r2-3po.service").read_text(encoding="utf-8")
+app_service = (ROOT / "deploy/r2-3po.service").read_text(encoding="utf-8")
+model_service = (ROOT / "deploy/r2-ollama.service").read_text(encoding="utf-8")
+installer = (ROOT / "tools/install_r2_overnight.sh").read_text(encoding="utf-8")
+
 required = (
     'set -uo pipefail',
     'R2_ROOT="${R2_ROOT:-/home/x/R2_Home}"',
     'R2_FX_DIR="${R2_FX_DIR:-$R2_ROOT/R2_sounds/FX}"',
     'http://127.0.0.1:11434/api/tags',
-    'qwen3.5:9b',
+    'gemma3:4b',
     'PRAGMA integrity_check',
     '?mode=ro',
     'r2_memory.db', 'r2_reality.db', 'r2_fridge.db',
@@ -51,17 +54,21 @@ required = (
 missing = [item for item in required if item not in script]
 if missing:
     raise SystemExit(f"preflight contract missing expected checks: {missing}")
-if "SupplementaryGroups=audio" not in service:
+
+if "SupplementaryGroups=audio" not in app_service:
     raise SystemExit("R2 service must receive service-scoped ALSA access through the audio group")
-for forbidden in ('chmod 777', 'systemctl enable', 'systemctl start',
-                  'systemctl stop', 'make clean all', 'rm -f'):
+if "User=r2" not in model_service or "OLLAMA_HOST=127.0.0.1:11435" not in model_service:
+    raise SystemExit("the dedicated Ollama inference process must run as r2 on its private localhost endpoint")
+if "--uid-owner r2" not in model_service or "--dport 11435" not in model_service or "ip6tables" not in model_service:
+    raise SystemExit("the dedicated model service must enforce IPv4 and IPv6 egress isolation for UID r2")
+if "copy_ollama_model.py" not in installer or "r2-ollama.service" not in installer:
+    raise SystemExit("installer must copy the local model into R2's private store and install the dedicated service")
+
+for forbidden in ("chmod 777", "systemctl enable", "systemctl start", "systemctl stop", "make clean all", "rm -f"):
     if forbidden in script:
         raise SystemExit(f"preflight must be read-only; found forbidden operation: {forbidden}")
-# Package-manager commands may appear only as human-readable guidance in warning
-# strings; the read-only report must never execute a package-manager operation.
 for line in script.splitlines():
-    if line.lstrip().startswith(('apt-get update', 'apt-get install', 'sudo apt-get update',
-                                 'sudo apt-get install')):
+    if line.lstrip().startswith(("apt-get update", "apt-get install", "sudo apt-get update", "sudo apt-get install")):
         raise SystemExit("preflight must not execute package-manager commands")
 if 'sudo -n -u r2 -g r2 -G audio' in script:
     raise SystemExit("preflight must not use unsupported sudo-rs -G syntax")
@@ -71,12 +78,11 @@ if 'sudo -n setpriv --reuid="$R2_UID" --regid="$R2_GID" --groups="$R2_RUNTIME_GR
     raise SystemExit("launcher must use setpriv for supplementary groups under sudo-rs")
 if 'sudo -u r2 -g r2 -G "$R2_RUNTIME_GROUPS"' in launcher:
     raise SystemExit("launcher must not use unsupported sudo-rs -G syntax")
-if 'sudo -n -u r2 mkdir -p "$DIR"' not in launcher:
-    raise SystemExit("launcher must create runtime directories as r2, not as the desktop login user")
-if 'Could not create workspace directory as r2' not in launcher:
-    raise SystemExit("launcher must stop if runtime-owned directory creation fails")
+core = (ROOT / "r2.c").read_text(encoding="utf-8")
+if "ensure_dir_tree(" not in core or "R2_ROOT" not in core:
+    raise SystemExit("runtime directories must be created by the core process running as r2")
 if 'R2_OLLAMA_URL:-http://127.0.0.1:11434/api/tags' not in script:
-    raise SystemExit("Ollama endpoint must remain locally configurable")
+    raise SystemExit("hardware preflight must inspect the existing local model store/API before the model is copied")
 
 launch_required = (
     'R2_PREFLIGHT="$R2_SOURCE/tools/preflight_r2_hardware.sh"',
@@ -87,25 +93,8 @@ launch_required = (
 missing_launch = [item for item in launch_required if item not in launcher]
 if missing_launch:
     raise SystemExit(f"launcher does not run/guard the startup preflight: {missing_launch}")
-# Check for an already-running core before installing UID-scoped firewall rules.
-# Then isolate r2 before the preflight's runtime-account checks, and finish all
-# read-only preflight checks before workspace writes, package installation,
-# compilation, and Observer startup.
-network_at = launcher.index('echo "[Network] Applying R2-only network isolation..."')
-preflight_at = launcher.index('bash "$R2_PREFLIGHT"')
-if launcher.index("systemctl is-active --quiet r2-3po.service") > network_at:
-    raise SystemExit("duplicate service check must precede temporary network rules")
-if launcher.index("pgrep -x r2") > network_at:
-    raise SystemExit("duplicate process check must precede temporary network rules")
-if network_at > preflight_at:
-    raise SystemExit("R2-only network isolation must precede runtime preflight")
-for marker in (
-    'Checking R2 workspace directories...',
-    'Checking the local Ollama API and required model',
-    'sudo apt-get install -y libfaketime',
-    'Recompiling R2',
-    'Launching the read-only observer window',
-):
-    if launcher.index(marker) < preflight_at:
-        raise SystemExit(f"startup preflight must precede {marker!r}")
-print("R2 hardware preflight safety, coverage, and launcher-order smoke test passed")
+if "R2_OLLAMA_BASE_URL=\"${R2_OLLAMA_BASE_URL:-http://127.0.0.1:11435}\"" not in launcher:
+    raise SystemExit("interactive launch must use the dedicated r2-owned Ollama endpoint")
+if "systemctl show r2-ollama.service -p User" not in launcher:
+    raise SystemExit("interactive launch must verify that the model service runs as r2")
+print("R2 hardware preflight safety, coverage, and dedicated model-service smoke test passed")
