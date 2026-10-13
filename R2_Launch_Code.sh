@@ -394,6 +394,13 @@ if ! sudo -u r2 env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
     exit 1
 fi
 
+# Keep background diagnostics out of the user-facing conversation terminal.
+if ! sudo -u r2 mkdir -p "$R2_ROOT/R2_Log" ||
+   ! sudo -u r2 test -w "$R2_ROOT/R2_Log"; then
+    echo "ERROR: r2 cannot write the canonical diagnostic directory: $R2_ROOT/R2_Log"
+    exit 1
+fi
+
 # ------------------------------------------------------------
 # START R2 WITH ITS PRIVATE CLOCK
 # ------------------------------------------------------------
@@ -405,13 +412,14 @@ sudo -u r2 \
     R2_VISION_MODEL="$R2_VISION_MODEL" \
     R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
     R2_FX_DIR="$R2_FX_DIR" \
+    R2_ROOT="$R2_ROOT" \
+    R2_LOG_DIR="$R2_ROOT/R2_Log" \
     DISPLAY="${DISPLAY:-}" \
     XAUTHORITY="${XAUTHORITY:-}" \
     LD_PRELOAD="$FAKETIME_LIB" \
     FAKETIME="${FAKETIME_OFFSET}" \
     FAKETIME_DONT_RESET=1 \
-    R2_VISION_MODEL="${R2_VISION_MODEL:-qwen2.5vl:3b}" \
-    "$R2_EXEC"
+    sh -c 'exec "$@" 2>>"$R2_LOG_DIR/Debug.txt"' _ "$R2_EXEC"
 
 status=$?
 
