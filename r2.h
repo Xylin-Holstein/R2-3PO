@@ -1,6 +1,8 @@
 #ifndef R2_H
 #define R2_H
 
+#include <stddef.h>
+
 /*
  * ============================================================
  * R2-3PO CORE PUBLIC INTERFACE
