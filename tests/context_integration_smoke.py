@@ -61,6 +61,7 @@ for boundary in (
     "Imagined sensory details are predictions, not observations.",
     "Only a real experience or explicit user feedback may update an experiential preference.",
     "[ALTERNATE_CREATE]",
+    "[IMAGINE] request [END IMAGINE]",
 ):
     if boundary not in core:
         raise SystemExit(f"Counterfactual reasoning boundary is missing: {boundary}")
@@ -78,6 +79,12 @@ if "ORDER BY t.updated_at DESC LIMIT 17" not in addiction or "if (rows >= 16)" n
     raise SystemExit("Addiction context must remain bounded for long-running prompt stability.")
 if "Additional repeated-interest records omitted from chat context" not in addiction:
     raise SystemExit("Bounded addiction context must disclose omitted history without deleting it.")
+
+for source in ("r2_imagination_init()", "r2_imagination_shutdown()", "r2_model_generate", 'extract_marker(reply, "[IMAGINE]"'):
+    if source not in core:
+        raise SystemExit(f"Imagination model/tool lifecycle is disconnected: {source}")
+if 'r2_model_generate(system, prompt, 700)' not in (ROOT / "Imagination.c").read_text(encoding="utf-8"):
+    raise SystemExit("Imagination must use the shared configured model rather than a separate model client.")
 
 print("shared memory/reality/reward/addiction context wiring smoke passed")
 
