@@ -1340,6 +1340,21 @@ static int shell_dispatch(char *input)
    SHELL LOOP
    ============================================================ */
 
+static void shell_wait_for_service_signal(void)
+{
+    sigset_t service_signals, original_mask, wait_mask;
+    sigemptyset(&service_signals);
+    sigaddset(&service_signals, SIGINT);
+    sigaddset(&service_signals, SIGTERM);
+    if (sigprocmask(SIG_BLOCK, &service_signals, &original_mask) != 0) return;
+    wait_mask = original_mask;
+    sigdelset(&wait_mask, SIGINT);
+    sigdelset(&wait_mask, SIGTERM);
+    while (!shell_shutdown && !r2_is_shutting_down())
+        (void)sigsuspend(&wait_mask);
+    (void)sigprocmask(SIG_SETMASK, &original_mask, NULL);
+}
+
 int r2_shell_run(void)
 {
     char *line = NULL;
@@ -1347,6 +1362,9 @@ int r2_shell_run(void)
 
     shell_shutdown = 0;
     shell_running = 1;
+    const char *service_mode_value = getenv("R2_SERVICE_MODE");
+    int service_mode = service_mode_value && !strcmp(service_mode_value, "1");
+    if (service_mode) setvbuf(stdout, NULL, _IOLBF, 0);
 
     signal(
         SIGINT,
@@ -1384,13 +1402,16 @@ int r2_shell_run(void)
                 continue;
             }
 
-            /*
-             * EOF (Ctrl-D).
-             */
-            printf(
-                "\n[R2 Shell] End of input.\n"
-            );
+            /* A systemd service has no interactive stdin. Keep its workers
+               alive until SIGINT/SIGTERM instead of treating service EOF as
+               an instruction to shut down. Signals are blocked before the
+               condition check, so a stop signal cannot be lost in the wait. */
+            if (service_mode) {
+                shell_wait_for_service_signal();
+                break;
+            }
 
+            printf("\n[R2 Shell] End of input.\n");
             break;
         }
 
