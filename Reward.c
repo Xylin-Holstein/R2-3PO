@@ -430,6 +430,75 @@ int r2_reward_reconnect_history(int limit)
     return linked;
 }
 
+int r2_reward_apply_once(const char *target, const char *source, int points,
+                         const char *reason, int voluntary_choice)
+{
+    if (!valid_text(target, REWARD_TARGET_MAX) ||
+        !valid_text(source, 128) || !valid_text(reason, REWARD_REASON_MAX) ||
+        points == 0 || points < -7 || points > 5)
+        return -1;
+
+    pthread_mutex_lock(&reward_lock);
+    if (ensure_db_locked() != 0 ||
+        sqlite3_exec(reward_db,
+            "CREATE TABLE IF NOT EXISTS reward_once_keys ("
+            "target TEXT NOT NULL, source TEXT NOT NULL, created_at INTEGER NOT NULL,"
+            "PRIMARY KEY(target,source));",
+            NULL, NULL, NULL) != SQLITE_OK) {
+        pthread_mutex_unlock(&reward_lock);
+        return -1;
+    }
+
+    int rc = sqlite3_exec(reward_db, "BEGIN IMMEDIATE;", NULL, NULL, NULL);
+    sqlite3_stmt *st = NULL;
+    int inserted = 0;
+    if (rc == SQLITE_OK) {
+        rc = sqlite3_prepare_v2(reward_db,
+            "INSERT OR IGNORE INTO reward_once_keys(target,source,created_at) VALUES(?,?,?);",
+            -1, &st, NULL);
+        if (rc == SQLITE_OK) {
+            sqlite3_bind_text(st, 1, target, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(st, 2, source, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int64(st, 3, (sqlite3_int64)time(NULL));
+            rc = sqlite3_step(st);
+            if (rc == SQLITE_DONE)
+                inserted = sqlite3_changes(reward_db) > 0;
+        }
+        if (st) sqlite3_finalize(st);
+        st = NULL;
+        if (rc == SQLITE_DONE) {
+            rc = sqlite3_exec(reward_db, "COMMIT;", NULL, NULL, NULL);
+            if (rc != SQLITE_OK)
+                (void)sqlite3_exec(reward_db, "ROLLBACK;", NULL, NULL, NULL);
+        } else {
+            (void)sqlite3_exec(reward_db, "ROLLBACK;", NULL, NULL, NULL);
+        }
+    }
+    pthread_mutex_unlock(&reward_lock);
+
+    if (rc != SQLITE_OK) return -1;
+    if (!inserted) return 1;
+
+    int applied = r2_reward_apply(target, source, points, reason, voluntary_choice);
+    if (applied == 0) return 0;
+
+    /* Allow a later retry if the reward row itself could not be committed. */
+    pthread_mutex_lock(&reward_lock);
+    if (reward_db) {
+        sqlite3_stmt *cleanup = NULL;
+        if (sqlite3_prepare_v2(reward_db,
+                "DELETE FROM reward_once_keys WHERE target=? AND source=?;",
+                -1, &cleanup, NULL) == SQLITE_OK) {
+            sqlite3_bind_text(cleanup, 1, target, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(cleanup, 2, source, -1, SQLITE_TRANSIENT);
+            (void)sqlite3_step(cleanup);
+        }
+        if (cleanup) sqlite3_finalize(cleanup);
+    }
+    pthread_mutex_unlock(&reward_lock);
+    return -1;
+}
+
 int r2_reward_current_modifier(const char *target)
 {
     sqlite3_stmt *st = NULL;
