@@ -33,12 +33,12 @@ if [[ "$(id -un)" != "r2" ]]; then
   SCRIPT_PATH="$(readlink -f "$0")"
   DROP=(setpriv --reuid="$R2_UID" --regid="$R2_GID" --groups="$R2_RUNTIME_GROUPS" --)
   if [[ "$EUID" -eq 0 ]]; then
-    "${DROP[@]}" env HOME="$R2_HOME_DIR" USER=r2 LOGNAME=r2 \
+    "${DROP[@]}" env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
       R2_PREFLIGHT_AS_RUNTIME=1 R2_ROOT="$R2_ROOT" R2_SOURCE="$R2_SOURCE" \
       R2_EXEC="$R2_EXEC" R2_FX_DIR="$R2_FX_DIR" R2_OLLAMA_URL="$OLLAMA_URL" \
       bash "$SCRIPT_PATH"
   else
-    sudo -n "${DROP[@]}" env HOME="$R2_HOME_DIR" USER=r2 LOGNAME=r2 \
+    sudo -n "${DROP[@]}" env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
       R2_PREFLIGHT_AS_RUNTIME=1 R2_ROOT="$R2_ROOT" R2_SOURCE="$R2_SOURCE" \
       R2_EXEC="$R2_EXEC" R2_FX_DIR="$R2_FX_DIR" R2_OLLAMA_URL="$OLLAMA_URL" \
       bash "$SCRIPT_PATH"
