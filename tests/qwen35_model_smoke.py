@@ -36,5 +36,5 @@ assert 'legacy_table_exists' in reality and 'r2_reality_item_memory' in reality
 assert 'r2_food_experiences' in reality and 'r2_food_preferences' in reality and 'r2_money_account' in reality
 assert 'guaranteed fridge meal' not in reality
 assert 'fridge_seed_if_empty_locked' not in reality
-assert 'private reasoning' in reply.lower()
+assert '<think>' in reply.lower() and 'r2_reply_sanitize' in core
 print("Unified Gemma conversation, vision, Reality, and reply contract checks passed.")
