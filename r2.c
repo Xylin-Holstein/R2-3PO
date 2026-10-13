@@ -2709,6 +2709,8 @@ static char *ollama_chat_limited(
         &b
     );
 
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 30L);
+
     curl_easy_setopt(
         curl,
         CURLOPT_TIMEOUT,
