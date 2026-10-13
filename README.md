@@ -26,6 +26,7 @@ The resulting executable is `./r2`. To remove it, run `make clean`.
 ## Ollama model: conversation and vision
 
 R2's default conversation model and visual-perception model are both `qwen3.5:9b`.
+Foreground answers and their corrective retry use Qwen 3.5's thinking mode with its recommended general-task sampler (`temperature=1.0`, `top_p=0.95`, `top_k=20`, `min_p=0`, `presence_penalty=1.5`, `repeat_penalty=1.0`). Vision and structured/background helper calls stay in non-thinking mode with the general-task instruct sampler (`temperature=0.7`, `top_p=0.8`) so their compact structured outputs do not spend tokens on a separate reasoning channel. The user-facing conversation reads only the final `message.content` field; private `message.thinking` is not shown.
 Install the model locally before launching R2:
 
 ```sh

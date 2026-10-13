@@ -3432,12 +3432,16 @@ static char *ollama_chat_with_limit(
         json_object_object_add(options, "num_predict", json_object_new_int(num_predict));
 
         /*
-         * Qwen3.5's official non-thinking/general-task sampler settings.
-         * Set these explicitly instead of inheriting an Ollama Modelfile's
-         * defaults, so R2's conversational behavior is reproducible.
+         * Qwen3.5 uses different recommended samplers for thinking and
+         * non-thinking requests. Foreground answers use the official general
+         * thinking preset; vision/planner/helper calls keep the non-thinking
+         * preset. Set both explicitly so the model's Modelfile cannot silently
+         * override the intended mode.
          */
-        json_object_object_add(options, "temperature", json_object_new_double(0.7));
-        json_object_object_add(options, "top_p", json_object_new_double(0.8));
+        double temperature = allow_reasoning ? 1.0 : 0.7;
+        double top_p = allow_reasoning ? 0.95 : 0.8;
+        json_object_object_add(options, "temperature", json_object_new_double(temperature));
+        json_object_object_add(options, "top_p", json_object_new_double(top_p));
         json_object_object_add(options, "top_k", json_object_new_int(20));
         json_object_object_add(options, "min_p", json_object_new_double(0.0));
         json_object_object_add(options, "presence_penalty", json_object_new_double(1.5));
