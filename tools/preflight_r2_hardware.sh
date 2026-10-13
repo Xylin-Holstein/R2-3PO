@@ -33,12 +33,12 @@ if [[ "$(id -un)" != "r2" ]]; then
   SCRIPT_PATH="$(readlink -f "$0")"
   DROP=(setpriv --reuid="$R2_UID" --regid="$R2_GID" --groups="$R2_RUNTIME_GROUPS" --)
   if [[ "$EUID" -eq 0 ]]; then
-    "${DROP[@]}" env HOME="$R2_HOME_DIR" USER=r2 LOGNAME=r2 \
+    "${DROP[@]}" env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
       R2_PREFLIGHT_AS_RUNTIME=1 R2_ROOT="$R2_ROOT" R2_SOURCE="$R2_SOURCE" \
       R2_EXEC="$R2_EXEC" R2_FX_DIR="$R2_FX_DIR" R2_OLLAMA_URL="$OLLAMA_URL" \
       bash "$SCRIPT_PATH"
   else
-    sudo -n "${DROP[@]}" env HOME="$R2_HOME_DIR" USER=r2 LOGNAME=r2 \
+    sudo -n "${DROP[@]}" env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
       R2_PREFLIGHT_AS_RUNTIME=1 R2_ROOT="$R2_ROOT" R2_SOURCE="$R2_SOURCE" \
       R2_EXEC="$R2_EXEC" R2_FX_DIR="$R2_FX_DIR" R2_OLLAMA_URL="$OLLAMA_URL" \
       bash "$SCRIPT_PATH"
@@ -94,7 +94,7 @@ else printf 'GPU: no NVIDIA runtime detected; CPU inference may still work.\n'; 
 
 section "Required files and build tools"
 # These commands are used directly by the interactive launcher or overnight installer.
-for tool in bash make gcc curl python3 sudo setpriv pgrep date find grep cmp; do
+for tool in bash make gcc curl python3 sudo setpriv pgrep date find grep cmp iptables ip6tables; do
   if have "$tool"; then pass "$tool installed"; else fail "$tool missing"; fi
 done
 if have xhost; then pass "xhost available for optional Observer GUI access"; else warn "xhost missing; Observer may not be able to grant the r2 account X display access."; fi
@@ -194,7 +194,7 @@ if have sudo && id r2 >/dev/null 2>&1 && [[ -d "$R2_FX_DIR" ]]; then
   else warn "could not verify FX-directory access for r2 (sudo may require a password)."; fi
 fi
 
-section "Ollama and unified Gemma model"
+section "Ollama and unified Qwen 3.5 model"
 if TAGS="$(curl --silent --show-error --fail --max-time 4 "$OLLAMA_URL" 2>/dev/null)"; then
   if printf '%s' "$TAGS" | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if any(m.get("name") == "qwen3.5:9b" or m.get("name","").startswith("qwen3.5:9b-") for m in d.get("models",[])) else 1)' >/dev/null 2>&1; then
     pass "local Ollama API responds and qwen3.5:9b is installed"

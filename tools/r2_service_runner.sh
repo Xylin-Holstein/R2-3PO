@@ -8,6 +8,12 @@ R2_EXEC="${R2_EXEC:-$R2_ROOT/r2}"
 R2_FX_DIR="${R2_FX_DIR:-$R2_ROOT/R2_sounds/FX}"
 OLLAMA_TAGS_URL="http://127.0.0.1:11434/api/tags"
 
+# Keep the runtime account's home-relative defaults inside the canonical R2
+# project tree; the Linux account's actual home is not a second data directory.
+export HOME="$R2_ROOT"
+export USER="r2"
+export LOGNAME="r2"
+
 log() { printf '[R2 service] %s\n' "$*"; }
 fail() { log "ERROR: $*"; exit 1; }
 
@@ -131,6 +137,9 @@ fi
 # Keep the host clock and service-manager tools on real time. Apply faketime only
 # to R2 itself; otherwise systemd-inhibit would inherit the private 1999 clock.
 R2_ENV=(/usr/bin/env
+    "HOME=$R2_ROOT"
+    "USER=r2"
+    "LOGNAME=r2"
     "LD_PRELOAD=$FAKETIME_LIB"
     "FAKETIME=$FAKETIME_OFFSET"
     "FAKETIME_DONT_RESET=1"

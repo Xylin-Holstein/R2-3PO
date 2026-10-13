@@ -3400,19 +3400,30 @@ static char *ollama_chat_with_limit(
 
     json_object_object_add(root, "model", json_object_new_string(MODEL));
     json_object_object_add(root, "stream", json_object_new_boolean(0));
-    /* Qwen 3.5 can spend a tiny output budget entirely in its separate
-       thinking field. Request final-answer-only output at the chat API level;
-       never serialize message.thinking as a user-facing reply. */
-    json_object_object_add(root, "think", json_object_new_boolean(0));
+    /* Let the main conversation and corrective retry use Qwen's reasoning
+       channel. Ollama's message.content remains the only user-facing output;
+       message.thinking is measured for diagnostics but never displayed. Short
+       structured/background helper calls stay in non-thinking mode. */
+    int allow_reasoning = ollama_audit_stage &&
+        (!strcmp(ollama_audit_stage, "conversation-answer") ||
+         !strcmp(ollama_audit_stage, "conversation-retry"));
+    json_object_object_add(root, "think", json_object_new_boolean(allow_reasoning));
     json_object_object_add(root, "keep_alive", json_object_new_string("10m"));
 
     int num_ctx = r2_ollama_context_tokens();
-    int max_predict = num_ctx >= 16384 ? 3072 :
-                      num_ctx >= 12288 ? 2048 :
-                      num_ctx >= 8192 ? 768 : 384;
-    /* Background helpers that omit an explicit budget stay modest; complex
-       foreground requests can use the larger context-dependent ceiling. */
-    if (num_predict < 1) num_predict = num_ctx >= 12288 ? 1024 : 512;
+    /* Foreground reasoning needs room for both internal deliberation and the
+       final answer. Keep generation inside the active context so input-budget
+       arithmetic below cannot underflow on a small adaptive context. */
+    int max_predict = num_ctx >= 16384 ? 8192 :
+                      num_ctx >= 12288 ? 6144 :
+                      num_ctx >= 8192 ? 4096 :
+                      num_ctx >= 4096 ? 2048 : 512;
+    int context_output_ceiling = num_ctx > 1536 ? num_ctx - 1536 : 256;
+    if (max_predict > context_output_ceiling)
+        max_predict = context_output_ceiling;
+    /* Omitted budgets are for helper calls; foreground calls request a
+       complexity-based budget and can use the full context-dependent ceiling. */
+    if (num_predict < 1) num_predict = num_ctx >= 12288 ? 2048 : 1024;
     if (num_predict > max_predict) num_predict = max_predict;
 
     struct json_object *options = json_object_new_object();
@@ -4199,7 +4210,7 @@ static int conversation_reply_token_budget(const char *query)
         return 768;
 
     if (strlen(query) > 1200)
-        return 3072;
+        return 8192;
 
     static const char *const code_terms[] = {
         "write", "create", "implement", "code", "script", "program",
@@ -4213,13 +4224,13 @@ static int conversation_reply_token_budget(const char *query)
 
     for (size_t i = 0; i < sizeof(code_terms) / sizeof(code_terms[0]); ++i) {
         if (strcasestr(query, code_terms[i]))
-            return 3072;
+            return 8192;
     }
     for (size_t i = 0; i < sizeof(detailed_terms) / sizeof(detailed_terms[0]); ++i) {
         if (strcasestr(query, detailed_terms[i]))
-            return 2048;
+            return 6144;
     }
-    return 768;
+    return 4096;
 }
 
 /*
@@ -4450,14 +4461,13 @@ static int r2_reply_misclassifies_plain_text(const char *query, const char *repl
  * turn; discard the bad draft. The retry is bounded to one extra inference.
  */
 /*
- * Foreground replies may be slow on CPU-only or memory-constrained machines.
- * Keep the established 45-minute default, but let the owner extend it for
- * long local inference runs without changing source code. Bound the override
+ * Foreground reasoning may be slow on mixed CPU/GPU hardware. Allow up to six
+ * hours by default, and accept only the documented 30-second to six-hour range
  * so a typo cannot silently create an effectively infinite request.
  */
 static long r2_conversation_timeout_seconds(void)
 {
-    const long default_timeout = 14400L;
+    const long default_timeout = 21600L;
     const char *configured = getenv("R2_OLLAMA_TIMEOUT_SECONDS");
     if (!configured || !*configured)
         return default_timeout;
@@ -4472,7 +4482,7 @@ static long r2_conversation_timeout_seconds(void)
     static atomic_int warned_invalid_timeout = ATOMIC_VAR_INIT(0);
     if (!atomic_exchange(&warned_invalid_timeout, 1))
         fprintf(stderr,
-                "[R2 Ollama] Ignoring invalid R2_OLLAMA_TIMEOUT_SECONDS; using the 14400-second default.\n");
+                "[R2 Ollama] Ignoring invalid R2_OLLAMA_TIMEOUT_SECONDS; using the 21600-second default.\n");
     return default_timeout;
 }
 

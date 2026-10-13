@@ -6,7 +6,7 @@ R2 already has a headless shell mode, a supervised systemd unit, a local-model p
 - Unit: `deploy/r2-3po.service`
 - Installer: `tools/install_r2_overnight.sh`
 
-The overnight service uses the same persistent databases as the desktop launcher. **Only one R2 core may run at a time.** The installer refuses to rebuild while an R2 process is already running, checks database paths and permissions, takes a private SQLite snapshot, requires a clean integrity audit, builds to a process-specific temporary executable, preserves the previous binary, and only then enables/starts the service. If activation or core initialization fails, it attempts to restore and restart the previous executable.
+The overnight service uses the same persistent databases as the desktop launcher. **Only one R2 core may run at a time.** Both launch paths keep `HOME` set to `/home/x/R2_Home`, while the process UID remains `r2`; `/home/r2` is not an alternate memory, diary, or workspace location. While R2 runs, a UID-matched firewall rule allows its IP traffic only to local Ollama at `127.0.0.1:11434`; IPv6 egress and all other IPv4 egress for UID `r2` are rejected. The rule does not disable Wi-Fi or affect the desktop account. The interactive launcher removes its temporary rules when it exits; the systemd unit installs and removes the equivalent rules around the service lifecycle. The installer refuses to rebuild while an R2 process is already running, checks database paths and permissions, takes a private SQLite snapshot, requires a clean integrity audit, builds to a process-specific temporary executable, preserves the previous binary, and only then enables/starts the service. If activation or core initialization fails, it attempts to restore and restart the previous executable.
 
 ## One-time host preparation
 
@@ -53,7 +53,7 @@ It checks the source/deployment files, the local Ollama API and `qwen3.5:9b`, re
 
 ## Local inference timeout
 
-Foreground chat and its corrective retry allow up to four hours per request by default to accommodate very slow local inference. Override the setting before starting the interactive launcher if needed:
+Foreground chat and its corrective retry allow up to six hours per request by default to accommodate slow mixed CPU/GPU inference and Qwen's reasoning channel. Override the setting before starting the interactive launcher if needed:
 
 ```sh
 export R2_OLLAMA_TIMEOUT_SECONDS=14400
@@ -80,7 +80,7 @@ sudo systemctl daemon-reload
 sudo systemctl restart r2-3po.service
 ```
 
-Accepted values are 30–21,600 seconds (30 seconds to six hours); invalid values use the four-hour default. This only changes how long R2 waits for a request, not inference speed.
+Accepted values are 30–21,600 seconds (30 seconds to six hours); invalid values use the six-hour default. This only changes how long R2 waits for a request, not inference speed.
 
 ## Diagnose a conversation that answers the wrong message
 

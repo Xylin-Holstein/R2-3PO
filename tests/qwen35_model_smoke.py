@@ -114,8 +114,12 @@ require(
     "empty final answers are written to the R2 error log with model/stage diagnostics",
 )
 require(
-    'json_object_object_add(root, "think", json_object_new_boolean(0))' in core,
-    "chat requests disable separate thinking output so it cannot consume the final-answer budget",
+    'int allow_reasoning = ollama_audit_stage &&' in core
+    and '"conversation-answer"' in core
+    and '"conversation-retry"' in core
+    and 'json_object_object_add(root, "think", json_object_new_boolean(allow_reasoning))' in core
+    and "message.thinking is measured for diagnostics but never displayed" in core,
+    "foreground answer and corrective retry can reason while only final content is user-facing",
 )
 for setting, expected in [
     ('"temperature", json_object_new_double(0.7)', "temperature=0.7"),
