@@ -23,7 +23,9 @@ def main() -> None:
     assert "DATA_DIR.lstat()" in viewer and "os.geteuid()" in viewer
     assert "if self.paused:" in viewer and "self.display_focus = self.focus()" in viewer
     assert "focus = self.display_focus" in viewer
-    assert "R2_VWEBCAM_DIR" in eyes and "r2_vwebcam_publish_frame(eyes)" in eyes
+    assert '#define R2_VWEBCAM_DIR "/tmp/r2-vwebcam-r2"' in eyes
+    assert '#define R2_VWEBCAM_DIR "/tmp/r2-vwebcam-r2"' in visual
+    assert "r2_vwebcam_publish_frame(eyes)" in eyes
     assert "r2_vwebcam_start_viewer()" in eyes and "r2_vwebcam_stop_viewer()" in eyes
     assert 'char *const argv[] = {"/usr/bin/python3", viewer, NULL};' in eyes
     assert "execv(argv[0], argv)" in eyes
