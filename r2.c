@@ -112,6 +112,8 @@ static pthread_mutex_t db_lock =
 static pthread_mutex_t messages_lock =
     PTHREAD_MUTEX_INITIALIZER;
 
+static pthread_mutex_t conversation_turn_lock = PTHREAD_MUTEX_INITIALIZER;
+
 static pthread_mutex_t tasks_lock =
     PTHREAD_MUTEX_INITIALIZER;
 
@@ -123,9 +125,11 @@ static volatile sig_atomic_t shutting_down = 0;
 
 static pthread_t hands_thread;
 static pthread_t diary_thread;
+static pthread_t reality_needs_thread;
 
 static int hands_thread_started = 0;
 static int diary_thread_started = 0;
+static int reality_needs_thread_started = 0;
 static int core_initialized = 0;
 static int startup_memory_loaded = 0;
 static int watch_running = 0;
@@ -5301,7 +5305,8 @@ int r2_think_interval(void){ return THINK_INTERVAL; }
 int r2_worker_count(void)
 {
     return (hands_thread_started ? 1 : 0) +
-           (diary_thread_started ? 1 : 0);
+           (diary_thread_started ? 1 : 0) +
+           (reality_needs_thread_started ? 1 : 0);
 }
 
 long r2_memory_count(void)
@@ -5966,7 +5971,7 @@ static void log_structured_self_report(const char *reply, int64_t parent_event_i
 }
 
 
-char *r2_talk(const char *message)
+static char *r2_talk_impl(const char *message)
 {
     if (!core_initialized || shutting_down || !message)
         return NULL;
@@ -6145,6 +6150,15 @@ char *r2_talk(const char *message)
     return reply;
 }
 
+char *r2_talk(const char *message)
+{
+    if (!message || shutting_down) return NULL;
+    pthread_mutex_lock(&conversation_turn_lock);
+    char *reply = r2_talk_impl(message);
+    pthread_mutex_unlock(&conversation_turn_lock);
+    return reply;
+}
+
 int r2_conversation(void)
 {
     if (!core_initialized)
@@ -6239,6 +6253,28 @@ static int append_context_block(char **context, const char *heading, const char 
              old_len ? "\n\n" : "", heading, extra);
     *context = grown;
     return 0;
+}
+
+static void *reality_needs_worker(void *unused)
+{
+    (void)unused;
+    while (!shutting_down) {
+        if (pthread_mutex_trylock(&conversation_turn_lock) == 0) {
+            int result = r2_reality_autonomous_feed_if_needed();
+            if (result > 0) {
+                r2_log_event(R2_LOG_WORLD, "autonomous_needs_food_fallback",
+                             "R2 ate one metric-backed food item because modeled hunger reached its threshold.",
+                             "The action was executed by the Reality C API from accessible inventory or the home fridge.",
+                             "reality_needs_worker");
+            }
+            pthread_mutex_unlock(&conversation_turn_lock);
+        } else {
+            (void)r2_reality_tick();
+        }
+        struct timespec delay = {1, 0};
+        while (nanosleep(&delay, &delay) != 0 && errno == EINTR && !shutting_down) {}
+    }
+    return NULL;
 }
 
 int r2_init(void)
@@ -6731,6 +6767,15 @@ int r2_init(void)
     core_initialized = 1;
     startup_memory_loaded = 1;
 
+    if (pthread_create(&reality_needs_thread, NULL, reality_needs_worker, NULL) == 0) {
+        reality_needs_thread_started = 1;
+    } else {
+        r2_log_event(R2_LOG_ERROR, "reality_needs_worker_start_failed",
+                     "The autonomous needs worker could not start; timed hunger progression is unavailable.",
+                     "R2 remains conversational, and Reality state is still available.",
+                     "r2_init");
+    }
+
     if (r2_log_is_initialized()) {
         r2_log_milestone("r2_first_successful_start",
                          "R2 completed its first successful core startup.",
@@ -6776,6 +6821,10 @@ void r2_shutdown(void)
     if (hands_thread_started) {
         pthread_join(hands_thread, NULL);
         hands_thread_started = 0;
+    }
+    if (reality_needs_thread_started) {
+        pthread_join(reality_needs_thread, NULL);
+        reality_needs_thread_started = 0;
     }
 
     if (ears) {
