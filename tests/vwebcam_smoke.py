@@ -25,6 +25,9 @@ def main() -> None:
     assert "focus = self.display_focus" in viewer
     assert "R2_VWEBCAM_DIR" in eyes and "r2_vwebcam_publish_frame(eyes)" in eyes
     assert "r2_vwebcam_start_viewer()" in eyes and "r2_vwebcam_stop_viewer()" in eyes
+    assert 'char *const argv[] = {"/usr/bin/python3", viewer, NULL};' in eyes
+    assert "execv(argv[0], argv)" in eyes
+    assert "execlp(\"python3\"" not in eyes
     assert "R2_VWEBCAM_MAX_W 960U" in eyes
     assert "r2_vwebcam_last_publish_ms" in eyes
     assert "if (!display || !*display)" in eyes
