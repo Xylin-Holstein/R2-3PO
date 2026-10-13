@@ -6,10 +6,11 @@ R2_ROOT="${R2_ROOT:-/home/x/R2_Home}"
 R2_SOURCE="${R2_SOURCE:-$R2_ROOT/R2}"
 R2_EXEC="${R2_EXEC:-$R2_ROOT/r2}"
 R2_FX_DIR="${R2_FX_DIR:-$R2_ROOT/R2_sounds/FX}"
-OLLAMA_TAGS_URL="http://127.0.0.1:11434/api/tags"
+R2_OLLAMA_BASE_URL="${R2_OLLAMA_BASE_URL:-http://127.0.0.1:11435}"
+OLLAMA_TAGS_URL="$R2_OLLAMA_BASE_URL/api/tags"
 R2_MODEL="${R2_MODEL:-gemma3:4b}"
 R2_VISION_MODEL="$R2_MODEL"
-export R2_MODEL R2_VISION_MODEL
+export R2_MODEL R2_VISION_MODEL R2_OLLAMA_BASE_URL
 
 # Keep the runtime account's home-relative defaults inside the canonical R2
 # project tree; the Linux account's actual home is not a second data directory.
@@ -102,7 +103,7 @@ fi
 [[ -r "$R2_SOURCE/tools/preflight_ollama_model.py" ]] ||
     fail "shared Ollama inference preflight is missing: $R2_SOURCE/tools/preflight_ollama_model.py"
 log "Waiting for local $R2_MODEL availability and a real chat completion..."
-if ! R2_MODEL="$R2_MODEL" python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 60 --timeout 180; then
+if ! R2_MODEL="$R2_MODEL" R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 60 --timeout 180; then
     fail "Ollama did not complete a real $R2_MODEL chat preflight. Check the local model/server; systemd will retry automatically."
 fi
 
@@ -151,6 +152,7 @@ R2_ENV=(/usr/bin/env
     "R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU"
     "R2_FX_DIR=$R2_FX_DIR"
     "R2_MODEL=$R2_MODEL"
+    "R2_OLLAMA_BASE_URL=$R2_OLLAMA_BASE_URL"
     "R2_VISION_MODEL=$R2_VISION_MODEL"
     "$R2_EXEC")
 
