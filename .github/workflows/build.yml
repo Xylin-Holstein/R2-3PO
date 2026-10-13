@@ -97,7 +97,7 @@ jobs:
       - name: Check model-assisted associative memory retrieval
         run: python3 tests/associative_retrieval_smoke.py
 
-      - name: Check bounded RAM context cache and hardware telemetry
+      - name: Check bounded memory retrieval and fresh runtime/visual context
         run: python3 tests/context_cache_smoke.py
 
       - name: Prevent archived dialogue from becoming an assistant instruction or answer
