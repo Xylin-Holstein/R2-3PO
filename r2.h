@@ -262,6 +262,9 @@ int r2_is_initialized(void);
  * The returned pointer is owned by R2 and must NOT be freed.
  */
 const char *r2_model_name(void);
+/* Run a bounded, isolated local-model request through the shared Ollama gate.
+ * Returns allocated response text or NULL; does not append to chat history. */
+char *r2_model_generate(const char *system_prompt, const char *user_prompt, int num_predict);
 
 
 /* ============================================================
