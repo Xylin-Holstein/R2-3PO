@@ -21,8 +21,8 @@
 #include <string.h>
 #include <time.h>
 
-#define R2_VISION_URL "http://127.0.0.1:11434/api/chat"
-#define R2_VISION_DEFAULT_MODEL "qwen2.5vl:3b"
+#define R2_VISION_URL "http://127.0.0.1:11435/api/chat"
+#define R2_VISION_DEFAULT_MODEL "gemma3:4b"
 #define R2_VISION_MAX_IMAGE_BYTES (20U * 1024U * 1024U)
 #define R2_VISION_MAX_RESPONSE (1024U * 1024U)
 
