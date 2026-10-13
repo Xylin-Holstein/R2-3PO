@@ -21,7 +21,7 @@ require("isalnum(before)" in helper and "isalnum(after)" in helper and "strcases
         "keyword matching is case-insensitive and avoids substring collisions")
 
 ranker_start = core.find("static char *get_relevant_memories(")
-ranker_end = core.find("static ", ranker_start + 1)
+ranker_end = core.find("\nstatic ", ranker_start + 1)
 ranker = core[ranker_start:ranker_end]
 require("keyword_length >= 9 ? 4" in ranker and "keyword_length >= 6 ? 2 : 1" in ranker,
         "specific concepts receive more weight than short generic words")
