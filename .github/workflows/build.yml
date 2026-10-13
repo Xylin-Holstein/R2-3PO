@@ -81,6 +81,11 @@ jobs:
           python3 -m py_compile Observer.py tests/observer_filter_smoke.py
           python3 tests/observer_filter_smoke.py
 
+      - name: Check V-Webcam frame mirror and focus overlay
+        run: |
+          python3 -m py_compile V-Webcam.py tests/vwebcam_smoke.py
+          python3 tests/vwebcam_smoke.py
+
       - name: Check local Ollama readiness probe without network access
         run: |
           python3 -m py_compile tools/preflight_ollama_model.py tests/ollama_preflight_smoke.py
