@@ -166,7 +166,6 @@ static int make_room_dirs(void)
             fputs("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
                   "<foods>\n"
                   "  <!-- Add one food per line. fullness is 0..100; energy is optional. -->\n"
-                  "  <food name=\"burger\" fullness=\"100\" energy=\"10\" ingredients=\"bread,beef,cheese\" taste=\"savory,warm,salty\" />\n"
                   "</foods>\n", fp);
             fclose(fp);
         }
@@ -347,7 +346,7 @@ static int food_metric(const char *food, double *fullness, double *energy)
         char *end = NULL;
         double f = strtod(full, &end);
         if (end == full || *end || f < 0.0 || f > 100.0) continue;
-        double e = f * 0.1;
+        double e = 0.0;
         if (xml_attribute(line, "energy", en, sizeof(en)) == 0) {
             end = NULL;
             double parsed = strtod(en, &end);
@@ -359,11 +358,6 @@ static int food_metric(const char *food, double *fullness, double *energy)
         break;
     }
     fclose(fp);
-    if (found != 0 && food && !strcasecmp(food, "burger")) {
-        if (fullness) *fullness = 100.0;
-        if (energy) *energy = 10.0;
-        found = 0;
-    }
     return found;
 }
 
@@ -394,12 +388,6 @@ static void food_attributes(const char *food, char *ingredients, size_t ingredie
         break;
     }
     fclose(fp);
-    if (food && !strcasecmp(food, "burger")) {
-        if (ingredients && ingredients_cap && !*ingredients)
-            snprintf(ingredients, ingredients_cap, "bread,beef,cheese");
-        if (taste && taste_cap && !*taste)
-            snprintf(taste, taste_cap, "savory,warm,salty");
-    }
 }
 
 static char *food_metrics_context(void)
@@ -431,7 +419,7 @@ static char *food_metrics_context(void)
         char *end = NULL;
         double f = strtod(full, &end);
         if (end == full || *end || f < 0.0 || f > 100.0) continue;
-        double e = f * 0.1;
+        double e = 0.0;
         if (xml_attribute(line, "energy", en, sizeof(en)) == 0) {
             end = NULL;
             double parsed = strtod(en, &end);
@@ -451,15 +439,6 @@ static char *food_metrics_context(void)
         count++;
     }
     fclose(fp);
-    if (!strstr(out, "burger:")) {
-        const char *guaranteed = "burger: fullness 100.0/100, energy bonus 10.0; ingredients: bread,beef,cheese; sensory description: savory,warm,salty (guaranteed fridge meal)\n";
-        size_t add = strlen(guaranteed);
-        if (len + add + 1 > cap) {
-            char *grown = realloc(out, len + add + 1);
-            if (grown) { out = grown; cap = len + add + 1; }
-        }
-        if (len + add + 1 <= cap) { memcpy(out + len, guaranteed, add + 1); len += add; }
-    }
     if (!len) snprintf(out, cap, "No food metrics are configured in room/food_metrics.xml.\n");
     return out;
 }
@@ -563,19 +542,7 @@ static void fridge_mirror_write(const char *name, const char *description, int q
     if (!failed && rename(temp, path) != 0) failed = 1;
     if (failed) (void)unlink(temp);
 }
-static int fridge_seed_if_empty_locked(void)
-{
-    sqlite3_stmt *st = NULL;
-    if (!fridge_db || sqlite3_prepare_v2(fridge_db, "SELECT COUNT(*) FROM r2_fridge_items", -1, &st, NULL) != SQLITE_OK) return -1;
-    int count = 0;
-    if (sqlite3_step(st) == SQLITE_ROW) count = sqlite3_column_int(st, 0);
-    sqlite3_finalize(st);
-    if (count) return 0;
-    const char *sql = "INSERT INTO r2_fridge_items(name,description,quantity,fullness,energy,ingredients,taste) VALUES('burger','Guaranteed filling burger generated because the fridge was empty',1,100,10,'bread,beef,cheese','savory,warm,salty')";
-    if (sqlite3_exec(fridge_db, sql, NULL, NULL, NULL) != SQLITE_OK) return -1;
-    fridge_mirror_write("burger", "Guaranteed filling burger generated because the fridge was empty", 1, 100.0, 10.0);
-    return 0;
-}
+
 static void fridge_sync_mirrors(void)
 {
     if (!fridge_db) return;
@@ -610,6 +577,29 @@ static void fridge_sync_mirrors(void)
     pthread_mutex_unlock(&fridge_lock);
 }
 
+static int fridge_column_exists(const char *column)
+{
+    sqlite3_stmt *st = NULL;
+    int found = 0;
+    if (sqlite3_prepare_v2(fridge_db, "PRAGMA table_info(r2_fridge_items)", -1, &st, NULL) != SQLITE_OK) return -1;
+    while (sqlite3_step(st) == SQLITE_ROW) {
+        const unsigned char *name = sqlite3_column_text(st, 1);
+        if (name && !strcasecmp((const char *)name, column)) { found = 1; break; }
+    }
+    if (st) sqlite3_finalize(st);
+    return found;
+}
+static int fridge_ensure_column(const char *column, const char *definition)
+{
+    int exists = fridge_column_exists(column);
+    if (exists < 0) return -1;
+    if (exists) return 0;
+    char sql[256];
+    int n = snprintf(sql, sizeof(sql), "ALTER TABLE r2_fridge_items ADD COLUMN %s %s", column, definition);
+    if (n <= 0 || (size_t)n >= sizeof(sql)) return -1;
+    return sqlite3_exec(fridge_db, sql, NULL, NULL, NULL) == SQLITE_OK ? 0 : -1;
+}
+
 static int fridge_init(void)
 {
     char path[1200];
@@ -626,13 +616,29 @@ static int fridge_init(void)
     sqlite3_busy_timeout(fridge_db, 5000);
     sqlite3_exec(fridge_db, "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;", NULL, NULL, NULL);
     rc = sqlite3_exec(fridge_db,
-        "CREATE TABLE IF NOT EXISTS r2_fridge_items(name TEXT PRIMARY KEY COLLATE NOCASE,description TEXT,quantity INTEGER NOT NULL CHECK(quantity>0),fullness REAL NOT NULL DEFAULT 100,energy REAL NOT NULL DEFAULT 10,ingredients TEXT,taste TEXT,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
+        "CREATE TABLE IF NOT EXISTS r2_fridge_items(name TEXT PRIMARY KEY COLLATE NOCASE,description TEXT,quantity INTEGER NOT NULL CHECK(quantity>0),fullness REAL NOT NULL DEFAULT 0,energy REAL NOT NULL DEFAULT 0,ingredients TEXT,taste TEXT,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "CREATE TABLE IF NOT EXISTS r2_fridge_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);"
         "INSERT OR IGNORE INTO r2_fridge_meta(key,value) VALUES('schema_version','1');",
         NULL, NULL, NULL);
-    if (rc == SQLITE_OK && fridge_seed_if_empty_locked() != 0) rc = SQLITE_ERROR;
+    if (rc == SQLITE_OK &&
+        (fridge_ensure_column("fullness", "REAL NOT NULL DEFAULT 0") != 0 ||
+         fridge_ensure_column("energy", "REAL NOT NULL DEFAULT 0") != 0 ||
+         fridge_ensure_column("ingredients", "TEXT") != 0 ||
+         fridge_ensure_column("taste", "TEXT") != 0 ||
+         fridge_ensure_column("updated_at", "TEXT") != 0))
+        rc = SQLITE_ERROR;
+    if (rc == SQLITE_OK) {
+        rc = sqlite3_exec(fridge_db,
+            "DELETE FROM r2_fridge_items WHERE description LIKE '%Guaranteed filling burger generated because the fridge was empty%'",
+            NULL, NULL, NULL);
+        if (rc == SQLITE_OK)
+            (void)sqlite3_exec(fridge_db,
+                "UPDATE r2_fridge_items SET updated_at=CURRENT_TIMESTAMP WHERE updated_at IS NULL OR updated_at=''",
+                NULL, NULL, NULL);
+    }
     pthread_mutex_unlock(&fridge_lock);
-    if (rc != SQLITE_OK) { fprintf(stderr, "[R2 Fridge] Could not initialize fridge schema or seed burger.\n"); return -1; }
+    if (rc != SQLITE_OK) { fprintf(stderr, "[R2 Fridge] Could not initialize fridge schema.\n"); return -1; }
+    fridge_sync_mirrors();
     return 0;
 }
 void r2_fridge_shutdown(void)
@@ -653,9 +659,9 @@ char *r2_fridge_list(void)
     if (!out) return NULL;
     out[0] = '\0';
     pthread_mutex_lock(&fridge_lock);
-    int ok = fridge_seed_if_empty_locked() == 0;
+
     sqlite3_stmt *st = NULL;
-    int rc = ok ? sqlite3_prepare_v2(fridge_db, "SELECT name,description,quantity,fullness,energy FROM r2_fridge_items ORDER BY name", -1, &st, NULL) : SQLITE_ERROR;
+    int rc = sqlite3_prepare_v2(fridge_db, "SELECT name,description,quantity,fullness,energy FROM r2_fridge_items ORDER BY name", -1, &st, NULL);
     if (rc == SQLITE_OK) while ((rc = sqlite3_step(st)) == SQLITE_ROW) {
         const char *name = (const char *)sqlite3_column_text(st, 0);
         const char *desc = (const char *)sqlite3_column_text(st, 1);
@@ -673,7 +679,7 @@ char *r2_fridge_list(void)
     }
     if (st) sqlite3_finalize(st);
     pthread_mutex_unlock(&fridge_lock);
-    if (!len) snprintf(out, cap, "(fridge inventory unavailable)\n");
+    if (!len) snprintf(out, cap, "%s", rc == SQLITE_DONE ? "(fridge is empty)\n" : "(fridge inventory unavailable)\n");
     return out;
 }
 char *r2_fridge_context(void)
@@ -684,7 +690,7 @@ char *r2_fridge_context(void)
     if (!items) return NULL;
     size_t cap = strlen(items) + 320;
     char *out = malloc(cap);
-    if (out) snprintf(out, cap, "FRIDGE (separate persistent database; physically at home and accessible only while R2 is home):\n%sIf all fridge stock is consumed or removed, one filling burger (fullness 100/100) is generated automatically.", items);
+    if (out) snprintf(out, cap, "FRIDGE (separate persistent database; physically at home and accessible only while R2 is home):\n%sIf all fridge stock is consumed or removed, the fridge remains empty until food is explicitly added or stored.", items);
     free(items);
     return out;
 }
@@ -735,16 +741,16 @@ int r2_fridge_add_item(const char *name, const char *description, int quantity,
 {
     if (!name || !*name || strlen(name) > REALITY_MAX_TEXT || !fridge_db) return -1;
     if (quantity < 1) quantity = 1;
-    if (fullness < 0.0 || fullness > 100.0) fullness = 100.0;
-    if (energy < 0.0 || energy > 100.0) energy = 10.0;
+    if (!isfinite(fullness) || fullness < 0.0 || fullness > 100.0 ||
+        !isfinite(energy) || energy < 0.0 || energy > 100.0) return -1;
     pthread_mutex_lock(&fridge_lock);
-    int seed_rc = fridge_seed_if_empty_locked();
+
     sqlite3_stmt *st = NULL;
-    int rc = seed_rc == 0 ? sqlite3_prepare_v2(fridge_db,
+    int rc = sqlite3_prepare_v2(fridge_db,
         "INSERT INTO r2_fridge_items(name,description,quantity,fullness,energy,ingredients,taste) VALUES(?,?,?,?,?,?,?) "
         "ON CONFLICT(name) DO UPDATE SET description=excluded.description,quantity=r2_fridge_items.quantity+excluded.quantity,"
         "fullness=excluded.fullness,energy=excluded.energy,ingredients=excluded.ingredients,taste=excluded.taste,updated_at=CURRENT_TIMESTAMP",
-        -1, &st, NULL) : SQLITE_ERROR;
+        -1, &st, NULL);
     if (rc == SQLITE_OK) {
         bind_text(st, 1, name); bind_text(st, 2, description ? description : "");
         sqlite3_bind_int(st, 3, quantity); sqlite3_bind_double(st, 4, fullness); sqlite3_bind_double(st, 5, energy);
@@ -769,10 +775,9 @@ int r2_fridge_take(const char *food)
 {
     if (!food || !*food || !fridge_db || !r2_reality_is_initialized() || !reality_is_home()) return -1;
     char desc[REALITY_MAX_TEXT + 1] = {0}, ingredients[1024] = {0}, taste[1024] = {0};
-    int qty = 0; double fullness = 100.0, energy = 10.0;
+    int qty = 0; double fullness = 0.0, energy = 0.0;
     pthread_mutex_lock(&fridge_lock);
-    int rc = fridge_seed_if_empty_locked();
-    if (rc == 0) rc = fridge_change_one(food, desc, sizeof(desc), &qty, &fullness, &energy,
+    int rc = fridge_change_one(food, desc, sizeof(desc), &qty, &fullness, &energy,
                                          ingredients, sizeof(ingredients), taste, sizeof(taste));
     if (rc == 0) {
         if (qty == 1) fridge_mirror_remove(food);
@@ -785,11 +790,11 @@ int r2_fridge_take(const char *food)
         fridge_mirror_write(food, desc, qty, fullness, energy); pthread_mutex_unlock(&fridge_lock);
         return -1;
     }
-    pthread_mutex_lock(&fridge_lock); rc = fridge_seed_if_empty_locked(); pthread_mutex_unlock(&fridge_lock);
+
     if (rc != 0) return -1;
     char summary[512], details[1024];
     snprintf(summary, sizeof(summary), "R2 took %s from the fridge into his pockets.", food);
-    snprintf(details, sizeof(details), "Food=%s; source=fridge database; destination=pockets; empty fridge generates a burger.", food);
+    snprintf(details, sizeof(details), "Food=%s; source=fridge database; destination=pockets; fridge stock is not regenerated automatically.", food);
     bridge_event("fridge_item_taken", summary, details, 1, 0);
     return 0;
 }
@@ -797,10 +802,9 @@ int r2_reality_fridge_eat(const char *food, double fullness)
 {
     if (!food || !*food || !fridge_db || !r2_reality_is_initialized() || !reality_is_home()) return -1;
     char desc[REALITY_MAX_TEXT + 1] = {0}, ingredients[1024] = {0}, taste[1024] = {0};
-    int qty = 0; double stored_fullness = 100.0, energy = 10.0;
+    int qty = 0; double stored_fullness = 0.0, energy = 0.0;
     pthread_mutex_lock(&fridge_lock);
-    int rc = fridge_seed_if_empty_locked();
-    if (rc == 0) rc = fridge_change_one(food, desc, sizeof(desc), &qty, &stored_fullness, &energy,
+    int rc = fridge_change_one(food, desc, sizeof(desc), &qty, &stored_fullness, &energy,
                                          ingredients, sizeof(ingredients), taste, sizeof(taste));
     if (rc == 0) {
         if (qty == 1) fridge_mirror_remove(food);
@@ -808,18 +812,25 @@ int r2_reality_fridge_eat(const char *food, double fullness)
     }
     pthread_mutex_unlock(&fridge_lock);
     if (rc != 0) return -1;
-    if (fullness < 0.0) fullness = stored_fullness;
-    rc = reality_eat_internal(food, fullness, 0, energy);
+    (void)fullness;
+    if (stored_fullness <= 0.0) {
+        pthread_mutex_lock(&fridge_lock);
+        fridge_restore_one(food, desc, stored_fullness, energy, ingredients, taste);
+        fridge_mirror_write(food, desc, qty, stored_fullness, energy);
+        pthread_mutex_unlock(&fridge_lock);
+        return -1;
+    }
+    rc = reality_eat_internal(food, stored_fullness, 0, energy);
     if (rc != 0) {
         pthread_mutex_lock(&fridge_lock); fridge_restore_one(food, desc, stored_fullness, energy, ingredients, taste);
         fridge_mirror_write(food, desc, qty, stored_fullness, energy); pthread_mutex_unlock(&fridge_lock);
         return -1;
     }
-    pthread_mutex_lock(&fridge_lock); rc = fridge_seed_if_empty_locked(); pthread_mutex_unlock(&fridge_lock);
+
     if (rc != 0) return -1;
     char summary[512], details[1024];
     snprintf(summary, sizeof(summary), "R2 ate %s directly from the fridge.", food);
-    snprintf(details, sizeof(details), "Food=%s; source=fridge database; fullness=%.1f; fridge refills if emptied.", food, stored_fullness);
+    snprintf(details, sizeof(details), "Food=%s; source=fridge database; fullness=%.1f; fridge remains empty when stock is exhausted.", food, stored_fullness);
     bridge_event("fridge_food_consumed", summary, details, 1, 0);
     return 0;
 }
@@ -1410,7 +1421,7 @@ char *r2_reality_context(void)
         "[WORLD] ratefood|food|-2..2|reason to rate the most recent unrated eating experience. "
         "[WORLD] self|key|value|evidence to record a self-state fact. "
         "[WORLD] fridge|look to inspect fridge stock; [WORLD] fridge_take|food to move one item into pockets; [WORLD] fridge_eat|food to eat directly from fridge stock without consuming a similarly named pocket item; [WORLD] fridge_store|food to move a tracked inventory item into fridge stock. "
-        "The fridge is physically at home, outside the room (a sibling of room/ and pockets/), and is accessible only while R2 is home; it automatically generates one burger with fullness 100/100 whenever all stock is gone. Its stock is stored in a separate r2_fridge.db. " 
+        "The fridge is physically at home, outside the room (a sibling of room/ and pockets/), and is accessible only while R2 is home; empty stock remains empty until food is explicitly added or stored. Its stock is stored in a separate r2_fridge.db. " 
         "Food metrics live in room/food_metrics.xml; each food can define fullness, energy, ingredients (comma-separated), and taste (sensory description). Use only listed metrics and auto rather than guessing. "
         "Containers: room, shelf, and one storage box; pockets are portable anywhere, the fridge is a fixed home object, and the wallet is inside pockets. While away from home, R2 may access only pockets and wallet; room objects and fridge stock require returning home. The old toy box is the same box and is normalized into it. Named containers can be created by moving an item to a new container name. " 
         "Food fullness points are modeled values, not measured biological facts. Sleep advances hunger and world time. "
@@ -1458,8 +1469,8 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
         if (!reality_is_home()) return -1;
         char ingredients[1024] = {0}, taste[1024] = {0};
         food_attributes(name, ingredients, sizeof(ingredients), taste, sizeof(taste));
-        double fullness = 100.0, energy = 10.0;
-        (void)food_metric(name, &fullness, &energy);
+        double fullness = 0.0, energy = 0.0;
+        if (food_metric(name, &fullness, &energy) != 0) return -1;
         return r2_fridge_add_item(name, description, quantity, fullness, energy, ingredients, taste);
     }
     if(quantity<1) quantity=1;
@@ -1548,7 +1559,7 @@ int r2_reality_move_item(const char *name,const char *container)
         if (quantity < 1 || !container_accessible(old_container) || !container_accessible(container)) return -1;
         char ingredients[1024] = {0}, taste[1024] = {0};
         food_attributes(name, ingredients, sizeof(ingredients), taste, sizeof(taste));
-        double fullness = 100.0, energy = 10.0;
+        double fullness = 0.0, energy = 0.0;
         (void)food_metric(name, &fullness, &energy);
         int prior_fridge_quantity = 0;
         pthread_mutex_lock(&fridge_lock);
@@ -1577,7 +1588,7 @@ int r2_reality_move_item(const char *name,const char *container)
             if (prior_fridge_quantity > 0)
                 fridge_mirror_write(name, description, prior_fridge_quantity, fullness, energy);
             else fridge_mirror_remove(name);
-            (void)fridge_seed_if_empty_locked();
+
             pthread_mutex_unlock(&fridge_lock);
             return -1;
         }
@@ -1662,15 +1673,13 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
 {
     if (!food || !*food || !r2_reality_is_initialized()) return -1;
     double energy_bonus = 0.0;
-    if (fullness >= 0.0) {
-        if (fullness > 100.0) fullness = 100.0;
-        energy_bonus = fullness * 0.1;
-    }
-    if (fullness < 0.0) {
-        if (food_metric(food, &fullness, &energy_bonus) != 0) {
-            fprintf(stderr, "[R2 Reality] No food metric found for '%s' in room/food_metrics.xml.\n", food);
-            return -1;
-        }
+    if (energy_override >= 0.0) {
+        if (!isfinite(fullness) || fullness < 0.0 || fullness > 100.0 ||
+            !isfinite(energy_override) || energy_override > 100.0) return -1;
+        energy_bonus = energy_override;
+    } else if (food_metric(food, &fullness, &energy_bonus) != 0) {
+        fprintf(stderr, "[R2 Reality] No configured food metric found for '%s' in room/food_metrics.xml.\n", food);
+        return -1;
     }
     if (energy_override >= 0.0) energy_bonus = energy_override;
     if (fullness > 100.0) fullness = 100.0;
@@ -1784,7 +1793,8 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
 
 int r2_reality_eat(const char *food, double fullness)
 {
-    return reality_eat_internal(food, fullness, 1, -1.0);
+    (void)fullness;
+    return reality_eat_internal(food, -1.0, 1, -1.0);
 }
 
 char *r2_reality_food_context(const char *food)
