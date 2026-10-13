@@ -6613,7 +6613,10 @@ static void *reality_needs_worker(void *unused)
 {
     (void)unused;
     while (!shutting_down) {
-        if (r2_reality_is_initialized())
+        /* Foreground turns own their tool actions. Let the model/user turn
+           finish before deterministic needs automation can consume stock. */
+        if (r2_reality_is_initialized() &&
+            atomic_load(&foreground_conversation_waiting) == 0)
             (void)r2_reality_autonomous_feed_if_needed();
         struct timespec delay = {1, 0};
         while (nanosleep(&delay, &delay) != 0 && errno == EINTR && !shutting_down) {}
