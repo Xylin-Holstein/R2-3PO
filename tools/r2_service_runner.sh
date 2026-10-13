@@ -8,7 +8,6 @@ R2_EXEC="${R2_EXEC:-$R2_ROOT/r2}"
 R2_FX_DIR="${R2_FX_DIR:-$R2_ROOT/R2_sounds/FX}"
 R2_OLLAMA_BASE_URL="${R2_OLLAMA_BASE_URL:-http://127.0.0.1:11435}"
 export R2_OLLAMA_BASE_URL
-export OLLAMA_TAGS_URL="${R2_OLLAMA_BASE_URL}/api/tags"
 
 # Keep the runtime account's home-relative defaults inside the canonical R2
 # project tree; the Linux account's actual home is not a second data directory.
@@ -18,6 +17,10 @@ export LOGNAME="r2"
 
 log() { printf '[R2 service] %s\n' "$*"; }
 fail() { log "ERROR: $*"; exit 1; }
+
+if [[ "$R2_OLLAMA_BASE_URL" != "http://127.0.0.1:11435" ]]; then
+    fail "overnight R2 must use its permitted isolated Ollama endpoint 127.0.0.1:11435."
+fi
 
 # Match the interactive launcher: prefer partial offload on the target 4 GiB
 # GTX 1050 Ti, but keep automatic placement when that card is not installed.
