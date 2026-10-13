@@ -35,6 +35,7 @@ required = (
     'R2Sounds.c R2Sounds.h',
     'R2Reply.c R2Reply.h',
     'shell.c shell.h',
+    'V-Webcam.py',
     'Observer.py',
     'deploy/r2-ollama.service',
     'tools/r2_ollama_runner.sh',
