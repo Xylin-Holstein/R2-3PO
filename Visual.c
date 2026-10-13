@@ -21,7 +21,7 @@
 #include <string.h>
 #include <time.h>
 
-#define R2_VISION_URL "http://127.0.0.1:11434/api/chat"
+static char R2_VISION_URL[512] = "http://127.0.0.1:11434/api/chat";
 #define R2_VISION_DEFAULT_MODEL "gemma3:4b"
 #define R2_VISION_MAX_IMAGE_BYTES (20U * 1024U * 1024U)
 #define R2_VISION_MAX_RESPONSE (1024U * 1024U)
@@ -278,8 +278,31 @@ static char *call_vision_model(const char *image_base64, const char *question)
     return answer;
 }
 
+static int configure_vision_endpoint(void)
+{
+    const char *base = getenv("R2_OLLAMA_BASE_URL");
+    if (!base || !*base) return 0;
+    char local[384];
+    size_t n = strlen(base);
+    while (n && base[n - 1] == '/') --n;
+    if (!n || n >= sizeof(local)) return -1;
+    memcpy(local, base, n);
+    local[n] = '\0';
+    if (strncmp(local, "http://127.0.0.1:", 16) != 0 &&
+        strncmp(local, "http://localhost:", 17) != 0) return -1;
+    if (strchr(local + 7, '/') || strchr(local, '@') ||
+        strchr(local, '?') || strchr(local, '#')) return -1;
+    int written = snprintf(R2_VISION_URL, sizeof(R2_VISION_URL), "%s/api/chat", local);
+    return written > 0 && (size_t)written < sizeof(R2_VISION_URL) ? 0 : -1;
+}
+
 int r2_visual_init(const char *database_path, const char *library_directory)
 {
+    if (configure_vision_endpoint() != 0) {
+        fprintf(stderr, "[R2 Visual] R2_OLLAMA_BASE_URL must be a localhost HTTP endpoint.\\n");
+        return -1;
+    }
+
     if (!database_path || !*database_path || !library_directory || !*library_directory)
         return -1;
     pthread_mutex_lock(&visual_lock);
