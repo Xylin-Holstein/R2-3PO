@@ -137,7 +137,7 @@ jobs:
           cc $FLAGS tests/memory_schema_migration_smoke.c shell.c r2_diary.c Log.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c R2Sounds.c R2Reply.c -o /tmp/r2-memory-schema-smoke-test -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
           /tmp/r2-memory-schema-smoke-test
 
-      - name: Check Game Boy console syntax and lifecycle
+      - name: Check R2 shell Game Boy control-plane routing\n        run: python3 tests/gameboy_shell_control_smoke.py\n\n      - name: Check Game Boy console syntax and lifecycle
         run: |
           python3 -m py_compile GameBoyAdvance.py tests/gameboy_console_smoke.py
           python3 tests/gameboy_console_smoke.py
