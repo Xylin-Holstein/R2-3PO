@@ -88,6 +88,7 @@ static char OLLAMA_URL[512] = "http://127.0.0.1:11434/api/chat";
 #include "Addiction.h"
 #include "Reward.h"
 #include "AlternateSelf.h"
+#include "Imagination.h"
 #include "R2Reply.h"
 #include "R2Sounds.h"
 
@@ -2555,10 +2556,11 @@ static size_t curl_write(
 }
 
 
-static char *ollama_chat(
+static char *ollama_chat_limited(
     Message *msgs,
     size_t count,
-    const char *system_override)
+    const char *system_override,
+    int max_tokens)
 {
     struct json_object *root =
         json_object_new_object();
@@ -2640,6 +2642,16 @@ static char *ollama_chat(
         "stream",
         json_object_new_boolean(0)
     );
+
+    if (max_tokens > 0) {
+        struct json_object *options = json_object_new_object();
+        if (!options) {
+            json_object_put(root);
+            return NULL;
+        }
+        json_object_object_add(options, "num_predict", json_object_new_int(max_tokens));
+        json_object_object_add(root, "options", options);
+    }
 
     const char *payload =
         json_object_to_json_string(root);
@@ -2754,6 +2766,22 @@ static char *ollama_chat(
     json_object_put(resp);
 
     return result;
+}
+
+static char *ollama_chat(Message *msgs, size_t count, const char *system_override)
+{
+    return ollama_chat_limited(msgs, count, system_override, 0);
+}
+
+char *r2_model_generate(const char *system, const char *prompt, int max_tokens)
+{
+    if (!system || !*system || !prompt || !*prompt ||
+        max_tokens < 1 || max_tokens > 4096 || shutting_down)
+        return NULL;
+    Message request = {0};
+    request.role = (char *)"user";
+    request.content = (char *)prompt;
+    return ollama_chat_limited(&request, 1, system, max_tokens);
 }
 
 
@@ -4625,6 +4653,39 @@ static char *process_tools(
         }
         world_cursor = line_end ? line_end + 1 : action_start + action_len;
         if (!line_end) break;
+    }
+
+    rp = 0;
+    while (1) {
+        char *request = extract_marker(reply, "[IMAGINE]", "[END IMAGINE]", &rp);
+        if (!request) break;
+        char *scenario = r2_imagination_create(trim(request));
+        if (scenario) {
+            APPEND("IMAGINATION RESULT:\\n%s\\n", scenario);
+            free(scenario);
+        } else {
+            APPEND("IMAGINATION ERROR: could not generate or persist the hypothetical scenario; no factual memory or real-world state was changed.\\n");
+        }
+        free(request);
+    }
+
+    rp = 0;
+    while (1) {
+        char *entry = extract_marker(reply, "[IMAGINE_FEEDBACK]", "[END IMAGINE_FEEDBACK]", &rp);
+        if (!entry) break;
+        char *fields[3] = {0};
+        int count = split_tool_fields(entry, fields, 3);
+        long branch_id = 0;
+        int valid = count == 3 && parse_tool_int(fields[0], &branch_id) && branch_id > 0 &&
+                    *fields[1];
+        int rc = valid ? r2_imagination_feedback((long long)branch_id, fields[1], fields[2]) : -1;
+        APPEND("IMAGINATION FEEDBACK %s.\\n",
+               rc == 0 ? "RESULT: feedback saved; only evidence-backed accuracy can earn positive reinforcement" :
+               rc == 1 ? "RESULT: feedback saved; reinforcement ledger unavailable" :
+               rc == 2 ? "RESULT: feedback saved; this branch was already rewarded" :
+               rc == -2 ? "ERROR: accurate feedback requires an evidence note" :
+               "ERROR: expected branch ID|assessment|notes; no factual memory was changed");
+        free(entry);
     }
 
     if (strstr(reply, "[READ_DIARY]")) {
@@ -6767,6 +6828,13 @@ int r2_init(void)
                      "r2_init");
     }
 
+    if (r2_imagination_init() != 0) {
+        r2_log_event(R2_LOG_ERROR, "imagination_init_failed",
+                     "R2's Imagination subsystem could not initialize.",
+                     "Ordinary conversation and real-world state remain available.",
+                     "r2_init");
+    }
+
     if (r2_eyes_init(&eyes) != 0) {
         r2_log_shutdown();
         r2_diary_shutdown();
@@ -7236,6 +7304,7 @@ void r2_shutdown(void)
 
     /* Close dependent engines while Life Log and diary are still available. */
     r2_sounds_shutdown();
+    r2_imagination_shutdown();
     r2_altself_shutdown();
     r2_reality_shutdown();
     r2_reward_shutdown();
