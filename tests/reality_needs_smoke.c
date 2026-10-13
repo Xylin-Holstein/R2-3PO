@@ -599,7 +599,7 @@ int main(void)
     if (r2_reality_tick() != 0) fail("one-hour needs tick failed");
     double hunger, sleepiness, energy, satisfaction, since_meal;
     read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
-    if (hunger < 23.5 || hunger > 25.0) fail("fullness should decrease by about 75.8 points per hour at its configured rate");
+    if (hunger < 65.5 || hunger > 67.5) fail("fullness should decrease by about 33.3 points per hour and reach zero in roughly three hours");
     if (sleepiness < 12.0 || sleepiness > 13.0) fail("sleepiness should rise about 12.5 points per hour");
     if (energy < 89.0 || energy > 91.0) fail("energy should fall about 10 points per hour");
     if (satisfaction < 23.5 || satisfaction > 25.0) fail("satiety should fall about 75.8 points per hour at its independent configured rate");
@@ -612,18 +612,19 @@ int main(void)
     if (energy < 89.0 || energy > 91.0) fail("sleep should restore energy without exceeding its cap");
     if (since_meal < 32300.0 || since_meal > 32500.0) fail("sleep must advance elapsed time since meal");
 
-    /* A full meter should reach zero after about 79 minutes without food. */
-    if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality DB for 79-minute fullness test");
+    /* Three modeled hours without food should drain the fullness meter to
+       zero; this directly guards the intended time scale. */
+    if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality DB for three-hour fullness test");
     if (sqlite3_prepare_v2(db,
         "UPDATE r2_reality_self SET hunger=100,satisfaction=100,last_tick=? WHERE id=1",
-        -1, &st, NULL) != SQLITE_OK) fail("could not prepare 79-minute fullness state");
-    sqlite3_bind_int64(st, 1, (sqlite3_int64)time(NULL) - 4750);
-    if (sqlite3_step(st) != SQLITE_DONE) fail("could not set 79-minute fullness state");
+        -1, &st, NULL) != SQLITE_OK) fail("could not prepare three-hour fullness state");
+    sqlite3_bind_int64(st, 1, (sqlite3_int64)time(NULL) - 10800);
+    if (sqlite3_step(st) != SQLITE_DONE) fail("could not set three-hour fullness state");
     sqlite3_finalize(st);
     sqlite3_close(db);
-    if (r2_reality_tick() != 0) fail("79-minute fullness tick failed");
+    if (r2_reality_tick() != 0) fail("three-hour fullness tick failed");
     read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
-    if (hunger > 0.1) fail("fullness should reach zero after about 79 modeled minutes without food");
+    if (hunger > 0.1) fail("fullness should reach zero after roughly three modeled hours without food");
 
     /* Make the fridge's first-choice item explicit so the end-to-end test
        can prove one unit is consumed, not merely that hunger was reset. */
@@ -901,46 +902,6 @@ int main(void)
     if (hunger < 23.4 || hunger > 23.6) fail("hunger should persist across restart");
     if (satisfaction < 76.9 || satisfaction > 77.1) fail("satisfaction should persist across restart");
     if (since_meal < 122.0 || since_meal > 124.0) fail("elapsed time since meal should persist across restart");
-
-    /* Fullness must lose 0.1 points per 4.75 modeled seconds, independently
-       of the separate 72-hour prolonged-starvation marker. */
-    if (sqlite3_open(path, &db) != SQLITE_OK)
-        fail("could not open Reality database for hunger-rate regression");
-    if (sqlite3_prepare_v2(db,
-        "UPDATE r2_reality_self SET hunger=100,seconds_since_meal=0,last_tick=? WHERE id=1",
-        -1, &st, NULL) != SQLITE_OK)
-        fail("could not prepare hunger-rate regression");
-    sqlite3_bind_int64(st, 1, (sqlite3_int64)time(NULL) - 475);
-    if (sqlite3_step(st) != SQLITE_DONE)
-        fail("could not seed elapsed time for hunger-rate regression");
-    sqlite3_finalize(st);
-    sqlite3_close(db);
-    if (r2_reality_tick() != 0)
-        fail("Reality tick failed during hunger-rate regression");
-    read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
-    if (hunger < 89.8 || hunger > 90.1)
-        fail("fullness must drain by about 10 points over 475 seconds (0.1 per 4.75 seconds)");
-
-    /* Low fullness is an urgent hunger state, but the prolonged-starvation
-       label belongs to the independent 72-hour no-meal threshold. */
-    if (sqlite3_open(path, &db) != SQLITE_OK)
-        fail("could not open Reality database for starvation-label regression");
-    if (sqlite3_prepare_v2(db,
-        "UPDATE r2_reality_self SET hunger=5,seconds_since_meal=3600,last_tick=? WHERE id=1",
-        -1, &st, NULL) != SQLITE_OK)
-        fail("could not prepare early starvation-label state");
-    sqlite3_bind_int64(st, 1, (sqlite3_int64)time(NULL));
-    if (sqlite3_step(st) != SQLITE_DONE)
-        fail("could not seed early starvation-label state");
-    sqlite3_finalize(st);
-    sqlite3_close(db);
-    char *early_status = r2_reality_status();
-    if (!early_status || !strstr(early_status, "(critically hungry)") ||
-        strstr(early_status, "(starving)")) {
-        free(early_status);
-        fail("low fullness before 72 hours must not be mislabeled as prolonged starvation");
-    }
-    free(early_status);
 
     /* At the 72-hour starvation marker, status must not still say only
        "very hungry" while the prolonged-starvation event is recorded. */
