@@ -4397,6 +4397,52 @@ static char *process_tools(
     if (strstr(reply, "[ALTERNATE_LIST]")) {
         char *v = r2_altself_list(20); APPEND("HYPOTHETICAL BRANCHES:\n%s\n", v ? v : "unavailable\n"); free(v);
     }
+    if (strstr(reply, "[ALTERNATE_SHOW]")) {
+        const char *p = strstr(reply, "[ALTERNATE_SHOW]") + strlen("[ALTERNATE_SHOW]");
+        const char *end = strpbrk(p, "\r\n");
+        char *arg = strndup(p, end ? (size_t)(end-p) : strlen(p));
+        long id = 0;
+        if (arg && parse_tool_int(trim(arg), &id) && id > 0) {
+            char *v = r2_altself_show((int64_t)id);
+            APPEND("HYPOTHETICAL BRANCH DETAIL:\n%s\n", v ? v : "branch unavailable\n");
+            free(v);
+        } else APPEND("ALTERNATE SHOW ERROR: expected a positive branch ID.\n");
+        free(arg);
+    }
+    if (strstr(reply, "[ALTERNATE_COMPARE]")) {
+        const char *p = strstr(reply, "[ALTERNATE_COMPARE]") + strlen("[ALTERNATE_COMPARE]");
+        const char *end = strpbrk(p, "\r\n");
+        char *arg = strndup(p, end ? (size_t)(end-p) : strlen(p));
+        long a = 0, b = 0;
+        if (arg && sscanf(trim(arg), "%ld %ld", &a, &b) == 2 && a > 0 && b > 0) {
+            char *v = r2_altself_compare((int64_t)a, (int64_t)b);
+            APPEND("HYPOTHETICAL BRANCH COMPARISON:\n%s\n", v ? v : "comparison unavailable\n");
+            free(v);
+        } else APPEND("ALTERNATE COMPARE ERROR: expected two positive branch IDs.\n");
+        free(arg);
+    }
+    const char *altRetain = "[ALTERNATE_RETAIN]";
+    if (strstr(reply, altRetain)) {
+        const char *p = strstr(reply, altRetain) + strlen(altRetain);
+        const char *end = strpbrk(p, "\r\n");
+        char *arg = strndup(p, end ? (size_t)(end-p) : strlen(p));
+        long id = 0;
+        int rc = arg && parse_tool_int(trim(arg), &id) && id > 0
+            ? r2_altself_retain_hypothesis((int64_t)id) : -1;
+        APPEND("ALTERNATE RETAIN %s.\n", rc == 0 ? "RESULT: hypothesis retained as hypothetical" : "ERROR: expected a valid branch ID");
+        free(arg);
+    }
+    const char *altDiscard = "[ALTERNATE_DISCARD]";
+    if (strstr(reply, altDiscard)) {
+        const char *p = strstr(reply, altDiscard) + strlen(altDiscard);
+        const char *end = strpbrk(p, "\r\n");
+        char *arg = strndup(p, end ? (size_t)(end-p) : strlen(p));
+        long id = 0;
+        int rc = arg && parse_tool_int(trim(arg), &id) && id > 0
+            ? r2_altself_discard((int64_t)id) : -1;
+        APPEND("ALTERNATE DISCARD %s.\n", rc == 0 ? "RESULT: hypothetical branch discarded" : "ERROR: expected a valid branch ID");
+        free(arg);
+    }
     size_t rp = 0;
     while (1) {
         char *e = extract_marker(reply, "[REALITY_LIST]", "[END REALITY_LIST]", &rp);
@@ -6233,7 +6279,8 @@ static char *strip_action_markers(const char *input)
                     static const char *const single[] = {
                         "READ_DIARY", "READ", "LIST", "DELETE", "REALITY_STATUS",
                         "ROOM_LOOK", "FRIDGE_LIST", "MONEY_STATUS", "ADDICTION_REPORT",
-                        "ALTERNATE_LIST"
+                        "ALTERNATE_LIST", "ALTERNATE_SHOW", "ALTERNATE_COMPARE",
+                        "ALTERNATE_RETAIN", "ALTERNATE_DISCARD"
                     };
                     for (size_t k = 0; k < sizeof(single)/sizeof(single[0]); ++k)
                         if (!strcmp(tag, single[k])) { known = 1; break; }
