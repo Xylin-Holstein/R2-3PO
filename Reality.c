@@ -1791,7 +1791,10 @@ int r2_reality_init(void)
     if (st) sqlite3_finalize(st);
     st = NULL;
     sqlite3_int64 now = (sqlite3_int64)time(NULL);
-    if (catchup_rc == SQLITE_OK && last > 0 && now > last && now - last <= 7 * 86400) {
+    /* The private clock is a fixed offset from host time and survives relaunches.
+       Long downtime is real modeled elapsed time; do not silently discard it
+       just because it exceeds a week. */
+    if (catchup_rc == SQLITE_OK && last > 0 && now > last) {
         if (update_hunger_locked((double)(now - last)) != 0) catchup_rc = SQLITE_ERROR;
         if (catchup_rc == SQLITE_OK) {
             catchup_rc = sqlite3_prepare_v2(reality_db,
@@ -1944,7 +1947,9 @@ int r2_reality_tick(void)
     }
     if (st) sqlite3_finalize(st);
     st = NULL;
-    if (rc == SQLITE_OK && last > 0 && now > last && now - last <= 7 * 86400) {
+    /* Match startup catch-up: a long but valid forward interval still advances
+       needs, world time, and the 72-hour starvation marker. */
+    if (rc == SQLITE_OK && last > 0 && now > last) {
         rc = update_hunger_locked((double)(now - last)) == 0 ? SQLITE_OK : SQLITE_ERROR;
         if (rc == SQLITE_OK) {
             rc = sqlite3_prepare_v2(reality_db,
