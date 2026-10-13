@@ -4260,8 +4260,11 @@ static char *world_action_result(char *line)
         return strdup(r2_reality_fridge_eat(f[1], -1.0) == 0 ?
                       "OK fridge stock consumed and needs updated" : "ERROR food unavailable in fridge");
     }
-    if (!strcasecmp(f[0], "fridge_store") && n == 2)
-        return strdup("ERROR fridge_store is not yet implemented; no inventory was changed");
+    if (!strcasecmp(f[0], "fridge_store") && n == 2) {
+        return strdup(r2_reality_move_item(f[1], "fridge") == 0 ?
+                      "OK tracked food moved into the separate fridge database" :
+                      "ERROR food could not be stored; check location, inventory and configured food metrics");
+    }
 
     if (!strcasecmp(f[0], "money_receive") && n == 2) {
         double amount = 0.0;
