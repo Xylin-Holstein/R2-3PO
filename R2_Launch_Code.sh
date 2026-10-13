@@ -262,7 +262,13 @@ echo
 echo "[3/4] Recompiling R2..."
 echo
 
-gcc -std=c11 -Wall -Wextra -O2 \
+TEMP_EXEC="${R2_EXEC}.tmp.${BASHPID}"
+if [ -e "$TEMP_EXEC" ] || [ -L "$TEMP_EXEC" ]; then
+    echo "ERROR: Temporary executable path already exists: $TEMP_EXEC"
+    exit 1
+fi
+
+gcc -std=c11 -Wall -Wextra -Werror -O2 \
     "$R2_SOURCE/r2.c" \
     "$R2_SOURCE/shell.c" \
     "$R2_SOURCE/r2_diary.c" \
@@ -276,7 +282,7 @@ gcc -std=c11 -Wall -Wextra -O2 \
     "$R2_SOURCE/Visual.c" \
     "$R2_SOURCE/Ears.c" \
     "$R2_SOURCE/Eyes.c" \
-    -o "$R2_EXEC" \
+    -o "$TEMP_EXEC" \
     -lcurl \
     -lsqlite3 \
     -lpthread \
@@ -288,19 +294,26 @@ gcc -std=c11 -Wall -Wextra -O2 \
 status=$?
 
 if [ $status -ne 0 ]; then
+    rm -f "$TEMP_EXEC"
     echo
     echo "========================================"
     echo "ERROR: R2 compilation failed."
-    echo "R2 was NOT launched."
+    echo "The previous executable was preserved; R2 was NOT launched."
     echo "========================================"
     echo
     read -p "Press Enter to exit..."
     exit $status
 fi
 
+if ! chmod 0755 "$TEMP_EXEC" || ! mv -f "$TEMP_EXEC" "$R2_EXEC"; then
+    rm -f "$TEMP_EXEC"
+    echo "ERROR: Could not atomically install the new executable; the previous executable was preserved."
+    exit 1
+fi
+
 echo
 echo "Compilation successful."
-echo "Executable updated:"
+echo "Executable updated atomically:"
 echo "    $R2_EXEC"
 echo
 echo "Unified conversation and vision model: $R2_MODEL"
