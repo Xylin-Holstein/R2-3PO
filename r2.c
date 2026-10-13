@@ -83,6 +83,12 @@ static char MODEL[256] = "gemma3:4b";
 #include "Ears.h"
 #include "Log.h"
 #include "Visual.h"
+#include "Reality.h"
+#include "Addiction.h"
+#include "Reward.h"
+#include "AlternateSelf.h"
+#include "R2Reply.h"
+#include "R2Sounds.h"
 
 
 /* ============================================================
@@ -6027,6 +6033,7 @@ int r2_init(void)
     }
 
     shutting_down = 0;
+    r2_sounds_init();
     watch_running = 0;
     startup_memory_loaded = 0;
 
@@ -6086,6 +6093,37 @@ int r2_init(void)
         sqlite3_close(db);
         db = NULL;
         die("could not initialize R2 Life Log");
+    }
+
+    /* Durable behavior-linked reinforcement lives in its own database. */
+    if (r2_reward_init() != 0) {
+        r2_log_event(R2_LOG_ERROR, "reward_init_failed",
+                     "R2's reinforcement ledger could not initialize.",
+                     "Conversation and memory remain available; reward learning is unavailable.",
+                     "r2_init");
+    }
+
+    /* Reality owns self-needs, room/world inventory, fridge, and money state.
+       Its migration is additive and leaves r2_memory.db intact. */
+    if (r2_reality_init() != 0) {
+        r2_log_event(R2_LOG_ERROR, "reality_init_failed",
+                     "R2's persistent Reality engine could not initialize.",
+                     "Startup is stopped rather than running with silently disconnected world state.",
+                     "r2_init");
+        r2_reward_shutdown();
+        r2_log_shutdown();
+        r2_diary_shutdown();
+        diary_initialized = 0;
+        sqlite3_close(db);
+        db = NULL;
+        die("could not initialize R2 Reality");
+    }
+
+    if (r2_altself_init() != 0) {
+        r2_log_event(R2_LOG_ERROR, "alternate_self_init_failed",
+                     "R2's Alternate-Self Lab could not initialize.",
+                     "Factual memory and Reality remain available; hypothetical branches are unavailable.",
+                     "r2_init");
     }
 
     if (r2_eyes_init(&eyes) != 0) {
@@ -6536,6 +6574,12 @@ void r2_shutdown(void)
     }
 
     r2_visual_shutdown();
+
+    /* Close dependent engines while Life Log and diary are still available. */
+    r2_sounds_shutdown();
+    r2_altself_shutdown();
+    r2_reality_shutdown();
+    r2_reward_shutdown();
 
     if (r2_log_is_initialized()) {
         r2_log_session_end("normal shutdown");
