@@ -55,6 +55,7 @@ static char OLLAMA_URL[512] = "http://127.0.0.1:11435/api/chat";
 #include <strings.h>
 #include <unistd.h>
 #include <limits.h>
+#include <math.h>
 #include <errno.h>
 #include <signal.h>
 #include <pthread.h>
