@@ -4103,6 +4103,32 @@ static char *ollama_chat(
     return result;
 }
 
+/* Bounded isolated generation for subsystems such as Imagination. This uses
+   the same local Ollama request gate as live text/vision inference but does
+   not inject the private prompt into the user's conversational history. */
+char *r2_model_generate(const char *system_prompt, const char *user_prompt,
+                        int num_predict)
+{
+    if (!system_prompt || !*system_prompt || !user_prompt || !*user_prompt ||
+        shutting_down)
+        return NULL;
+
+    Message messages[2] = {{0}};
+    messages[0].role = "system";
+    messages[0].content = (char *)system_prompt;
+    messages[1].role = "user";
+    messages[1].content = (char *)user_prompt;
+
+    if (num_predict < 1) num_predict = 700;
+    if (num_predict > 2048) num_predict = 2048;
+
+    int previous_mode = ollama_background_mode;
+    ollama_background_mode = 1;
+    char *result = ollama_chat_with_limit(messages, 2, NULL, num_predict, 600L);
+    ollama_background_mode = previous_mode;
+    return result;
+}
+
 /* ============================================================
    NORMAL CONVERSATION
    ============================================================ */
