@@ -40,7 +40,7 @@ static char MODEL[256] = "gemma3:4b";
 #define MAX_MEMORY_KEYWORDS 16
 #define MIN_MEMORY_KEYWORD_LENGTH 3
 
-#define OLLAMA_URL "http://127.0.0.1:11434/api/chat"
+static char OLLAMA_URL[512] = "http://127.0.0.1:11434/api/chat";
 
 #define DB_PATH R2_DIARY_DATABASE
 #define ORIGINAL_CONVERSATION \
@@ -6566,6 +6566,24 @@ static void *reality_needs_worker(void *unused)
     return NULL;
 }
 
+static int configure_ollama_endpoint(void)
+{
+    const char *base = getenv("R2_OLLAMA_BASE_URL");
+    if (!base || !*base) return 0; /* Interactive compatibility default: localhost:11434. */
+    char local[384];
+    size_t n = strlen(base);
+    while (n && base[n - 1] == '/') --n;
+    if (!n || n >= sizeof(local)) return -1;
+    memcpy(local, base, n);
+    local[n] = '\0';
+    if (strncmp(local, "http://127.0.0.1:", 16) != 0 &&
+        strncmp(local, "http://localhost:", 17) != 0) return -1;
+    if (strchr(local + 7, '/') || strchr(local, '@') ||
+        strchr(local, '?') || strchr(local, '#')) return -1;
+    int written = snprintf(OLLAMA_URL, sizeof(OLLAMA_URL), "%s/api/chat", local);
+    return written > 0 && (size_t)written < sizeof(OLLAMA_URL) ? 0 : -1;
+}
+
 static int configure_conversation_model(void)
 {
     const char *requested = getenv("R2_MODEL");
@@ -6596,6 +6614,9 @@ int r2_init(void)
 
     shutting_down = 0;
     r2_sounds_init();
+    if (configure_ollama_endpoint() != 0) {
+        die("R2_OLLAMA_BASE_URL must be a localhost HTTP endpoint, not a remote network URL");
+    }
     watch_running = 0;
     startup_memory_loaded = 0;
 
