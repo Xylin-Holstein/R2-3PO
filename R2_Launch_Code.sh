@@ -33,8 +33,8 @@ r2_remove_network_family() {
     fi
 }
 r2_remove_network_lock() {
-    r2_remove_network_family iptables R2_UID_NETLOCK || true
-    r2_remove_network_family ip6tables R2_UID_NETLOCK || true
+    r2_remove_network_family iptables R2_UID_NETLOCK || return 1
+    r2_remove_network_family ip6tables R2_UID_NETLOCK || return 1
 }
 r2_network_cleanup() {
     local exit_status=$?
