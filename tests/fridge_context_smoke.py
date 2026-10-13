@@ -34,8 +34,8 @@ for action in ('r2_reality_eat(fields[1], -1.0)',
     if action not in core:
         raise SystemExit(f"Core WORLD handler is missing {action}")
 for boundary in (
-    "Imagined sensory details are predictions, not observations.",
-    "Only a real experience or explicit user feedback may update an experiential preference.",
+    "SENSORY COUNTERFACTUALS",
+    "update preferences only after real experience or explicit feedback",
     "[ALTERNATE_CREATE]",
 ):
     if boundary not in core and boundary not in reality:
