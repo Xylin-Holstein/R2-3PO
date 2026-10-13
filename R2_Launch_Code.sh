@@ -216,6 +216,7 @@ if [[ ! -r "$R2_SOURCE/tools/preflight_ollama_model.py" ]]; then
     exit 1
 fi
 if ! sudo -n -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
+    R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
     R2_OLLAMA_NUM_GPU="$R2_OLLAMA_NUM_GPU" \
     R2_OLLAMA_TIMEOUT_SECONDS="${R2_OLLAMA_TIMEOUT_SECONDS:-}" \
     python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --timeout 180; then
@@ -668,6 +669,7 @@ sudo -n setpriv --reuid="$R2_UID" --regid="$R2_GID" --groups="$R2_RUNTIME_GROUPS
     LD_PRELOAD="$FAKETIME_LIB" \
     FAKETIME="${FAKETIME_OFFSET}" \
     FAKETIME_DONT_RESET=1 \
+    R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
     R2_OLLAMA_NUM_CTX="${R2_OLLAMA_NUM_CTX:-}" \
     R2_OLLAMA_TIMEOUT_SECONDS="${R2_OLLAMA_TIMEOUT_SECONDS:-}" \
     R2_OLLAMA_NUM_GPU="${R2_OLLAMA_NUM_GPU}" \
