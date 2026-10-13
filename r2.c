@@ -2728,6 +2728,7 @@ static char *ollama_chat(
    NORMAL CONVERSATION
    ============================================================ */
 
+static char *chat_copy_all(void) __attribute__((unused));
 static char *chat_copy_all(void)
 {
     pthread_mutex_lock(
