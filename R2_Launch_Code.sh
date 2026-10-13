@@ -8,6 +8,10 @@ R2_EXEC="$R2_ROOT/r2"
 R2_MODEL="${R2_MODEL:-gemma3:4b}"
 R2_VISION_MODEL="$R2_MODEL"
 R2_OLLAMA_BASE_URL="${R2_OLLAMA_BASE_URL:-http://127.0.0.1:11435}"
+if [ "$R2_OLLAMA_BASE_URL" != "http://127.0.0.1:11435" ]; then
+    echo "ERROR: R2 must use its dedicated r2-owned Ollama endpoint at http://127.0.0.1:11435."
+    exit 1
+fi
 export R2_MODEL R2_VISION_MODEL R2_OLLAMA_BASE_URL
 
 echo "========================================"
