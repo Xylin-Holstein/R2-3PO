@@ -42,6 +42,8 @@ class VWebcam:
         self.last_frame_mtime: int | None = None
         self.image_width = 0
         self.image_height = 0
+        self.display_status = self.status()
+        self.display_focus = self.focus()
 
         top = tk.Frame(root, bg=PANEL, padx=12, pady=9)
         top.pack(fill="x")
@@ -156,15 +158,19 @@ class VWebcam:
         self.draw_focus()
 
     def refresh(self) -> None:
-        if not self.paused:
-            try:
-                stamp = FRAME_PATH.stat().st_mtime_ns
-                if stamp != self.last_frame_mtime:
-                    self.raw_photo = tk.PhotoImage(file=str(FRAME_PATH))
-                    self.last_frame_mtime = stamp
-                    self.fit_image()
-            except (OSError, tk.TclError):
-                pass
+        # Pause freezes the frame and its focus metadata together.
+        if self.paused:
+            return
+        self.display_status = self.status()
+        self.display_focus = self.focus()
+        try:
+            stamp = FRAME_PATH.stat().st_mtime_ns
+            if stamp != self.last_frame_mtime:
+                self.raw_photo = tk.PhotoImage(file=str(FRAME_PATH))
+                self.last_frame_mtime = stamp
+                self.fit_image()
+        except (OSError, tk.TclError):
+            pass
         self.draw_focus()
 
     def fit_image(self) -> None:
@@ -182,8 +188,8 @@ class VWebcam:
         self.draw_focus()
 
     def draw_focus(self) -> None:
-        status = self.status()
-        focus = self.focus()
+        status = self.display_status
+        focus = self.display_focus
         active = bool(status["active"])
         self.live_label.configure(
             text="EYES ACTIVE" if active else "WAITING FOR EYES",
