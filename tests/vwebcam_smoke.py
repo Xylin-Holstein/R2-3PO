@@ -23,7 +23,9 @@ def main() -> None:
     assert "R2_VWEBCAM_DIR" in eyes and "r2_vwebcam_publish_frame(eyes)" in eyes
     assert "r2_vwebcam_start_viewer()" in eyes and "r2_vwebcam_stop_viewer()" in eyes
     assert "R2_VWEBCAM_MAX_W 960U" in eyes
+    assert "r2_vwebcam_last_publish_ms" in eyes
     assert "Return ONLY valid JSON with keys description and focus" in visual
+    assert '"format", json_object_new_string("json")' in visual
     assert "extract_visual_description(model_text)" in visual
     assert "publish_focus_region(focus)" in visual
     assert '"$R2_SOURCE/V-Webcam.py"' in launcher
