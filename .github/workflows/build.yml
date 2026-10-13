@@ -250,6 +250,9 @@ jobs:
           python3 -m py_compile tests/r2_overnight_service_smoke.py
           python3 tests/r2_overnight_service_smoke.py
 
+      - name: Check overnight installer permissions and write probes
+        run: bash tests/test_overnight_permission_checks.sh
+
       - name: Check Imagination and Sensory Journal integration
         run: |
           python3 -m py_compile tests/subsystem_wiring_smoke.py
