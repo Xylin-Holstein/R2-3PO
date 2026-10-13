@@ -8,7 +8,7 @@ R2_EXEC="${R2_EXEC:-$R2_ROOT/r2}"
 R2_FX_DIR="${R2_FX_DIR:-$R2_ROOT/R2_sounds/FX}"
 R2_OLLAMA_BASE_URL="${R2_OLLAMA_BASE_URL:-http://127.0.0.1:11435}"
 export R2_OLLAMA_BASE_URL
-OLLAMA_TAGS_URL="http://127.0.0.1:11435/api/tags"
+export OLLAMA_TAGS_URL="${R2_OLLAMA_BASE_URL}/api/tags"
 
 # Keep the runtime account's home-relative defaults inside the canonical R2
 # project tree; the Linux account's actual home is not a second data directory.
@@ -149,6 +149,7 @@ R2_ENV=(/usr/bin/env
     "R2_OLLAMA_TIMEOUT_SECONDS=${R2_OLLAMA_TIMEOUT_SECONDS:-}"
     "R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU"
     "R2_FX_DIR=$R2_FX_DIR"
+    "R2_OLLAMA_BASE_URL=$R2_OLLAMA_BASE_URL"
     "R2_VISION_MODEL=qwen3.5:9b"
     "$R2_EXEC")
 
