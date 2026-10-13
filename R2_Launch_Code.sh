@@ -7,6 +7,8 @@ R2_EXEC="$R2_ROOT/r2"
 # One multimodal model handles both conversation and visual perception.
 R2_MODEL="${R2_MODEL:-gemma3:4b}"
 R2_VISION_MODEL="$R2_MODEL"
+R2_OLLAMA_BASE_URL="${R2_OLLAMA_BASE_URL:-http://127.0.0.1:11435}"
+export R2_MODEL R2_VISION_MODEL R2_OLLAMA_BASE_URL
 
 echo "========================================"
 echo "        R2-3PO LAUNCH SEQUENCE"
@@ -336,42 +338,34 @@ echo
 # the R2 kernel. This catches a missing server/model before the shell
 # starts and avoids mistaking a shell launch for a working model link.
 
-echo "Checking Ollama API and model as user r2..."
+echo "Checking the dedicated R2-owned Ollama server and model as user r2..."
 
-# Ollama inference runs in the server process, not in the HTTP client.
-# Report the actual server owner instead of assuming sudo -u r2 changes it.
-OLLAMA_PID=$(pgrep -f '[o]llama serve' | head -n 1)
-if [ -n "$OLLAMA_PID" ]; then
-    OLLAMA_OWNER=$(ps -o user= -p "$OLLAMA_PID" | tr -d '[:space:]')
-    echo "Ollama server process owner: ${OLLAMA_OWNER:-unknown}"
-    if [ "$OLLAMA_OWNER" != "r2" ]; then
-        echo "NOTICE: R2 will send requests as user r2, but inference currently runs under '$OLLAMA_OWNER'."
-        echo "The existing Ollama service has not been stopped or re-owned automatically."
+if ! sudo systemctl is-active --quiet r2-ollama.service; then
+    echo "Starting the dedicated r2-owned Ollama service..."
+    if ! sudo systemctl start r2-ollama.service; then
+        echo "ERROR: r2-ollama.service is not installed or could not start."
+        echo "Run tools/install_r2_overnight.sh after ensuring the selected model exists in the user's Ollama store."
+        read -p "Press Enter to exit..."
+        exit 1
     fi
-else
-    echo "Ollama server process was not found; the API preflight below will verify whether it is reachable."
 fi
 
-if ! sudo -u r2 env R2_MODEL="$R2_MODEL" python3 -c '
-import json, os, sys, urllib.request
-wanted = os.environ["R2_MODEL"]
-try:
-    with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=8) as response:
-        payload = json.load(response)
-    names = {item.get("name", "") for item in payload.get("models", [])}
-    if wanted not in names:
-        print("ERROR: Ollama is reachable, but the requested model is not installed:", wanted, file=sys.stderr)
-        print("Installed models:", ", ".join(sorted(names)) or "(none)", file=sys.stderr)
-        sys.exit(2)
-except Exception as exc:
-    print("ERROR: R2 cannot reach the Ollama API at 127.0.0.1:11434:", exc, file=sys.stderr)
-    sys.exit(1)
-print("Ollama API reachable; model is installed:", wanted)
-'; then
+OLLAMA_SERVICE_USER=$(sudo systemctl show r2-ollama.service -p User --value 2>/dev/null | tr -d '[:space:]')
+if [ "$OLLAMA_SERVICE_USER" != "r2" ]; then
+    echo "ERROR: the inference service is not configured to run as Linux user r2."
+    echo "Reported systemd service user: ${OLLAMA_SERVICE_USER:-unknown}"
+    echo "R2 was NOT launched."
+    exit 1
+fi
+echo "Dedicated Ollama service user: $OLLAMA_SERVICE_USER"
+echo "R2 Ollama endpoint: $R2_OLLAMA_BASE_URL"
+
+if ! sudo -u r2 env R2_MODEL="$R2_MODEL" R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
+    python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 30 --timeout 180; then
     echo
-    echo "R2 was NOT launched because its configured model is unavailable."
-    echo "Install it with: ollama pull $R2_MODEL"
-    echo "Then rerun this launcher."
+    echo "R2 was NOT launched because its private model server failed the real-generation preflight."
+    echo "If the model is absent from the source Ollama store, run: ollama pull $R2_MODEL"
+    echo "Then rerun tools/install_r2_overnight.sh to copy it into R2's private model store."
     read -p "Press Enter to exit..."
     exit 1
 fi
@@ -389,6 +383,7 @@ sudo -u r2 \
     FAKETIME_DONT_RESET=1 \
     R2_MODEL="$R2_MODEL" \
     R2_VISION_MODEL="$R2_VISION_MODEL" \
+    R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
     "$R2_EXEC"
 
 status=$?
