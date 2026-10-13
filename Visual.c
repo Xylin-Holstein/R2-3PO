@@ -52,6 +52,13 @@ static int visual_vwebcam_prepare_dir(void)
 static void publish_focus_region(json_object *focus)
 {
     char path[PATH_MAX], tmp[PATH_MAX];
+    const char *display = getenv("DISPLAY");
+    if (!display || !*display) {
+        int n = snprintf(path, sizeof(path), "%s/focus.json", R2_VWEBCAM_DIR);
+        if (n > 0 && (size_t)n < sizeof(path))
+            (void)unlink(path);
+        return;
+    }
     int pn = snprintf(path, sizeof(path), "%s/focus.json", R2_VWEBCAM_DIR);
     int tn = snprintf(tmp, sizeof(tmp), "%s/focus.tmp", R2_VWEBCAM_DIR);
     if (pn < 0 || (size_t)pn >= sizeof(path) ||
