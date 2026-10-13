@@ -267,6 +267,17 @@ static void r2_vwebcam_start_viewer(void)
             return;
     }
 
+    /* Resolve all environment/path state before fork. The child of this
+       multithreaded process then uses only async-signal-safe calls until exec. */
+    const char *source_dir = getenv("R2_SOURCE");
+    if (!source_dir || !*source_dir)
+        source_dir = "/home/x/R2_Home/R2";
+    char viewer[PATH_MAX];
+    int n = snprintf(viewer, sizeof(viewer), "%s/V-Webcam.py", source_dir);
+    if (n < 0 || (size_t)n >= sizeof(viewer))
+        return;
+    char *const argv[] = {"/usr/bin/python3", viewer, NULL};
+
     pid_t child = fork();
     if (child < 0)
         return;
@@ -280,14 +291,7 @@ static void r2_vwebcam_start_viewer(void)
             if (fd > STDERR_FILENO)
                 close(fd);
         }
-        const char *source_dir = getenv("R2_SOURCE");
-        if (!source_dir || !*source_dir)
-            source_dir = "/home/x/R2_Home/R2";
-        char viewer[PATH_MAX];
-        int n = snprintf(viewer, sizeof(viewer), "%s/V-Webcam.py", source_dir);
-        if (n < 0 || (size_t)n >= sizeof(viewer))
-            _exit(126);
-        execlp("python3", "python3", viewer, (char *)NULL);
+        execv(argv[0], argv);
         _exit(127);
     }
     r2_vwebcam_pid = child;
