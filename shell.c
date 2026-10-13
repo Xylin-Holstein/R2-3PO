@@ -1246,8 +1246,105 @@ static void shell_restart(void)
    COMMAND DISPATCH
    ============================================================ */
 
+static void shell_tv(const char *argument)
+{
+    if (!r2_reality_is_initialized()) {
+        printf("[TV] Reality engine is not initialized.\n");
+        return;
+    }
+    if (!argument || !*argument || !strcasecmp(argument, "status")) {
+        char *status = r2_reality_tv_status();
+        printf("%s", status ? status : "[TV] Could not read TV state.\n");
+        free(status);
+        return;
+    }
+    if (!strcasecmp(argument, "on") || !strcasecmp(argument, "power on")) {
+        printf(r2_reality_tv_power(1) == 0 ? "[TV] Powered on. Eyes/attention were not changed.\n" : "[TV] Power-on failed.\n");
+        return;
+    }
+    if (!strcasecmp(argument, "off") || !strcasecmp(argument, "power off")) {
+        printf(r2_reality_tv_power(0) == 0 ? "[TV] Powered off. Eyes/attention were not changed.\n" : "[TV] Power-off failed.\n");
+        return;
+    }
+    if (shell_starts_with(argument, "input ")) {
+        char *end = NULL; long n = strtol(argument + 6, &end, 10);
+        while (end && *end && isspace((unsigned char)*end)) ++end;
+        if (end != argument + 6 && end && !*end && n >= 1 && n <= 4 &&
+            r2_reality_tv_select_input((int)n) == 0)
+            printf("[TV] Selected AV input %ld.\n", n);
+        else printf("Usage: tv input 1..4\n");
+        return;
+    }
+    if (shell_starts_with(argument, "tune ")) {
+        char *end = NULL; long n = strtol(argument + 5, &end, 10);
+        while (end && *end && isspace((unsigned char)*end)) ++end;
+        if (end != argument + 5 && end && !*end && n >= 2 && n <= 13 &&
+            r2_reality_tv_tune_rf((int)n) == 0) {
+            char *status = r2_reality_tv_status();
+            printf("%s", status ? status : "[TV] Tuned RF channel; status unavailable.\n");
+            free(status);
+        } else printf("Usage: tv tune <RF channel 2..13>\n");
+        return;
+    }
+    if (shell_starts_with(argument, "connect ")) {
+        char *copy = strdup(argument + 8);
+        if (!copy) return;
+        char *parts[3] = {0}; int count = 0; char *save = NULL;
+        for (char *p = strtok_r(copy, "|", &save); p && count < 3; p = strtok_r(NULL, "|", &save))
+            parts[count++] = shell_trim(p);
+        int port = 0, valid_port = 0;
+        if (count == 3) {
+            char *end = NULL;
+            errno = 0;
+            long parsed = strtol(parts[2], &end, 10);
+            if (errno != ERANGE && end != parts[2] && end && !*end &&
+                parsed >= INT_MIN && parsed <= INT_MAX) {
+                port = (int)parsed;
+                valid_port = 1;
+            }
+        }
+        int rc = count == 3 && valid_port
+            ? r2_reality_tv_connect(parts[0], parts[1], port) : -1;
+        if (rc == 0) printf("[TV] Connected %s to %s %d.\n", parts[0], parts[1], port);
+        else printf("Usage: tv connect <device name> | input/RF | <port/channel> (AV inputs 2..4, RF channels 2..13).\n");
+        free(copy);
+        return;
+    }
+    if (shell_starts_with(argument, "disconnect ")) {
+        const char *name = shell_trim((char *)argument + 11);
+        printf(r2_reality_tv_disconnect(name) == 0 ? "[TV] Device disconnected.\n" : "[TV] No connected device with that name.\n");
+        return;
+    }
+    if (shell_starts_with(argument, "vcr insert ")) {
+        const char *path = shell_trim((char *)argument + 11);
+        printf(r2_reality_tv_vcr_insert(path) == 0
+            ? "[TV] Tape inserted; its saved position is retained.\n"
+            : "[TV] Could not insert tape. Use a readable VLC-supported video file.\n");
+        return;
+    }
+    if (shell_starts_with(argument, "vcr ")) {
+        const char *action = shell_trim((char *)argument + 4);
+        if (!strcasecmp(action, "play") || !strcasecmp(action, "pause") ||
+            !strcasecmp(action, "stop") || !strcasecmp(action, "eject")) {
+            printf(r2_reality_tv_vcr_transport(action) == 0
+                ? "[TV] VCR transport updated.\n"
+                : "[TV] No tape is inserted, or the transport command failed.\n");
+        } else {
+            printf("Usage: tv vcr insert <absolute media path> | tv vcr play | pause | stop | eject\n");
+        }
+        return;
+    }
+    printf("TV commands: tv status, tv on, tv off, tv input 1..4, tv tune <RF channel 2..13>, tv connect <name> | input/RF | <port>, tv disconnect <name>, tv vcr insert/play/pause/stop/eject.\n");
+}
+
+
 static int shell_dispatch(char *input)
 {
+    if (!strcasecmp(command, "tv") || shell_starts_with(command, "tv ")) {
+        shell_tv(shell_starts_with(command, "tv ") ? shell_trim(command + 3) : NULL);
+        return 1;
+    }
+
     char *command =
         shell_trim(input);
 
