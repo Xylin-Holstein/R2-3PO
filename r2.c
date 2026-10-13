@@ -4953,6 +4953,66 @@ static char *r2_build_associative_search_query(const char *query)
     return combined;
 }
 
+static int r2_recent_message_is_tool_payload(const char *content)
+{
+    static const char *const markers[] = {
+        "[WORLD]", "[IMAGINE]", "[IMAGINE_FEEDBACK]", "[SENSORY_JOURNAL]",
+        "[ALTERNATE_CREATE]", "[ALTERNATE_DISCARD]", "[ALTERNATE_RETAIN]",
+        "[GAMEBOY]", "[TV]", "[DIARY]", "[TASK]", "[FRIDGE]"
+    };
+    if (!content) return 1;
+    for (size_t i = 0; i < sizeof(markers) / sizeof(markers[0]); ++i)
+        if (strstr(content, markers[i])) return 1;
+    return 0;
+}
+
+/* Return only recent human-facing turns for grounded hypothetical generation.
+   Pinned system/archive context and internal tool payloads are deliberately
+   excluded; this transcript is contextual evidence, not a new instruction. */
+char *r2_recent_conversation_context(const char *exclude_latest, size_t max_chars)
+{
+    if (max_chars < 256) max_chars = 256;
+    if (max_chars > 8192) max_chars = 8192;
+    char *out = calloc(max_chars + 1, 1);
+    if (!out) return NULL;
+
+    size_t selected[8];
+    size_t found = 0;
+    pthread_mutex_lock(&messages_lock);
+    for (size_t i = messages.count; i > 0 && found < 8; --i) {
+        size_t index = i - 1;
+        const Message *m = &messages.items[index];
+        if (!m->role || !m->content || m->pinned) continue;
+        if (strcmp(m->role, "user") != 0 && strcmp(m->role, "assistant") != 0)
+            continue;
+        if (exclude_latest && *exclude_latest && strcmp(m->content, exclude_latest) == 0)
+            continue;
+        if (strcmp(m->role, "assistant") == 0 &&
+            r2_recent_message_is_tool_payload(m->content))
+            continue;
+        if (strcmp(m->role, "user") == 0 &&
+            r2_recent_message_is_tool_payload(m->content))
+            continue;
+        selected[found++] = index;
+    }
+
+    size_t used = 0;
+    for (size_t n = found; n > 0 && used < max_chars; --n) {
+        const Message *m = &messages.items[selected[n - 1]];
+        size_t remaining = max_chars - used;
+        int written = snprintf(out + used, remaining + 1, "%s: %.1000s\\n",
+            strcmp(m->role, "user") == 0 ? "User" : "R2", m->content);
+        if (written < 0) break;
+        if ((size_t)written > remaining) {
+            used = max_chars;
+            break;
+        }
+        used += (size_t)written;
+    }
+    pthread_mutex_unlock(&messages_lock);
+    return out;
+}
+
 static char *chat_with_relevant_memories(
     const char *query)
 {
