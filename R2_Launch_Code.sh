@@ -283,6 +283,7 @@ REQUIRED_FILES=(
 
     "$R2_SOURCE/Eyes.c"
     "$R2_SOURCE/Eyes.h"
+    "$R2_SOURCE/V-Webcam.py"
 
     "$R2_SOURCE/R2Sounds.c"
     "$R2_SOURCE/R2Sounds.h"
@@ -627,6 +628,7 @@ sudo -n setpriv --reuid="$R2_UID" --regid="$R2_GID" --groups="$R2_RUNTIME_GROUPS
     USER="r2" \
     LOGNAME="r2" \
     DISPLAY="${DISPLAY:-}" \
+    R2_SOURCE="$R2_SOURCE" \
     XAUTHORITY="${XAUTHORITY:-}" \
     LD_PRELOAD="$FAKETIME_LIB" \
     FAKETIME="${FAKETIME_OFFSET}" \

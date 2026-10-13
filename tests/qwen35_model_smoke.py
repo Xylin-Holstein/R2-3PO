@@ -176,9 +176,11 @@ require(
     "retrieved history stays separate and is placed before dialogue without modifying the current user message",
 )
 require(
-    "Return a concise visual observation for R2's conversation to use as sensory evidence, not as a user-facing answer."
-    in visual,
-    "vision output is framed as sensory evidence for conversation",
+    "Return ONLY valid JSON with keys description and focus" in visual
+    and "observation for R2's conversation to use as sensory evidence, not as a user-facing answer." in visual
+    and 'json_object_object_add(root, "format", json_object_new_string("json"))' in visual
+    and "extract_visual_description(model_text)" in visual,
+    "vision output carries a natural-language sensory description plus structured focus metadata",
 )
 require(
     "separate models are disabled." in shell

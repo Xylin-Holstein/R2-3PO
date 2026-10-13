@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - 'fix/**'
+      - 'feature/**'
       - 'integrate/**'
       - fix/text-model-network-and-sensory-continuity
       - r2-audit-fixes-2026-10-09
@@ -80,6 +81,11 @@ jobs:
         run: |
           python3 -m py_compile Observer.py tests/observer_filter_smoke.py
           python3 tests/observer_filter_smoke.py
+
+      - name: Check V-Webcam frame mirror and focus overlay
+        run: |
+          python3 -m py_compile V-Webcam.py tests/vwebcam_smoke.py
+          python3 tests/vwebcam_smoke.py
 
       - name: Check local Ollama readiness probe without network access
         run: |

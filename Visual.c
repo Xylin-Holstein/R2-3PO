@@ -16,6 +16,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <limits.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,6 +33,143 @@ static pthread_mutex_t visual_lock = PTHREAD_MUTEX_INITIALIZER;
 static int visual_initialized = 0;
 static char visual_directory[PATH_MAX];
 static char visual_model[256];
+
+#define R2_VWEBCAM_DIR "/tmp/r2-vwebcam-r2"
+
+static int visual_vwebcam_prepare_dir(void)
+{
+    struct stat st;
+    if (mkdir(R2_VWEBCAM_DIR, 0700) != 0 && errno != EEXIST)
+        return -1;
+    if (lstat(R2_VWEBCAM_DIR, &st) != 0 || !S_ISDIR(st.st_mode) ||
+        st.st_uid != geteuid())
+        return -1;
+    if ((st.st_mode & 0777) != 0700 && chmod(R2_VWEBCAM_DIR, 0700) != 0)
+        return -1;
+    return 0;
+}
+
+static void publish_focus_region(json_object *focus)
+{
+    char path[PATH_MAX], tmp[PATH_MAX];
+    const char *display = getenv("DISPLAY");
+    if (!display || !*display)
+        return;
+    int pn = snprintf(path, sizeof(path), "%s/focus.json", R2_VWEBCAM_DIR);
+    int tn = snprintf(tmp, sizeof(tmp), "%s/focus.tmp", R2_VWEBCAM_DIR);
+    if (pn < 0 || (size_t)pn >= sizeof(path) ||
+        tn < 0 || (size_t)tn >= sizeof(tmp))
+        return;
+    if (!focus || json_object_is_type(focus, json_type_null) ||
+        !json_object_is_type(focus, json_type_object)) {
+        (void)unlink(path);
+        return;
+    }
+
+    json_object *xv = NULL, *yv = NULL, *wv = NULL, *hv = NULL, *lv = NULL;
+    if (!json_object_object_get_ex(focus, "x", &xv) ||
+        !json_object_object_get_ex(focus, "y", &yv) ||
+        !json_object_object_get_ex(focus, "width", &wv) ||
+        !json_object_object_get_ex(focus, "height", &hv)) {
+        (void)unlink(path);
+        return;
+    }
+    if ((!json_object_is_type(xv, json_type_double) && !json_object_is_type(xv, json_type_int)) ||
+        (!json_object_is_type(yv, json_type_double) && !json_object_is_type(yv, json_type_int)) ||
+        (!json_object_is_type(wv, json_type_double) && !json_object_is_type(wv, json_type_int)) ||
+        (!json_object_is_type(hv, json_type_double) && !json_object_is_type(hv, json_type_int))) {
+        (void)unlink(path);
+        return;
+    }
+    double x = json_object_get_double(xv), y = json_object_get_double(yv);
+    double w = json_object_get_double(wv), h = json_object_get_double(hv);
+    if (!isfinite(x) || !isfinite(y) || !isfinite(w) || !isfinite(h) ||
+        x < 0.0 || y < 0.0 || w <= 0.0 || h <= 0.0 ||
+        x > 1.0 || y > 1.0 || w > 1.0 || h > 1.0 ||
+        x + w > 1.001 || y + h > 1.001 ||
+        visual_vwebcam_prepare_dir() != 0) {
+        (void)unlink(path);
+        return;
+    }
+    (void)json_object_object_get_ex(focus, "label", &lv);
+    const char *raw_label = lv && json_object_is_type(lv, json_type_string)
+        ? json_object_get_string(lv) : "Selected region";
+    char label[129];
+    snprintf(label, sizeof(label), "%s", raw_label && *raw_label
+        ? raw_label : "Selected region");
+
+    json_object *root = json_object_new_object();
+    if (!root) {
+        (void)unlink(path);
+        return;
+    }
+    json_object_object_add(root, "x", json_object_new_double(x));
+    json_object_object_add(root, "y", json_object_new_double(y));
+    json_object_object_add(root, "width", json_object_new_double(w));
+    json_object_object_add(root, "height", json_object_new_double(h));
+    json_object_object_add(root, "label", json_object_new_string(label));
+    const char *encoded = json_object_to_json_string_ext(root, JSON_C_TO_STRING_PLAIN);
+    FILE *fp = encoded ? fopen(tmp, "w") : NULL;
+    int failed = !fp;
+    if (fp) {
+        if (fputs(encoded, fp) < 0 || fputc('\n', fp) == EOF)
+            failed = 1;
+        if (fclose(fp) != 0)
+            failed = 1;
+    }
+    json_object_put(root);
+    if (!failed) {
+        (void)chmod(tmp, 0600);
+        if (rename(tmp, path) != 0)
+            failed = 1;
+    }
+    if (failed) {
+        (void)unlink(tmp);
+        (void)unlink(path);
+    }
+}
+
+/* Return the natural-language description for R2 while publishing the
+   optional focus region separately for the display-only V-Webcam overlay. */
+static char *extract_visual_description(char *text)
+{
+    if (!text)
+        return NULL;
+    while (*text == ' ' || *text == '\n' || *text == '\r' || *text == '\t')
+        ++text;
+    if (!strncmp(text, "```", 3)) {
+        char *nl = strchr(text, '\n');
+        if (nl) {
+            text = nl + 1;
+            char *end = strstr(text, "```");
+            if (end)
+                *end = '\0';
+        }
+    }
+    json_object *root = json_tokener_parse(text);
+    if (!root || !json_object_is_type(root, json_type_object)) {
+        if (root)
+            json_object_put(root);
+        publish_focus_region(NULL);
+        return strdup(text);
+    }
+    json_object *description = NULL, *focus = NULL;
+    char *out = NULL;
+    if (json_object_object_get_ex(root, "description", &description) &&
+        json_object_is_type(description, json_type_string)) {
+        const char *value = json_object_get_string(description);
+        if (value && *value)
+            out = strdup(value);
+    }
+    if (json_object_object_get_ex(root, "focus", &focus))
+        publish_focus_region(focus);
+    else
+        publish_focus_region(NULL);
+    json_object_put(root);
+    if (!out)
+        out = strdup(text);
+    return out;
+}
 
 struct response_buffer {
     char *data;
@@ -227,7 +365,12 @@ static char *call_vision_model(const char *image_base64, const char *question,
         "Analyze only the supplied image. Be concrete and evidence-based. "
         "Distinguish what is directly visible from inference and uncertainty. "
         "Do not claim motion or events from a single frame. Do not identify private people. "
-        "Return a concise visual observation for R2's conversation to use as sensory evidence, not as a user-facing answer."
+        "Return ONLY valid JSON with keys description and focus. description is a concise natural-language " 
+        "observation for R2's conversation to use as sensory evidence, not as a user-facing answer. focus is " 
+        "null or an object with label, x, y, width, and height. Coordinates are normalized 0..1 fractions " 
+        "of the full image; x/y are the top-left corner and width/height are the region size. Select one " 
+        "visible region worth inspecting. Never invent a region; use null if no clear target exists. Do not " 
+        "wrap JSON in markdown."
     );
     json_object *root = json_object_new_object();
     json_object *messages = json_object_new_array();
@@ -248,6 +391,7 @@ static char *call_vision_model(const char *image_base64, const char *question,
     json_object_object_add(root, "model", json_object_new_string(model));
     json_object_object_add(root, "stream", json_object_new_boolean(0));
     json_object_object_add(root, "think", json_object_new_boolean(0));
+    json_object_object_add(root, "format", json_object_new_string("json"));
     json_object_object_add(root, "keep_alive", json_object_new_string("10m"));
 
     /*
@@ -594,8 +738,15 @@ char *r2_visual_analyze_frame(const R2VisionFrame *frame,
     }
     char *base64 = base64_encode(jpeg, jpeg_length);
     if (!base64) { free(jpeg); return NULL; }
-    char *description = call_vision_model(base64, question, model_snapshot);
+    char *model_text = call_vision_model(base64, question, model_snapshot);
     free(base64);
+    if (!model_text) {
+        publish_focus_region(NULL);
+        free(jpeg);
+        return NULL;
+    }
+    char *description = extract_visual_description(model_text);
+    free(model_text);
     if (!description) { free(jpeg); return NULL; }
 
     char image_path[PATH_MAX];
