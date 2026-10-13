@@ -24,13 +24,13 @@ def main() -> None:
     assert "r2_vwebcam_start_viewer()" in eyes and "r2_vwebcam_stop_viewer()" in eyes
     assert "R2_VWEBCAM_MAX_W 960U" in eyes
     assert "r2_vwebcam_last_publish_ms" in eyes
-    assert "if not display or not *display" in eyes
+    assert "if (!display || !*display)" in eyes
     assert "Return ONLY valid JSON with keys description and focus" in visual
     assert '"format", json_object_new_string("json")' in visual
     assert "extract_visual_description(model_text)" in visual
     assert "publish_focus_region(focus)" in visual
-    assert "Avoid focus metadata writes in headless inference" not in visual
     assert "const char *display = getenv(\"DISPLAY\")" in visual
+    assert "if (!display || !*display)" in visual
     assert '"$R2_SOURCE/V-Webcam.py"' in launcher
     assert 'R2_SOURCE="$R2_SOURCE"' in launcher
     assert "V-Webcam.py" in preflight
