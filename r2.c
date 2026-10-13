@@ -5795,7 +5795,19 @@ char *r2_talk(const char *message)
     pthread_mutex_unlock(&messages_lock);
 
     char *reply = chat_with_relevant_memories(message);
-    if (!reply) return NULL;
+    if (!reply) {
+        /*
+         * The user turn is already in live history. Do not return NULL here:
+         * the old shell reports this only on stderr, which may be redirected
+         * by the launcher, making the turn look silently discarded.
+         */
+        fprintf(stderr,
+                "[R2] Conversation generation failed; preserving the user turn and returning a visible response.\n");
+        reply = xstrdup(
+            "I'm sorry, Mom—I couldn't produce a usable reply just now. "
+            "Your message is still in the conversation; please try again in a moment.");
+        if (!reply) return NULL;
+    }
 
     char *tools = process_tools(reply);
 
@@ -5810,11 +5822,24 @@ char *r2_talk(const char *message)
         free(reply);
         free(tools);
 
-        if (assistant_rc != 0 || tool_rc != 0)
-            return NULL;
-
-        reply = chat_with_relevant_memories(message);
-        if (!reply) return NULL;
+        if (assistant_rc != 0 || tool_rc != 0) {
+            fprintf(stderr,
+                    "[R2] Could not retain the complete tool exchange; returning a visible status instead of dropping the turn.\n");
+            reply = xstrdup(
+                "I'm sorry, Mom—I couldn't safely finish recording that action's result. "
+                "Please check the current state before asking me to repeat it.");
+            if (!reply) return NULL;
+        } else {
+            reply = chat_with_relevant_memories(message);
+            if (!reply) {
+                fprintf(stderr,
+                        "[R2] Action follow-up generation failed; preserving the existing turn and returning a visible response.\n");
+                reply = xstrdup(
+                    "I'm sorry, Mom—the action was processed, but I couldn't generate its follow-up explanation. "
+                    "The result may be in the conversation; please check before repeating the action.");
+                if (!reply) return NULL;
+            }
+        }
     } else {
         free(tools);
     }
