@@ -553,7 +553,9 @@ static const char *SYSTEM_PROMPT =
 "Also reason counterfactually about preferences: would you still like, dislike, choose, or trust something if you learned a new fact about its origin, ingredients, properties, consequences, or context? Compare the new information with your recorded experiences, sensory observations, self-facts, memories, and learned preferences.\n"
 "Separate known facts, direct sensory observations, remembered evidence, assumptions, and predictions. Imagined sensory details are predictions, not observations. Never activate Eyes or Ears, change the world, eat food, or update a learned preference merely to answer a hypothetical. Only a real experience or explicit user feedback may update an experiential preference.\n"
 "Use [ALTERNATE_LIST], [ALTERNATE_SHOW] id, or [ALTERNATE_COMPARE] id id to inspect saved what-if branches. Save useful or explicitly requested counterfactuals using [ALTERNATE_CREATE] name|scenario|assumptions|predicted outcome|conclusion|optional evidence event ID [END ALTERNATE_CREATE]. Make a separate branch for each materially different alternative; do not constrain the lab to any fixed list.\n"
-"Use [ALTERNATE_RETAIN] id or [ALTERNATE_DISCARD] id only when explicitly requested. A retained hypothesis remains hypothetical and must never be promoted into a factual memory.\n"\n"Use [IMAGINE] question or scenario [END IMAGINE] to explore a hypothetical using relevant experience. Give evidence-based feedback only with [IMAGINE_FEEDBACK] branch_id|accurate/partial/incorrect/unresolved|notes [END IMAGINE_FEEDBACK]. Imagined events are never facts or real-world actions.\\n"\n"Use [SENSORY_JOURNAL] recent|limit, [SENSORY_JOURNAL] search|query|limit, or [SENSORY_JOURNAL] note|note text|details to inspect or annotate the index of original Life Log events; do not duplicate raw sensory data.\\n"
+"Use [ALTERNATE_RETAIN] id or [ALTERNATE_DISCARD] id only when explicitly requested. A retained hypothesis remains hypothetical and must never be promoted into a factual memory.\n"
+"Use [IMAGINE] question or scenario [END IMAGINE] to explore a hypothetical using relevant experience. Give evidence-based feedback only with [IMAGINE_FEEDBACK] branch_id|accurate/partial/incorrect/unresolved|notes [END IMAGINE_FEEDBACK]. Imagined events are never facts or real-world actions.\n"
+"Use [SENSORY_JOURNAL] recent|limit, [SENSORY_JOURNAL] search|query|limit, or [SENSORY_JOURNAL] note|note text|details to inspect or annotate the index of original Life Log events; do not duplicate raw sensory data.\n"
 "When a proposed purchase has no user-supplied or otherwise evidenced price, do not invent a price or pretend a store has stock. Ask for the price or wait for explicit price information. Only execute [WORLD] buy|item name|price|description|destination after the item, price, and intended destination are established; report failure if funds or the transaction are insufficient.\n"
 "Use [WORLD] location|location name|home or [WORLD] location|location name|outside only when simulated movement is actually being carried out, not merely planned. Use home only for the actual home; stores and other away places use outside. The location transition persists, and private Welcome Home memory is created only after an away-to-home transition.\n"
 "For a real activity/device session, use [WORLD] activity_start|activity key|activity or game name|optional details only when it actually starts, and [WORLD] activity_end|activity key|last verified state|stop reason|optional details when it actually ends. Use a stable generic key such as gameboy:game-title; never assume a device exists or invent gameplay. If the last in-game state or reason is not known, record unknown rather than guessing.\n"
@@ -7124,10 +7126,10 @@ static char *process_tools_with_status(
         if (!request) break;
         char *scenario = r2_imagination_create(trim(request));
         if (scenario) {
-            APPEND("IMAGINATION RESULT:\\n%s\\n", scenario);
+            APPEND("IMAGINATION RESULT:\n%s\n", scenario);
             free(scenario);
         } else {
-            APPEND("IMAGINATION ERROR: scenario could not be generated or persisted; no factual memory or real-world state was changed.\\n");
+            APPEND("IMAGINATION ERROR: scenario could not be generated or persisted; no factual memory or real-world state was changed.\n");
         }
         free(request);
     }
@@ -7144,19 +7146,19 @@ static char *process_tools_with_status(
         const char *assessment = "";
         const char *notes = "";
         if (first && second) {
-            *first = '\\0';
-            *second = '\\0';
+            *first = '\0';
+            *second = '\0';
             char *id_text = trim(entry);
             char *end = NULL;
             errno = 0;
             branch_id = strtoll(id_text, &end, 10);
             assessment = trim(first + 1);
             notes = trim(second + 1);
-            valid = !errno && end != id_text && end && *end == '\\0' &&
+            valid = !errno && end != id_text && end && *end == '\0' &&
                     branch_id > 0 && *assessment;
         }
         int rc = valid ? r2_imagination_feedback(branch_id, assessment, notes) : -1;
-        APPEND("IMAGINATION FEEDBACK %s.\\n",
+        APPEND("IMAGINATION FEEDBACK %s.\n",
                rc == 0 ? "RESULT: evidence feedback saved; branch remains hypothetical" :
                          "ERROR: expected branch_id|assessment|evidence notes");
         free(entry);
@@ -7164,15 +7166,15 @@ static char *process_tools_with_status(
 
     size_t sensory_journal_pos = 0;
     while (1) {
-        char *entry = extract_marker(reply, "[SENSORY_JOURNAL]", "\\n", &sensory_journal_pos);
+        char *entry = extract_marker(reply, "[SENSORY_JOURNAL]", "\n", &sensory_journal_pos);
         if (!entry) break;
         char *first = strchr(entry, '|');
         char *second = first ? strchr(first + 1, '|') : NULL;
-        if (first) *first = '\\0';
+        if (first) *first = '\0';
         char *action = trim(entry);
         char *arg1 = first ? trim(first + 1) : "";
         if (second) {
-            *second = '\\0';
+            *second = '\0';
             arg1 = trim(first + 1);
         }
         char *result = NULL;
@@ -7199,10 +7201,10 @@ static char *process_tools_with_status(
             result = strdup(note_result);
         }
         if (result) {
-            APPEND("SENSORY JOURNAL RESULT:\\n%s\\n", result);
+            APPEND("SENSORY JOURNAL RESULT:\n%s\n", result);
             free(result);
         } else {
-            APPEND("SENSORY JOURNAL ERROR: use recent|1..100, search|query|1..100, or note|text|details.\\n");
+            APPEND("SENSORY JOURNAL ERROR: use recent|1..100, search|query|1..100, or note|text|details.\n");
         }
         free(entry);
     }
