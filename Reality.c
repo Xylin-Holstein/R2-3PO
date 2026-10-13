@@ -1115,10 +1115,34 @@ static int migrate_legacy_reality(void)
     if (result == 0)
         result = legacy_merge_preference_table("r2_food_ingredient_preferences", "ingredient");
 
-    if (result == 0)
-        result = legacy_copy_table("r2_money_account", money_cols, money_defaults,
-                                   sizeof(money_cols)/sizeof(money_cols[0]),
-                                   money_required, sizeof(money_required)/sizeof(money_required[0]), 1);
+    /* Never overwrite an already-populated destination wallet during a
+       first-time migration. Import the legacy balance only when the new
+       account is still empty; this also prevents the later $5 seed from
+       replacing the migrated balance. */
+    if (result == 0 && legacy_table_exists("r2_money_account")) {
+        int destination_has_balance = 0;
+        sqlite3_stmt *balance_st = NULL;
+        int balance_rc = sqlite3_prepare_v2(reality_db,
+            "SELECT cash_cents,bank_cents FROM main.r2_money_account WHERE id=1",
+            -1, &balance_st, NULL);
+        if (balance_rc == SQLITE_OK) {
+            balance_rc = sqlite3_step(balance_st);
+            if (balance_rc == SQLITE_ROW) {
+                destination_has_balance =
+                    sqlite3_column_int64(balance_st, 0) > 0 ||
+                    sqlite3_column_int64(balance_st, 1) > 0;
+            } else if (balance_rc != SQLITE_DONE) {
+                result = -1;
+            }
+        } else {
+            result = -1;
+        }
+        if (balance_st) sqlite3_finalize(balance_st);
+        if (result == 0 && !destination_has_balance)
+            result = legacy_copy_table("r2_money_account", money_cols, money_defaults,
+                                       sizeof(money_cols)/sizeof(money_cols[0]),
+                                       money_required, sizeof(money_required)/sizeof(money_required[0]), 1);
+    }
 
     if (result == 0 && legacy_table_exists("r2_reality_meta"))
         result = exec_sql(
