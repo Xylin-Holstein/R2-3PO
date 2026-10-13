@@ -58,6 +58,7 @@ require(
 require(
     'R2_OLLAMA_BASE_URL="${R2_OLLAMA_BASE_URL:-http://127.0.0.1:11434}"' in launcher
     and 'R2_OLLAMA_BASE_URL="http://127.0.0.1:11434"' not in launcher
+    and 'R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL"' in launcher
     and 'R2_OLLAMA_BASE_URL="${R2_OLLAMA_BASE_URL:-http://127.0.0.1:11435}"' in read("tools/r2_service_runner.sh")
     and 'overnight R2 must use its permitted isolated Ollama endpoint 127.0.0.1:11435.' in read("tools/r2_service_runner.sh"),
     "interactive and overnight launchers pin their endpoints to their respective firewall policies",
