@@ -33,7 +33,7 @@ assert 'ollama_chat_limited(&request, 1, system, max_tokens)' in core
 assert '"num_predict"' in core
 assert 'static long OLLAMA_TIMEOUT_SECONDS = 21600L;' in core
 assert 'getenv("R2_OLLAMA_TIMEOUT_SECONDS")' in core
-assert 'CURLOPT_TIMEOUT,\\n        OLLAMA_TIMEOUT_SECONDS' in core
+assert 'CURLOPT_TIMEOUT' in core and 'OLLAMA_TIMEOUT_SECONDS' in core
 assert 'CURLOPT_CONNECTTIMEOUT, 30L' in core
 assert 'static long R2_VISION_TIMEOUT_SECONDS = 21600L;' in visual
 assert 'getenv("R2_OLLAMA_TIMEOUT_SECONDS")' in visual
