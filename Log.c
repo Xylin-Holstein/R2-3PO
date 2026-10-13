@@ -1099,6 +1099,7 @@ static int normalize_limit(int limit)
 }
 
 
+/* ------------------------------------------------------------
  * STRUCTURED STATE / BELIEF / CONTINUITY / HYPOTHETICAL RECORDS
  * ------------------------------------------------------------ */
 
