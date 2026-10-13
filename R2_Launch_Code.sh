@@ -281,6 +281,10 @@ REQUIRED_FILES=(
 
     "$R2_SOURCE/R2Reply.c"
     "$R2_SOURCE/R2Reply.h"
+    "$R2_SOURCE/Imagination.c"
+    "$R2_SOURCE/Imagination.h"
+    "$R2_SOURCE/SensoryJournal.c"
+    "$R2_SOURCE/SensoryJournal.h"
 
     "$R2_SOURCE/AlternateSelf.c"
     "$R2_SOURCE/AlternateSelf.h"
@@ -536,6 +540,8 @@ sudo -n -u r2 -- gcc -std=c11 -Wall -Wextra -Werror -O2 \
     "$R2_SOURCE/Eyes.c" \
     "$R2_SOURCE/R2Sounds.c" \
     "$R2_SOURCE/R2Reply.c" \
+    "$R2_SOURCE/Imagination.c" \
+    "$R2_SOURCE/SensoryJournal.c" \
     -o "$TEMP_EXEC" \
     -lcurl \
     -lsqlite3 \
@@ -589,6 +595,8 @@ echo "    Ears.c"
 echo "    Eyes.c"
 echo "    R2Sounds.c"
 echo "    R2Reply.c"
+echo "    Imagination.c"
+echo "    SensoryJournal.c"
 echo
 
 echo "[4/4] Transitioning to Linux user: r2..."
