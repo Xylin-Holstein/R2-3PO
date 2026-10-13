@@ -104,4 +104,20 @@ require(
     and '"[R2 Prompt Audit] stage=%s payload_chars=%zu' in core,
     "prompt diagnostics distinguish associative planning from the actual answer and retry, making input-length discrepancies traceable",
 )
+recent_start = core.find("char *r2_recent_conversation_context(")
+recent_end = core.find("static char *chat_with_relevant_memories(", recent_start)
+if recent_start < 0 or recent_end < 0:
+    raise SystemExit("Could not isolate recent conversation context selection.")
+recent_context = core[recent_start:recent_end]
+require(
+    "int skip_latest_match = exclude_latest && *exclude_latest;" in recent_context
+    and "skip_latest_match = 0;" in recent_context,
+    "only the newest matching turn is excluded, so repeated identical older messages remain available",
+)
+require(
+    "m->pinned" in recent_context
+    and "pthread_mutex_lock(&messages_lock);" in recent_context
+    and "pthread_mutex_unlock(&messages_lock);" in recent_context,
+    "conversation context reads a stable, unpinned human-facing history under its mutex",
+)
 print("Current-turn context separation smoke passed.")
