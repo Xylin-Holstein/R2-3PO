@@ -120,4 +120,9 @@ require(
     and "pthread_mutex_unlock(&messages_lock);" in recent_context,
     "conversation context reads a stable, unpinned human-facing history under its mutex",
 )
+imagination = (ROOT / "Imagination.c").read_text(encoding="utf-8")
+require(
+    "r2_recent_conversation_context(NULL, 1800)" in imagination,
+    "Imagination retains the current user turn instead of excluding a matching scenario string",
+)
 print("Current-turn context separation smoke passed.")

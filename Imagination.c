@@ -91,7 +91,7 @@ static char *collect_context(const char *request)
     part = r2_retrieve_memories(request);
     if (part) { append_source(&b, "PERSISTENT MEMORY (retrieved before imagining)", part); free(part); }
 
-    part = r2_recent_conversation_context(request, 1800);
+    part = r2_recent_conversation_context(NULL, 1800);
     if (part) { append_source(&b, "RECENT CONVERSATION (human-facing turns; tool payloads excluded)", part); free(part); }
 
     part = r2_diary_search(request, 5);
