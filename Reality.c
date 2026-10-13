@@ -2420,7 +2420,8 @@ int r2_reality_autonomous_feed_if_needed(void)
         pthread_mutex_unlock(&reality_lock);
         return -1;
     }
-    if (hunger >= 50.0) {
+    /* Hunger rises toward 100; do not consume food while hunger is still low. */
+    if (hunger < 50.0) {
         pthread_mutex_unlock(&reality_lock);
         return 0;
     }
