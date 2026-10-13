@@ -41,6 +41,7 @@ static char MODEL[256] = "gemma3:4b";
 #define MIN_MEMORY_KEYWORD_LENGTH 3
 
 static char OLLAMA_URL[512] = "http://127.0.0.1:11434/api/chat";
+static long OLLAMA_TIMEOUT_SECONDS = 21600L;
 
 #define DB_PATH R2_DIARY_DATABASE
 #define ORIGINAL_CONVERSATION \
@@ -2711,7 +2712,7 @@ static char *ollama_chat_limited(
     curl_easy_setopt(
         curl,
         CURLOPT_TIMEOUT,
-        600L
+        OLLAMA_TIMEOUT_SECONDS
     );
 
     CURLcode cc =
@@ -6686,6 +6687,26 @@ static void *reality_needs_worker(void *unused)
     return NULL;
 }
 
+static int configure_ollama_timeout(void)
+{
+    const long default_timeout = 21600L;
+    const char *configured = getenv("R2_OLLAMA_TIMEOUT_SECONDS");
+    OLLAMA_TIMEOUT_SECONDS = default_timeout;
+    if (!configured || !*configured) return 0;
+
+    errno = 0;
+    char *end = NULL;
+    long seconds = strtol(configured, &end, 10);
+    if (errno || end == configured || *end || seconds < 30L || seconds > default_timeout) {
+        fprintf(stderr,
+                "[R2] Invalid R2_OLLAMA_TIMEOUT_SECONDS; using the six-hour default. "
+                "Choose an integer from 30 to 21600.\\n");
+        return 0;
+    }
+    OLLAMA_TIMEOUT_SECONDS = seconds;
+    return 0;
+}
+
 static int configure_ollama_endpoint(void)
 {
     const char *base = getenv("R2_OLLAMA_BASE_URL");
@@ -6737,6 +6758,7 @@ int r2_init(void)
     if (configure_ollama_endpoint() != 0) {
         die("R2_OLLAMA_BASE_URL must be a localhost HTTP endpoint, not a remote network URL");
     }
+    (void)configure_ollama_timeout();
     watch_running = 0;
     startup_memory_loaded = 0;
 
