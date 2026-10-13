@@ -31,6 +31,7 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn("LD_PRELOAD", source)
         self.assertIn("FAKETIME_DONT_RESET=1", source)
         self.assertIn("R2_SERVICE_MODE=1", source)
+        self.assertIn("Imagination.c", (ROOT / "Makefile").read_text(encoding="utf-8"))
         self.assertIn("systemd-inhibit --what=sleep", source)
         self.assertNotIn("qwen3.5:9b", source)
         self.assertNotIn("apt-get update", source)
