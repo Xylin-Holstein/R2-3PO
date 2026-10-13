@@ -442,12 +442,12 @@ static char *food_metrics_context(void)
         (void)xml_attribute(line, "taste", taste, sizeof(taste));
         char *end = NULL;
         double f = strtod(full, &end);
-        if (end == full || *end || f < 0.0 || f > 100.0) continue;
+        if (end == full || *end || !isfinite(f) || f < 0.0 || f > 100.0) continue;
         double e = 0.0;
         if (xml_attribute(line, "energy", en, sizeof(en)) == 0) {
             end = NULL;
             double parsed = strtod(en, &end);
-            if (end != en && !*end && parsed >= 0.0 && parsed <= 100.0) e = parsed;
+            if (end != en && !*end && isfinite(parsed) && parsed >= 0.0 && parsed <= 100.0) e = parsed;
         }
         char entry[1024];
         int n = snprintf(entry, sizeof(entry), "%s: fullness %.1f/100, energy bonus %.1f; ingredients: %s; sensory description: %s\n", name, f, e, *ingredients ? ingredients : "not specified", *taste ? taste : "not specified");
