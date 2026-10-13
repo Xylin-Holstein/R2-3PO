@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify the local Qwen 3.5 multimodal model can perform a real chat completion before R2 starts."""
+"""Verify the configured local multimodal model can complete a real chat request before R2 starts."""
 from __future__ import annotations
 
 import argparse
@@ -13,7 +13,7 @@ import urllib.request
 from typing import Any
 
 API_BASE = "http://127.0.0.1:11434"
-MODEL = "qwen3.5:9b"
+MODEL = os.environ.get("R2_MODEL", "gemma3:4b").strip() or "gemma3:4b"
 
 
 def _read_json(url: str, timeout: float, payload: dict[str, Any] | None = None) -> dict[str, Any]:
