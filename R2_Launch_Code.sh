@@ -12,6 +12,24 @@ if [ "$R2_OLLAMA_BASE_URL" != "http://127.0.0.1:11435" ]; then
     exit 1
 fi
 
+# On this host the GTX 1050 Ti has 4 GiB VRAM. Request partial offload by
+# default instead of forcing the whole model into limited VRAM. Explicit
+# environment settings take precedence; zero leaves placement automatic.
+if [[ -z "${R2_OLLAMA_NUM_GPU+x}" ]]; then
+    if command -v nvidia-smi >/dev/null 2>&1 &&
+       nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi 'GTX 1050 Ti'; then
+        export R2_OLLAMA_NUM_GPU=20
+        echo "[GPU] NVIDIA GeForce GTX 1050 Ti detected; requesting 20 model layers on GPU."
+    else
+        export R2_OLLAMA_NUM_GPU=0
+        echo "[GPU] GTX 1050 Ti not detected; leaving placement automatic."
+    fi
+else
+    export R2_OLLAMA_NUM_GPU
+    echo "[GPU] Using configured R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU."
+fi
+R2_OLLAMA_NUM_CTX="${R2_OLLAMA_NUM_CTX:-}"
+
 echo "========================================"
 echo "        R2-3PO LAUNCH SEQUENCE"
 echo "========================================"
@@ -411,6 +429,8 @@ sudo -u r2 \
     R2_MODEL="$R2_MODEL" \
     R2_VISION_MODEL="$R2_VISION_MODEL" \
     R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
+    R2_OLLAMA_NUM_GPU="${R2_OLLAMA_NUM_GPU}" \
+    R2_OLLAMA_NUM_CTX="${R2_OLLAMA_NUM_CTX:-}" \
     R2_FX_DIR="$R2_FX_DIR" \
     R2_ROOT="$R2_ROOT" \
     R2_LOG_DIR="$R2_ROOT/R2_Log" \
