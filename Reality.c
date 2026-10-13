@@ -369,12 +369,12 @@ static int food_metric(const char *food, double *fullness, double *energy)
             continue;
         char *end = NULL;
         double f = strtod(full, &end);
-        if (end == full || *end || f < 0.0 || f > 100.0) continue;
+        if (end == full || *end || !isfinite(f) || f < 0.0 || f > 100.0) continue;
         double e = 0.0;
         if (xml_attribute(line, "energy", en, sizeof(en)) == 0) {
             end = NULL;
             double parsed = strtod(en, &end);
-            if (end != en && !*end && parsed >= 0.0 && parsed <= 100.0) e = parsed;
+            if (end != en && !*end && isfinite(parsed) && parsed >= 0.0 && parsed <= 100.0) e = parsed;
         }
         if (fullness) *fullness = f;
         if (energy) *energy = e;
