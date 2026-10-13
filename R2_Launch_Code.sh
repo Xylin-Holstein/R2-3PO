@@ -66,7 +66,7 @@ r2_apply_network_lock() {
     # Permit only local Ollama TCP. No wireless interface is disabled and the
     # OUTPUT owner match leaves the desktop user's network traffic untouched.
     sudo -n iptables -w -A R2_UID_NETLOCK -o lo -d 127.0.0.1/32 -p tcp --dport 11434 -j ACCEPT || return 1
-    sudo -n iptables -w -A R2_UID_NETLOCK -o lo -s 127.0.0.1/32 -p tcp --sport 11434 -j ACCEPT || return 1
+    sudo -n iptables -w -A R2_UID_NETLOCK -m conntrack --ctstate ESTABLISHED -o lo -s 127.0.0.1/32 -p tcp --sport 11434 -j ACCEPT || return 1
     sudo -n iptables -w -A R2_UID_NETLOCK -j REJECT || return 1
     sudo -n ip6tables -w -A R2_UID_NETLOCK -j REJECT || return 1
     sudo -n iptables -w -I OUTPUT 1 -m owner --uid-owner "$R2_UID" -j R2_UID_NETLOCK || return 1
