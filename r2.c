@@ -227,6 +227,12 @@ static const char *SYSTEM_PROMPT =
 "Your visual descriptions come from a separate local vision model. If no visual\n"
 "observation is supplied, do not pretend that you have seen the current scene.\n"
 "\n"
+"Optional state-aware droid sounds: if a brief beep or whistle naturally fits your\n"
+"emotion or a currently modeled need, you may emit one marker on its own line:\n"
+"[R2_SOUND:beep:STATE] or [R2_SOUND:whistle:STATE]. These markers are output controls,\n"
+"not spoken text. Do not infer hunger or sleepiness from the topic alone; use those\n"
+"states only when current Reality state supports them. Prefer no marker when unclear.\n"
+"\n"
 "You are learning Linux, programs, files, processes, your environment, and\n"
 "yourself over time.\n"
 "You have persistent memory. Your Linux workspace is /home/x/R2_Home/.\n"
@@ -4148,9 +4154,21 @@ static char *process_tools(
         char _b[8192];                                                \
         int _n = snprintf(_b, sizeof(_b), __VA_ARGS__);              \
         if (_n > 0) {                                                 \
-            if (len + (size_t)_n + 1 > cap) {                        \
-                while (cap < len + (size_t)_n + 1)                   \
-                    cap *= 2;                                        \
+            size_t _append_n = (size_t)_n;                            \
+            if (_append_n >= sizeof(_b)) {                            \
+                static const char _suffix[] = "\\n[tool output truncated]"; \
+                size_t _suffix_n = sizeof(_suffix) - 1;               \
+                _append_n = sizeof(_b) - 1;                           \
+                memcpy(_b + _append_n - _suffix_n, _suffix, _suffix_n); \
+            }                                                         \
+            if (len + _append_n + 1 > cap) {                          \
+                while (cap < len + _append_n + 1) {                   \
+                    if (cap > SIZE_MAX / 2) {                         \
+                        free(results);                                \
+                        return NULL;                                  \
+                    }                                                 \
+                    cap *= 2;                                         \
+                }                                                     \
                 char *_grown = realloc(results, cap);                \
                 if (!_grown) {                                       \
                     free(results);                                   \
@@ -4158,8 +4176,8 @@ static char *process_tools(
                 }                                                     \
                 results = _grown;                                    \
             }                                                         \
-            memcpy(results + len, _b, (size_t)_n);                   \
-            len += (size_t)_n;                                       \
+            memcpy(results + len, _b, _append_n);                     \
+            len += _append_n;                                         \
             results[len] = '\0';                                     \
         }                                                             \
     } while (0)
