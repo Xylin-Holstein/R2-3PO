@@ -88,6 +88,16 @@ else
     exit 1
 fi
 
+if sudo systemctl is-active --quiet r2-3po.service 2>/dev/null; then
+    echo "ERROR: The overnight R2 core is already running as a service."
+    echo "Stop it before launching an interactive core: sudo systemctl stop r2-3po.service"
+    exit 1
+fi
+if pgrep -x r2 >/dev/null 2>&1; then
+    echo "ERROR: Another R2 core is already running; refusing to open a duplicate."
+    exit 1
+fi
+
 echo "[2/4] Configuring R2 private clock..."
 echo
 
