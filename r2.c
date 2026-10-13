@@ -124,9 +124,11 @@ static volatile sig_atomic_t shutting_down = 0;
 
 static pthread_t hands_thread;
 static pthread_t diary_thread;
+static pthread_t reality_thread;
 
 static int hands_thread_started = 0;
 static int diary_thread_started = 0;
+static int reality_thread_started = 0;
 static int core_initialized = 0;
 static int startup_memory_loaded = 0;
 static int watch_running = 0;
@@ -6332,6 +6334,18 @@ int r2_conversation(void)
    CORE INITIALIZATION / SHUTDOWN
    ============================================================ */
 
+static void *reality_needs_worker(void *unused)
+{
+    (void)unused;
+    while (!shutting_down) {
+        if (r2_reality_is_initialized())
+            (void)r2_reality_autonomous_feed_if_needed();
+        struct timespec delay = {1, 0};
+        while (nanosleep(&delay, &delay) != 0 && errno == EINTR && !shutting_down) {}
+    }
+    return NULL;
+}
+
 static int configure_conversation_model(void)
 {
     const char *requested = getenv("R2_MODEL");
@@ -6844,6 +6858,19 @@ int r2_init(void)
     core_initialized = 1;
     startup_memory_loaded = 1;
 
+    if (pthread_create(&reality_thread, NULL, reality_needs_worker, NULL) == 0) {
+        reality_thread_started = 1;
+        r2_log_event(R2_LOG_LIFECYCLE, "reality_needs_worker_started",
+                     "R2's persistent needs clock is running.",
+                     "Reality ticks independently of conversation; verified accessible food may be consumed when hunger crosses the configured threshold.",
+                     "r2_init");
+    } else {
+        r2_log_event(R2_LOG_ERROR, "reality_needs_worker_failed",
+                     "R2's persistent needs worker could not start.",
+                     "Needs will still catch up on the next Reality access, but autonomous ticking is unavailable.",
+                     "r2_init");
+    }
+
     if (r2_log_is_initialized()) {
         r2_log_milestone("r2_first_successful_start",
                          "R2 completed its first successful core startup.",
@@ -6889,6 +6916,11 @@ void r2_shutdown(void)
     if (hands_thread_started) {
         pthread_join(hands_thread, NULL);
         hands_thread_started = 0;
+    }
+
+    if (reality_thread_started) {
+        pthread_join(reality_thread, NULL);
+        reality_thread_started = 0;
     }
 
     if (ears) {
