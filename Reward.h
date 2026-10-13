@@ -16,6 +16,9 @@ int r2_reward_reconnect_history(int limit);
 void r2_reward_shutdown(void);
 int r2_reward_apply(const char *target, const char *source, int points,
                     const char *reason, int voluntary_choice);
+/* Idempotent reinforcement: 0 applied, 1 already applied, -1 failed. */
+int r2_reward_apply_once(const char *target, const char *source, int points,
+                         const char *reason, int voluntary_choice);
 int r2_reward_current_modifier(const char *target);
 char *r2_reward_context(void); /* Caller frees. */
 
