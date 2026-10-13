@@ -238,6 +238,11 @@ jobs:
           python3 -m py_compile tests/r2_overnight_service_smoke.py
           python3 tests/r2_overnight_service_smoke.py
 
+      - name: Check Imagination and Sensory Journal integration
+        run: |
+          python3 -m py_compile tests/subsystem_wiring_smoke.py
+          python3 tests/subsystem_wiring_smoke.py
+
       - name: Compile R2 with the same sources and flags as the launcher
         run: make clean all CFLAGS="-std=c11 -Wall -Wextra -Werror -O2"
 
