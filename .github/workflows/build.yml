@@ -243,6 +243,11 @@ jobs:
           python3 -m py_compile tests/subsystem_wiring_smoke.py
           python3 tests/subsystem_wiring_smoke.py
 
+      - name: Exercise Imagination grounding and feedback contracts
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -O1 -I. tests/imagination_unit_smoke.c Imagination.c -o /tmp/r2-imagination-smoke -lpthread
+          /tmp/r2-imagination-smoke
+
       - name: Compile R2 with the same sources and flags as the launcher
         run: make clean all CFLAGS="-std=c11 -Wall -Wextra -Werror -O2"
 
