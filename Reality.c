@@ -370,7 +370,7 @@ static int food_metric(const char *food, double *fullness, double *energy)
         char *end = NULL;
         double f = strtod(full, &end);
         if (end == full || *end || f < 0.0 || f > 100.0) continue;
-        double e = f * 0.1;
+        double e = 0.0;
         if (xml_attribute(line, "energy", en, sizeof(en)) == 0) {
             end = NULL;
             double parsed = strtod(en, &end);
@@ -2058,8 +2058,8 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
         if (!reality_is_home()) return -1;
         char ingredients[1024] = {0}, taste[1024] = {0};
         food_attributes(name, ingredients, sizeof(ingredients), taste, sizeof(taste));
-        double fullness = 100.0, energy = 10.0;
-        (void)food_metric(name, &fullness, &energy);
+        double fullness = 0.0, energy = 0.0;
+        if (food_metric(name, &fullness, &energy) != 0) return -1;
         return r2_fridge_add_item(name, description, quantity, fullness, energy, ingredients, taste);
     }
     if(quantity<1) quantity=1;
@@ -2148,8 +2148,8 @@ int r2_reality_move_item(const char *name,const char *container)
         if (quantity < 1 || !container_accessible(old_container) || !container_accessible(container)) return -1;
         char ingredients[1024] = {0}, taste[1024] = {0};
         food_attributes(name, ingredients, sizeof(ingredients), taste, sizeof(taste));
-        double fullness = 100.0, energy = 10.0;
-        (void)food_metric(name, &fullness, &energy);
+        double fullness = 0.0, energy = 0.0;
+        if (food_metric(name, &fullness, &energy) != 0) return -1;
         int prior_fridge_quantity = 0;
         pthread_mutex_lock(&fridge_lock);
         sqlite3_stmt *prior_fridge = NULL;
