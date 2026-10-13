@@ -88,7 +88,7 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn("systemctl is-active --quiet r2-3po.service", launcher)
         self.assertIn("two R2 cores", launcher)
         self.assertIn("pgrep -x r2", launcher)
-        self.assertIn("R2_UID_NETLOCK", launcher)
+        self.assertIn("R2_3PO_UID_NETLOCK", launcher)
         self.assertIn('--uid-owner "$R2_UID"', launcher)
         self.assertIn("--dport 11434", launcher)
         self.assertIn('HOME="$R2_ROOT"', launcher)
