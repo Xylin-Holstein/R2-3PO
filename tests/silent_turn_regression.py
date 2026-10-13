@@ -23,7 +23,7 @@ if talk_end < 0:
 talk = core[talk_start:talk_end]
 
 impl_start = core.index("static char *r2_talk_impl(const char *message)")
-impl_end = core.find("\\nchar *r2_talk(const char *message)", impl_start)
+impl_end = core.find("\nchar *r2_talk(const char *message)", impl_start)
 if impl_end < 0:
     raise SystemExit("Could not isolate the conversation implementation.")
 implementation = core[impl_start:impl_end]
