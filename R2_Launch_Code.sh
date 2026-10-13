@@ -296,6 +296,21 @@ echo
 # starts and avoids mistaking a shell launch for a working model link.
 
 echo "Checking Ollama API and model as user r2..."
+
+# Ollama inference runs in the server process, not in the HTTP client.
+# Report the actual server owner instead of assuming sudo -u r2 changes it.
+OLLAMA_PID=$(pgrep -f '[o]llama serve' | head -n 1)
+if [ -n "$OLLAMA_PID" ]; then
+    OLLAMA_OWNER=$(ps -o user= -p "$OLLAMA_PID" | tr -d '[:space:]')
+    echo "Ollama server process owner: ${OLLAMA_OWNER:-unknown}"
+    if [ "$OLLAMA_OWNER" != "r2" ]; then
+        echo "NOTICE: R2 will send requests as user r2, but inference currently runs under '$OLLAMA_OWNER'."
+        echo "The existing Ollama service has not been stopped or re-owned automatically."
+    fi
+else
+    echo "Ollama server process was not found; the API preflight below will verify whether it is reachable."
+fi
+
 if ! sudo -u r2 env R2_MODEL="$R2_MODEL" python3 -c '
 import json, os, sys, urllib.request
 wanted = os.environ["R2_MODEL"]
