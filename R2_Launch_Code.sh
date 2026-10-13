@@ -32,6 +32,19 @@ REQUIRED_FILES=(
     "$R2_SOURCE/Log.c"
     "$R2_SOURCE/Log.h"
 
+    "$R2_SOURCE/Reality.c"
+    "$R2_SOURCE/Reality.h"
+    "$R2_SOURCE/Addiction.c"
+    "$R2_SOURCE/Addiction.h"
+    "$R2_SOURCE/Reward.c"
+    "$R2_SOURCE/Reward.h"
+    "$R2_SOURCE/AlternateSelf.c"
+    "$R2_SOURCE/AlternateSelf.h"
+    "$R2_SOURCE/R2Reply.c"
+    "$R2_SOURCE/R2Reply.h"
+    "$R2_SOURCE/R2Sounds.c"
+    "$R2_SOURCE/R2Sounds.h"
+
     "$R2_SOURCE/Visual.c"
     "$R2_SOURCE/Visual.h"
 
