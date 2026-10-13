@@ -129,6 +129,7 @@ for file in \
   Visual.c Visual.h \
   Ears.c Ears.h \
   Eyes.c Eyes.h \
+  V-Webcam.py \
   R2Sounds.c R2Sounds.h \
   R2Reply.c R2Reply.h \
   shell.c shell.h \
