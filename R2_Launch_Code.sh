@@ -4,6 +4,13 @@ R2_ROOT="/home/x/R2_Home"
 R2_SOURCE="$R2_ROOT/R2"
 R2_EXEC="$R2_ROOT/r2"
 R2_FX_DIR="${R2_FX_DIR:-$R2_ROOT/R2_sounds/FX}"
+R2_OLLAMA_BASE_URL="${R2_OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
+if [[ "$R2_OLLAMA_BASE_URL" != "http://127.0.0.1:11434" ]]; then
+    echo "ERROR: Interactive R2 must use its permitted local Ollama endpoint 127.0.0.1:11434."
+    echo "Unset R2_OLLAMA_BASE_URL or set it to http://127.0.0.1:11434."
+    exit 1
+fi
+export R2_OLLAMA_BASE_URL
 
 # Keep R2's Linux identity separate from the canonical data location. HOME is
 # set to the project root for every R2 process, never to /home/r2.
