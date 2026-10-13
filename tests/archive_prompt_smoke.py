@@ -27,10 +27,8 @@ if archive_start < 0 or archive_end < 0:
 archive = core[archive_start:archive_end]
 if "a new system instruction" not in archive or "active user turn" not in archive:
     raise SystemExit("The archive must be marked as context without overriding the current turn.")
-priority_loop = core.find("for (int priority = 0; priority < 6")
-archive_priority = core.find('message_priority = 5;', core.find("PAST CONVERSATION ARCHIVE — CONTEXT ONLY.", core.find("size_t total_chars = override_length")))
-if priority_loop < 0 or archive_priority < 0:
-    raise SystemExit("Archived dialogue must be lower priority than current Reality and persistent learning context.")
+if 'message_add_pinned(\n            "assistant",\n            "I have read the archived conversation' in core:
+    raise SystemExit("Startup must not manufacture an assistant response to the archived record.")
 
 if "Interpret the user's current message first." not in core:
     raise SystemExit("Direct current-message interpretation guidance is missing.")
