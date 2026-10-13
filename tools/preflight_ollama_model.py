@@ -12,7 +12,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-API_BASE = "http://127.0.0.1:11434"
+API_BASE = os.environ.get("R2_OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
 MODEL = os.environ.get("R2_MODEL", "gemma3:4b").strip() or "gemma3:4b"
 
 
