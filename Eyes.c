@@ -11,6 +11,8 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/wait.h>
+#include <ctype.h>
 
 /*
  * R2-3PO Eyes
@@ -114,6 +116,8 @@ static char *r2_eyes_shell_quote(const char *input)
         return NULL;
 
     size_t length = strlen(input);
+    if (length > (SIZE_MAX - 3) / 4)
+        return NULL;
     size_t max_size = (length * 4) + 3;
 
     char *output = malloc(max_size);
@@ -169,7 +173,7 @@ static int r2_eyes_probe_dimensions(
 
     char command[4096];
 
-    snprintf(
+    int command_length = snprintf(
         command,
         sizeof(command),
         "ffprobe "
@@ -183,30 +187,48 @@ static int r2_eyes_probe_dimensions(
 
     free(quoted_source);
 
+    if (command_length < 0 || (size_t)command_length >= sizeof(command))
+        return -1;
+
     FILE *probe = popen(command, "r");
 
     if (!probe)
         return -1;
 
-    unsigned int w = 0;
-    unsigned int h = 0;
-
-    int result =
-        fscanf(probe, "%ux%u", &w, &h);
-
+    char dimensions[128];
+    int result = fgets(dimensions, sizeof(dimensions), probe) ? 0 : -1;
     int status = pclose(probe);
-
-    if (result != 2 || status == -1)
+    if (result != 0 || status == -1 ||
+        !WIFEXITED(status) || WEXITSTATUS(status) != 0)
         return -1;
 
-    if (w == 0 || h == 0)
+    char *separator = strchr(dimensions, 'x');
+    if (!separator)
+        return -1;
+    *separator = '\0';
+
+    errno = 0;
+    char *end = NULL;
+    unsigned long w = strtoul(dimensions, &end, 10);
+    if (errno || end == dimensions)
+        return -1;
+    while (*end && isspace((unsigned char)*end)) ++end;
+    if (*end != '\0')
         return -1;
 
-    size_t required =
-        (size_t)w *
-        (size_t)h *
-        3;
+    errno = 0;
+    char *height_text = separator + 1;
+    unsigned long h = strtoul(height_text, &end, 10);
+    if (errno || end == height_text)
+        return -1;
+    while (*end && isspace((unsigned char)*end)) ++end;
+    if (*end != '\0' || w == 0 || h == 0 ||
+        w > UINT32_MAX || h > UINT32_MAX)
+        return -1;
 
+    if ((size_t)w > R2_EYES_MAX_FRAME_BYTES / 3U / (size_t)h)
+        return -1;
+    size_t required = (size_t)w * (size_t)h * 3U;
     if (required > R2_EYES_MAX_FRAME_BYTES)
         return -1;
 
@@ -224,10 +246,13 @@ static int r2_eyes_allocate_native_buffer(
     if (!eyes || width == 0 || height == 0)
         return -1;
 
+    if ((size_t)width > R2_EYES_MAX_FRAME_BYTES / 3U / (size_t)height)
+        return -1;
+
     size_t frame_size =
         (size_t)width *
         (size_t)height *
-        3;
+        3U;
 
     if (frame_size > R2_EYES_MAX_FRAME_BYTES)
         return -1;
@@ -386,10 +411,11 @@ static FILE *r2_eyes_start_ffmpeg(
         return NULL;
 
     char command[4096];
+    int command_length;
 
     if (live_device)
     {
-        snprintf(
+        command_length = snprintf(
             command,
             sizeof(command),
             "ffmpeg "
@@ -412,7 +438,7 @@ static FILE *r2_eyes_start_ffmpeg(
     }
     else
     {
-        snprintf(
+        command_length = snprintf(
             command,
             sizeof(command),
             "ffmpeg "
@@ -432,6 +458,9 @@ static FILE *r2_eyes_start_ffmpeg(
     }
 
     free(quoted_input);
+
+    if (command_length < 0 || (size_t)command_length >= sizeof(command))
+        return NULL;
 
     return popen(command, "r");
 }
@@ -986,22 +1015,41 @@ int r2_eyes_open_vlc(
     eyes->origin =
         R2_VISION_VLC;
 
+    /*
+     * Preserve the visible VLC window title as source metadata. This is
+     * useful for later history searches, but is not treated as proof of
+     * the actual media contents.
+     */
+    char title_command[256];
+    snprintf(title_command, sizeof(title_command),
+             "xdotool getwindowname %lu 2>/dev/null", window_id);
+    FILE *title_pipe = popen(title_command, "r");
+    char window_title[sizeof(eyes->source_name)] = "VLC";
+    if (title_pipe) {
+        if (!fgets(window_title, sizeof(window_title), title_pipe))
+            snprintf(window_title, sizeof(window_title), "VLC");
+        pclose(title_pipe);
+        size_t title_len = strlen(window_title);
+        while (title_len > 0 &&
+               (window_title[title_len - 1] == '\n' ||
+                window_title[title_len - 1] == '\r'))
+            window_title[--title_len] = '\0';
+        if (title_len == 0)
+            snprintf(window_title, sizeof(window_title), "VLC");
+    }
+    snprintf(eyes->source_name, sizeof(eyes->source_name), "%s", window_title);
+
     eyes->frame_count = 0;
     eyes->timestamp = 0;
 
-    snprintf(
-        eyes->source_name,
-        sizeof(eyes->source_name),
-        "VLC"
-    );
-
+    /* source_name was populated from the visible VLC window title above. */
     r2_eyes_reset_event(eyes);
     r2_eyes_reset_frame(eyes);
 
     r2_log_sensory("vision_source_opened",
                    "R2 Eyes began capturing the visible VLC window.",
                    "origin=VLC; frames are raw pixels until a vision model interprets them.",
-                   "VLC");
+                   eyes->source_name);
 
     return 0;
 }
