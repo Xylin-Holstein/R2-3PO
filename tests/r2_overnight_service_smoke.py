@@ -51,9 +51,6 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn("LD_PRELOAD", source)
         self.assertIn("FAKETIME_DONT_RESET=1", source)
         self.assertIn("R2_SERVICE_MODE=1", source)
-        self.assertIn("r2-ollama.service", source)
-        self.assertIn("Environment=R2_OLLAMA_BASE_URL=http://127.0.0.1:11435", source)
-        self.assertIn("Environment=R2_MODEL=qwen3.5:9b", source)
         self.assertIn('"R2_OLLAMA_TIMEOUT_SECONDS=${R2_OLLAMA_TIMEOUT_SECONDS:-}"', source)
         self.assertIn('export HOME="$R2_ROOT"', source)
         self.assertIn('"HOME=$R2_ROOT"', source)
@@ -89,6 +86,9 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn("OLLAMA_HOST", ollama_runner)
         self.assertIn('exec "$OLLAMA_BIN" serve', ollama_runner)
         self.assertIn("R2_SERVICE_MODE=1", source)
+        self.assertIn("r2-ollama.service", source)
+        self.assertIn("Environment=R2_OLLAMA_BASE_URL=http://127.0.0.1:11435", source)
+        self.assertIn("Environment=R2_MODEL=qwen3.5:9b", source)
         # GPU layer policy is selected by the runner from actual hardware or
         # an explicit override, not hard-coded in the systemd unit.
         self.assertNotIn("Environment=R2_OLLAMA_NUM_GPU=", source)
