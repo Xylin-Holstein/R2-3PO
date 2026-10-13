@@ -1,0 +1,36 @@
+[Unit]
+Description=R2-3PO isolated Ollama inference server (runs as r2)
+Documentation=https://github.com/Xylin-Holstein/R2-3PO
+After=network.target
+Before=r2-3po.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=r2
+Group=r2
+SupplementaryGroups=video render
+WorkingDirectory=/home/x/R2_Home
+Environment=HOME=/home/x/R2_Home
+Environment=USER=r2
+Environment=LOGNAME=r2
+Environment=OLLAMA_HOST=127.0.0.1:11435
+Environment=OLLAMA_MODELS=/home/x/R2_Home/.ollama/models
+Environment=R2_MODEL=gemma3:4b
+# Apply egress isolation before the model server starts. This rule remains active
+# for as long as this service is running, including when the R2 conversation
+# service stops. The only allowed network socket is the local Ollama API.
+ExecStartPre=+/bin/sh -c 'set -eu; while /usr/sbin/iptables -w -C OUTPUT -m owner --uid-owner r2 -j R2_SVC_NETLOCK 2>/dev/null; do /usr/sbin/iptables -w -D OUTPUT -m owner --uid-owner r2 -j R2_SVC_NETLOCK; done; /usr/sbin/iptables -w -N R2_SVC_NETLOCK 2>/dev/null || true; /usr/sbin/iptables -w -F R2_SVC_NETLOCK; /usr/sbin/iptables -w -A R2_SVC_NETLOCK -o lo -d 127.0.0.1/32 -p tcp --dport 11435 -j ACCEPT; /usr/sbin/iptables -w -A R2_SVC_NETLOCK -m conntrack --ctstate ESTABLISHED -o lo -s 127.0.0.1/32 -p tcp --sport 11435 -j ACCEPT; /usr/sbin/iptables -w -A R2_SVC_NETLOCK -j REJECT; /usr/sbin/iptables -w -I OUTPUT 1 -m owner --uid-owner r2 -j R2_SVC_NETLOCK'
+ExecStartPre=+/bin/sh -c 'set -eu; while /usr/sbin/ip6tables -w -C OUTPUT -m owner --uid-owner r2 -j R2_SVC_NETLOCK 2>/dev/null; do /usr/sbin/ip6tables -w -D OUTPUT -m owner --uid-owner r2 -j R2_SVC_NETLOCK; done; /usr/sbin/ip6tables -w -N R2_SVC_NETLOCK 2>/dev/null || true; /usr/sbin/ip6tables -w -F R2_SVC_NETLOCK; /usr/sbin/ip6tables -w -A R2_SVC_NETLOCK -j REJECT; /usr/sbin/ip6tables -w -I OUTPUT 1 -m owner --uid-owner r2 -j R2_SVC_NETLOCK'
+ExecStart=/home/x/R2_Home/R2/tools/r2_ollama_runner.sh
+ExecStopPost=+/bin/sh -c 'while /usr/sbin/iptables -w -C OUTPUT -m owner --uid-owner r2 -j R2_SVC_NETLOCK 2>/dev/null; do /usr/sbin/iptables -w -D OUTPUT -m owner --uid-owner r2 -j R2_SVC_NETLOCK 2>/dev/null || break; done; /usr/sbin/iptables -w -F R2_SVC_NETLOCK 2>/dev/null || true; /usr/sbin/iptables -w -X R2_SVC_NETLOCK 2>/dev/null || true; while /usr/sbin/ip6tables -w -C OUTPUT -m owner --uid-owner r2 -j R2_SVC_NETLOCK 2>/dev/null; do /usr/sbin/ip6tables -w -D OUTPUT -m owner --uid-owner r2 -j R2_SVC_NETLOCK 2>/dev/null || break; done; /usr/sbin/ip6tables -w -F R2_SVC_NETLOCK 2>/dev/null || true; /usr/sbin/ip6tables -w -X R2_SVC_NETLOCK 2>/dev/null || true; exit 0'
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=90
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
