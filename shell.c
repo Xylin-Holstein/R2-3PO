@@ -1181,7 +1181,11 @@ static int shell_dispatch(char *input)
     if (!command || !*command)
         return 1;
 
-    if (!strcasecmp(command, "gameboy") || shell_starts_with(command, "gameboy ")) {\n        shell_gameboy(shell_starts_with(command, "gameboy ") ? shell_trim(command + 8) : NULL);\n        return 1;\n    }\n
+    if (!strcasecmp(command, "gameboy") || shell_starts_with(command, "gameboy ")) {
+        shell_gameboy(shell_starts_with(command, "gameboy ") ? shell_trim(command + 8) : NULL);
+        return 1;
+    }
+
 
     /* --------------------------------------------------------
        HELP
