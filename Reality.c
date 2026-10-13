@@ -35,13 +35,12 @@ static pthread_mutex_t fridge_lock = PTHREAD_MUTEX_INITIALIZER;
 static int reality_ready = 0;
 static int reality_eat_internal(const char *food, double fullness, int consume_tracked_item, double energy_override);
 
-/* The hunger field is a 0..100 fullness meter: it loses 0.1 points every
- * 4.75 modeled seconds (about 79 minutes from full to empty) and rises when R2
- * eats. The separate 72-hour starvation marker tracks elapsed time since a
- * qualifying meal. Sleepiness rises by 12.5/hour and energy falls by 10/hour;
- * sleep recovery reverses those rates. */
-static const double HUNGER_PER_SECOND = 0.1 / 4.75;
-static const double SATISFACTION_DECAY_PER_SECOND = 0.1 / 4.75;
+/* The hunger field is a 0..100 fullness meter: it drains to zero over three
+ * modeled hours without food and rises when R2 eats. The separate 72-hour
+ * starvation marker tracks elapsed time since a qualifying meal. Sleepiness
+ * rises by 12.5/hour and energy falls by 10/hour; sleep recovery reverses those rates. */
+static const double HUNGER_PER_SECOND = 100.0 / (3.0 * 3600.0);
+static const double SATIETY_PER_SECOND = 0.1 / 4.75;
 static const double SLEEPINESS_PER_SECOND = 12.5 / 3600.0;
 static const double ENERGY_DRAIN_PER_SECOND = 10.0 / 3600.0;
 
@@ -695,7 +694,7 @@ static int update_hunger_locked(double elapsed)
     double since_meal = sqlite3_column_double(st, 1) + elapsed;
     double sleepiness = sqlite3_column_double(st, 2) + elapsed * SLEEPINESS_PER_SECOND;
     double energy = sqlite3_column_double(st, 3) - elapsed * ENERGY_DRAIN_PER_SECOND;
-    double satisfaction = sqlite3_column_double(st, 4) - elapsed * SATISFACTION_DECAY_PER_SECOND;
+    double satisfaction = sqlite3_column_double(st, 4) - elapsed * SATIETY_PER_SECOND;
     sqlite3_finalize(st);
     if (!isfinite(hunger) || !isfinite(since_meal) || !isfinite(sleepiness) ||
         !isfinite(energy) || !isfinite(satisfaction)) return -1;
@@ -2114,8 +2113,8 @@ char *r2_reality_status(void)
     }
     if(st) sqlite3_finalize(st);
     pthread_mutex_unlock(&reality_lock);
-    const char *hstate = since >= 72.0 * 3600.0 ? "starving" : hunger < 10 ? "critically hungry" : hunger < 25 ? "very hungry" : hunger < 50 ? "hungry" : hunger < 75 ? "getting hungry" : "satisfied";
-    snprintf(out,4096,"SELF CONTINUITY\nSatisfaction: %5.1f/150\nHunger: %04.1f/100 (%s)\nTime since meal: %.1f hours\nSleepiness: %.1f/100\nEnergy: %.1f/100\nModeled world time elapsed: %lld days, %lld hours\nObjects tracked in the world: %d\nFullness (the 0..100 hunger meter) loses 0.1 points every 4.75 modeled seconds, reaching zero in about 79 minutes from full; eating raises it according to the configured food fullness value. Satisfaction is a separate 0..150 measure. Sleepiness rises 12.5/hour and energy falls 10/hour while awake or asleep; sleep then restores energy and reduces sleepiness.\nAfter 72 hours without food, prolonged starvation is recorded; needs persist across restarts.\n",
+    const char *hstate = hunger < 10 ? "starving" : hunger < 25 ? "very hungry" : hunger < 50 ? "hungry" : hunger < 75 ? "getting hungry" : "satisfied";
+    snprintf(out,4096,"SELF CONTINUITY\nSatisfaction: %5.1f/150\nHunger: %04.1f/100 (%s)\nTime since meal: %.1f hours\nSleepiness: %.1f/100\nEnergy: %.1f/100\nModeled world time elapsed: %lld days, %lld hours\nObjects tracked in the world: %d\nFullness (the 0..100 hunger meter) decreases steadily to zero over roughly three modeled hours without food; eating raises it according to the configured food fullness value. Satisfaction is a separate 0..150 measure. Sleepiness rises 12.5/hour and energy falls 10/hour while awake or asleep; sleep then restores energy and reduces sleepiness.\nAfter 72 hours without food, prolonged starvation is recorded; needs persist across restarts.\n",
         satisfaction,hunger,hstate,since/3600.0,sleepiness,energy,
         (long long)(world_elapsed/86400),(long long)((world_elapsed%86400)/3600),count);
     return out;
@@ -2230,7 +2229,7 @@ char *r2_reality_context(void)
         "The fridge is physically at home, outside the room (a sibling of room/ and pockets/), and is accessible only while R2 is home. Its stock is stored in a separate r2_fridge.db; an empty fridge stays empty until food is explicitly added or stored. Never infer that food exists merely because R2 is hungry. "
         "Food metrics live in room/food_metrics.xml; each food can define fullness, energy, ingredients (comma-separated), and taste (sensory description). Use only listed metrics and auto rather than guessing. "
         "Containers: room, shelf, and one storage box; pockets are portable anywhere, the fridge is a fixed home object, and the wallet is inside pockets. While away from home, R2 may access only pockets and wallet; room objects and fridge stock require returning home. The old toy box is the same box and is normalized into it. Named containers can be created by moving an item to a new container name. "
-        "Food fullness points are modeled values, not measured biological facts. The hunger/fullness meter loses 0.1 points every 4.75 modeled seconds (about 79 minutes from full to empty); eating raises it. Sleep advances needs and world time. "
+        "Food fullness points are modeled values, not measured biological facts. The hunger/fullness meter drains over about three hours without food and eating raises it. Sleep advances needs and world time. "
         "Dreams are stored as simulated reports, not waking facts. Ask before moving or deleting a user's important item. "
         "CHOICE LAB: Consider any possible option, action, object, or decision; there is no fixed menu. Compare alternatives using needs, memories, self-facts, preferences, and available evidence. "
         "ALTERNATE-SELF / CHOICE LAB: consider any possible option or action, not a fixed menu. [ALTERNATE_LIST] lists stored what-if branches; [ALTERNATE_SHOW] id inspects one; [ALTERNATE_COMPARE] id id compares two. To persist a useful hypothetical, emit [ALTERNATE_CREATE] name|scenario|assumptions|predicted outcome|conclusion|optional evidence event ID [END ALTERNATE_CREATE]. Use it when the user asks to save a what-if or when comparing distinct plausible futures would help; a branch is a hypothesis, never a factual event. Use [ALTERNATE_RETAIN] id or [ALTERNATE_DISCARD] id only when explicitly asked. Never promote predicted outcomes into real memories; retained hypotheses remain hypotheses. "
