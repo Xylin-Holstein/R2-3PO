@@ -10,6 +10,10 @@ for claim in ("generated automatically", "automatically generates one burger",
         raise SystemExit(f"Reality.c still contains a synthetic-fridge claim: {claim}")
 if "fridge_seed_if_empty_locked" in reality:
     raise SystemExit("Reality.c still fabricates stock when the fridge is empty")
+if "static int migrate_legacy_fridge(void)" not in reality or "legacy_fridge_migrated" not in reality:
+    raise SystemExit("legacy fridge inventory must migrate into r2_fridge.db without being discarded")
+if "INSERT OR IGNORE INTO main.r2_fridge_items" not in reality:
+    raise SystemExit("legacy fridge stock must be copied without overwriting current inventory")
 if 'const char *guaranteed = "burger:' in reality:
     raise SystemExit("Reality.c still injects a synthetic burger metric into context")
 if '<food name=\\"burger\\" fullness=\\"100\\"' in reality:
