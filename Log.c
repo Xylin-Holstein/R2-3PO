@@ -26,6 +26,7 @@
 #define _XOPEN_SOURCE 700
 
 #include "Log.h"
+#include "SensoryJournal.h"
 #include "Addiction.h"
 #include "r2.h"
 #include "r2_diary.h"
@@ -739,6 +740,19 @@ int64_t r2_log_event(
 
     sqlite3_finalize(statement);
     pthread_mutex_unlock(&log_lock);
+
+    /* Index original Life Log events without duplicating their text. */
+    if (inserted_id > 0) {
+        const char *journal_category = NULL;
+        switch (category) {
+            case R2_LOG_SENSORY: journal_category = "sensory"; break;
+            case R2_LOG_THINKING: journal_category = "thinking"; break;
+            case R2_LOG_CONVERSATION: journal_category = "conversation"; break;
+            default: break;
+        }
+        if (journal_category)
+            r2_sj_index_event(inserted_id, journal_category, event_type, source);
+    }
 
     return inserted_id;
 }
