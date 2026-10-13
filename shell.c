@@ -1340,16 +1340,15 @@ static void shell_tv(const char *argument)
 
 static int shell_dispatch(char *input)
 {
+    char *command = shell_trim(input);
+
+    if (!command || !*command)
+        return 1;
+
     if (!strcasecmp(command, "tv") || shell_starts_with(command, "tv ")) {
         shell_tv(shell_starts_with(command, "tv ") ? shell_trim(command + 3) : NULL);
         return 1;
     }
-
-    char *command =
-        shell_trim(input);
-
-    if (!command || !*command)
-        return 1;
 
 
     /* --------------------------------------------------------
