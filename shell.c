@@ -49,6 +49,7 @@
 #include "shell.h"
 #include "r2.h"
 #include "Log.h"
+#include "Reality.h"
 
 
 /* ============================================================
