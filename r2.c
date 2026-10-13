@@ -5859,13 +5859,18 @@ char *r2_talk(const char *message)
         if (!reply) return NULL;
     }
 
-    char *tools = process_tools(reply);
+    char *tool_input = r2_sounds_strip_markers(reply);
+    char *tools = process_tools(tool_input ? tool_input : reply);
+    free(tool_input);
 
     if (tools && *tools) {
         pthread_mutex_lock(&messages_lock);
 
-        int assistant_rc = message_add("assistant", reply);
+        char *history_reply = r2_reply_sanitize(reply);
+        int assistant_rc = message_add("assistant",
+            history_reply ? history_reply : "R2 completed an internal action-routing turn.");
         int tool_rc = message_add("user", tools);
+        free(history_reply);
 
         pthread_mutex_unlock(&messages_lock);
 
@@ -5892,6 +5897,23 @@ char *r2_talk(const char *message)
         }
     } else {
         free(tools);
+    }
+
+    /* Keep internal reasoning and sound-control markers out of the
+       permanent dialogue, Life Log, and user-visible shell response. */
+    char *sound_clean_reply = r2_sounds_process_reply(reply);
+    if (sound_clean_reply) {
+        free(reply);
+        reply = sound_clean_reply;
+    }
+    char *user_reply = r2_reply_sanitize(reply);
+    if (user_reply) {
+        free(reply);
+        reply = user_reply;
+    } else {
+        free(reply);
+        reply = xstrdup("I'm sorry, Mom—I couldn't produce a clean user-facing reply this turn. Your message is still in the conversation.");
+        if (!reply) return NULL;
     }
 
     pthread_mutex_lock(&messages_lock);
