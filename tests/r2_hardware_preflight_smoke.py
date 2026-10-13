@@ -36,7 +36,7 @@ required = (
     'Observer.py',
     'tools/audit_r2_sound_assets.py',
     'tools/preflight_r2_hardware.sh',
-    'for tool in bash make gcc curl python3 sudo setpriv pgrep date find grep cmp',
+    'for tool in bash make gcc curl python3 sudo setpriv pgrep date find grep cmp iptables ip6tables',
     'run_as_r2_with_audio_group()',
     'Hardware preflight identity: %s (uid=%s, groups=%s)',
     'DROP=(setpriv --reuid="$R2_UID" --regid="$R2_GID" --groups="$R2_RUNTIME_GROUPS" --)',
