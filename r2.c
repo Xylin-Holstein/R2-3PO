@@ -4715,6 +4715,143 @@ static char *process_tools(
         }
     }
 
+    /* Execute only the explicit, line-based WORLD actions documented by
+       Reality context. Results are returned to the model for its follow-up;
+       the marker itself is never shown as a completed action. */
+    const char *world_scan = reply;
+    while (world_scan && (world_scan = strstr(world_scan, "[WORLD]")) != NULL) {
+        const char *line_start = world_scan;
+        while (line_start > reply && line_start[-1] != '\n') --line_start;
+        int only_space_before = 1;
+        for (const char *q = line_start; q < world_scan; ++q)
+            if (!isspace((unsigned char)*q)) { only_space_before = 0; break; }
+        const char *line_end = strchr(world_scan, '\n');
+        if (!line_end) line_end = world_scan + strlen(world_scan);
+        const char *payload = world_scan + strlen("[WORLD]");
+        while (payload < line_end && isspace((unsigned char)*payload)) ++payload;
+        if (only_space_before && payload < line_end) {
+            size_t n = (size_t)(line_end - payload);
+            char *action = malloc(n + 1);
+            if (action) {
+                memcpy(action, payload, n); action[n] = '\0';
+                char *fields[8] = {0};
+                size_t count = 0;
+                fields[count++] = action;
+                for (char *q = action; *q && count < 8; ++q) {
+                    if (*q == '|') { *q = '\0'; fields[count++] = q + 1; }
+                }
+                for (size_t i = 0; i < count; ++i) {
+                    while (*fields[i] && isspace((unsigned char)*fields[i])) ++fields[i];
+                    size_t fl = strlen(fields[i]);
+                    while (fl && isspace((unsigned char)fields[i][fl - 1])) fields[i][--fl] = '\0';
+                }
+                int rc = -1;
+                char *view = NULL;
+                if (!strcasecmp(fields[0], "look") || !strcasecmp(fields[0], "room_look")) {
+                    view = r2_reality_room_look();
+                    APPEND("REAL WORLD RESULT:\n%s\n", view ? view : "Could not read room state.");
+                } else if (!strcasecmp(fields[0], "status")) {
+                    view = r2_reality_status();
+                    APPEND("REAL WORLD STATUS:\n%s\n", view ? view : "Could not read Reality status.");
+                } else if (!strcasecmp(fields[0], "list") && count >= 2) {
+                    view = r2_reality_list(fields[1]);
+                    APPEND("REAL WORLD INVENTORY (%s):\n%s\n", fields[1], view ? view : "Could not read inventory.");
+                } else if (!strcasecmp(fields[0], "add") && count >= 5) {
+                    char *end = NULL; long quantity = strtol(fields[4], &end, 10);
+                    rc = end != fields[4] && !*end && quantity > 0 && quantity <= INT_MAX
+                        ? r2_reality_add_item(fields[1], fields[2], fields[3], (int)quantity) : -1;
+                    APPEND("REAL WORLD %s: item '%s' %s.\n", rc == 0 ? "RESULT" : "ERROR", fields[1],
+                           rc == 0 ? "was added" : "could not be added; no change was confirmed");
+                } else if (!strcasecmp(fields[0], "move") && count >= 3) {
+                    rc = r2_reality_move_item(fields[1], fields[2]);
+                    APPEND("REAL WORLD %s: item '%s' %s.\n", rc == 0 ? "RESULT" : "ERROR", fields[1],
+                           rc == 0 ? "was moved" : "could not be moved; no change was confirmed");
+                } else if (!strcasecmp(fields[0], "remove") && count >= 2) {
+                    rc = r2_reality_remove_item(fields[1]);
+                    APPEND("REAL WORLD %s: item '%s' %s.\n", rc == 0 ? "RESULT" : "ERROR", fields[1],
+                           rc == 0 ? "was removed" : "could not be removed; no change was confirmed");
+                } else if (!strcasecmp(fields[0], "eat") && count >= 2) {
+                    rc = r2_reality_eat(fields[1], -1.0);
+                    APPEND("REAL WORLD %s: %s.\n", rc == 0 ? "RESULT" : "ERROR",
+                           rc == 0 ? "the configured food metric was applied and one tracked item was consumed" :
+                           "the food was not consumed; inventory and configured nutrition must be checked");
+                } else if (!strcasecmp(fields[0], "fridge") || !strcasecmp(fields[0], "fridge_look")) {
+                    view = r2_fridge_context();
+                    APPEND("REAL FRIDGE RESULT:\n%s\n", view ? view : "Could not read fridge inventory.");
+                } else if (!strcasecmp(fields[0], "fridge_take") && count >= 2) {
+                    rc = r2_fridge_take(fields[1]);
+                    APPEND("REAL FRIDGE %s: %s.\n", rc == 0 ? "RESULT" : "ERROR",
+                           rc == 0 ? "one tracked item was moved into pockets" : "the item was not moved");
+                } else if (!strcasecmp(fields[0], "fridge_eat") && count >= 2) {
+                    rc = r2_reality_fridge_eat(fields[1], -1.0);
+                    APPEND("REAL FRIDGE %s: %s.\n", rc == 0 ? "RESULT" : "ERROR",
+                           rc == 0 ? "one stocked item was consumed using its stored nutrition" :
+                           "the item was not consumed; stock and nutrition must be checked");
+                } else if (!strcasecmp(fields[0], "fridge_store") && count >= 2) {
+                    rc = r2_reality_move_item(fields[1], "fridge");
+                    APPEND("REAL FRIDGE %s: item '%s' %s.\n", rc == 0 ? "RESULT" : "ERROR", fields[1],
+                           rc == 0 ? "was stored" : "could not be stored; location and configured nutrition must be checked");
+                } else if (!strcasecmp(fields[0], "location") && count >= 3) {
+                    int home = !strcasecmp(fields[2], "home");
+                    if (home || !strcasecmp(fields[2], "outside"))
+                        rc = r2_reality_set_location(home);
+                    APPEND("REAL WORLD %s: location transition %s.\n", rc == 0 ? "RESULT" : "ERROR",
+                           rc == 0 ? "was saved" : "was not saved");
+                } else if (!strcasecmp(fields[0], "money_receive") && count >= 2) {
+                    char *end = NULL; double amount = strtod(fields[1], &end);
+                    rc = end != fields[1] && !*end && isfinite(amount) && amount > 0.0
+                        ? r2_reality_money_receive(amount) : -1;
+                    APPEND("REAL MONEY %s: receipt %s.\n", rc == 0 ? "RESULT" : "ERROR",
+                           rc == 0 ? "was recorded" : "was not recorded");
+                } else if (!strcasecmp(fields[0], "money_deposit") && count >= 2) {
+                    char *end = NULL; double amount = strtod(fields[1], &end);
+                    rc = end != fields[1] && !*end && isfinite(amount) && amount > 0.0
+                        ? r2_reality_money_deposit(amount) : -1;
+                    APPEND("REAL MONEY %s: deposit %s.\n", rc == 0 ? "RESULT" : "ERROR",
+                           rc == 0 ? "was completed" : "was not completed");
+                } else if (!strcasecmp(fields[0], "money_withdraw") && count >= 2) {
+                    char *end = NULL; double amount = strtod(fields[1], &end);
+                    rc = end != fields[1] && !*end && isfinite(amount) && amount > 0.0
+                        ? r2_reality_money_withdraw(amount) : -1;
+                    APPEND("REAL MONEY %s: withdrawal %s.\n", rc == 0 ? "RESULT" : "ERROR",
+                           rc == 0 ? "was completed" : "was not completed");
+                } else if (!strcasecmp(fields[0], "buy") && count >= 5) {
+                    char *end = NULL; double price = strtod(fields[2], &end);
+                    rc = end != fields[2] && !*end && isfinite(price) && price >= 0.0
+                        ? r2_reality_buy_item(fields[1], fields[3], price, fields[4]) : -1;
+                    APPEND("REAL PURCHASE %s: %s.\n", rc == 0 ? "RESULT" : "ERROR",
+                           rc == 0 ? "the transaction was recorded" : "no purchase was confirmed");
+                } else if (!strcasecmp(fields[0], "sleep") && count >= 2) {
+                    char *end = NULL; double hours = strtod(fields[1], &end);
+                    rc = end != fields[1] && !*end && isfinite(hours) && hours > 0.0
+                        ? r2_reality_sleep(hours) : -1;
+                    APPEND("REAL SLEEP %s: modeled sleep %s.\n", rc == 0 ? "RESULT" : "ERROR",
+                           rc == 0 ? "was recorded" : "was not recorded");
+                } else if (!strcasecmp(fields[0], "dream") && count >= 2) {
+                    rc = r2_reality_record_dream(fields[1]);
+                    APPEND("REAL DREAM %s: private dream report %s.\n", rc == 0 ? "RESULT" : "ERROR",
+                           rc == 0 ? "was saved to private reflection" : "was not saved");
+                } else if (!strcasecmp(fields[0], "food_context") && count >= 2) {
+                    view = r2_reality_food_context(fields[1]);
+                    APPEND("REAL FOOD CONTEXT:\n%s\n", view ? view : "No configured food context is available.");
+                } else if (!strcasecmp(fields[0], "self_set") && count >= 4) {
+                    rc = r2_reality_set_self(fields[1], fields[2], fields[3]);
+                    APPEND("REAL SELF STATE %s: fact %s.\n", rc == 0 ? "RESULT" : "ERROR",
+                           rc == 0 ? "was saved with evidence" : "was not saved");
+                } else if (!strcasecmp(fields[0], "self_get") && count >= 2) {
+                    view = r2_reality_get_self(fields[1]);
+                    APPEND("REAL SELF STATE:\n%s\n", view ? view : "No recorded value is available.");
+                } else {
+                    APPEND("REAL WORLD ERROR: malformed or unsupported [WORLD] action; no state change was made.\n");
+                }
+                free(view);
+                free(action);
+            }
+        }
+        world_scan = line_end < world_scan + strlen(world_scan) ? line_end + 1 : line_end;
+        if (!*world_scan) break;
+    }
+
 #undef APPEND
 
     return results;
