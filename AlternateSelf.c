@@ -122,7 +122,19 @@ int r2_altself_init(void)
         " FOREIGN KEY(evidence_event_id) REFERENCES r2_log_events(id),"
         " FOREIGN KEY(log_event_id) REFERENCES r2_log_events(id)"
         ");";
-    if (as_exec(schema) != 0 || migrate_altself_schema() != 0) {
+    const char *links_schema =
+        "CREATE TABLE IF NOT EXISTS r2_alternate_self_event_links ("
+        " branch_id INTEGER NOT NULL,"
+        " event_id INTEGER NOT NULL,"
+        " relation TEXT NOT NULL,"
+        " details TEXT,"
+        " created_utc TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,"
+        " PRIMARY KEY(branch_id,event_id,relation),"
+        " FOREIGN KEY(branch_id) REFERENCES r2_alternate_self_branches(id) ON DELETE CASCADE,"
+        " FOREIGN KEY(event_id) REFERENCES r2_log_events(id)"
+        ");";
+    if (as_exec(schema) != 0 || migrate_altself_schema() != 0 ||
+        as_exec(links_schema) != 0) {
         sqlite3_close(as_db); as_db = NULL;
         pthread_mutex_unlock(&as_lock); return -1;
     }
@@ -300,6 +312,43 @@ static int as_set_status(int64_t id, const char *status)
     }
     return -1;
 }
+int r2_altself_link_event(int64_t branch_id, int64_t event_id,
+                          const char *relation, const char *details)
+{
+    if (branch_id <= 0 || event_id <= 0 || !relation || !*relation ||
+        strlen(relation) > 128 || (details && strlen(details) > 2048))
+        return -1;
+
+    pthread_mutex_lock(&as_lock);
+    if (!as_ready || !as_db) {
+        pthread_mutex_unlock(&as_lock);
+        return -1;
+    }
+
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(as_db,
+        "INSERT OR IGNORE INTO r2_alternate_self_event_links"
+        "(branch_id,event_id,relation,details) "
+        "SELECT ?,?,?,? WHERE "
+        "EXISTS(SELECT 1 FROM r2_alternate_self_branches WHERE id=?) AND "
+        "EXISTS(SELECT 1 FROM r2_log_events WHERE id=?);",
+        -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        sqlite3_bind_int64(st, 1, branch_id);
+        sqlite3_bind_int64(st, 2, event_id);
+        sqlite3_bind_text(st, 3, relation, -1, SQLITE_TRANSIENT);
+        if (details) sqlite3_bind_text(st, 4, details, -1, SQLITE_TRANSIENT);
+        else sqlite3_bind_null(st, 4);
+        sqlite3_bind_int64(st, 5, branch_id);
+        sqlite3_bind_int64(st, 6, event_id);
+        rc = sqlite3_step(st);
+    }
+    if (st) sqlite3_finalize(st);
+    int linked = rc == SQLITE_DONE && sqlite3_changes(as_db) > 0;
+    pthread_mutex_unlock(&as_lock);
+    return linked ? 0 : -1;
+}
+
 int r2_altself_discard(int64_t id) { return as_set_status(id,"discarded"); }
 int r2_altself_retain_hypothesis(int64_t id) { return as_set_status(id,"retained_hypothesis"); }
 
