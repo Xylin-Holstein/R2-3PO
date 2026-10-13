@@ -4,6 +4,7 @@
 
 #include "Reality.h"
 #include "Addiction.h"
+#include "Reward.h"
 #include "r2_diary.h"
 #include "Log.h"
 #include "Visual.h"
@@ -31,6 +32,29 @@ static sqlite3 *fridge_db = NULL;
 static pthread_mutex_t reality_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t fridge_lock = PTHREAD_MUTEX_INITIALIZER;
 static int reality_ready = 0;
+static int food_preference_enjoyment_score(const char *food)
+{
+    if (!food || !*food || !reality_db) return 50;
+    int score = 50;
+    pthread_mutex_lock(&reality_lock);
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_prepare_v2(reality_db,
+        "SELECT satisfaction_sum * 1.0 / rating_count FROM r2_food_preferences "
+        "WHERE food_name=? COLLATE NOCASE AND rating_count>0",
+        -1, &st, NULL) == SQLITE_OK) {
+        bind_text(st, 1, food);
+        if (sqlite3_step(st) == SQLITE_ROW) {
+            double average = sqlite3_column_double(st, 0);
+            score = (int)lround(50.0 + average * 25.0);
+            if (score < 0) score = 0;
+            if (score > 100) score = 100;
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reality_lock);
+    return score;
+}
+
 static int reality_eat_internal(const char *food, double fullness, int consume_tracked_item, double energy_override);
 
 /* Elapsed world time advances continuously. At +0.1 hunger every 4.75
@@ -2031,7 +2055,14 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
     bridge_event("food_consumed", summary, details, 1, 0);
     /* A real eating choice feeds the shared habit evaluator. It reads the
        target's learned enjoyment instead of resetting it to a fixed value. */
-    (void)r2_addiction_record_choice(food, "food", 50, "eating", details);
+    int learned_enjoyment = food_preference_enjoyment_score(food);
+    char habit_details[1400];
+    snprintf(habit_details, sizeof(habit_details),
+             "%s; learned food enjoyment=%d/100 (mapped from recorded -2..+2 ratings).",
+             details, learned_enjoyment);
+    (void)r2_addiction_record_choice(food, "food", learned_enjoyment, "eating", habit_details);
+    (void)r2_reward_apply(food, "food_consumed", 2,
+        "Food consumption completed and modeled need state was updated.", 0);
     return 0;
 }
 
