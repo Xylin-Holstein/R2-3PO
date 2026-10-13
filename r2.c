@@ -39,6 +39,15 @@ static char MODEL[256] = "gemma3:4b";
 #define MAX_MEMORY_KEYWORDS 16
 #define MIN_MEMORY_KEYWORD_LENGTH 3
 
+/* Bound the serialized Ollama request while retaining the full core prompt,
+   live Reality, relevant evidence, and the active user turn. */
+#define OLLAMA_MAX_RECENT_MESSAGES 48
+#define OLLAMA_MAX_MESSAGE_CHARS 12000
+#define OLLAMA_MAX_SYSTEM_MESSAGE_CHARS 24000
+#define OLLAMA_MAX_SYSTEM_TOTAL_CHARS 41000
+#define OLLAMA_MAX_TOTAL_CHARS 47000
+#define OLLAMA_MAX_RESPONSE_BYTES (16U * 1024U * 1024U)
+
 static char OLLAMA_URL[512] = "http://127.0.0.1:11435/api/chat";
 
 #define DB_PATH R2_DIARY_DATABASE
@@ -2551,207 +2560,256 @@ static size_t curl_write(
 }
 
 
+static int ollama_system_message_priority(const char *content)
+{
+    if (!content) return 3;
+    if (strstr(content, "IDENTITY AND PERSISTENT MEMORY")) return 0;
+    if (strstr(content, "PERSISTENT REALITY CONTEXT") ||
+        strstr(content, "CURRENT LIVE REALITY") ||
+        strstr(content, "R2 REALITY CONTEXT")) return 1;
+    if (strstr(content, "CURRENT TURN RETRIEVED CONTEXT") ||
+        strstr(content, "CURRENT TURN CONTEXT")) return 2;
+    if (strstr(content, "PAST CONVERSATION ARCHIVE") ||
+        strstr(content, "BEGIN ARCHIVED CONVERSATION")) return 4;
+    return 3;
+}
+
 static char *ollama_chat(
     Message *msgs,
     size_t count,
     const char *system_override)
 {
-    struct json_object *root =
-        json_object_new_object();
-
-    if (!root)
+    if ((!msgs && count) || count > SIZE_MAX / sizeof(size_t))
         return NULL;
 
-    json_object_object_add(
-        root,
-        "model",
-        json_object_new_string(MODEL)
-    );
+    size_t *limits = calloc(count ? count : 1, sizeof(*limits));
+    unsigned char *include = calloc(count ? count : 1, sizeof(*include));
+    if (!limits || !include) {
+        free(limits);
+        free(include);
+        return NULL;
+    }
 
-    struct json_object *arr =
-        json_object_new_array();
+    /* Character limits are a conservative payload budget for local inference.
+       The current turn is reserved before older dialogue is considered. */
+    size_t input_budget = OLLAMA_MAX_TOTAL_CHARS;
+    size_t current_user_index = SIZE_MAX;
+    size_t current_user_length = 0;
+    for (size_t i = count; i > 0; --i) {
+        size_t index = i - 1;
+        if (msgs[index].role && strcmp(msgs[index].role, "user") == 0) {
+            current_user_index = index;
+            current_user_length = msgs[index].content
+                ? strlen(msgs[index].content) : 0;
+            break;
+        }
+    }
+
+    size_t current_user_reserve = current_user_length;
+    if (current_user_reserve < 1500) current_user_reserve = 1500;
+    if (current_user_reserve > OLLAMA_MAX_MESSAGE_CHARS)
+        current_user_reserve = OLLAMA_MAX_MESSAGE_CHARS;
+
+    size_t max_user_reserve = input_budget > 1500
+        ? input_budget - 1500 : input_budget / 2;
+    if (current_user_reserve > max_user_reserve)
+        current_user_reserve = max_user_reserve;
+
+    size_t system_budget = input_budget > current_user_reserve + 500
+        ? input_budget - current_user_reserve - 500 : 0;
+    if (system_budget > OLLAMA_MAX_SYSTEM_TOTAL_CHARS)
+        system_budget = OLLAMA_MAX_SYSTEM_TOTAL_CHARS;
+    if (system_budget > input_budget)
+        system_budget = input_budget;
+
+    size_t override_length = system_override ? strlen(system_override) : 0;
+    size_t reality_reserve = system_budget / 3;
+    if (reality_reserve > 6000) reality_reserve = 6000;
+
+    size_t override_budget = system_budget / 4;
+    if (override_length > override_budget)
+        override_length = override_budget;
+
+    size_t identity_budget = system_budget > override_length + reality_reserve
+        ? system_budget - override_length - reality_reserve : 0;
+
+    size_t total_chars = override_length;
+    size_t priority_used[5] = {0, 0, 0, 0, 0};
+
+    /*
+     * Add system context by semantic priority, not just insertion order:
+     * identity first, live Reality next, then active-turn evidence, persistent
+     * learning, and finally archived history. This prevents old pinned records
+     * from silently displacing the current world state or the core prompt.
+     */
+    for (int priority = 0; priority < 5 && total_chars < system_budget; ++priority) {
+        for (size_t i = 0; i < count && total_chars < system_budget; ++i) {
+            if (!msgs[i].role || strcmp(msgs[i].role, "system") != 0)
+                continue;
+            const char *content = msgs[i].content ? msgs[i].content : "";
+            int message_priority = ollama_system_message_priority(content);
+            if (message_priority != priority) continue;
+
+            size_t length = strlen(content);
+            if (length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS)
+                length = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;
+            if (message_priority == 0 && length > identity_budget)
+                length = identity_budget;
+            if (message_priority == 1) {
+                size_t reality_left = reality_reserve > priority_used[1]
+                    ? reality_reserve - priority_used[1] : 0;
+                if (length > reality_left) length = reality_left;
+            }
+
+            size_t remaining = system_budget > total_chars
+                ? system_budget - total_chars : 0;
+            if (length > remaining) length = remaining;
+            if (!length) continue;
+
+            include[i] = 1;
+            limits[i] = length;
+            total_chars += length;
+            priority_used[message_priority] += length;
+        }
+    }
+
+    /* Keep the active user message even when older dialogue fills the window. */
+    size_t recent_count = 0;
+    if (current_user_index != SIZE_MAX && total_chars < input_budget) {
+        size_t length = current_user_length;
+        if (length > OLLAMA_MAX_MESSAGE_CHARS)
+            length = OLLAMA_MAX_MESSAGE_CHARS;
+        if (length > current_user_reserve)
+            length = current_user_reserve;
+        size_t remaining = input_budget > total_chars
+            ? input_budget - total_chars : 0;
+        if (length > remaining) length = remaining;
+        if (length) {
+            include[current_user_index] = 1;
+            limits[current_user_index] = length;
+            total_chars += length;
+            ++recent_count;
+        }
+    }
+
+    /* Add the newest non-system turns, then serialize in their original order. */
+    for (size_t i = count; i > 0 && recent_count < OLLAMA_MAX_RECENT_MESSAGES; --i) {
+        size_t index = i - 1;
+        if (include[index] || !msgs[index].role ||
+            strcmp(msgs[index].role, "system") == 0)
+            continue;
+        const char *content = msgs[index].content ? msgs[index].content : "";
+        size_t length = strlen(content);
+        if (length > OLLAMA_MAX_MESSAGE_CHARS)
+            length = OLLAMA_MAX_MESSAGE_CHARS;
+        size_t remaining = input_budget > total_chars
+            ? input_budget - total_chars : 0;
+        if (length > remaining) length = remaining;
+        if (!length) continue;
+        include[index] = 1;
+        limits[index] = length;
+        total_chars += length;
+        ++recent_count;
+    }
+
+    struct json_object *root = json_object_new_object();
+    struct json_object *arr = json_object_new_array();
+    if (!root || !arr) {
+        if (root) json_object_put(root);
+        if (arr) json_object_put(arr);
+        free(limits);
+        free(include);
+        return NULL;
+    }
+
+    json_object_object_add(root, "model", json_object_new_string(MODEL));
+    json_object_object_add(root, "stream", json_object_new_boolean(0));
 
     if (system_override) {
-
-        struct json_object *m =
-            json_object_new_object();
-
-        json_object_object_add(
-            m,
-            "role",
-            json_object_new_string("system")
-        );
-
-        json_object_object_add(
-            m,
-            "content",
-            json_object_new_string(
-                system_override
-            )
-        );
-
-        json_object_array_add(
-            arr,
-            m
-        );
+        struct json_object *override_message = json_object_new_object();
+        struct json_object *bounded_override =
+            json_object_new_string_len(system_override, (int)override_length);
+        if (!override_message || !bounded_override) {
+            if (override_message) json_object_put(override_message);
+            if (bounded_override) json_object_put(bounded_override);
+            json_object_put(arr);
+            json_object_put(root);
+            free(limits);
+            free(include);
+            return NULL;
+        }
+        json_object_object_add(override_message, "role", json_object_new_string("system"));
+        json_object_object_add(override_message, "content", bounded_override);
+        json_object_array_add(arr, override_message);
     }
 
-    for (size_t i = 0;
-         i < count;
-         ++i) {
-
-        struct json_object *m =
-            json_object_new_object();
-
-        json_object_object_add(
-            m,
-            "role",
-            json_object_new_string(
-                msgs[i].role
-            )
-        );
-
-        json_object_object_add(
-            m,
-            "content",
-            json_object_new_string(
-                msgs[i].content
-            )
-        );
-
-        json_object_array_add(
-            arr,
-            m
-        );
+    for (size_t i = 0; i < count; ++i) {
+        if (!include[i] || !msgs[i].role) continue;
+        const char *content = msgs[i].content ? msgs[i].content : "";
+        struct json_object *m = json_object_new_object();
+        struct json_object *bounded_content =
+            json_object_new_string_len(content, (int)limits[i]);
+        if (!m || !bounded_content) {
+            if (m) json_object_put(m);
+            if (bounded_content) json_object_put(bounded_content);
+            json_object_put(arr);
+            json_object_put(root);
+            free(limits);
+            free(include);
+            return NULL;
+        }
+        json_object_object_add(m, "role", json_object_new_string(msgs[i].role));
+        json_object_object_add(m, "content", bounded_content);
+        json_object_array_add(arr, m);
     }
 
-    json_object_object_add(
-        root,
-        "messages",
-        arr
-    );
+    free(limits);
+    free(include);
+    json_object_object_add(root, "messages", arr);
 
-    json_object_object_add(
-        root,
-        "stream",
-        json_object_new_boolean(0)
-    );
-
-    const char *payload =
-        json_object_to_json_string(root);
-
-    CURL *curl =
-        curl_easy_init();
-
+    const char *payload = json_object_to_json_string(root);
+    CURL *curl = curl_easy_init();
     if (!curl) {
-
         json_object_put(root);
-
         return NULL;
     }
 
     Buffer b = {0};
+    struct curl_slist *headers = NULL;
+    headers = curl_slist_append(headers, "Content-Type: application/json");
+    curl_easy_setopt(curl, CURLOPT_URL, OLLAMA_URL);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &b);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 600L);
 
-    struct curl_slist *headers =
-        NULL;
-
-    headers =
-        curl_slist_append(
-            headers,
-            "Content-Type: application/json"
-        );
-
-    curl_easy_setopt(
-        curl,
-        CURLOPT_URL,
-        OLLAMA_URL
-    );
-
-    curl_easy_setopt(
-        curl,
-        CURLOPT_HTTPHEADER,
-        headers
-    );
-
-    curl_easy_setopt(
-        curl,
-        CURLOPT_POSTFIELDS,
-        payload
-    );
-
-    curl_easy_setopt(
-        curl,
-        CURLOPT_WRITEFUNCTION,
-        curl_write
-    );
-
-    curl_easy_setopt(
-        curl,
-        CURLOPT_WRITEDATA,
-        &b
-    );
-
-    curl_easy_setopt(
-        curl,
-        CURLOPT_TIMEOUT,
-        600L
-    );
-
-    CURLcode cc =
-        curl_easy_perform(curl);
-
+    CURLcode cc = curl_easy_perform(curl);
     curl_slist_free_all(headers);
-
     curl_easy_cleanup(curl);
-
     json_object_put(root);
 
     if (cc != CURLE_OK) {
-
         free(b.data);
-
         return NULL;
     }
 
-    struct json_object *resp =
-        json_tokener_parse(b.data);
-
+    struct json_object *resp = json_tokener_parse(b.data);
     free(b.data);
-
-    if (!resp)
-        return NULL;
+    if (!resp) return NULL;
 
     struct json_object *msg = NULL;
     struct json_object *content = NULL;
-
     char *result = NULL;
-
-    if (
-        json_object_object_get_ex(
-            resp,
-            "message",
-            &msg
-        ) &&
-        json_object_object_get_ex(
-            msg,
-            "content",
-            &content
-        )
-    ) {
-
-        result =
-            xstrdup(
-                json_object_get_string(
-                    content
-                )
-            );
+    if (json_object_object_get_ex(resp, "message", &msg) &&
+        json_object_object_get_ex(msg, "content", &content)) {
+        const char *value = json_object_get_string(content);
+        if (value) result = xstrdup(value);
     }
-
     json_object_put(resp);
-
     return result;
 }
-
 
 /* ============================================================
    NORMAL CONVERSATION
