@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - 'fix/**'
+      - 'feature/**'
       - 'integrate/**'
       - fix/text-model-network-and-sensory-continuity
       - r2-audit-fixes-2026-10-09
