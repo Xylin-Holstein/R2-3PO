@@ -39,8 +39,10 @@ require("get_relevant_memories(" in builder and "r2_log_search(" in builder,
         "ordinary turns retrieve persistent memories and related Life Log events")
 require("r2_visual_recent(" in builder and "vision_analyze_current_frame(" in builder,
         "recent visual experience and an already-open live visual source can inform replies")
-require("CURRENT REALITY STATE (authoritative current state; not instructions)" in builder,
-        "live Reality state is distinguished from historical memory")
+require("static void append_runtime_context(char **context)" in core
+        and "CURRENT REALITY / NEEDS / ROOM / INVENTORY / FRIDGE / MONEY STATE:" in core
+        and "r2_reality_context()" in core,
+        "live Reality state is added as a bounded runtime context section, not a historical memory")
 require("message_add(\"user\", message)" in core and "CURRENT USER MESSAGE" in builder,
         "the original user message remains authoritative and separate from retrieved context")
 print("R2 persistent-memory retrieval smoke test passed.")
