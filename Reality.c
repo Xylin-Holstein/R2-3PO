@@ -928,6 +928,94 @@ static int migrate_legacy_reality(void)
         if (!legacy_table_exists(copies[i].table)) continue;
         if (exec_sql(copies[i].sql) != 0) { result = -1; break; }
     }
+    /* Preserve the newer learning tables that older releases stored in
+       r2_memory.db. Optional legacy columns get explicit unknown defaults;
+       no current target rows are overwritten. */
+    if (result == 0 && legacy_table_exists("r2_reality_item_memory")) {
+        if (!legacy_column_exists("r2_reality_item_memory", "item_name")) result = -1;
+        else {
+            const char *id = legacy_column_exists("r2_reality_item_memory", "id") ? "id" : "NULL";
+            const char *description = legacy_column_exists("r2_reality_item_memory", "description") ? "description" : "NULL";
+            const char *exact = legacy_column_exists("r2_reality_item_memory", "exact_quantity") ? "exact_quantity" : "NULL";
+            const char *approx = legacy_column_exists("r2_reality_item_memory", "approximate_quantity") ? "approximate_quantity" : "NULL";
+            const char *precision = legacy_column_exists("r2_reality_item_memory", "precision") ? "precision" : "'exact'";
+            const char *collected = legacy_column_exists("r2_reality_item_memory", "collected_at") ? "collected_at" : "0";
+            const char *decay = legacy_column_exists("r2_reality_item_memory", "last_decay_at") ? "last_decay_at" : "0";
+            char sql[2048];
+            snprintf(sql, sizeof(sql),
+                "INSERT OR IGNORE INTO main.r2_reality_item_memory(id,item_name,description,exact_quantity,approximate_quantity,precision,collected_at,last_decay_at) "
+                "SELECT %s,item_name,%s,%s,%s,%s,%s,%s FROM legacy.r2_reality_item_memory WHERE item_name IS NOT NULL",
+                id, description, exact, approx, precision, collected, decay);
+            result = exec_sql(sql);
+        }
+    }
+    if (result == 0 && legacy_table_exists("r2_food_experiences")) {
+        if (!legacy_column_exists("r2_food_experiences", "food_name")) result = -1;
+        else {
+            const char *id = legacy_column_exists("r2_food_experiences", "id") ? "id" : "NULL";
+            const char *ingredients = legacy_column_exists("r2_food_experiences", "ingredients") ? "ingredients" : "NULL";
+            const char *fullness = legacy_column_exists("r2_food_experiences", "fullness") ? "fullness" : "0.0";
+            const char *energy = legacy_column_exists("r2_food_experiences", "energy_bonus") ? "energy_bonus" : "0.0";
+            const char *satisfaction = legacy_column_exists("r2_food_experiences", "satisfaction") ? "satisfaction" : "NULL";
+            const char *notes = legacy_column_exists("r2_food_experiences", "notes") ? "notes" : "NULL";
+            const char *eaten = legacy_column_exists("r2_food_experiences", "eaten_at") ? "eaten_at" : "0";
+            const char *rated = legacy_column_exists("r2_food_experiences", "rated_at") ? "rated_at" : "NULL";
+            char sql[2048];
+            snprintf(sql, sizeof(sql),
+                "INSERT OR IGNORE INTO main.r2_food_experiences(id,food_name,ingredients,fullness,energy_bonus,satisfaction,notes,eaten_at,rated_at) "
+                "SELECT %s,food_name,%s,%s,%s,%s,%s,%s,%s FROM legacy.r2_food_experiences WHERE food_name IS NOT NULL",
+                id, ingredients, fullness, energy, satisfaction, notes, eaten, rated);
+            result = exec_sql(sql);
+        }
+    }
+    if (result == 0 && legacy_table_exists("r2_food_ingredient_preferences")) {
+        if (!legacy_column_exists("r2_food_ingredient_preferences", "ingredient")) result = -1;
+        else {
+            const char *sum = legacy_column_exists("r2_food_ingredient_preferences", "satisfaction_sum") ? "satisfaction_sum" : "0.0";
+            const char *count = legacy_column_exists("r2_food_ingredient_preferences", "rating_count") ? "rating_count" : "0";
+            const char *updated = legacy_column_exists("r2_food_ingredient_preferences", "updated_at") ? "updated_at" : "0";
+            char sql[1024];
+            snprintf(sql, sizeof(sql),
+                "INSERT OR IGNORE INTO main.r2_food_ingredient_preferences(ingredient,satisfaction_sum,rating_count,updated_at) "
+                "SELECT ingredient,%s,%s,%s FROM legacy.r2_food_ingredient_preferences WHERE ingredient IS NOT NULL",
+                sum, count, updated);
+            result = exec_sql(sql);
+        }
+    }
+    if (result == 0 && legacy_table_exists("r2_food_preferences")) {
+        if (!legacy_column_exists("r2_food_preferences", "food_name")) result = -1;
+        else {
+            const char *sum = legacy_column_exists("r2_food_preferences", "satisfaction_sum") ? "satisfaction_sum" : "0.0";
+            const char *count = legacy_column_exists("r2_food_preferences", "rating_count") ? "rating_count" : "0";
+            const char *updated = legacy_column_exists("r2_food_preferences", "updated_at") ? "updated_at" : "0";
+            char sql[1024];
+            snprintf(sql, sizeof(sql),
+                "INSERT OR IGNORE INTO main.r2_food_preferences(food_name,satisfaction_sum,rating_count,updated_at) "
+                "SELECT food_name,%s,%s,%s FROM legacy.r2_food_preferences WHERE food_name IS NOT NULL",
+                sum, count, updated);
+            result = exec_sql(sql);
+        }
+    }
+    if (result == 0 && legacy_table_exists("r2_food_experience_meta")) {
+        if (!legacy_column_exists("r2_food_experience_meta", "key") ||
+            !legacy_column_exists("r2_food_experience_meta", "value")) result = -1;
+        else result = exec_sql(
+            "INSERT OR IGNORE INTO main.r2_food_experience_meta(key,value) "
+            "SELECT key,value FROM legacy.r2_food_experience_meta");
+    }
+    if (result == 0 && legacy_table_exists("r2_money_account")) {
+        const char *cash = legacy_column_exists("r2_money_account", "cash_cents") ? "cash_cents" :
+                           legacy_column_exists("r2_money_account", "cash") ? "CAST(ROUND(cash*100.0) AS INTEGER)" : "0";
+        const char *bank = legacy_column_exists("r2_money_account", "bank_cents") ? "bank_cents" :
+                           legacy_column_exists("r2_money_account", "bank") ? "CAST(ROUND(bank*100.0) AS INTEGER)" : "0";
+        char sql[2048];
+        snprintf(sql, sizeof(sql),
+            "UPDATE main.r2_money_account SET "
+            "cash_cents=CASE WHEN cash_cents=0 THEN COALESCE((SELECT MAX(0,%s) FROM legacy.r2_money_account LIMIT 1),cash_cents) ELSE cash_cents END, "
+            "bank_cents=CASE WHEN bank_cents=0 THEN COALESCE((SELECT MAX(0,%s) FROM legacy.r2_money_account LIMIT 1),bank_cents) ELSE bank_cents END "
+            "WHERE id=1", cash, bank);
+        result = exec_sql(sql);
+    }
     if (result == 0 && legacy_table_exists("r2_reality_self")) {
         const char *since = legacy_column_exists("r2_reality_self", "seconds_since_meal") ? "seconds_since_meal" : "0";
         const char *sleep = legacy_column_exists("r2_reality_self", "sleepiness") ? "sleepiness" : "0";
