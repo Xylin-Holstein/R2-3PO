@@ -22,6 +22,12 @@ if talk_end < 0:
     talk_end = len(core)
 talk = core[talk_start:talk_end]
 
+impl_start = core.index("static char *r2_talk_impl(const char *message)")
+impl_end = core.find("\\nchar *r2_talk(const char *message)", impl_start)
+if impl_end < 0:
+    raise SystemExit("Could not isolate the conversation implementation.")
+implementation = core[impl_start:impl_end]
+
 shell_start = shell.index("static void shell_talk(const char *message)")
 shell_end = shell.find("\n/*", shell_start)
 shell_talk = shell[shell_start:shell_end if shell_end >= 0 else len(shell)]
@@ -38,8 +44,8 @@ require(
     "failed inference produces a visible allocated fallback instead of returning NULL",
 )
 require(
-    "The action result is still in the conversation; please ask me again" in talk
-    and "does not rerun the completed action" in talk,
+    "The action result is still in the conversation; please ask me again" in implementation
+    and "does not rerun the completed action" in implementation,
     "failed post-action generation preserves the completed action result without replaying the action",
 )
 require(
