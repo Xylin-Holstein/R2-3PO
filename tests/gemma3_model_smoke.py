@@ -24,6 +24,8 @@ assert '#define R2_VISION_DEFAULT_MODEL "gemma3:4b"' in visual
 assert 'R2_MODEL="${R2_MODEL:-gemma3:4b}"' in launcher
 assert 'R2_VISION_MODEL="$R2_MODEL"' in launcher
 assert 'R2_OLLAMA_BASE_URL="${R2_OLLAMA_BASE_URL:-http://127.0.0.1:11435}"' in launcher
+assert 'R2_OLLAMA_TIMEOUT_SECONDS="${R2_OLLAMA_TIMEOUT_SECONDS:-21600}"' in launcher
+assert 'R2_OLLAMA_TIMEOUT_SECONDS="$R2_OLLAMA_TIMEOUT_SECONDS"' in launcher
 assert 'configure_ollama_endpoint()' in core
 assert 'R2_OLLAMA_BASE_URL' in core and 'configure_ollama_endpoint()' in core
 assert '127.0.0.1:11435' in launcher
