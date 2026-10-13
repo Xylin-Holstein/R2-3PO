@@ -50,7 +50,6 @@
 #include "r2.h"
 #include "Log.h"
 #include "Reality.h"
-#include "Imagination.h"
 
 
 /* ============================================================
@@ -1346,6 +1345,7 @@ static int shell_imagine(char *argument)
         return 1;
     }
 
+    char *request = NULL;
     if (shell_starts_with(argument, "feedback ")) {
         char *cursor = shell_trim(argument + strlen("feedback "));
         errno = 0;
@@ -1364,22 +1364,32 @@ static int shell_imagine(char *argument)
         while (*cursor && !isspace((unsigned char)*cursor)) ++cursor;
         if (*cursor) *cursor++ = '\\0';
         char *notes = shell_trim(cursor);
-        int rc = r2_imagination_feedback(branch_id, assessment, notes ? notes : "");
-        if (rc == 0) printf("[Imagination feedback saved. Inaccurate or unresolved scenarios are not punished.]\n");
-        else if (rc == 1) printf("[Feedback saved, but positive reinforcement was unavailable.]\n");
-        else if (rc == 2) printf("[Feedback saved. This branch was already positively reinforced.]\n");
-        else if (rc == -2) printf("[Accurate feedback requires evidence notes; no reward was issued.]\n");
-        else printf("[Feedback was not saved. Check the branch ID and assessment.]\n");
-        return 1;
+        size_t needed = strlen(notes ? notes : "") + strlen(assessment) + 256;
+        request = malloc(needed);
+        if (request)
+            snprintf(request, needed,
+                     "Record explicit feedback for hypothetical Imagination branch #%lld. "
+                     "Assessment: %s. Evidence notes: %s. Use [IMAGINE_FEEDBACK] "
+                     "%lld|%s|%s [END IMAGINE_FEEDBACK]. Do not add the scenario to factual memory.",
+                     branch_id, assessment, notes ? notes : "(none)",
+                     branch_id, assessment, notes ? notes : "(none)");
+    } else {
+        size_t needed = strlen(argument) + 256;
+        request = malloc(needed);
+        if (request)
+            snprintf(request, needed,
+                     "Mother asks you to imagine this hypothetical scenario: %s. "
+                     "Use [IMAGINE] %s [END IMAGINE] so the Imagination subsystem "
+                     "can retrieve relevant experience and save the result only as hypothetical.",
+                     argument, argument);
     }
 
-    char *result = r2_imagination_create(argument);
-    if (result) {
-        printf("%s\\n", result);
-        free(result);
-    } else {
-        printf("[Imagination could not generate or save this hypothetical scenario. No factual memory or real-world state was changed.]\n");
+    if (!request) {
+        printf("[Could not prepare the imagination request.]\n");
+        return 1;
     }
+    shell_conversation(request);
+    free(request);
     return 1;
 }
 
