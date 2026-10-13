@@ -49,20 +49,27 @@ for source in required_sources:
     require(source in source_block.group(1), f"Makefile includes {source}")
     require(f'"$R2_SOURCE/{source}"' in launcher, f"launcher includes {source}")
 require(
-    "static const double HUNGER_PER_SECOND = 100.0 / (3.0 * 3600.0);" in reality
-    and "double hunger = sqlite3_column_double(st, 0) - elapsed * HUNGER_PER_SECOND;" in reality
-    and "hunger=MIN(100,hunger+?)" in reality,
-    "fullness meter drains over three hours and eating restores it",
+    "static const double HUNGER_PER_SECOND = 0.1 / 4.75;" in reality
+    and "hunger += elapsed * HUNGER_PER_SECOND;" in reality
+    and "satisfaction -= elapsed * HUNGER_PER_SECOND;" in reality
+    and "sleepiness += elapsed * HUNGER_PER_SECOND;" in reality
+    and "hunger > 100.0" in reality,
+    "elapsed world time advances hunger, satiety, sleepiness, and energy at the configured rate",
 )
 require(
-    "return valid_hunger && hunger < 50.0;" in core
-    and "if (hunger < 50.0) {" in core
-    and "If the fullness meter is below 50/100" in core,
-    "model and autonomous feeding thresholds match decreasing fullness semantics",
+    "reality_needs_worker" in core
+    and "r2_reality_autonomous_feed_if_needed()" in core
+    and 'r2_reality_eat(trim(e), -1.0)' in core
+    and 'r2_reality_fridge_eat(trim(e), -1.0)' in core,
+    "background needs ticking and C-backed eating use verified inventory/fridge operations",
 )
 require(
-    "hunger_fullness_semantics_v2" in reality
-    and "100-hunger" in reality,
-    "legacy hunger values migrate to the new fullness scale exactly once",
+    "legacy_copy_table" in reality
+    and "r2_reality_item_memory" in reality
+    and "r2_food_experiences" in reality
+    and "r2_food_preferences" in reality
+    and "r2_money_account" in reality
+    and "legacy_reality_migrated" in reality,
+    "legacy Reality migration preserves item memory, food history/preferences, money, and self state",
 )
 print("R2 build configuration smoke test passed.")
