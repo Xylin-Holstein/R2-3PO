@@ -4156,7 +4156,7 @@ static char *process_tools(
         if (_n > 0) {                                                 \
             size_t _append_n = (size_t)_n;                            \
             if (_append_n >= sizeof(_b)) {                            \
-                static const char _suffix[] = "\\n[tool output truncated]"; \
+                static const char _suffix[] = "\n[tool output truncated]"; \
                 size_t _suffix_n = sizeof(_suffix) - 1;               \
                 _append_n = sizeof(_b) - 1;                           \
                 memcpy(_b + _append_n - _suffix_n, _suffix, _suffix_n); \
