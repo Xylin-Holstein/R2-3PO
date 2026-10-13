@@ -14,7 +14,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 SOURCES = [
     "r2.c", "shell.c", "r2_diary.c", "Log.c", "Reality.c",
-    "Addiction.c", "Reward.c", "AlternateSelf.c", "Visual.c",
+    "Addiction.c", "Reward.c", "AlternateSelf.c", "Imagination.c", "SensoryJournal.c", "Visual.c",
     "Ears.c", "Eyes.c", "R2Sounds.c", "R2Reply.c",
 ]
 LIBS = [
