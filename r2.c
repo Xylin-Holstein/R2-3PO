@@ -4978,6 +4978,7 @@ char *r2_recent_conversation_context(const char *exclude_latest, size_t max_char
 
     size_t selected[8];
     size_t found = 0;
+    int skip_latest_match = exclude_latest && *exclude_latest;
     pthread_mutex_lock(&messages_lock);
     for (size_t i = messages.count; i > 0 && found < 8; --i) {
         size_t index = i - 1;
@@ -4985,8 +4986,11 @@ char *r2_recent_conversation_context(const char *exclude_latest, size_t max_char
         if (!m->role || !m->content || m->pinned) continue;
         if (strcmp(m->role, "user") != 0 && strcmp(m->role, "assistant") != 0)
             continue;
-        if (exclude_latest && *exclude_latest && strcmp(m->content, exclude_latest) == 0)
+        /* Skip only the newest matching turn, not every repeated identical message. */
+        if (skip_latest_match && strcmp(m->content, exclude_latest) == 0) {
+            skip_latest_match = 0;
             continue;
+        }
         if (strcmp(m->role, "assistant") == 0 &&
             r2_recent_message_is_tool_payload(m->content))
             continue;
