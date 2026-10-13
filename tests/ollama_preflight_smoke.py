@@ -45,8 +45,8 @@ class OllamaPreflightSmoke(unittest.TestCase):
             {"models": [{"name": "qwen3.5:9b", "size_vram": 123456}]},
         ]
         gpu_result = SimpleNamespace(returncode=1, stdout="", stderr="")
-        with patch.dict(probe.os.environ, {"R2_OLLAMA_BASE_URL": "http://127.0.0.1:11435"}), \\
-             patch.object(probe, "_read_json", side_effect=replies) as read, \\
+        with patch.dict(probe.os.environ, {"R2_OLLAMA_BASE_URL": "http://127.0.0.1:11435"}), \
+             patch.object(probe, "_read_json", side_effect=replies) as read, \
              patch.object(probe.subprocess, "run", return_value=gpu_result):
             self.assertTrue(probe.preflight(timeout=1))
         self.assertEqual(
@@ -60,7 +60,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
 
     def test_unapproved_non_loopback_endpoint_is_rejected(self) -> None:
         errors = io.StringIO()
-        with patch.dict(probe.os.environ, {"R2_OLLAMA_BASE_URL": "http://example.com:11435"}), \\
+        with patch.dict(probe.os.environ, {"R2_OLLAMA_BASE_URL": "http://example.com:11435"}), \
              patch.object(probe, "_read_json") as read:
             with contextlib.redirect_stderr(errors):
                 self.assertFalse(probe.preflight(timeout=1))
