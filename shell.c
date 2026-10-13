@@ -1362,7 +1362,7 @@ static int shell_imagine(char *argument)
         }
         char *assessment = cursor;
         while (*cursor && !isspace((unsigned char)*cursor)) ++cursor;
-        if (*cursor) *cursor++ = '\\0';
+        if (*cursor) *cursor++ = '\0';
         char *notes = shell_trim(cursor);
         size_t needed = strlen(notes ? notes : "") + strlen(assessment) + 256;
         request = malloc(needed);
