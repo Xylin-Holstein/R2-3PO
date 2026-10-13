@@ -33,8 +33,8 @@ r2_remove_network_family() {
     fi
 }
 r2_remove_network_lock() {
-    r2_remove_network_family iptables R2_UID_NETLOCK || return 1
-    r2_remove_network_family ip6tables R2_UID_NETLOCK || return 1
+    r2_remove_network_family iptables R2_3PO_UID_NETLOCK || return 1
+    r2_remove_network_family ip6tables R2_3PO_UID_NETLOCK || return 1
 }
 r2_network_cleanup() {
     local exit_status=$?
@@ -57,20 +57,20 @@ r2_apply_network_lock() {
     command -v iptables >/dev/null 2>&1 || { echo "ERROR: iptables is missing; refusing to launch without R2 network isolation."; return 1; }
     command -v ip6tables >/dev/null 2>&1 || { echo "ERROR: ip6tables is missing; refusing to launch without IPv6 isolation."; return 1; }
     sudo -n true >/dev/null 2>&1 || { echo "ERROR: non-interactive sudo is required to apply the R2-only network lock."; return 1; }
-    r2_remove_network_jumps iptables R2_UID_NETLOCK || return 1
-    r2_remove_network_jumps ip6tables R2_UID_NETLOCK || return 1
-    sudo -n iptables -w -S R2_UID_NETLOCK >/dev/null 2>&1 || sudo -n iptables -w -N R2_UID_NETLOCK || return 1
-    sudo -n ip6tables -w -S R2_UID_NETLOCK >/dev/null 2>&1 || sudo -n ip6tables -w -N R2_UID_NETLOCK || return 1
-    sudo -n iptables -w -F R2_UID_NETLOCK || return 1
-    sudo -n ip6tables -w -F R2_UID_NETLOCK || return 1
+    r2_remove_network_jumps iptables R2_3PO_UID_NETLOCK || return 1
+    r2_remove_network_jumps ip6tables R2_3PO_UID_NETLOCK || return 1
+    sudo -n iptables -w -S R2_3PO_UID_NETLOCK >/dev/null 2>&1 || sudo -n iptables -w -N R2_3PO_UID_NETLOCK || return 1
+    sudo -n ip6tables -w -S R2_3PO_UID_NETLOCK >/dev/null 2>&1 || sudo -n ip6tables -w -N R2_3PO_UID_NETLOCK || return 1
+    sudo -n iptables -w -F R2_3PO_UID_NETLOCK || return 1
+    sudo -n ip6tables -w -F R2_3PO_UID_NETLOCK || return 1
     # Permit only local Ollama TCP. No wireless interface is disabled and the
     # OUTPUT owner match leaves the desktop user's network traffic untouched.
-    sudo -n iptables -w -A R2_UID_NETLOCK -o lo -d 127.0.0.1/32 -p tcp --dport 11434 -j ACCEPT || return 1
-    sudo -n iptables -w -A R2_UID_NETLOCK -m conntrack --ctstate ESTABLISHED -o lo -s 127.0.0.1/32 -p tcp --sport 11434 -j ACCEPT || return 1
-    sudo -n iptables -w -A R2_UID_NETLOCK -j REJECT || return 1
-    sudo -n ip6tables -w -A R2_UID_NETLOCK -j REJECT || return 1
-    sudo -n iptables -w -I OUTPUT 1 -m owner --uid-owner "$R2_UID" -j R2_UID_NETLOCK || return 1
-    if ! sudo -n ip6tables -w -I OUTPUT 1 -m owner --uid-owner "$R2_UID" -j R2_UID_NETLOCK; then
+    sudo -n iptables -w -A R2_3PO_UID_NETLOCK -o lo -d 127.0.0.1/32 -p tcp --dport 11434 -j ACCEPT || return 1
+    sudo -n iptables -w -A R2_3PO_UID_NETLOCK -m conntrack --ctstate ESTABLISHED -o lo -s 127.0.0.1/32 -p tcp --sport 11434 -j ACCEPT || return 1
+    sudo -n iptables -w -A R2_3PO_UID_NETLOCK -j REJECT || return 1
+    sudo -n ip6tables -w -A R2_3PO_UID_NETLOCK -j REJECT || return 1
+    sudo -n iptables -w -I OUTPUT 1 -m owner --uid-owner "$R2_UID" -j R2_3PO_UID_NETLOCK || return 1
+    if ! sudo -n ip6tables -w -I OUTPUT 1 -m owner --uid-owner "$R2_UID" -j R2_3PO_UID_NETLOCK; then
         r2_remove_network_lock
         return 1
     fi
