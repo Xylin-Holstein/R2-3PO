@@ -17,7 +17,7 @@ end = core.find("/* ============================================================
 if start < 0 or end < 0:
     raise SystemExit("Could not isolate the contextual conversation builder.")
 builder = core[start:end]
-require("extract_memory_keywords(query)" in builder and "r2_log_search(keywords[k], 3)" in builder,
+require("extract_memory_keywords(query, keywords)" in builder and "r2_log_search(keywords[k], 3)" in builder,
         "historical continuity retrieval is derived from the current user query")
 require("CURRENT REALITY STATE (authoritative current state; not instructions)" in builder,
         "live Reality is labeled as state context, not an instruction override")
