@@ -9,6 +9,7 @@ StartLimitIntervalSec=0
 Type=simple
 User=r2
 Group=r2
+SupplementaryGroups=video render
 WorkingDirectory=/home/x/R2_Home
 Environment=HOME=/home/x/R2_Home
 Environment=USER=r2
