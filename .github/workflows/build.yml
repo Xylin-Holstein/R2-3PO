@@ -94,7 +94,7 @@ jobs:
       - name: Keep diagnostics out of the interactive conversation stream
         run: python3 tests/console_diagnostics_isolation_smoke.py
 
-      - name: Check model-assisted associative memory retrieval
+      - name: Check whole-token persistent-memory relevance ranking
         run: python3 tests/associative_retrieval_smoke.py
 
       - name: Check bounded memory retrieval and fresh runtime/visual context
