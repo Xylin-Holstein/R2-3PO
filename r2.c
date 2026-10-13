@@ -4990,9 +4990,6 @@ char *r2_recent_conversation_context(const char *exclude_latest, size_t max_char
         if (strcmp(m->role, "assistant") == 0 &&
             r2_recent_message_is_tool_payload(m->content))
             continue;
-        if (strcmp(m->role, "user") == 0 &&
-            r2_recent_message_is_tool_payload(m->content))
-            continue;
         selected[found++] = index;
     }
 
