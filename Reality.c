@@ -601,6 +601,61 @@ static void fridge_sync_mirrors(void)
     pthread_mutex_unlock(&fridge_lock);
 }
 
+static int fridge_column_exists(const char *column)
+{
+    if (!fridge_db || !column || !*column) return -1;
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(fridge_db, "PRAGMA table_info(r2_fridge_items)", -1, &st, NULL);
+    if (rc != SQLITE_OK) return -1;
+    int found = 0;
+    while ((rc = sqlite3_step(st)) == SQLITE_ROW) {
+        const unsigned char *name = sqlite3_column_text(st, 1);
+        if (name && !strcasecmp((const char *)name, column)) {
+            found = 1;
+            break;
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    return (found || rc == SQLITE_DONE || rc == SQLITE_ROW) ? found : -1;
+}
+
+static int fridge_ensure_column(const char *column, const char *definition)
+{
+    int exists = fridge_column_exists(column);
+    if (exists < 0) return -1;
+    if (exists) return 0;
+    char sql[512];
+    int n = snprintf(sql, sizeof(sql), "ALTER TABLE r2_fridge_items ADD COLUMN %s %s", column, definition);
+    if (n <= 0 || (size_t)n >= sizeof(sql)) return -1;
+    return sqlite3_exec(fridge_db, sql, NULL, NULL, NULL) == SQLITE_OK ? 0 : -1;
+}
+
+/* Add missing columns in place. Missing nutrition is recorded as 0/0, never
+   fabricated as a full meal. Existing measured values and stock quantities survive. */
+static int fridge_migrate_schema(void)
+{
+    if (!fridge_db || fridge_column_exists("name") != 1) return -1;
+    if (fridge_ensure_column("description", "TEXT") != 0 ||
+        fridge_ensure_column("quantity", "INTEGER NOT NULL DEFAULT 1") != 0 ||
+        fridge_ensure_column("fullness", "REAL NOT NULL DEFAULT 0") != 0 ||
+        fridge_ensure_column("energy", "REAL NOT NULL DEFAULT 0") != 0 ||
+        fridge_ensure_column("ingredients", "TEXT NOT NULL DEFAULT ''") != 0 ||
+        fridge_ensure_column("taste", "TEXT NOT NULL DEFAULT ''") != 0 ||
+        fridge_ensure_column("updated_at", "TEXT") != 0)
+        return -1;
+    if (sqlite3_exec(fridge_db,
+        "UPDATE r2_fridge_items SET quantity=1 WHERE quantity IS NULL OR quantity<1;"
+        "UPDATE r2_fridge_items SET fullness=0 WHERE fullness IS NULL OR fullness<0 OR fullness>100;"
+        "UPDATE r2_fridge_items SET energy=0 WHERE energy IS NULL OR energy<0 OR energy>100;"
+        "UPDATE r2_fridge_items SET ingredients='' WHERE ingredients IS NULL;"
+        "UPDATE r2_fridge_items SET taste='' WHERE taste IS NULL;"
+        "UPDATE r2_fridge_items SET updated_at=CURRENT_TIMESTAMP WHERE updated_at IS NULL OR updated_at='';"
+        "INSERT OR REPLACE INTO r2_fridge_meta(key,value) VALUES('schema_version','2');",
+        NULL, NULL, NULL) != SQLITE_OK)
+        return -1;
+    return 0;
+}
+
 static int fridge_init(void)
 {
     char path[1200];
@@ -617,13 +672,14 @@ static int fridge_init(void)
     sqlite3_busy_timeout(fridge_db, 5000);
     sqlite3_exec(fridge_db, "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;", NULL, NULL, NULL);
     rc = sqlite3_exec(fridge_db,
-        "CREATE TABLE IF NOT EXISTS r2_fridge_items(name TEXT PRIMARY KEY COLLATE NOCASE,description TEXT,quantity INTEGER NOT NULL CHECK(quantity>0),fullness REAL NOT NULL DEFAULT 100,energy REAL NOT NULL DEFAULT 10,ingredients TEXT,taste TEXT,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
+        "CREATE TABLE IF NOT EXISTS r2_fridge_items(name TEXT PRIMARY KEY COLLATE NOCASE,description TEXT,quantity INTEGER NOT NULL CHECK(quantity>0),fullness REAL NOT NULL DEFAULT 0,energy REAL NOT NULL DEFAULT 0,ingredients TEXT,taste TEXT,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "CREATE TABLE IF NOT EXISTS r2_fridge_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);"
         "INSERT OR IGNORE INTO r2_fridge_meta(key,value) VALUES('schema_version','1');",
         NULL, NULL, NULL);
+    if (rc == SQLITE_OK && fridge_migrate_schema() != 0) rc = SQLITE_ERROR;
 
     pthread_mutex_unlock(&fridge_lock);
-    if (rc != SQLITE_OK) { fprintf(stderr, "[R2 Fridge] Could not initialize fridge schema.\n"); return -1; }
+    if (rc != SQLITE_OK) { fprintf(stderr, "[R2 Fridge] Could not initialize or migrate fridge schema without data loss.\n"); return -1; }
     return 0;
 }
 void r2_fridge_shutdown(void)
