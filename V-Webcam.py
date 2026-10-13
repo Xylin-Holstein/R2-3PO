@@ -163,6 +163,18 @@ class VWebcam:
             return
         self.display_status = self.status()
         self.display_focus = self.focus()
+        if not self.display_status["active"] or not self.display_status["frames"]:
+            # A new source starts at frame zero. Never keep showing a frame
+            # from the previous source/session while the next capture warms up.
+            self.raw_photo = None
+            self.photo = None
+            self.last_frame_mtime = None
+            self.image_width = 0
+            self.image_height = 0
+            self.canvas.itemconfigure(self.image_item, image="")
+            self.canvas.coords(self.image_item, 0, 0)
+            self.draw_focus()
+            return
         try:
             stamp = FRAME_PATH.stat().st_mtime_ns
             if stamp != self.last_frame_mtime:

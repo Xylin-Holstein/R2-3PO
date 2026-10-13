@@ -22,6 +22,8 @@ def main() -> None:
     assert "not os.environ.get(\"DISPLAY\")" in viewer
     assert "DATA_DIR.lstat()" in viewer and "os.geteuid()" in viewer
     assert "if self.paused:" in viewer and "self.display_focus = self.focus()" in viewer
+    assert 'if not self.display_status["active"] or not self.display_status["frames"]:' in viewer
+    assert 'self.canvas.itemconfigure(self.image_item, image="")' in viewer
     assert "focus = self.display_focus" in viewer
     assert '#define R2_VWEBCAM_DIR "/tmp/r2-vwebcam-r2"' in eyes
     assert '#define R2_VWEBCAM_DIR "/tmp/r2-vwebcam-r2"' in visual
