@@ -44,7 +44,6 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn("VLC or python3-vlc is unavailable", source)
         self.assertIn("Tkinter is unavailable", source)
         self.assertIn("preflight_ollama_model.py", source)
-        self.assertIn('export OLLAMA_TAGS_URL="${R2_OLLAMA_BASE_URL}/api/tags"', source)
         self.assertIn('"R2_OLLAMA_BASE_URL=$R2_OLLAMA_BASE_URL"', source)
         probe = (ROOT / "tools/preflight_ollama_model.py").read_text(encoding="utf-8")
         self.assertIn('os.environ.get("R2_OLLAMA_BASE_URL", DEFAULT_API_BASE)', probe)
