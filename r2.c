@@ -4194,6 +4194,155 @@ static int parse_tool_int(const char *text, long *value)
     if (errno || end == text || (end && *end)) return 0;
     *value = v; return 1;
 }
+static char *world_action_result(char *line)
+{
+    char *f[8] = {0};
+    int n = split_tool_fields(line, f, 8);
+    if (n < 1 || !*f[0]) return strdup("ERROR empty world action");
+
+    if (!strcasecmp(f[0], "look") && n == 1) return r2_reality_room_look();
+    if (!strcasecmp(f[0], "status") && n == 1) return r2_reality_status();
+    if (!strcasecmp(f[0], "list") && n == 2) return r2_reality_list(f[1]);
+    if (!strcasecmp(f[0], "fridge") && n == 2 && !strcasecmp(f[1], "look")) return r2_fridge_context();
+    if (!strcasecmp(f[0], "money") && n == 1) return r2_reality_money_context();
+    if (!strcasecmp(f[0], "tv_status") && n == 1) return r2_reality_tv_status();
+
+    if (!strcasecmp(f[0], "add") && n == 5) {
+        long q = 0;
+        if (*f[1] && *f[3] && parse_tool_int(f[4], &q) && q > 0 && q <= INT_MAX &&
+            r2_reality_add_item(f[1], f[2], f[3], (int)q) == 0)
+            return strdup("OK item saved to Reality inventory");
+        return strdup("ERROR add expects name|description|container|positive quantity");
+    }
+    if (!strcasecmp(f[0], "move") && n == 3) {
+        return strdup(r2_reality_move_item(f[1], f[2]) == 0 ?
+                      "OK item moved in Reality inventory" : "ERROR item could not be moved");
+    }
+    if (!strcasecmp(f[0], "remove") && n == 2) {
+        return strdup(r2_reality_remove_item(f[1]) == 0 ?
+                      "OK item removed from tracked inventory" : "ERROR item not found");
+    }
+    if (!strcasecmp(f[0], "eat") && (n == 2 || n == 3)) {
+        double fullness = -1.0;
+        if (n == 3 && strcasecmp(f[2], "auto") && !parse_tool_double(f[2], &fullness))
+            return strdup("ERROR eat fullness must be a number or auto");
+        int rc = r2_reality_eat(f[1], fullness);
+        return strdup(rc == 0 ? "OK tracked food consumed; needs and experience updated" :
+                                "ERROR food unavailable or inaccessible");
+    }
+    if (!strcasecmp(f[0], "sleep") && n == 2) {
+        double hours = 0.0;
+        if (!parse_tool_double(f[1], &hours) || hours <= 0.0 || hours > 24.0)
+            return strdup("ERROR sleep expects hours in (0,24]");
+        return strdup(r2_reality_sleep(hours) == 0 ?
+                      "OK sleep advanced world time and needs" : "ERROR sleep could not be recorded");
+    }
+    if (!strcasecmp(f[0], "dream") && n == 2) {
+        return strdup(r2_reality_record_dream(f[1]) == 0 ?
+                      "OK saved as a dream, not a waking event" : "ERROR dream could not be saved");
+    }
+    if (!strcasecmp(f[0], "ratefood") && n == 4) {
+        long rating = 99;
+        if (!parse_tool_int(f[2], &rating) || rating < -2 || rating > 2)
+            return strdup("ERROR food rating must be from -2 to +2");
+        return strdup(r2_reality_rate_food(f[1], (int)rating, f[3]) == 0 ?
+                      "OK food experience and learned preferences updated" : "ERROR no unrated food experience found");
+    }
+    if (!strcasecmp(f[0], "self") && n == 4) {
+        return strdup(r2_reality_set_self(f[1], f[2], f[3]) == 0 ?
+                      "OK self-continuity fact saved with evidence" : "ERROR self fact could not be saved");
+    }
+    if (!strcasecmp(f[0], "fridge_take") && n == 2) {
+        return strdup(r2_fridge_take(f[1]) == 0 ?
+                      "OK food moved from fridge to portable inventory" : "ERROR food unavailable in fridge");
+    }
+    if (!strcasecmp(f[0], "fridge_eat") && n == 2) {
+        return strdup(r2_reality_fridge_eat(f[1], -1.0) == 0 ?
+                      "OK fridge stock consumed and needs updated" : "ERROR food unavailable in fridge");
+    }
+    if (!strcasecmp(f[0], "fridge_store") && n == 2)
+        return strdup("ERROR fridge_store is not yet implemented; no inventory was changed");
+
+    if (!strcasecmp(f[0], "money_receive") && n == 2) {
+        double amount = 0.0;
+        if (!parse_tool_double(f[1], &amount) || amount <= 0.0)
+            return strdup("ERROR money_receive expects a positive amount");
+        return strdup(r2_reality_money_receive(amount) == 0 ? "OK received cash recorded" : "ERROR money receipt failed");
+    }
+    if (!strcasecmp(f[0], "money_deposit") && n == 2) {
+        double amount = 0.0;
+        if (!parse_tool_double(f[1], &amount) || amount <= 0.0)
+            return strdup("ERROR money_deposit expects a positive amount");
+        return strdup(r2_reality_money_deposit(amount) == 0 ? "OK cash deposited into piggybank" : "ERROR deposit failed");
+    }
+    if (!strcasecmp(f[0], "money_withdraw") && n == 2) {
+        double amount = 0.0;
+        if (!parse_tool_double(f[1], &amount) || amount <= 0.0)
+            return strdup("ERROR money_withdraw expects a positive amount");
+        return strdup(r2_reality_money_withdraw(amount) == 0 ? "OK money withdrawn from piggybank" : "ERROR withdrawal failed");
+    }
+    if (!strcasecmp(f[0], "buy") && n == 5) {
+        double price = 0.0;
+        if (!*f[1] || !*f[4] || !parse_tool_double(f[2], &price) || price < 0.0)
+            return strdup("ERROR buy expects item|known price|description|destination");
+        return strdup(r2_reality_buy_item(f[1], f[3], price, f[4]) == 0 ?
+                      "OK purchase and inventory update recorded" : "ERROR purchase failed; check price and available balance");
+    }
+    if (!strcasecmp(f[0], "location") && n == 2) {
+        int home = !strcasecmp(f[1], "home");
+        if (!home && strcasecmp(f[1], "away") && strcasecmp(f[1], "outside"))
+            return strdup("ERROR location must be home or away");
+        return strdup(r2_reality_set_location(home) == 0 ?
+                      (home ? "OK modeled location is home" : "OK modeled location is away") :
+                      "ERROR location change failed");
+    }
+
+    if (!strcasecmp(f[0], "tv_power") && n == 2) {
+        int on = !strcasecmp(f[1], "on");
+        if (!on && strcasecmp(f[1], "off")) return strdup("ERROR tv_power expects on or off");
+        return strdup(r2_reality_tv_power(on) == 0 ? "OK TV power changed" : "ERROR TV power change failed");
+    }
+    if (!strcasecmp(f[0], "tv_input") && n == 2) {
+        long input = 0;
+        if (!parse_tool_int(f[1], &input) || input < 1 || input > 4)
+            return strdup("ERROR TV input must be 1..4");
+        return strdup(r2_reality_tv_select_input((int)input) == 0 ? "OK TV input selected" : "ERROR TV input failed");
+    }
+    if (!strcasecmp(f[0], "tv_tune") && n == 2) {
+        long channel = 0;
+        if (!parse_tool_int(f[1], &channel) || channel < 2 || channel > 13)
+            return strdup("ERROR RF channel must be 2..13");
+        return strdup(r2_reality_tv_tune_rf((int)channel) == 0 ? "OK RF channel tuned" : "ERROR RF tuning failed");
+    }
+    if (!strcasecmp(f[0], "tv_connect") && n == 4) {
+        long port = 0;
+        if (!parse_tool_int(f[3], &port) || port < 1 || port > INT_MAX)
+            return strdup("ERROR TV port is invalid");
+        return strdup(r2_reality_tv_connect(f[1], f[2], (int)port) == 0 ? "OK TV device connected" : "ERROR TV connection failed");
+    }
+    if (!strcasecmp(f[0], "tv_disconnect") && n == 2) {
+        return strdup(r2_reality_tv_disconnect(f[1]) == 0 ? "OK TV device disconnected" : "ERROR device was not connected");
+    }
+    if (!strcasecmp(f[0], "tv_display") && n == 2) {
+        int opened = !strcasecmp(f[1], "opened");
+        if (!opened && strcasecmp(f[1], "closed")) return strdup("ERROR tv_display expects opened or closed");
+        return strdup(r2_reality_tv_display_event(opened) == 0 ? "OK TV display event recorded" : "ERROR TV display event failed");
+    }
+    if (!strcasecmp(f[0], "vcr_insert") && n == 2) {
+        return strdup(r2_reality_tv_vcr_insert(f[1]) == 0 ? "OK VCR tape inserted" : "ERROR unsupported or unreadable media file");
+    }
+    if (!strcasecmp(f[0], "vcr") && n == 2) {
+        return strdup(r2_reality_tv_vcr_transport(f[1]) == 0 ? "OK VCR transport updated" : "ERROR VCR transport failed");
+    }
+    if (!strcasecmp(f[0], "vcr_position") && n == 2) {
+        double seconds = 0.0;
+        if (!parse_tool_double(f[1], &seconds) || seconds < 0.0)
+            return strdup("ERROR VCR position must be a nonnegative number");
+        return strdup(r2_reality_tv_vcr_set_position(seconds) == 0 ? "OK VCR position saved" : "ERROR no inserted tape");
+    }
+    return strdup("ERROR unknown world action; no state was changed");
+}
+
 static char *process_tools(
     const char *reply)
 {
@@ -4357,6 +4506,25 @@ static char *process_tools(
         if (!e) break; char *f[5] = {0}; int n = split_tool_fields(e, f, 5);
         int64_t id = n == 5 && *f[0] && *f[1] ? r2_altself_create(f[0], f[1], f[2], f[3], f[4], 0) : -1;
         APPEND("ALTERNATE-SELF %s.\n", id > 0 ? "RESULT: hypothetical saved separately" : "ERROR: expected name|scenario|assumptions|prediction|conclusion"); free(e);
+    }
+
+    const char *world_cursor = reply;
+    while ((world_cursor = strstr(world_cursor, "[WORLD]")) != NULL) {
+        const char *action_start = world_cursor + strlen("[WORLD]");
+        while (*action_start == ' ' || *action_start == '\t') ++action_start;
+        const char *line_end = strpbrk(action_start, "\r\n");
+        size_t action_len = line_end ? (size_t)(line_end - action_start) : strlen(action_start);
+        char *action = strndup(action_start, action_len);
+        if (action) {
+            char *result = world_action_result(action);
+            APPEND("WORLD ACTION RESULT:\n%s\n", result ? result : "ERROR no result returned");
+            free(result);
+            free(action);
+        } else {
+            APPEND("WORLD ACTION ERROR: could not allocate action buffer; no action executed.\n");
+        }
+        world_cursor = line_end ? line_end + 1 : action_start + action_len;
+        if (!line_end) break;
     }
 
     if (strstr(reply, "[READ_DIARY]")) {
@@ -6070,6 +6238,11 @@ static char *strip_action_markers(const char *input)
                     for (size_t k = 0; k < sizeof(single)/sizeof(single[0]); ++k)
                         if (!strcmp(tag, single[k])) { known = 1; break; }
                     if (known) { i = (size_t)(close - input) + 1; continue; }
+                    if (!strcmp(tag, "WORLD")) {
+                        const char *line_end = strpbrk(close + 1, "\\r\\n");
+                        i = line_end ? (size_t)(line_end - input) + 1 : n;
+                        continue;
+                    }
                     if (action_marker_is_block(tag)) {
                         char end_tag[96];
                         int end_n = snprintf(end_tag, sizeof(end_tag), "[END %s]", tag);
