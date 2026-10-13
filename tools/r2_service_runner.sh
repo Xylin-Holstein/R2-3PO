@@ -128,7 +128,7 @@ else
 fi
 
 # Keep the host clock and service-manager tools on real time. Apply faketime only
-# to R2 itself; otherwise systemd-inhibit would inherit the private 1999 clock.
+# to R2 itself; otherwise systemd-inhibit would inherit the private clock.
 R2_ENV=(/usr/bin/env
     "HOME=$R2_ROOT"
     "USER=r2"
