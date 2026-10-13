@@ -45,7 +45,9 @@ REQUIRED_FILES=(
     "$R2_SOURCE/Reward.c"
     "$R2_SOURCE/Reward.h"
     "$R2_SOURCE/AlternateSelf.c"
+    "$R2_SOURCE/Imagination.c" \
     "$R2_SOURCE/AlternateSelf.h"
+    "$R2_SOURCE/Imagination.h"
     "$R2_SOURCE/R2Reply.c"
     "$R2_SOURCE/R2Reply.h"
     "$R2_SOURCE/R2Sounds.c"
