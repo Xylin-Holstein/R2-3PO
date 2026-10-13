@@ -68,6 +68,7 @@ static char MODEL[256] = "gemma3:4b";
 #include <time.h>
 #include <regex.h>
 #include <stdint.h>
+#include <math.h>
 
 #include <curl/curl.h>
 #include <sqlite3.h>
@@ -6025,6 +6026,66 @@ static void log_structured_self_report(const char *reply, int64_t parent_event_i
 }
 
 
+static int action_marker_is_block(const char *name)
+{
+    static const char *const names[] = {
+        "DIARY", "WRITE", "RUN", "HAND_REQUEST",
+        "REALITY_LIST", "REALITY_ADD", "REALITY_MOVE", "REALITY_REMOVE",
+        "FRIDGE_TAKE", "EAT", "FRIDGE_EAT", "FOOD_RATE", "SLEEP", "DREAM",
+        "LOCATION", "MONEY_RECEIVE", "MONEY_DEPOSIT", "MONEY_WITHDRAW", "BUY",
+        "ALTERNATE_CREATE"
+    };
+    for (size_t i = 0; i < sizeof(names)/sizeof(names[0]); ++i)
+        if (!strcmp(name, names[i])) return 1;
+    return 0;
+}
+
+static char *strip_action_markers(const char *input)
+{
+    if (!input) return NULL;
+    size_t n = strlen(input);
+    char *out = malloc(n + 1);
+    if (!out) return NULL;
+    size_t i = 0, used = 0;
+    while (i < n) {
+        if (input[i] == '[') {
+            if (i + 5 < n && !strncmp(input + i, "[END ", 5)) {
+                const char *close = memchr(input + i, ']', n - i);
+                if (close) { i = (size_t)(close - input) + 1; continue; }
+            }
+            const char *close = memchr(input + i, ']', n - i);
+            if (close) {
+                size_t tag_n = (size_t)(close - (input + i + 1));
+                char tag[80];
+                if (tag_n < sizeof(tag)) {
+                    memcpy(tag, input + i + 1, tag_n); tag[tag_n] = '\0';
+                    int known = 0;
+                    static const char *const single[] = {
+                        "READ_DIARY", "READ", "LIST", "DELETE", "REALITY_STATUS",
+                        "ROOM_LOOK", "FRIDGE_LIST", "MONEY_STATUS", "ADDICTION_REPORT",
+                        "ALTERNATE_LIST"
+                    };
+                    for (size_t k = 0; k < sizeof(single)/sizeof(single[0]); ++k)
+                        if (!strcmp(tag, single[k])) { known = 1; break; }
+                    if (known) { i = (size_t)(close - input) + 1; continue; }
+                    if (action_marker_is_block(tag)) {
+                        char end_tag[96];
+                        int end_n = snprintf(end_tag, sizeof(end_tag), "[END %s]", tag);
+                        const char *end = end_n > 0 && (size_t)end_n < sizeof(end_tag)
+                            ? strstr(close + 1, end_tag) : NULL;
+                        if (end) { i = (size_t)(end - input) + (size_t)end_n; continue; }
+                        /* Missing terminator: remove the control token, preserve its text. */
+                        i = (size_t)(close - input) + 1; continue;
+                    }
+                }
+            }
+        }
+        out[used++] = input[i++];
+    }
+    out[used] = '\0';
+    return out;
+}
+
 char *r2_talk(const char *message)
 {
     if (!core_initialized || shutting_down || !message)
@@ -6068,6 +6129,11 @@ char *r2_talk(const char *message)
             free(reply);
             reply = tool_context_reply;
         }
+        char *action_free_reply = strip_action_markers(reply);
+        if (action_free_reply) {
+            free(reply);
+            reply = action_free_reply;
+        }
         pthread_mutex_lock(&messages_lock);
 
         int assistant_rc = message_add("assistant", reply);
@@ -6103,6 +6169,11 @@ char *r2_talk(const char *message)
     reply = sanitize_user_facing_reply(reply);
     if (!reply) return NULL;
 
+    char *action_free_final = strip_action_markers(reply);
+    if (action_free_final) {
+        free(reply);
+        reply = action_free_final;
+    }
     char *sound_clean_reply = r2_sounds_process_reply(reply);
     if (sound_clean_reply && *trim(sound_clean_reply)) {
         free(reply);
