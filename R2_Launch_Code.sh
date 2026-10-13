@@ -3,6 +3,8 @@
 R2_ROOT="/home/x/R2_Home"
 R2_SOURCE="$R2_ROOT/R2"
 R2_EXEC="$R2_ROOT/r2"
+R2_FX_DIR="${R2_FX_DIR:-$R2_ROOT/R2_sounds/FX}"
+export R2_FX_DIR
 
 # One multimodal model handles both conversation and visual perception.
 R2_MODEL="${R2_MODEL:-gemma3:4b}"
@@ -94,6 +96,15 @@ for group in audio video render; do
     fi
 done
 R2_RUNTIME_GROUPS="$(printf '%s\n' "$R2_RUNTIME_GROUP_LIST" | xargs | tr ' ' ',')"
+
+# Create the canonical diagnostic destination as the actual R2 runtime user.
+# stdout remains attached to the interactive terminal; only stderr is logged.
+if ! sudo -n setpriv --reuid="$R2_UID" --regid="$R2_GID" --groups="$R2_RUNTIME_GROUPS" -- \
+    sh -c 'mkdir -p "$1" && touch "$2"' _ "$R2_ROOT/R2_Log" "$R2_ROOT/R2_Log/Debug.txt"; then
+    echo "ERROR: Linux user r2 cannot create/write $R2_ROOT/R2_Log/Debug.txt."
+    echo "Fix the directory ownership/permissions before launching R2."
+    exit 1
+fi
 
 # Read-only host/database/device checks run before build or runtime setup.
 R2_PREFLIGHT="$R2_SOURCE/tools/preflight_r2_hardware.sh"
@@ -414,7 +425,8 @@ sudo -n setpriv --reuid="$R2_UID" --regid="$R2_GID" --groups="$R2_RUNTIME_GROUPS
     R2_MODEL="$R2_MODEL" \
     R2_VISION_MODEL="$R2_VISION_MODEL" \
     R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
-    "$R2_EXEC"
+    R2_FX_DIR="$R2_FX_DIR" \
+    sh -c 'exec "$1" 2>>"$2"' _ "$R2_EXEC" "$R2_ROOT/R2_Log/Debug.txt"
 
 status=$?
 
