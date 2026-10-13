@@ -90,7 +90,11 @@ def audit_root(root: Path) -> int:
         for kind, entries in by_kind.items():
             if any(words & aliases[state] for _, words in entries):
                 exact.append(kind)
-            elif any(words & GENERIC for _, words in entries):
+            elif any((words & GENERIC) and
+                     not (words & (STATE_TOKENS - GENERIC))
+                     for _, words in entries):
+                # A generic token cannot turn a state-labeled clip into a
+                # generic fallback for an unrelated state.
                 fallback.append(kind)
             elif any(not (words & STATE_TOKENS) and not (words & GENERIC)
                      for _, words in entries):
