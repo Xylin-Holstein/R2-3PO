@@ -4549,9 +4549,60 @@ static char *process_tools(
     rp = 0;
     while (1) {
         char *e = extract_marker(reply, "[ALTERNATE_CREATE]", "[END ALTERNATE_CREATE]", &rp);
-        if (!e) break; char *f[5] = {0}; int n = split_tool_fields(e, f, 5);
-        int64_t id = n == 5 && *f[0] && *f[1] ? r2_altself_create(f[0], f[1], f[2], f[3], f[4], 0) : -1;
-        APPEND("ALTERNATE-SELF %s.\n", id > 0 ? "RESULT: hypothetical saved separately" : "ERROR: expected name|scenario|assumptions|prediction|conclusion"); free(e);
+        if (!e) break; char *f[6] = {0}; int n = split_tool_fields(e, f, 6);
+        long evidence_id = 0;
+        int valid = (n == 5 || n == 6) && *f[0] && *f[1];
+        if (valid && n == 6)
+            valid = parse_tool_int(f[5], &evidence_id) && evidence_id >= 0;
+        int64_t id = valid ? r2_altself_create(f[0], f[1], f[2], f[3], f[4], (int64_t)evidence_id) : -1;
+        APPEND("ALTERNATE-SELF %s.\\n", id > 0 ? "RESULT: hypothetical saved separately" : "ERROR: expected name|scenario|assumptions|prediction|conclusion|optional evidence ID"); free(e);;
+    }
+
+    if (strstr(reply, "[ALTERNATE_SHOW]")) {
+        const char *p = strstr(reply, "[ALTERNATE_SHOW]") + strlen("[ALTERNATE_SHOW]");
+        const char *end = strpbrk(p, "\r\n");
+        char *arg = strndup(p, end ? (size_t)(end-p) : strlen(p));
+        long id = 0;
+        if (arg && parse_tool_int(trim(arg), &id) && id > 0) {
+            char *v = r2_altself_show((int64_t)id);
+            APPEND("HYPOTHETICAL BRANCH DETAIL:\n%s\n", v ? v : "branch unavailable\n");
+            free(v);
+        } else APPEND("ALTERNATE SHOW ERROR: expected a positive branch ID.\n");
+        free(arg);
+    }
+    if (strstr(reply, "[ALTERNATE_COMPARE]")) {
+        const char *p = strstr(reply, "[ALTERNATE_COMPARE]") + strlen("[ALTERNATE_COMPARE]");
+        const char *end = strpbrk(p, "\r\n");
+        char *arg = strndup(p, end ? (size_t)(end-p) : strlen(p));
+        long a = 0, b = 0;
+        if (arg && sscanf(trim(arg), "%ld %ld", &a, &b) == 2 && a > 0 && b > 0) {
+            char *v = r2_altself_compare((int64_t)a, (int64_t)b);
+            APPEND("HYPOTHETICAL BRANCH COMPARISON:\n%s\n", v ? v : "comparison unavailable\n");
+            free(v);
+        } else APPEND("ALTERNATE COMPARE ERROR: expected two positive branch IDs.\n");
+        free(arg);
+    }
+    const char *altRetain = "[ALTERNATE_RETAIN]";
+    if (strstr(reply, altRetain)) {
+        const char *p = strstr(reply, altRetain) + strlen(altRetain);
+        const char *end = strpbrk(p, "\r\n");
+        char *arg = strndup(p, end ? (size_t)(end-p) : strlen(p));
+        long id = 0;
+        int rc = arg && parse_tool_int(trim(arg), &id) && id > 0
+            ? r2_altself_retain_hypothesis((int64_t)id) : -1;
+        APPEND("ALTERNATE RETAIN %s.\\n", rc == 0 ? "RESULT: hypothesis retained as hypothetical" : "ERROR: expected a valid branch ID");
+        free(arg);
+    }
+    const char *altDiscard = "[ALTERNATE_DISCARD]";
+    if (strstr(reply, altDiscard)) {
+        const char *p = strstr(reply, altDiscard) + strlen(altDiscard);
+        const char *end = strpbrk(p, "\r\n");
+        char *arg = strndup(p, end ? (size_t)(end-p) : strlen(p));
+        long id = 0;
+        int rc = arg && parse_tool_int(trim(arg), &id) && id > 0
+            ? r2_altself_discard((int64_t)id) : -1;
+        APPEND("ALTERNATE DISCARD %s.\\n", rc == 0 ? "RESULT: hypothetical branch discarded" : "ERROR: expected a valid branch ID");
+        free(arg);
     }
 
     const char *world_cursor = reply;
@@ -6280,6 +6331,7 @@ static char *strip_action_markers(const char *input)
                         "READ_DIARY", "READ", "LIST", "DELETE", "REALITY_STATUS",
                         "ROOM_LOOK", "FRIDGE_LIST", "MONEY_STATUS", "ADDICTION_REPORT",
                         "ALTERNATE_LIST", "ALTERNATE_SHOW", "ALTERNATE_COMPARE",
+                        "ALTERNATE_RETAIN", "ALTERNATE_DISCARD"
                         "ALTERNATE_RETAIN", "ALTERNATE_DISCARD"
                     };
                     for (size_t k = 0; k < sizeof(single)/sizeof(single[0]); ++k)
