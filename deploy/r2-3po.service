@@ -19,6 +19,8 @@ Environment=R2_SOURCE=/home/x/R2_Home/R2
 Environment=R2_EXEC=/home/x/R2_Home/r2
 Environment=R2_FX_DIR=/home/x/R2_Home/R2_sounds/FX
 Environment=R2_SERVICE_MODE=1
+Environment=R2_MODEL=gemma3:4b
+Environment=R2_VISION_MODEL=gemma3:4b
 # Per-UID egress isolation: only local Ollama TCP port 11434 is allowed for r2.
 # These inline root commands avoid executing a mutable script from R2's
 # runtime-writable source/data directory as root.
