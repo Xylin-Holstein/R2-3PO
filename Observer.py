@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 DATABASE = Path(os.environ.get("R2_OBSERVER_DATABASE", "/home/x/R2_Home/R2/r2_memory.db"))
 ACTIVITY_FILE = Path(os.environ.get(
-    "R2_ACTIVITY_FILE", "/home/x/R2_Home/R2_Diary/Activity.txt"
+    "R2_ACTIVITY_FILE", "/home/x/R2_Home/R2_Log/Activity.txt"
 ))
 POLL_MS = 900
 MAX_ROWS = 250
