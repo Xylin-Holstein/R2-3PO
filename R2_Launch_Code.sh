@@ -78,6 +78,21 @@ done
 echo "All R2 source modules found."
 echo
 
+if ! id r2 >/dev/null 2>&1; then
+    echo "ERROR: Linux account r2 does not exist."
+    exit 1
+fi
+R2_UID="$(id -u r2)"
+R2_GID="$(id -g r2)"
+R2_RUNTIME_GROUP_LIST="$(id -G r2)"
+for group in audio video render; do
+    group_id="$(getent group "$group" | cut -d: -f3)"
+    if [ -n "$group_id" ] && [[ " $R2_RUNTIME_GROUP_LIST " != *" $group_id "* ]]; then
+        R2_RUNTIME_GROUP_LIST="$R2_RUNTIME_GROUP_LIST $group_id"
+    fi
+done
+R2_RUNTIME_GROUPS="$(printf '%s\\n' "$R2_RUNTIME_GROUP_LIST" | xargs | tr ' ' ',')"
+
 # Read-only host/database/device checks run before build or runtime setup.
 R2_PREFLIGHT="$R2_SOURCE/tools/preflight_r2_hardware.sh"
 if ! bash "$R2_PREFLIGHT"; then
@@ -386,8 +401,9 @@ fi
 # START R2 WITH ITS PRIVATE CLOCK
 # ------------------------------------------------------------
 
-sudo -u r2 \
+sudo -n setpriv --reuid="$R2_UID" --regid="$R2_GID" --groups="$R2_RUNTIME_GROUPS" -- \
     env \
+    HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
     DISPLAY="${DISPLAY:-}" \
     XAUTHORITY="${XAUTHORITY:-}" \
     LD_PRELOAD="$FAKETIME_LIB" \
