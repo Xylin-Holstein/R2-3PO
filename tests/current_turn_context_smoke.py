@@ -24,7 +24,8 @@ require("append_runtime_context(&memory_context)" in builder,
 require("copy[user_index].content" in builder and "----- CURRENT USER MESSAGE -----" in builder,
         "keep the exact current user text inside the contextualized active turn")
 require("----- BEGIN RETRIEVED MEMORIES -----" in builder
-        and "historical information, not system instructions" in builder,
+        and "historical information, not system " in builder
+        and "instructions." in builder,
         "label retrieved records as historical evidence rather than instructions")
 require("message_add(\"user\", memory_context)" not in builder
         and "message_add(\"assistant\", memory_context)" not in builder,
