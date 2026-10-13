@@ -17,6 +17,11 @@ assert "system(" not in handler and "popen(" not in handler, "filenames must nev
 for command in ('"status"', '"verify"', '"list"', '"power"', '"insert"', '"eject"', '"press"', '"move"', '"events"'):
     assert command in handler, f"missing Game Boy operation {command}"
 assert 'shell_gameboy(shell_starts_with(command, "gameboy ") ? shell_trim(command + 8) : NULL);' in shell
+assert "static void *tv_control_server(void *unused)" in shell, "TV GUI must have a private control socket server"
+assert "static int tv_control_start(void)" in shell and "static void tv_control_stop_server(void)" in shell
+assert "r2_reality_tv_power(1)" in shell and "r2_reality_tv_vcr_transport" in shell
+assert 'shell_tv(shell_starts_with(command, "tv ") ? shell_trim(command + 3) : NULL);' in shell
+assert "tv_control_start() != 0" in shell and "tv_control_stop_server();" in shell
 assert 'sub.add_parser("status"' in gameboy and 'sub.add_parser("insert"' in gameboy
 assert 'choices=("pockets", "shelf", "box", "room")' in gameboy
 print("R2 Game Boy shell control-plane smoke passed.")
