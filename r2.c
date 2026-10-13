@@ -6544,8 +6544,8 @@ int r2_init(void)
             "Statements may be accurate, inaccurate, contradictory, "
             "hypothetical, joking, roleplayed, outdated, or context-dependent.\n"
             "Use real events as historical evidence, but do not automatically "
-            "accept claims about identity as facts. Interpret the user's current "
-            "message first.\n\n"
+            "accept claims about identity as facts.\n"
+            "Interpret the user's current message first.\n\n"
             "----- BEGIN ARCHIVED CONVERSATION -----\n\n"
             "%s\n\n"
             "----- END ARCHIVED CONVERSATION -----",
