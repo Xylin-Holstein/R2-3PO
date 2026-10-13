@@ -38,6 +38,13 @@
 #include <time.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <math.h>
+#include <limits.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <sys/stat.h>
+#include <pthread.h>
+#include <stdatomic.h>
 
 #include "shell.h"
 #include "r2.h"
@@ -64,6 +71,188 @@ static volatile sig_atomic_t shell_shutdown = 0;
 
 static int shell_running = 0;
 static int watch_running = 0;
+
+
+/* The GUI talks to this local socket; all writes still pass through Reality APIs. */
+static pthread_t tv_control_thread;
+static int tv_control_started = 0;
+static int tv_control_fd = -1;
+static atomic_int tv_control_stop = ATOMIC_VAR_INIT(0);
+static char tv_control_path[sizeof(((struct sockaddr_un *)0)->sun_path)];
+
+static void *tv_control_server(void *unused)
+{
+    (void)unused;
+    /* Keep a stable descriptor value while the main thread shuts the socket down. */
+    int server_fd = tv_control_fd;
+    while (!atomic_load(&tv_control_stop)) {
+        int client = accept(server_fd, NULL, NULL);
+        if (client < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+
+        char command[1200] = {0};
+        size_t used = 0;
+        while (used < sizeof(command) - 1) {
+            ssize_t got = recv(client, command + used, sizeof(command) - 1 - used, 0);
+            if (got <= 0) break;
+            used += (size_t)got;
+            if (memchr(command, '\n', used)) break;
+        }
+        command[used] = '\0';
+        ssize_t got = (ssize_t)used;
+        while (got > 0 && (command[got - 1] == '\n' || command[got - 1] == '\r'))
+            command[--got] = '\0';
+
+        const char *reply = "ERROR invalid command";
+        char *status = NULL;
+        if (got > 0 && !strcmp(command, "status")) {
+            status = r2_reality_tv_status();
+            reply = status ? status : "ERROR unable to read TV state";
+        } else if (!strcmp(command, "display opened")) {
+            reply = r2_reality_tv_display_event(1) == 0 ? "OK TV display-open event recorded" : "ERROR could not record TV display-open event";
+        } else if (!strcmp(command, "display closed")) {
+            reply = r2_reality_tv_display_event(0) == 0 ? "OK TV display-close event recorded" : "ERROR could not record TV display-close event";
+        } else if (!strcmp(command, "power on")) {
+            reply = r2_reality_tv_power(1) == 0 ? "OK powered on" : "ERROR power-on failed";
+        } else if (!strcmp(command, "power off")) {
+            reply = r2_reality_tv_power(0) == 0 ? "OK powered off" : "ERROR power-off failed";
+        } else if (!strncmp(command, "input ", 6)) {
+            char *end = NULL;
+            long n = strtol(command + 6, &end, 10);
+            if (end != command + 6 && *end == '\0' && n >= 1 && n <= 4)
+                reply = r2_reality_tv_select_input((int)n) == 0 ? "OK input selected" : "ERROR input selection failed";
+            else reply = "ERROR input must be 1..4";
+        } else if (!strncmp(command, "tune ", 5)) {
+            char *end = NULL;
+            long n = strtol(command + 5, &end, 10);
+            if (end != command + 5 && *end == '\0' && n >= 2 && n <= 13)
+                reply = r2_reality_tv_tune_rf((int)n) == 0 ? "OK RF channel tuned" : "ERROR RF tuning failed";
+            else reply = "ERROR RF channel must be 2..13";
+        } else if (!strncmp(command, "media ", 6)) {
+            char *payload = command + 6;
+            char *separator = strchr(payload, '|');
+            if (separator) {
+                *separator = '\0';
+                const char *path = separator + 1;
+                const char *allowed_actions[] = {
+                    "vcr_playback_started", "vcr_playback_paused",
+                    "vcr_playback_stopped", "vcr_playback_ended",
+                    "vcr_playback_error"
+                };
+                int allowed = 0;
+                for (size_t i = 0; i < sizeof(allowed_actions) / sizeof(allowed_actions[0]); ++i)
+                    if (!strcmp(payload, allowed_actions[i])) { allowed = 1; break; }
+                if (allowed && path[0] == '/' && *path &&
+                    !strchr(path, '\n') && !strchr(path, '\r') &&
+                    strlen(path) < 1100) {
+                    reply = r2_log_media_event(payload, "media", path,
+                        "Observed from the CRT built-in VCR's VLC player; this records renderer state, not proof of what a person watched.") >= 0
+                        ? "OK media event recorded" : "ERROR could not record media event";
+                } else {
+                    reply = "ERROR invalid media event";
+                }
+            } else {
+                reply = "ERROR invalid media event";
+            }
+        } else if (!strncmp(command, "vcr insert ", 11)) {
+            const char *path = command + 11;
+            reply = *path && r2_reality_tv_vcr_insert(path) == 0
+                ? "OK VCR tape inserted" : "ERROR unsupported or unreadable media file";
+        } else if (!strcmp(command, "vcr play")) {
+            reply = r2_reality_tv_vcr_transport("play") == 0 ? "OK VCR playing" : "ERROR no tape inserted";
+        } else if (!strcmp(command, "vcr pause")) {
+            reply = r2_reality_tv_vcr_transport("pause") == 0 ? "OK VCR paused" : "ERROR no tape inserted";
+        } else if (!strcmp(command, "vcr stop")) {
+            reply = r2_reality_tv_vcr_transport("stop") == 0 ? "OK VCR stopped" : "ERROR no tape inserted";
+        } else if (!strcmp(command, "vcr eject")) {
+            reply = r2_reality_tv_vcr_transport("eject") == 0 ? "OK VCR tape ejected" : "ERROR no tape inserted";
+        } else if (!strncmp(command, "vcr position ", 13)) {
+            char *end = NULL;
+            double seconds = strtod(command + 13, &end);
+            if (end != command + 13 && *end == '\0' && isfinite(seconds) && seconds >= 0.0)
+                reply = r2_reality_tv_vcr_set_position(seconds) == 0 ? "OK VCR position saved" : "ERROR no inserted tape";
+            else reply = "ERROR invalid VCR position";
+        }
+
+        size_t reply_len = strlen(reply);
+        size_t reply_sent = 0;
+        while (reply_sent < reply_len) {
+            ssize_t sent = send(client, reply + reply_sent,
+                                reply_len - reply_sent, MSG_NOSIGNAL);
+            if (sent < 0 && errno == EINTR) continue;
+            if (sent <= 0) break;
+            reply_sent += (size_t)sent;
+        }
+        free(status);
+        close(client);
+    }
+    return NULL;
+}
+
+static int tv_control_start(void)
+{
+    if (tv_control_started) return 0;
+    const char *configured_path = getenv("R2_TV_SOCKET");
+    const char *default_path = "/home/x/R2_Home/R2/tv-control.sock";
+    int n = snprintf(tv_control_path, sizeof(tv_control_path), "%s",
+                     configured_path && *configured_path ? configured_path : default_path);
+    if (n < 0 || (size_t)n >= sizeof(tv_control_path)) return -1;
+
+    struct stat st;
+    if (lstat(tv_control_path, &st) == 0) {
+        if (!S_ISSOCK(st.st_mode)) return -1;
+        int probe = socket(AF_UNIX, SOCK_STREAM, 0);
+        if (probe < 0) return -1;
+        struct sockaddr_un existing;
+        memset(&existing, 0, sizeof(existing));
+        existing.sun_family = AF_UNIX;
+        snprintf(existing.sun_path, sizeof(existing.sun_path), "%s", tv_control_path);
+        int connected = connect(probe, (struct sockaddr *)&existing, sizeof(existing));
+        int connect_error = errno;
+        close(probe);
+        if (connected == 0 || connect_error != ECONNREFUSED) return -1;
+        if (unlink(tv_control_path) != 0) return -1; /* stale socket only */
+    } else if (errno != ENOENT) return -1;
+
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+    struct sockaddr_un address;
+    memset(&address, 0, sizeof(address));
+    address.sun_family = AF_UNIX;
+    snprintf(address.sun_path, sizeof(address.sun_path), "%s", tv_control_path);
+    if (bind(fd, (struct sockaddr *)&address, sizeof(address)) != 0 ||
+        chmod(tv_control_path, S_IRUSR | S_IWUSR) != 0 || listen(fd, 4) != 0) {
+        close(fd);
+        unlink(tv_control_path);
+        return -1;
+    }
+    tv_control_fd = fd;
+    atomic_store(&tv_control_stop, 0);
+    if (pthread_create(&tv_control_thread, NULL, tv_control_server, NULL) != 0) {
+        close(fd);
+        tv_control_fd = -1;
+        unlink(tv_control_path);
+        return -1;
+    }
+    tv_control_started = 1;
+    return 0;
+}
+
+static void tv_control_stop_server(void)
+{
+    if (!tv_control_started) return;
+    atomic_store(&tv_control_stop, 1);
+    shutdown(tv_control_fd, SHUT_RDWR);
+    close(tv_control_fd);
+    tv_control_fd = -1;
+    pthread_join(tv_control_thread, NULL);
+    unlink(tv_control_path);
+    tv_control_started = 0;
+}
+
+
 
 
 /* ============================================================
@@ -1054,6 +1243,215 @@ static void shell_restart(void)
 
 
 
+static void shell_tv(const char *argument)
+{
+    if (!r2_reality_is_initialized()) {
+        printf("[TV] Reality engine is not initialized.\n");
+        return;
+    }
+    if (!argument || !*argument || !strcasecmp(argument, "status")) {
+        char *status = r2_reality_tv_status();
+        printf("%s", status ? status : "[TV] Could not read TV state.\n");
+        free(status);
+        return;
+    }
+    if (!strcasecmp(argument, "on") || !strcasecmp(argument, "power on")) {
+        printf(r2_reality_tv_power(1) == 0 ? "[TV] Powered on. Eyes/attention were not changed.\n" : "[TV] Power-on failed.\n");
+        return;
+    }
+    if (!strcasecmp(argument, "off") || !strcasecmp(argument, "power off")) {
+        printf(r2_reality_tv_power(0) == 0 ? "[TV] Powered off. Eyes/attention were not changed.\n" : "[TV] Power-off failed.\n");
+        return;
+    }
+    if (shell_starts_with(argument, "input ")) {
+        char *end = NULL; long n = strtol(argument + 6, &end, 10);
+        while (end && *end && isspace((unsigned char)*end)) ++end;
+        if (end != argument + 6 && end && !*end && n >= 1 && n <= 4 &&
+            r2_reality_tv_select_input((int)n) == 0)
+            printf("[TV] Selected AV input %ld.\n", n);
+        else printf("Usage: tv input 1..4\n");
+        return;
+    }
+    if (shell_starts_with(argument, "tune ")) {
+        char *end = NULL; long n = strtol(argument + 5, &end, 10);
+        while (end && *end && isspace((unsigned char)*end)) ++end;
+        if (end != argument + 5 && end && !*end && n >= 2 && n <= 13 &&
+            r2_reality_tv_tune_rf((int)n) == 0) {
+            char *status = r2_reality_tv_status();
+            printf("%s", status ? status : "[TV] Tuned RF channel; status unavailable.\n");
+            free(status);
+        } else printf("Usage: tv tune <RF channel 2..13>\n");
+        return;
+    }
+    if (shell_starts_with(argument, "connect ")) {
+        char *copy = strdup(argument + 8);
+        if (!copy) return;
+        char *parts[3] = {0}; int count = 0; char *save = NULL;
+        for (char *p = strtok_r(copy, "|", &save); p && count < 3; p = strtok_r(NULL, "|", &save))
+            parts[count++] = shell_trim(p);
+        int port = 0, valid_port = 0;
+        if (count == 3) {
+            char *end = NULL;
+            errno = 0;
+            long parsed = strtol(parts[2], &end, 10);
+            if (errno != ERANGE && end != parts[2] && end && !*end &&
+                parsed >= INT_MIN && parsed <= INT_MAX) {
+                port = (int)parsed;
+                valid_port = 1;
+            }
+        }
+        int rc = count == 3 && valid_port
+            ? r2_reality_tv_connect(parts[0], parts[1], port) : -1;
+        if (rc == 0) printf("[TV] Connected %s to %s %d.\n", parts[0], parts[1], port);
+        else printf("Usage: tv connect <device name> | input/RF | <port/channel> (AV inputs 2..4, RF channels 2..13).\n");
+        free(copy);
+        return;
+    }
+    if (shell_starts_with(argument, "disconnect ")) {
+        const char *name = shell_trim((char *)argument + 11);
+        printf(r2_reality_tv_disconnect(name) == 0 ? "[TV] Device disconnected.\n" : "[TV] No connected device with that name.\n");
+        return;
+    }
+    if (shell_starts_with(argument, "vcr insert ")) {
+        const char *path = shell_trim((char *)argument + 11);
+        printf(r2_reality_tv_vcr_insert(path) == 0
+            ? "[TV] Tape inserted; its saved position is retained.\n"
+            : "[TV] Could not insert tape. Use a readable VLC-supported video file.\n");
+        return;
+    }
+    if (shell_starts_with(argument, "vcr ")) {
+        const char *action = shell_trim((char *)argument + 4);
+        if (!strcasecmp(action, "play") || !strcasecmp(action, "pause") ||
+            !strcasecmp(action, "stop") || !strcasecmp(action, "eject")) {
+            printf(r2_reality_tv_vcr_transport(action) == 0
+                ? "[TV] VCR transport updated.\n"
+                : "[TV] No tape is inserted, or the transport command failed.\n");
+        } else {
+            printf("Usage: tv vcr insert <absolute media path> | tv vcr play | pause | stop | eject\n");
+        }
+        return;
+    }
+    printf("TV commands: tv status, tv on, tv off, tv input 1..4, tv tune <RF channel 2..13>, tv connect <name> | input/RF | <port>, tv disconnect <name>, tv vcr insert/play/pause/stop/eject.\n");
+}
+
+
+/* ============================================================
+   GAME BOY ADVANCE CONTROL PLANE
+   ============================================================ */
+
+/* The console owns its cartridge/session database. Route requests through
+   its CLI with argv (never a shell command) so filenames cannot inject code. */
+static void shell_gameboy(const char *argument)
+{
+    const char *configured = getenv("R2_GAMEBOY_EXECUTABLE");
+    const char *executable = configured && *configured
+        ? configured : "/home/x/R2_Home/Devices/GameBoyAdvance/GameBoyAdvance";
+    char *copy = strdup(argument ? argument : "status");
+    if (!copy) {
+        printf("[Game Boy] Could not allocate command.\n");
+        return;
+    }
+    char *cmd = shell_trim(copy);
+    if (!*cmd) cmd = "status";
+
+    char *argv[6] = {(char *)executable, NULL, NULL, NULL, NULL, NULL};
+    int valid = 1;
+    char *rest = cmd;
+    while (*rest && !isspace((unsigned char)*rest)) ++rest;
+    if (*rest) *rest++ = '\0';
+    while (*rest && isspace((unsigned char)*rest)) ++rest;
+
+    if (!strcasecmp(cmd, "status") || !strcasecmp(cmd, "verify") ||
+        !strcasecmp(cmd, "list") || !strcasecmp(cmd, "eject") ||
+        !strcasecmp(cmd, "events")) {
+        argv[1] = cmd;
+        valid = !*rest;
+    } else if (!strcasecmp(cmd, "power")) {
+        char *end = rest;
+        while (*end && !isspace((unsigned char)*end)) ++end;
+        if (*end) *end++ = '\0';
+        while (*end && isspace((unsigned char)*end)) ++end;
+        if ((!strcasecmp(rest, "on") || !strcasecmp(rest, "off")) && !*end) {
+            argv[1] = "power"; argv[2] = rest;
+        } else valid = 0;
+    } else if (!strcasecmp(cmd, "insert")) {
+        rest = shell_trim(rest);
+        if (*rest && !strchr(rest, '\n') && !strchr(rest, '\r')) {
+            argv[1] = "insert"; argv[2] = rest;
+        } else valid = 0;
+    } else if (!strcasecmp(cmd, "move")) {
+        char *last = strrchr(rest, ' ');
+        if (last) {
+            *last++ = '\0';
+            while (*last && isspace((unsigned char)*last)) ++last;
+            char *filename = shell_trim(rest);
+            if (*filename && (!strcasecmp(last, "pockets") ||
+                !strcasecmp(last, "shelf") || !strcasecmp(last, "box") ||
+                !strcasecmp(last, "room")) && !strchr(filename, '\n') &&
+                !strchr(filename, '\r')) {
+                argv[1] = "move"; argv[2] = filename; argv[3] = last;
+            } else valid = 0;
+        } else valid = 0;
+    } else if (!strcasecmp(cmd, "press")) {
+        char *button = rest;
+        char *end = button;
+        while (*end && !isspace((unsigned char)*end)) ++end;
+        if (*end) *end++ = '\0';
+        while (*end && isspace((unsigned char)*end)) ++end;
+        if (!*button || strchr(button, '\n') || strchr(button, '\r')) {
+            valid = 0;
+        } else if (!*end) {
+            argv[1] = "press"; argv[2] = button;
+        } else {
+            char *duration_end = NULL;
+            errno = 0;
+            long duration = strtol(end, &duration_end, 10);
+            while (duration_end && *duration_end &&
+                   isspace((unsigned char)*duration_end)) ++duration_end;
+            if (errno || duration_end == end || !duration_end || *duration_end ||
+                duration < 1 || duration > 5000) valid = 0;
+            else {
+                static char duration_text[16];
+                snprintf(duration_text, sizeof(duration_text), "%ld", duration);
+                argv[1] = "press"; argv[2] = button; argv[3] = duration_text;
+            }
+        }
+    } else {
+        valid = 0;
+    }
+
+    if (!valid) {
+        printf("Game Boy commands: gameboy status | verify | list | power on/off | insert <cartridge filename> | eject | press <button> [duration_ms] | move <cartridge filename> <pockets|shelf|box|room> | events.\n");
+        free(copy);
+        return;
+    }
+
+    pid_t child = fork();
+    if (child == 0) {
+        execv(executable, argv);
+        perror("[Game Boy] Could not launch console");
+        _exit(127);
+    }
+    if (child < 0) {
+        perror("[Game Boy] Could not start console command");
+        free(copy);
+        return;
+    }
+    int status = 0;
+    while (waitpid(child, &status, 0) < 0) {
+        if (errno == EINTR) continue;
+        perror("[Game Boy] Could not collect console result");
+        free(copy);
+        return;
+    }
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
+        printf("[Game Boy] Command failed (exit status %d).\n",
+               WIFEXITED(status) ? WEXITSTATUS(status) : 128);
+    free(copy);
+}
+
+
+
 /* ============================================================
    GAME BOY ADVANCE CONTROL PLANE
    ============================================================ */
@@ -1180,6 +1578,11 @@ static int shell_dispatch(char *input)
 
     if (!command || !*command)
         return 1;
+
+    if (!strcasecmp(command, "tv") || shell_starts_with(command, "tv ")) {
+        shell_tv(shell_starts_with(command, "tv ") ? shell_trim(command + 3) : NULL);
+        return 1;
+    }
 
     if (!strcasecmp(command, "gameboy") || shell_starts_with(command, "gameboy ")) {
         shell_gameboy(shell_starts_with(command, "gameboy ") ? shell_trim(command + 8) : NULL);
@@ -1497,6 +1900,14 @@ int r2_shell_run(void)
         shell_signal_handler
     );
 
+    if (tv_control_start() != 0) {
+        fprintf(stderr, "[R2 Shell] WARNING: TV/VCR control socket could not start; TV GUI commands will be unavailable.\n");
+        r2_log_event(R2_LOG_ERROR, "tv_control_socket_start_failed",
+                     "R2 TV/VCR control socket could not start.",
+                     "Inspect stale socket ownership and R2_TV_SOCKET permissions.",
+                     "shell.c");
+    }
+
     shell_banner();
 
     while (
@@ -1556,6 +1967,7 @@ int r2_shell_run(void)
         watch_running = 0;
     }
 
+    tv_control_stop_server();
     free(line);
 
     return 0;
@@ -1584,6 +1996,7 @@ int r2_shell_watch_is_running(void)
 
 void r2_shell_shutdown(void)
 {
+    tv_control_stop_server();
     if (watch_running) {
         r2_watch_stop();
         watch_running = 0;
