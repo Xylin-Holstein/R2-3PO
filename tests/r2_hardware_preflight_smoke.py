@@ -85,6 +85,7 @@ if 'R2_OLLAMA_URL:-http://127.0.0.1:11434/api/tags' not in script:
     raise SystemExit("Ollama endpoint must remain locally configurable")
 
 launch_required = (
+    '"$R2_SOURCE/V-Webcam.py"',
     'R2_PREFLIGHT="$R2_SOURCE/tools/preflight_r2_hardware.sh"',
     'bash "$R2_PREFLIGHT"',
     'R2 launch cancelled: preflight reported one or more failures.',
