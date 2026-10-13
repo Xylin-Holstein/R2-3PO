@@ -3,6 +3,81 @@
 R2_ROOT="/home/x/R2_Home"
 R2_SOURCE="$R2_ROOT/R2"
 R2_EXEC="$R2_ROOT/r2"
+R2_FX_DIR="${R2_FX_DIR:-$R2_ROOT/R2_sounds/FX}"
+
+# Keep R2's Linux identity separate from the canonical data location. HOME is
+# set to the project root for every R2 process, never to /home/r2.
+if ! id r2 >/dev/null 2>&1; then echo "ERROR: Dedicated Linux account r2 does not exist."; exit 1; fi
+R2_UID="$(id -u r2)"
+R2_GID="$(id -g r2)"
+R2_HOME_DIR="$(getent passwd r2 | cut -d: -f6)"
+if [[ ! "$R2_UID" =~ ^[0-9]+$ || ! "$R2_GID" =~ ^[0-9]+$ || -z "$R2_HOME_DIR" ]]; then
+    echo "ERROR: Could not resolve the dedicated r2 account identity."
+    exit 1
+fi
+
+R2_NETWORK_LOCK_ACTIVE=0
+r2_remove_network_jumps() {
+    local binary="$1" chain="$2"
+    while sudo -n "$binary" -w -C OUTPUT -m owner --uid-owner "$R2_UID" -j "$chain" >/dev/null 2>&1; do
+        sudo -n "$binary" -w -D OUTPUT -m owner --uid-owner "$R2_UID" -j "$chain" || return 1
+    done
+}
+r2_remove_network_family() {
+    local binary="$1" chain="$2"
+    command -v "$binary" >/dev/null 2>&1 || return 0
+    r2_remove_network_jumps "$binary" "$chain" || true
+    if sudo -n "$binary" -w -S "$chain" >/dev/null 2>&1; then
+        sudo -n "$binary" -w -F "$chain" || return 1
+        sudo -n "$binary" -w -X "$chain" || return 1
+    fi
+}
+r2_remove_network_lock() {
+    r2_remove_network_family iptables R2_UID_NETLOCK || true
+    r2_remove_network_family ip6tables R2_UID_NETLOCK || true
+}
+r2_network_cleanup() {
+    local exit_status=$?
+    trap - EXIT
+    if [[ "$R2_NETWORK_LOCK_ACTIVE" -eq 1 ]]; then
+        if r2_remove_network_lock; then
+            echo "[Network] R2-only network lock removed."
+        else
+            echo "WARNING: Could not fully remove R2-only network rules; inspect iptables/ip6tables." >&2
+        fi
+    fi
+    exit "$exit_status"
+}
+trap r2_network_cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+
+r2_apply_network_lock() {
+    command -v iptables >/dev/null 2>&1 || { echo "ERROR: iptables is missing; refusing to launch without R2 network isolation."; return 1; }
+    command -v ip6tables >/dev/null 2>&1 || { echo "ERROR: ip6tables is missing; refusing to launch without IPv6 isolation."; return 1; }
+    sudo -n true >/dev/null 2>&1 || { echo "ERROR: non-interactive sudo is required to apply the R2-only network lock."; return 1; }
+    r2_remove_network_jumps iptables R2_UID_NETLOCK || return 1
+    r2_remove_network_jumps ip6tables R2_UID_NETLOCK || return 1
+    sudo -n iptables -w -S R2_UID_NETLOCK >/dev/null 2>&1 || sudo -n iptables -w -N R2_UID_NETLOCK || return 1
+    sudo -n ip6tables -w -S R2_UID_NETLOCK >/dev/null 2>&1 || sudo -n ip6tables -w -N R2_UID_NETLOCK || return 1
+    sudo -n iptables -w -F R2_UID_NETLOCK || return 1
+    sudo -n ip6tables -w -F R2_UID_NETLOCK || return 1
+    # Permit only local Ollama TCP. No wireless interface is disabled and the
+    # OUTPUT owner match leaves the desktop user's network traffic untouched.
+    sudo -n iptables -w -A R2_UID_NETLOCK -o lo -d 127.0.0.1/32 -p tcp --dport 11434 -j ACCEPT || return 1
+    sudo -n iptables -w -A R2_UID_NETLOCK -o lo -s 127.0.0.1/32 -p tcp --sport 11434 -j ACCEPT || return 1
+    sudo -n iptables -w -A R2_UID_NETLOCK -j REJECT || return 1
+    sudo -n ip6tables -w -A R2_UID_NETLOCK -j REJECT || return 1
+    sudo -n iptables -w -I OUTPUT 1 -m owner --uid-owner "$R2_UID" -j R2_UID_NETLOCK || return 1
+    if ! sudo -n ip6tables -w -I OUTPUT 1 -m owner --uid-owner "$R2_UID" -j R2_UID_NETLOCK; then
+        r2_remove_network_lock
+        return 1
+    fi
+    R2_NETWORK_LOCK_ACTIVE=1
+    echo "[Network] Linux user r2 may access only local Ollama at 127.0.0.1:11434."
+}
+
 
 # On this host the GTX 1050 Ti has 4 GiB VRAM. Request a partial layer
 # offload by default instead of forcing the entire model into limited VRAM.
@@ -21,9 +96,37 @@ else
     echo "[GPU] Using configured R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU."
 fi
 
+# The interactive launcher and the overnight service share persistent databases.
+# Never start a second core against those same files.
+if command -v systemctl >/dev/null 2>&1 &&
+   systemctl is-active --quiet r2-3po.service 2>/dev/null; then
+    echo "ERROR: R2's overnight service is already running."
+    echo "Stop it with: sudo systemctl stop r2-3po.service"
+    echo "This prevents two R2 cores from writing the same databases concurrently."
+    exit 1
+fi
+
+# The service check alone does not catch a second interactive launcher.
+if ! command -v pgrep >/dev/null 2>&1; then
+    echo "ERROR: pgrep is required to check for an existing R2 core."
+    exit 1
+fi
+if pgrep -x r2 >/dev/null 2>&1; then
+    echo "ERROR: An R2 core is already running."
+    echo "Stop the existing R2 session before launching another; both would write the same databases."
+    exit 1
+fi
+
+echo "[Network] Applying R2-only network isolation..."
+if ! r2_apply_network_lock; then
+    r2_remove_network_lock
+    echo "ERROR: R2 network isolation could not be verified; R2 was NOT launched."
+    exit 1
+fi
+echo
+
 # Run the read-only deployment preflight before touching workspace state,
 # compiling, installing packages, starting the observer, or launching R2.
-R2_FX_DIR="${R2_FX_DIR:-$R2_ROOT/R2_sounds/FX}"
 R2_PREFLIGHT="$R2_SOURCE/tools/preflight_r2_hardware.sh"
 echo "========================================"
 echo "       R2-3PO DEPLOYMENT PREFLIGHT"
@@ -51,35 +154,13 @@ if [[ -t 0 ]]; then
 fi
 echo
 
-# The interactive launcher and the overnight service share persistent databases.
-# Never start a second core against those same files.
-if command -v systemctl >/dev/null 2>&1 &&
-   systemctl is-active --quiet r2-3po.service 2>/dev/null; then
-    echo "ERROR: R2's overnight service is already running."
-    echo "Stop it with: sudo systemctl stop r2-3po.service"
-    echo "This prevents two R2 cores from writing the same databases concurrently."
-    exit 1
-fi
-
-# The service check alone does not catch a second interactive launcher.
-if ! command -v pgrep >/dev/null 2>&1; then
-    echo "ERROR: pgrep is required to check for an existing R2 core."
-    exit 1
-fi
-if pgrep -x r2 >/dev/null 2>&1; then
-    echo "ERROR: An R2 core is already running."
-    echo "Stop the existing R2 session before launching another; both would write the same databases."
-    exit 1
-fi
-
 echo "========================================"
 echo "        R2-3PO LAUNCH SEQUENCE"
 echo "========================================"
 echo
 
-if ! mkdir -p "$R2_ROOT"; then
-    echo "ERROR: Could not create R2 workspace root: $R2_ROOT"
-    read -p "Press Enter to exit..."
+if [[ ! -d "$R2_ROOT" ]]; then
+    echo "ERROR: R2 workspace root does not exist: $R2_ROOT"
     exit 1
 fi
 
@@ -127,7 +208,10 @@ if [[ ! -r "$R2_SOURCE/tools/preflight_ollama_model.py" ]]; then
     read -p "Press Enter to exit..."
     exit 1
 fi
-if ! python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --timeout 180; then
+if ! sudo -n -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
+    R2_OLLAMA_NUM_GPU="$R2_OLLAMA_NUM_GPU" \
+    R2_OLLAMA_TIMEOUT_SECONDS="${R2_OLLAMA_TIMEOUT_SECONDS:-}" \
+    python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --timeout 180; then
     echo
     echo "R2 was NOT launched."
     echo "Start the local Ollama service and ensure 'ollama list' includes qwen3.5:9b."
@@ -148,7 +232,9 @@ if [[ -f "$TV_SOURCE" && -f "$TV_INSTALLER" ]]; then
     if [[ ! -x "$TV_DIR/run_tv.sh" || ! -f "$TV_DIR/TV.desktop" ||
           ! -f "$TV_DIR/TV.py" ]] || ! cmp -s "$TV_SOURCE" "$TV_DIR/TV.py"; then
         echo "Installing/updating R2's TV device..."
-        if ! bash "$TV_INSTALLER"; then
+        if ! sudo -n -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
+            R2_ROOT="$R2_ROOT" R2_SOURCE="$R2_SOURCE" \
+            bash "$TV_INSTALLER"; then
             echo "WARNING: TV installer failed. R2 will continue startup; TV needs attention."
         fi
     else
@@ -225,11 +311,12 @@ echo
 R2_FX_DIR="${R2_FX_DIR:-/home/x/R2_Home/R2_sounds/FX}"
 SOUND_AUDIT="$R2_SOURCE/tools/audit_r2_sound_assets.py"
 if [ -f "$SOUND_AUDIT" ]; then
-    if ! sudo -u r2 python3 "$SOUND_AUDIT" --root "$R2_FX_DIR"; then
+    if ! sudo -u r2 env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
+            python3 "$SOUND_AUDIT" --root "$R2_FX_DIR"; then
         echo "WARNING: r2 could not complete the sound asset inventory."
         echo "R2 will still start; beep/whistle markers may have no matching audio."
     fi
-elif sudo -u r2 bash -c 'test -d "$1" && test -r "$1" && find "$1" -maxdepth 1 -type f -iname "*.mp3" -print -quit | grep -q .' _ "$R2_FX_DIR"; then
+elif sudo -u r2 env HOME="$R2_ROOT" bash -c 'test -d "$1" && test -r "$1" && find "$1" -maxdepth 1 -type f -iname "*.mp3" -print -quit | grep -q .' _ "$R2_FX_DIR"; then
     echo "State-aware sound assets are readable by r2: $R2_FX_DIR"
 else
     echo "WARNING: r2 cannot find readable MP3 effects in: $R2_FX_DIR"
@@ -435,7 +522,7 @@ if [ -e "$TEMP_EXEC" ] || [ -L "$TEMP_EXEC" ]; then
     exit 1
 fi
 
-gcc -std=c11 -Wall -Wextra -Werror -O2 \
+sudo -n -u r2 -- gcc -std=c11 -Wall -Wextra -Werror -O2 \
     "$R2_SOURCE/r2.c" \
     "$R2_SOURCE/shell.c" \
     "$R2_SOURCE/r2_diary.c" \
@@ -461,7 +548,7 @@ gcc -std=c11 -Wall -Wextra -Werror -O2 \
 status=$?
 
 if [ $status -ne 0 ]; then
-    rm -f "$TEMP_EXEC"
+    sudo -n -u r2 -- rm -f "$TEMP_EXEC"
     echo
     echo "========================================"
     echo "ERROR: R2 compilation failed."
@@ -472,8 +559,8 @@ if [ $status -ne 0 ]; then
     exit $status
 fi
 
-if ! chmod 0755 "$TEMP_EXEC" || ! mv -f "$TEMP_EXEC" "$R2_EXEC"; then
-    rm -f "$TEMP_EXEC"
+if ! sudo -n -u r2 -- chmod 0755 "$TEMP_EXEC" || ! sudo -n -u r2 -- mv -f "$TEMP_EXEC" "$R2_EXEC"; then
+    sudo -n -u r2 -- rm -f "$TEMP_EXEC"
     echo "ERROR: Could not atomically install the newly compiled R2 executable."
     echo "The previous executable was preserved if replacement had not completed; R2 was NOT launched."
     exit 1
@@ -518,7 +605,7 @@ OBSERVER_PID=""
 if [ -n "${DISPLAY:-}" ] && command -v xhost >/dev/null 2>&1 && xhost +SI:localuser:r2 >/dev/null 2>&1; then
     OBSERVER_XHOST_GRANTED=1
     # Don't pass the desktop user's cookie or R2's virtual-clock environment.
-    sudo -u r2 env -u XAUTHORITY DISPLAY="${DISPLAY}" \
+    sudo -u r2 env -u XAUTHORITY HOME="$R2_ROOT" USER=r2 LOGNAME=r2 DISPLAY="${DISPLAY}" \
         python3 "$R2_SOURCE/Observer.py" &
     OBSERVER_PID=$!
 else
@@ -558,7 +645,7 @@ fi
 # drop UID/GID before starting R2. No permanent account/group changes occur.
 sudo -n setpriv --reuid="$R2_UID" --regid="$R2_GID" --groups="$R2_RUNTIME_GROUPS" -- \
     env \
-    HOME="$R2_HOME_DIR" \
+    HOME="$R2_ROOT" \
     USER="r2" \
     LOGNAME="r2" \
     DISPLAY="${DISPLAY:-}" \
