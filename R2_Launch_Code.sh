@@ -3,6 +3,13 @@
 R2_ROOT="/home/x/R2_Home"
 R2_SOURCE="$R2_ROOT/R2"
 R2_EXEC="$R2_ROOT/r2"
+R2_MODEL="${R2_MODEL:-gemma3:4b}"
+R2_VISION_MODEL="$R2_MODEL"
+R2_OLLAMA_BASE_URL="${R2_OLLAMA_BASE_URL:-http://127.0.0.1:11435}"
+if [ "$R2_OLLAMA_BASE_URL" != "http://127.0.0.1:11435" ]; then
+    echo "ERROR: R2 must use its dedicated r2-owned Ollama endpoint at http://127.0.0.1:11435."
+    exit 1
+fi
 
 echo "========================================"
 echo "        R2-3PO LAUNCH SEQUENCE"
@@ -27,6 +34,19 @@ REQUIRED_FILES=(
 
     "$R2_SOURCE/Log.c"
     "$R2_SOURCE/Log.h"
+
+    "$R2_SOURCE/Reality.c"
+    "$R2_SOURCE/Reality.h"
+    "$R2_SOURCE/Addiction.c"
+    "$R2_SOURCE/Addiction.h"
+    "$R2_SOURCE/Reward.c"
+    "$R2_SOURCE/Reward.h"
+    "$R2_SOURCE/AlternateSelf.c"
+    "$R2_SOURCE/AlternateSelf.h"
+    "$R2_SOURCE/R2Reply.c"
+    "$R2_SOURCE/R2Reply.h"
+    "$R2_SOURCE/R2Sounds.c"
+    "$R2_SOURCE/R2Sounds.h"
 
     "$R2_SOURCE/Visual.c"
     "$R2_SOURCE/Visual.h"
@@ -234,6 +254,12 @@ gcc -std=c11 -Wall -Wextra -O2 \
     "$R2_SOURCE/shell.c" \
     "$R2_SOURCE/r2_diary.c" \
     "$R2_SOURCE/Log.c" \
+    "$R2_SOURCE/Reality.c" \
+    "$R2_SOURCE/Addiction.c" \
+    "$R2_SOURCE/Reward.c" \
+    "$R2_SOURCE/AlternateSelf.c" \
+    "$R2_SOURCE/R2Reply.c" \
+    "$R2_SOURCE/R2Sounds.c" \
     "$R2_SOURCE/Visual.c" \
     "$R2_SOURCE/Ears.c" \
     "$R2_SOURCE/Eyes.c" \
@@ -264,15 +290,20 @@ echo "Compilation successful."
 echo "Executable updated:"
 echo "    $R2_EXEC"
 echo
-echo "Default vision model: qwen2.5vl:3b"
-echo "R2's conversation model remains llama3; vision perception is handled by the separate local model."
-echo "If it is not installed, run: ollama pull qwen2.5vl:3b"
+echo "Unified conversation and vision model: $R2_MODEL"
+echo "R2 uses the dedicated r2-owned Ollama service on 127.0.0.1:11435."
 echo
 echo "Modules compiled:"
 echo "    r2.c"
 echo "    shell.c"
 echo "    r2_diary.c"
 echo "    Log.c"
+echo "    Reality.c"
+echo "    Addiction.c"
+echo "    Reward.c"
+echo "    AlternateSelf.c"
+echo "    R2Reply.c"
+echo "    R2Sounds.c"
 echo "    Visual.c"
 echo "    Ears.c"
 echo "    Eyes.c"
@@ -284,12 +315,46 @@ echo
 echo "Launching R2..."
 echo
 
+# The private inference service owns its UID-scoped IPv4/IPv6 network policy.
+# Never fall back to the desktop user's shared Ollama service.
+if ! sudo systemctl is-active --quiet r2-ollama.service; then
+    echo "[Ollama] Starting the dedicated r2-owned model service..."
+    if ! sudo systemctl start r2-ollama.service; then
+        echo "ERROR: r2-ollama.service is not installed or could not start."
+        echo "Install it with: sudo bash $R2_SOURCE/tools/install_r2_overnight.sh"
+        exit 1
+    fi
+fi
+OLLAMA_SERVICE_USER="$(sudo systemctl show r2-ollama.service -p User --value 2>/dev/null | tr -d '[:space:]')"
+if [ "$OLLAMA_SERVICE_USER" != "r2" ]; then
+    echo "ERROR: r2-ollama.service must run as Linux user r2; found '$OLLAMA_SERVICE_USER'."
+    exit 1
+fi
+if ! sudo -u r2 env R2_MODEL="$R2_MODEL" R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" python3 -c '
+import json, os, urllib.request
+base = os.environ["R2_OLLAMA_BASE_URL"].rstrip("/")
+model = os.environ["R2_MODEL"]
+with urllib.request.urlopen(base + "/api/tags", timeout=15) as response:
+    data = json.load(response)
+names = {entry.get("name", "") for entry in data.get("models", [])}
+if not any(name == model or name.startswith(model + "-") for name in names):
+    raise SystemExit("required R2 model is missing from the private Ollama store: " + model)
+' ; then
+    echo "ERROR: R2's private Ollama endpoint is not ready or $R2_MODEL is not installed."
+    echo "No fallback to the desktop user's Ollama server will be attempted."
+    exit 1
+fi
+
 # ------------------------------------------------------------
 # START R2 WITH ITS PRIVATE CLOCK
 # ------------------------------------------------------------
 
 sudo -u r2 \
     env \
+    HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
+    R2_MODEL="$R2_MODEL" \
+    R2_VISION_MODEL="$R2_VISION_MODEL" \
+    R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
     DISPLAY="${DISPLAY:-}" \
     XAUTHORITY="${XAUTHORITY:-}" \
     LD_PRELOAD="$FAKETIME_LIB" \
