@@ -6428,6 +6428,7 @@ char *r2_talk(const char *message)
     if (!core_initialized || shutting_down || !message)
         return NULL;
 
+    fprintf(stderr, "[R2 Input Audit] r2_talk_received_chars=%zu\\n", strlen(message));
     handle_completed_messages();
 
     pthread_mutex_lock(&messages_lock);
