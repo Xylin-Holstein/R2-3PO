@@ -14,6 +14,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <math.h>
+#include <limits.h>
 #include <pthread.h>
 #include <sqlite3.h>
 #include <stdio.h>
@@ -345,12 +346,14 @@ static int food_metric(const char *food, double *fullness, double *energy)
             continue;
         char *end = NULL;
         double f = strtod(full, &end);
-        if (end == full || *end || f < 0.0 || f > 100.0) continue;
+        if (end == full || *end || !isfinite(f) || f < 0.0 || f > 100.0) continue;
         double e = 0.0;
         if (xml_attribute(line, "energy", en, sizeof(en)) == 0) {
             end = NULL;
             double parsed = strtod(en, &end);
-            if (end != en && !*end && parsed >= 0.0 && parsed <= 100.0) e = parsed;
+            if (end == en || *end || !isfinite(parsed) || parsed < 0.0 || parsed > 100.0)
+                continue;
+            e = parsed;
         }
         if (fullness) *fullness = f;
         if (energy) *energy = e;
@@ -423,7 +426,9 @@ static char *food_metrics_context(void)
         if (xml_attribute(line, "energy", en, sizeof(en)) == 0) {
             end = NULL;
             double parsed = strtod(en, &end);
-            if (end != en && !*end && parsed >= 0.0 && parsed <= 100.0) e = parsed;
+            if (end == en || *end || !isfinite(parsed) || parsed < 0.0 || parsed > 100.0)
+                continue;
+            e = parsed;
         }
         char entry[1024];
         int n = snprintf(entry, sizeof(entry), "%s: fullness %.1f/100, energy bonus %.1f; ingredients: %s; sensory description: %s\n", name, f, e, *ingredients ? ingredients : "not specified", *taste ? taste : "not specified");
@@ -740,10 +745,28 @@ int r2_fridge_add_item(const char *name, const char *description, int quantity,
                        double fullness, double energy, const char *ingredients, const char *taste)
 {
     if (!name || !*name || strlen(name) > REALITY_MAX_TEXT || !fridge_db) return -1;
-    if (quantity < 1) quantity = 1;
+    if (quantity < 1) return -1;
     if (!isfinite(fullness) || fullness < 0.0 || fullness > 100.0 ||
         !isfinite(energy) || energy < 0.0 || energy > 100.0) return -1;
     pthread_mutex_lock(&fridge_lock);
+
+    sqlite3_stmt *check = NULL;
+    sqlite3_int64 existing_quantity = 0;
+    int check_rc = sqlite3_prepare_v2(fridge_db,
+        "SELECT quantity FROM r2_fridge_items WHERE name=? COLLATE NOCASE",
+        -1, &check, NULL);
+    if (check_rc == SQLITE_OK) {
+        bind_text(check, 1, name);
+        int step = sqlite3_step(check);
+        if (step == SQLITE_ROW) existing_quantity = sqlite3_column_int64(check, 0);
+        else if (step != SQLITE_DONE) check_rc = step;
+    }
+    if (check) sqlite3_finalize(check);
+    if (check_rc != SQLITE_OK || existing_quantity < 0 ||
+        existing_quantity > (sqlite3_int64)INT_MAX - quantity) {
+        pthread_mutex_unlock(&fridge_lock);
+        return -1;
+    }
 
     sqlite3_stmt *st = NULL;
     int rc = sqlite3_prepare_v2(fridge_db,
