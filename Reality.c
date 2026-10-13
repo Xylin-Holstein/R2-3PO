@@ -860,6 +860,102 @@ int r2_reality_fridge_eat(const char *food, double fullness)
     return 0;
 }
 
+static int fridge_legacy_column_exists(const char *column)
+{
+    sqlite3_stmt *st = NULL;
+    int found = 0;
+    if (sqlite3_prepare_v2(fridge_db, "PRAGMA legacy_fridge.table_info(r2_fridge_items)", -1, &st, NULL) != SQLITE_OK)
+        return -1;
+    while (sqlite3_step(st) == SQLITE_ROW) {
+        const unsigned char *name = sqlite3_column_text(st, 1);
+        if (name && !strcasecmp((const char *)name, column)) { found = 1; break; }
+    }
+    if (st) sqlite3_finalize(st);
+    return found;
+}
+
+static int migrate_legacy_fridge(void)
+{
+    if (access(R2_DIARY_DATABASE, F_OK) != 0) return 0;
+    pthread_mutex_lock(&fridge_lock);
+    sqlite3_stmt *st = NULL;
+    int done = 0;
+    if (sqlite3_prepare_v2(fridge_db,
+        "SELECT value FROM r2_fridge_meta WHERE key='legacy_fridge_migrated'",
+        -1, &st, NULL) == SQLITE_OK && sqlite3_step(st) == SQLITE_ROW) done = 1;
+    if (st) sqlite3_finalize(st);
+    if (done) { pthread_mutex_unlock(&fridge_lock); return 0; }
+
+    st = NULL;
+    int rc = sqlite3_prepare_v2(fridge_db, "ATTACH DATABASE ? AS legacy_fridge", -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        bind_text(st, 1, R2_DIARY_DATABASE);
+        rc = sqlite3_step(st) == SQLITE_DONE ? SQLITE_OK : SQLITE_ERROR;
+    }
+    if (st) sqlite3_finalize(st);
+    st = NULL;
+    int legacy_table = 0;
+    if (rc == SQLITE_OK) {
+        rc = sqlite3_prepare_v2(fridge_db,
+            "SELECT 1 FROM legacy_fridge.sqlite_master WHERE type='table' AND name='r2_fridge_items'",
+            -1, &st, NULL);
+        if (rc == SQLITE_OK) {
+            int step = sqlite3_step(st);
+            if (step == SQLITE_ROW) legacy_table = 1;
+            else if (step != SQLITE_DONE) rc = step;
+        }
+    }
+    if (st) sqlite3_finalize(st);
+
+    if (rc == SQLITE_OK && legacy_table) {
+        int has_name = fridge_legacy_column_exists("name");
+        if (has_name != 1) rc = SQLITE_ERROR;
+        else {
+            int has_desc = fridge_legacy_column_exists("description");
+            int has_qty = fridge_legacy_column_exists("quantity");
+            int has_full = fridge_legacy_column_exists("fullness");
+            int has_energy = fridge_legacy_column_exists("energy");
+            int has_ingredients = fridge_legacy_column_exists("ingredients");
+            int has_taste = fridge_legacy_column_exists("taste");
+            if (has_desc < 0 || has_qty < 0 || has_full < 0 || has_energy < 0 ||
+                has_ingredients < 0 || has_taste < 0) rc = SQLITE_ERROR;
+            else {
+                const char *description = has_desc ? "description" : "''";
+                const char *quantity = has_qty ? "quantity" : "1";
+                const char *fullness = has_full ? "fullness" : "0.0";
+                const char *energy = has_energy ? "energy" : "0.0";
+                const char *ingredients = has_ingredients ? "ingredients" : "NULL";
+                const char *taste = has_taste ? "taste" : "NULL";
+                char sql[2048];
+                snprintf(sql, sizeof(sql),
+                    "INSERT OR IGNORE INTO main.r2_fridge_items(name,description,quantity,fullness,energy,ingredients,taste) "
+                    "SELECT name,%s,%s,%s,%s,%s,%s FROM legacy_fridge.r2_fridge_items "
+                    "WHERE name IS NOT NULL AND %s>0",
+                    description, quantity, fullness, energy, ingredients, taste, quantity);
+                rc = sqlite3_exec(fridge_db, sql, NULL, NULL, NULL);
+            }
+        }
+    }
+    if (rc == SQLITE_OK) {
+        rc = sqlite3_exec(fridge_db,
+            "DELETE FROM main.r2_fridge_items WHERE description LIKE '%Guaranteed filling burger generated because the fridge was empty%'",
+            NULL, NULL, NULL);
+        if (rc == SQLITE_OK)
+            rc = sqlite3_exec(fridge_db,
+                "INSERT INTO main.r2_fridge_meta(key,value) VALUES('legacy_fridge_migrated','yes') "
+                "ON CONFLICT(key) DO UPDATE SET value='yes'",
+                NULL, NULL, NULL);
+    }
+    (void)sqlite3_exec(fridge_db, "DETACH DATABASE legacy_fridge", NULL, NULL, NULL);
+    pthread_mutex_unlock(&fridge_lock);
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "[R2 Fridge] Legacy fridge migration failed; refusing to ignore old stock.\n");
+        return -1;
+    }
+    fridge_sync_mirrors();
+    return 0;
+}
+
 static int legacy_table_exists(const char *name)
 {
     sqlite3_stmt *st = NULL;
@@ -1160,6 +1256,10 @@ int r2_reality_init(void)
         pthread_mutex_unlock(&reality_lock); return -1;
     }
     if (fridge_init() != 0) {
+        sqlite3_close(reality_db); reality_db = NULL;
+        pthread_mutex_unlock(&reality_lock); return -1;
+    }
+    if (migrate_legacy_fridge() != 0) {
         sqlite3_close(reality_db); reality_db = NULL;
         pthread_mutex_unlock(&reality_lock); return -1;
     }
