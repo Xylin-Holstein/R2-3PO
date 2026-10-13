@@ -22,6 +22,7 @@
 #include <time.h>
 
 static char R2_VISION_URL[512] = "http://127.0.0.1:11434/api/chat";
+static long R2_VISION_TIMEOUT_SECONDS = 21600L;
 #define R2_VISION_DEFAULT_MODEL "gemma3:4b"
 #define R2_VISION_MAX_IMAGE_BYTES (20U * 1024U * 1024U)
 #define R2_VISION_MAX_RESPONSE (1024U * 1024U)
@@ -247,8 +248,8 @@ static char *call_vision_model(const char *image_base64, const char *question)
         curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)strlen(payload));
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, response_write);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L);
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 180L);
+        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 30L);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, R2_VISION_TIMEOUT_SECONDS);
         curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
         CURLcode cc = curl_easy_perform(curl);
         long http_status = 0;
@@ -296,12 +297,31 @@ static int configure_vision_endpoint(void)
     return written > 0 && (size_t)written < sizeof(R2_VISION_URL) ? 0 : -1;
 }
 
+static void configure_vision_timeout(void)
+{
+    const long default_timeout = 21600L;
+    const char *configured = getenv("R2_OLLAMA_TIMEOUT_SECONDS");
+    R2_VISION_TIMEOUT_SECONDS = default_timeout;
+    if (!configured || !*configured) return;
+    errno = 0;
+    char *end = NULL;
+    long seconds = strtol(configured, &end, 10);
+    if (errno || end == configured || *end || seconds < 30L || seconds > default_timeout) {
+        fprintf(stderr,
+                "[R2 Visual] Invalid R2_OLLAMA_TIMEOUT_SECONDS; using the six-hour default. "
+                "Choose an integer from 30 to 21600.\\n");
+        return;
+    }
+    R2_VISION_TIMEOUT_SECONDS = seconds;
+}
+
 int r2_visual_init(const char *database_path, const char *library_directory)
 {
     if (configure_vision_endpoint() != 0) {
         fprintf(stderr, "[R2 Visual] R2_OLLAMA_BASE_URL must be a localhost HTTP endpoint.\\n");
         return -1;
     }
+    configure_vision_timeout();
 
     if (!database_path || !*database_path || !library_directory || !*library_directory)
         return -1;
