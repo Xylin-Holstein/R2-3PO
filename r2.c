@@ -39,7 +39,7 @@ static char MODEL[256] = "gemma3:4b";
 #define MAX_MEMORY_KEYWORDS 16
 #define MIN_MEMORY_KEYWORD_LENGTH 3
 
-static char OLLAMA_URL[512] = "http://127.0.0.1:11434/api/chat";
+static char OLLAMA_URL[512] = "http://127.0.0.1:11435/api/chat";
 
 #define DB_PATH R2_DIARY_DATABASE
 #define ORIGINAL_CONVERSATION \
