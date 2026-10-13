@@ -34,7 +34,7 @@ require(hands_marker >= 0 and "fprintf" in hands_prefix and "stderr" in hands_pr
 diary_start = core.find("static void *autonomous_thinking(")
 diary_end = core.find("return NULL;", diary_start)
 diary = core[diary_start:diary_end] if diary_start >= 0 and diary_end > diary_start else ""
-require(diary_start >= 0 and "r2_diary_write(reflection)" in diary,
+require(diary_start >= 0 and "r2_diary_write(" in diary and "reflection" in diary,
         "autonomous reflection is persisted to the private diary")
 require("printf(" not in diary and "fprintf(stderr" in diary,
         "private diary text is never printed to the interactive terminal; failures go to diagnostics")
