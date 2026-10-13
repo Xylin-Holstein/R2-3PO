@@ -367,11 +367,16 @@ static void shell_talk(const char *message)
 
     char *reply = r2_talk(message);
 
-    if (!reply) {
-        fprintf(
-            stderr,
-            "[R2] Conversation request failed.\n"
+    if (!reply || !*reply) {
+        fprintf(stderr,
+                "[R2] Conversation backend returned no visible answer; the shell is printing a user-facing failure message.\n");
+        printf(
+            "\n"
+            "R2-3PO: I'm sorry, Mom—the conversation backend didn't return a usable reply. "
+            "Your message reached me, but I couldn't answer it this time. Please try again.\n"
+            "\n"
         );
+        free(reply);
         return;
     }
 
