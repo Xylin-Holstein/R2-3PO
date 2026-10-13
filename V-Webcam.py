@@ -11,6 +11,7 @@ import json
 import math
 import os
 from pathlib import Path
+import stat
 import tkinter as tk
 from tkinter import ttk
 
@@ -215,10 +216,26 @@ class VWebcam:
         self.root.after(100, self.tick)
 
 
+def prepare_data_dir() -> bool:
+    try:
+        DATA_DIR.mkdir(mode=0o700)
+    except FileExistsError:
+        pass
+    except OSError:
+        return False
+    try:
+        info = DATA_DIR.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid():
+            return False
+        os.chmod(DATA_DIR, 0o700)
+    except OSError:
+        return False
+    return True
+
+
 def main() -> None:
-    if not os.environ.get("DISPLAY"):
+    if not os.environ.get("DISPLAY") or not prepare_data_dir():
         return
-    DATA_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
     with LOCK_PATH.open("a+", encoding="utf-8") as lock:
         try:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
