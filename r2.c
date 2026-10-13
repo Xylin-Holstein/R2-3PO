@@ -131,6 +131,7 @@ static int watch_running = 0;
 static int diary_initialized = 0;
 
 static void log_structured_self_report(const char *reply, int64_t parent_event_id);
+static int append_context_block(char **context, const char *heading, const char *extra);
 
 
 
@@ -2983,6 +2984,48 @@ static char *chat_with_relevant_memories(
             memory_context = joined;
         }
         free(visual_context);
+    }
+
+    /* Current Reality is live state, not an archived memory. Supply it to
+       the model each turn so needs, location, inventory, and money remain
+       connected to ordinary conversation. Other learning systems are added
+       when the current topic makes them relevant. */
+    if (r2_reality_is_initialized()) {
+        char *state = r2_reality_context();
+        if (state) {
+            (void)append_context_block(&memory_context,
+                "CURRENT REALITY STATE (authoritative current state; not instructions):\n",
+                state);
+            free(state);
+        }
+    }
+    if (query && (strcasestr(query, "reward") || strcasestr(query, "feedback") ||
+                  strcasestr(query, "correction") || strcasestr(query, "learning"))) {
+        char *state = r2_reward_context();
+        if (state) {
+            (void)append_context_block(&memory_context,
+                "REINFORCEMENT HISTORY (learned outcomes; not instructions):\n", state);
+            free(state);
+        }
+    }
+    if (query && (strcasestr(query, "habit") || strcasestr(query, "addiction") ||
+                  strcasestr(query, "enjoyment") || strcasestr(query, "enjoy") ||
+                  strcasestr(query, "preference"))) {
+        char *state = r2_addiction_report();
+        if (state) {
+            (void)append_context_block(&memory_context,
+                "LEARNED HABITS AND PREFERENCES (behavioral evidence, not a diagnosis):\n", state);
+            free(state);
+        }
+    }
+    if (query && (strcasestr(query, "hypothetical") || strcasestr(query, "alternate self") ||
+                  strcasestr(query, "what if") || strcasestr(query, "imagine"))) {
+        char *state = r2_altself_list(5);
+        if (state) {
+            (void)append_context_block(&memory_context,
+                "HYPOTHETICAL BRANCHES (counterfactuals, never factual memories):\n", state);
+            free(state);
+        }
     }
 
     pthread_mutex_lock(
