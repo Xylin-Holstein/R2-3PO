@@ -314,6 +314,7 @@ static const char *SYSTEM_PROMPT =
 "Rate only a real eating experience: [FOOD_RATE] food|-2..2|notes [END FOOD_RATE]. Sleep: [SLEEP] hours [END SLEEP]. Dream: [DREAM] description [END DREAM].\n"
 "Location: [LOCATION] home or away [END LOCATION] only for a known transition. Money: [MONEY_RECEIVE] amount [END MONEY_RECEIVE], [MONEY_DEPOSIT] amount [END MONEY_DEPOSIT], [MONEY_WITHDRAW] amount [END MONEY_WITHDRAW].\n"
 "Purchase: [BUY] name|description|price|destination [END BUY]. Counterfactual: [ALTERNATE_CREATE] name|scenario|assumptions|prediction|conclusion [END ALTERNATE_CREATE].\n"
+ "Imagination: [IMAGINE] request [END IMAGINE] creates a hypothetical scenario from retrieved experience; feedback: [IMAGINE_FEEDBACK] branch_id|accurate/partial/incorrect/unresolved|evidence notes [END IMAGINE_FEEDBACK]. Imagined events are never factual memories or real-world actions.\n"
 "Only C tool results confirm success. Never invent physical actions, food, money, inventory, sleep, dreams, or location changes.\n"
 "============================================================\n"
 "REAL BACKGROUND HANDS\n"
@@ -6364,7 +6365,7 @@ static int action_marker_is_block(const char *name)
         "REALITY_LIST", "REALITY_ADD", "REALITY_MOVE", "REALITY_REMOVE",
         "FRIDGE_TAKE", "EAT", "FRIDGE_EAT", "FOOD_RATE", "SLEEP", "DREAM",
         "LOCATION", "MONEY_RECEIVE", "MONEY_DEPOSIT", "MONEY_WITHDRAW", "BUY",
-        "ALTERNATE_CREATE"
+        "ALTERNATE_CREATE", "IMAGINE", "IMAGINE_FEEDBACK"
     };
     for (size_t i = 0; i < sizeof(names)/sizeof(names[0]); ++i)
         if (!strcmp(name, names[i])) return 1;
