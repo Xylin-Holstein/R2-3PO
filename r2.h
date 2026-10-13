@@ -38,6 +38,8 @@ extern "C" {
 
 /* Shared RAM-aware context sizing for text and multimodal inference. */
 int r2_ollama_context_tokens(void);
+/* Resolve a validated loopback-only Ollama chat URL for text and vision. */
+int r2_ollama_chat_url(char *out, size_t out_cap);
 
 
 /* ============================================================

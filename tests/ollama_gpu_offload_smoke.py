@@ -33,7 +33,7 @@ if "GTX 1050 Ti" not in runner or "export R2_OLLAMA_NUM_GPU=20" not in runner:
     raise SystemExit("Overnight service runner must select partial offload when the GTX 1050 Ti is present.")
 if '"R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU"' not in runner:
     raise SystemExit("Overnight service runner must pass the GPU policy to the R2 process.")
-if 'options["num_gpu"] = gpu_layers' not in preflight or 'f"{API_BASE}/api/ps"' not in preflight:
+if 'options["num_gpu"] = gpu_layers' not in preflight or 'f"{api_base}/api/ps"' not in preflight:
     raise SystemExit("Ollama preflight must send the configured layer policy and inspect actual VRAM placement.")
 if "size_vram" not in preflight or "nvidia-smi" not in preflight:
     raise SystemExit("Ollama preflight must report model VRAM and visible NVIDIA hardware.")

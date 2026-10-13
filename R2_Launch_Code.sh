@@ -4,6 +4,13 @@ R2_ROOT="/home/x/R2_Home"
 R2_SOURCE="$R2_ROOT/R2"
 R2_EXEC="$R2_ROOT/r2"
 R2_FX_DIR="${R2_FX_DIR:-$R2_ROOT/R2_sounds/FX}"
+R2_OLLAMA_BASE_URL="${R2_OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
+if [[ "$R2_OLLAMA_BASE_URL" != "http://127.0.0.1:11434" ]]; then
+    echo "ERROR: Interactive R2 must use its permitted local Ollama endpoint 127.0.0.1:11434."
+    echo "Unset R2_OLLAMA_BASE_URL or set it to http://127.0.0.1:11434."
+    exit 1
+fi
+export R2_OLLAMA_BASE_URL
 
 # Keep R2's Linux identity separate from the canonical data location. HOME is
 # set to the project root for every R2 process, never to /home/r2.
@@ -209,6 +216,7 @@ if [[ ! -r "$R2_SOURCE/tools/preflight_ollama_model.py" ]]; then
     exit 1
 fi
 if ! sudo -n -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
+    R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
     R2_OLLAMA_NUM_GPU="$R2_OLLAMA_NUM_GPU" \
     R2_OLLAMA_TIMEOUT_SECONDS="${R2_OLLAMA_TIMEOUT_SECONDS:-}" \
     python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --timeout 180; then
@@ -661,6 +669,7 @@ sudo -n setpriv --reuid="$R2_UID" --regid="$R2_GID" --groups="$R2_RUNTIME_GROUPS
     LD_PRELOAD="$FAKETIME_LIB" \
     FAKETIME="${FAKETIME_OFFSET}" \
     FAKETIME_DONT_RESET=1 \
+    R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
     R2_OLLAMA_NUM_CTX="${R2_OLLAMA_NUM_CTX:-}" \
     R2_OLLAMA_TIMEOUT_SECONDS="${R2_OLLAMA_TIMEOUT_SECONDS:-}" \
     R2_OLLAMA_NUM_GPU="${R2_OLLAMA_NUM_GPU}" \

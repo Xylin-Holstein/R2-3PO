@@ -23,7 +23,6 @@
 #include <strings.h>
 #include <time.h>
 
-#define R2_VISION_URL "http://127.0.0.1:11434/api/chat"
 #define R2_VISION_DEFAULT_MODEL R2_OLLAMA_MODEL
 #define R2_VISION_MAX_IMAGE_BYTES (20U * 1024U * 1024U)
 #define R2_VISION_MAX_RESPONSE (1024U * 1024U)
@@ -297,13 +296,18 @@ static char *call_vision_model(const char *image_base64, const char *question,
     free(system_prompt);
 
     const char *payload = json_object_to_json_string_ext(root, JSON_C_TO_STRING_PLAIN);
+    char ollama_url[128];
+    if (!payload || r2_ollama_chat_url(ollama_url, sizeof(ollama_url)) != 0) {
+        json_object_put(root);
+        return NULL;
+    }
     CURL *curl = curl_easy_init();
     struct response_buffer response = {0};
     struct curl_slist *headers = NULL;
     char *answer = NULL;
     if (curl) {
         headers = curl_slist_append(headers, "Content-Type: application/json");
-        curl_easy_setopt(curl, CURLOPT_URL, R2_VISION_URL);
+        curl_easy_setopt(curl, CURLOPT_URL, ollama_url);
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
         curl_easy_setopt(curl, CURLOPT_POST, 1L);
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload);

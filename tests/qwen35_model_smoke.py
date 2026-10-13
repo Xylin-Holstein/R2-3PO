@@ -51,12 +51,37 @@ require(
     "conversation uses the shared model constant",
 )
 require(
+    "int r2_ollama_chat_url(char *out, size_t out_cap);" in header
+    and 'getenv("R2_OLLAMA_BASE_URL")' in core
+    and 'r2_ollama_chat_url(ollama_url, sizeof(ollama_url))' in core
+    and 'curl_easy_setopt(curl, CURLOPT_URL, ollama_url);' in core
+    and 'r2_ollama_chat_url(ollama_url, sizeof(ollama_url))' in visual
+    and 'curl_easy_setopt(curl, CURLOPT_URL, ollama_url);' in visual
+    and '#define OLLAMA_URL "http://127.0.0.1:11434/api/chat"' not in core
+    and '#define R2_VISION_URL "http://127.0.0.1:11434/api/chat"' not in visual,
+    "text and vision share one validated configurable localhost endpoint",
+)
+require(
+    '"http://127.0.0.1:11434"' in core
+    and '"http://127.0.0.1:11435"' in core
+    and 'base = "http://127.0.0.1:11434"' in core,
+    "endpoint helper supports interactive port 11434 and isolated service port 11435 only",
+)
+require(
     re.search(r'^#define R2_VISION_DEFAULT_MODEL R2_OLLAMA_MODEL$', visual, re.MULTILINE) is not None,
     "vision uses the exact same shared model constant",
 )
 require(
     'R2_VISION_MODEL="qwen3.5:9b"' in launcher,
     "launcher explicitly selects the unified vision model",
+)
+require(
+    'R2_OLLAMA_BASE_URL="${R2_OLLAMA_BASE_URL:-http://127.0.0.1:11434}"' in launcher
+    and 'R2_OLLAMA_BASE_URL="http://127.0.0.1:11434"' not in launcher
+    and 'R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL"' in launcher
+    and 'R2_OLLAMA_BASE_URL="${R2_OLLAMA_BASE_URL:-http://127.0.0.1:11435}"' in read("tools/r2_service_runner.sh")
+    and 'overnight R2 must use its permitted isolated Ollama endpoint 127.0.0.1:11435.' in read("tools/r2_service_runner.sh"),
+    "interactive and overnight launchers pin their endpoints to their respective firewall policies",
 )
 require(
     'getenv("R2_OLLAMA_NUM_GPU")' in visual

@@ -12,8 +12,23 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-API_BASE = "http://127.0.0.1:11434"
+DEFAULT_API_BASE = "http://127.0.0.1:11434"
+ALLOWED_API_BASES = {
+    "http://127.0.0.1:11434",
+    "http://127.0.0.1:11435",
+}
 MODEL = "qwen3.5:9b"
+
+
+def _configured_api_base() -> str:
+    """Return only an explicitly approved loopback Ollama endpoint."""
+    base = os.environ.get("R2_OLLAMA_BASE_URL", DEFAULT_API_BASE)
+    if base not in ALLOWED_API_BASES:
+        raise ValueError(
+            "R2_OLLAMA_BASE_URL must be http://127.0.0.1:11434 or "
+            "http://127.0.0.1:11435"
+        )
+    return base
 
 
 def _read_json(url: str, timeout: float, payload: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -33,11 +48,17 @@ def _read_json(url: str, timeout: float, payload: dict[str, Any] | None = None) 
 
 def preflight(wait_seconds: float = 0, timeout: float = 180) -> bool:
     """Check local model availability and one real, bounded inference."""
+    try:
+        api_base = _configured_api_base()
+    except ValueError as exc:
+        print(f"ERROR: Local Ollama/model preflight failed: {exc}", file=sys.stderr)
+        return False
+
     deadline = time.monotonic() + max(0, wait_seconds)
     last_error: Exception | None = None
     while True:
         try:
-            tags = _read_json(f"{API_BASE}/api/tags", timeout=min(4, max(1, timeout)))
+            tags = _read_json(f"{api_base}/api/tags", timeout=min(4, max(1, timeout)))
             models = tags.get("models", [])
             if any(
                 isinstance(item, dict)
@@ -71,7 +92,7 @@ def preflight(wait_seconds: float = 0, timeout: float = 180) -> bool:
 
     try:
         reply = _read_json(
-            f"{API_BASE}/api/chat",
+            f"{api_base}/api/chat",
             timeout=timeout,
             payload={
                 "model": MODEL,
@@ -109,7 +130,7 @@ def preflight(wait_seconds: float = 0, timeout: float = 180) -> bool:
     # Keep the model warm during this check, then inspect Ollama's own process
     # report. A successful API request alone does not prove GPU offload.
     try:
-        ps = _read_json(f"{API_BASE}/api/ps", timeout=min(8, max(1, timeout)))
+        ps = _read_json(f"{api_base}/api/ps", timeout=min(8, max(1, timeout)))
         loaded = ps.get("models", [])
         active = next((item for item in loaded
                        if isinstance(item, dict)

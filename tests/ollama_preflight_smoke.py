@@ -38,6 +38,35 @@ class OllamaPreflightSmoke(unittest.TestCase):
         self.assertTrue(read.call_args_list[2].args[0].endswith("/api/ps"))
         self.assertEqual(gpu.call_count, 1)
 
+    def test_overnight_endpoint_is_used_for_tags_chat_and_process_checks(self) -> None:
+        replies = [
+            {"models": [{"name": "qwen3.5:9b"}]},
+            {"message": {"content": "R2_READY"}},
+            {"models": [{"name": "qwen3.5:9b", "size_vram": 123456}]},
+        ]
+        gpu_result = SimpleNamespace(returncode=1, stdout="", stderr="")
+        with patch.dict(probe.os.environ, {"R2_OLLAMA_BASE_URL": "http://127.0.0.1:11435"}), \
+             patch.object(probe, "_read_json", side_effect=replies) as read, \
+             patch.object(probe.subprocess, "run", return_value=gpu_result):
+            self.assertTrue(probe.preflight(timeout=1))
+        self.assertEqual(
+            [call.args[0] for call in read.call_args_list],
+            [
+                "http://127.0.0.1:11435/api/tags",
+                "http://127.0.0.1:11435/api/chat",
+                "http://127.0.0.1:11435/api/ps",
+            ],
+        )
+
+    def test_unapproved_non_loopback_endpoint_is_rejected(self) -> None:
+        errors = io.StringIO()
+        with patch.dict(probe.os.environ, {"R2_OLLAMA_BASE_URL": "http://example.com:11435"}), \
+             patch.object(probe, "_read_json") as read:
+            with contextlib.redirect_stderr(errors):
+                self.assertFalse(probe.preflight(timeout=1))
+        read.assert_not_called()
+        self.assertIn("must be http://127.0.0.1:11434 or", errors.getvalue())
+
     def test_gpu_diagnostics_failure_does_not_block_ready_model(self) -> None:
         # GPU placement is diagnostic only; a successful real chat must remain
         # ready if /api/ps or nvidia-smi is unavailable.
