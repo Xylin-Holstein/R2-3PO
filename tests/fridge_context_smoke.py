@@ -56,13 +56,15 @@ if '"fullness", "REAL NOT NULL DEFAULT 0"' not in legacy_migration_block or '"en
 if "double fullness = 100.0, energy = 10.0;" in reality or "double stored_fullness = 100.0, energy = 10.0;" in reality:
     raise SystemExit("fridge take/eat paths must not carry fabricated nutrition fallback values")
 
-eat_start = r2.find('} else if (nf >= 3 && !strcasecmp(fields[0], "eat")) {')
-eat_end = r2.find('} else if (nf >= 4 && !strcasecmp(fields[0], "ratefood")) {', eat_start)
+eat_start = r2.find("static char *world_action_result(char *line)")
+eat_end = r2.find("\\nstatic char *process_tools(", eat_start)
 if eat_start < 0 or eat_end < 0:
-    raise SystemExit("could not find the world-eat action parser")
+    raise SystemExit("could not find the Reality world-action dispatcher")
 eat_action = r2[eat_start:eat_end]
-if "atof(fields[2])" in eat_action or '"auto"' not in eat_action:
-    raise SystemExit("world eat action must require auto and use authoritative metrics")
+if 'if (!strcasecmp(f[0], "eat")' not in eat_action or 'strcasecmp(f[2], "auto")' not in eat_action:
+    raise SystemExit("world eat action must support auto and use the authoritative food-metric API")
+if "atof(" in eat_action or "r2_reality_eat(f[1], fullness)" not in eat_action:
+    raise SystemExit("world eat action must validate numeric values and route through Reality")
 
 counterfactual_rules = (
     "Imagined sensory details are predictions, not observations.",
