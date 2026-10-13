@@ -22,6 +22,9 @@ int64_t r2_altself_import_hypothesis(const char *scenario,
                                     int64_t hypothetical_event_id,
                                     int64_t evidence_event_id);
 int r2_altself_discard(int64_t branch_id);
+/* Link a later feedback/evidence Life Log event to a hypothetical branch. */
+int r2_altself_link_event(int64_t branch_id, int64_t event_id,
+                          const char *relation, const char *details);
 int r2_altself_retain_hypothesis(int64_t branch_id);
 char *r2_altself_list(int limit);
 char *r2_altself_show(int64_t branch_id);
