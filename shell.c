@@ -50,6 +50,7 @@
 #include "r2.h"
 #include "Log.h"
 #include "Reality.h"
+#include "Imagination.h"
 
 
 /* ============================================================
@@ -1338,6 +1339,50 @@ static void shell_tv(const char *argument)
 }
 
 
+static int shell_imagine(char *argument)
+{
+    if (!argument || !*argument) {
+        printf("Usage: imagine <hypothetical scenario> | imagine feedback <branch-id> <accurate|partial|incorrect|unresolved> [evidence notes]\n");
+        return 1;
+    }
+
+    if (shell_starts_with(argument, "feedback ")) {
+        char *cursor = shell_trim(argument + strlen("feedback "));
+        errno = 0;
+        char *end = NULL;
+        long long branch_id = strtoll(cursor, &end, 10);
+        if (errno || end == cursor || branch_id <= 0) {
+            printf("Usage: imagine feedback <branch-id> <accurate|partial|incorrect|unresolved> [evidence notes]\n");
+            return 1;
+        }
+        cursor = shell_trim(end);
+        if (!cursor || !*cursor) {
+            printf("An assessment is required: accurate, partial, incorrect, or unresolved.\n");
+            return 1;
+        }
+        char *assessment = cursor;
+        while (*cursor && !isspace((unsigned char)*cursor)) ++cursor;
+        if (*cursor) *cursor++ = '\\0';
+        char *notes = shell_trim(cursor);
+        int rc = r2_imagination_feedback(branch_id, assessment, notes ? notes : "");
+        if (rc == 0) printf("[Imagination feedback saved. Inaccurate or unresolved scenarios are not punished.]\n");
+        else if (rc == 1) printf("[Feedback saved, but positive reinforcement was unavailable.]\n");
+        else if (rc == 2) printf("[Feedback saved. This branch was already positively reinforced.]\n");
+        else if (rc == -2) printf("[Accurate feedback requires evidence notes; no reward was issued.]\n");
+        else printf("[Feedback was not saved. Check the branch ID and assessment.]\n");
+        return 1;
+    }
+
+    char *result = r2_imagination_create(argument);
+    if (result) {
+        printf("%s\\n", result);
+        free(result);
+    } else {
+        printf("[Imagination could not generate or save this hypothetical scenario. No factual memory or real-world state was changed.]\n");
+    }
+    return 1;
+}
+
 static int shell_dispatch(char *input)
 {
     char *command = shell_trim(input);
@@ -1367,6 +1412,15 @@ static int shell_dispatch(char *input)
     /* --------------------------------------------------------
        STATUS
        -------------------------------------------------------- */
+
+    if (!strcasecmp(command, "imagine")) {
+        shell_imagine(NULL);
+        return 1;
+    }
+    if (shell_starts_with(command, "imagine ")) {
+        shell_imagine(shell_trim(command + strlen("imagine ")));
+        return 1;
+    }
 
     if (!strcasecmp(command, "status")) {
         shell_status();
