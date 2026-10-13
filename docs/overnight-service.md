@@ -3,10 +3,13 @@
 R2 already has a headless shell mode, a supervised systemd unit, a local-model preflight, a private 1999 clock, and a sleep-inhibitor attempt. Use the existing deployment files below; do not create a second service or run the interactive launcher alongside it.
 
 - Runner: `tools/r2_service_runner.sh`
-- Unit: `deploy/r2-3po.service`
+- Model server unit: `deploy/r2-ollama.service`
+- R2 core unit: `deploy/r2-3po.service`
+- Model cache copier: `tools/copy_ollama_model.py`
+- Ollama runner: `tools/r2_ollama_runner.sh`
 - Installer: `tools/install_r2_overnight.sh`
 
-The overnight service uses the same persistent databases as the desktop launcher. **Only one R2 core may run at a time.** Both launch paths keep `HOME` set to `/home/x/R2_Home`, while the process UID remains `r2`; `/home/r2` is not an alternate memory, diary, or workspace location. While R2 runs, a UID-matched firewall rule allows its IP traffic only to local Ollama at `127.0.0.1:11434`; IPv6 egress and all other IPv4 egress for UID `r2` are rejected. The rule does not disable Wi-Fi or affect the desktop account. The interactive launcher removes its temporary rules when it exits; the systemd unit installs and removes the equivalent rules around the service lifecycle. The installer refuses to rebuild while an R2 process is already running, checks database paths and permissions, takes a private SQLite snapshot, requires a clean integrity audit, builds to a process-specific temporary executable, preserves the previous binary, and only then enables/starts the service. If activation or core initialization fails, it attempts to restore and restart the previous executable.
+The overnight service uses the same persistent databases as the desktop launcher. **Only one R2 core may run at a time.** The dedicated `r2-ollama.service` runs `ollama serve` as Linux user `r2` on `127.0.0.1:11435`, with model files in `/home/x/R2_Home/.ollama/models`. The `r2-3po.service` binds to that model service and stops if it becomes unavailable. Both launch paths keep `HOME` set to `/home/x/R2_Home`; `/home/r2` is not an alternate memory, diary, or workspace location. The model service owns a UID-matched firewall rule that allows user `r2` to access only local Ollama at port `11435`; IPv6 egress and all other IPv4 egress for UID `r2` are rejected. This rule remains active for as long as the model server runs, including when the R2 core stops. It does not disable Wi-Fi or affect the desktop account. The installer copies the already-installed `gemma3:4b` manifest/blobs from the existing local Ollama model store into R2's private store; it does not download model weights or change the existing user's Ollama service. The installer refuses to rebuild while an R2 process is already running, checks database paths and permissions, takes a private SQLite snapshot, requires a clean integrity audit, builds to a process-specific temporary executable as `r2`, preserves the previous binary, and only then enables/starts the services. If activation or core initialization fails, it attempts to restore and restart the previous executable.
 
 ## One-time host preparation
 
@@ -18,7 +21,7 @@ Before installing or starting the service, run the non-destructive hardware pref
 bash /home/x/R2_Home/R2/tools/preflight_r2_hardware.sh
 ```
 
-It checks the source/deployment files, the local Ollama API and `qwen3.5:9b`, read-only SQLite integrity, the separate FX folder, and available audio/camera/TV/emulator dependencies. `[FAIL]` items block readiness; `[WARN]` items identify optional hardware or GUI features that need attention. The report does not install packages, change databases, rebuild R2, or start/stop the service. It distinguishes the desktop account's audio session from the `r2` account's default PulseAudio/PipeWire connection and checks whether `r2` can access detected camera and ALSA device nodes when non-interactive `sudo` permits verification. A warning means access was unavailable or could not be proven; it does not itself repair permissions. The interactive launcher adds the host's `audio` group only to the R2 process's supplementary groups when that group exists, preserving the account's existing groups and avoiding a permanent account-membership change. The overnight systemd unit uses the same service-scoped audio group. This allows direct ALSA access where available, but it does not grant access to the desktop user's PulseAudio/PipeWire socket. The final speaker, microphone, and camera test must still be performed from the actual R2 launch environment.
+It checks the source/deployment files, the existing local Ollama API and `gemma3:4b`, read-only SQLite integrity, the separate FX folder, and available audio/camera/TV/emulator dependencies. `[FAIL]` items block readiness; `[WARN]` items identify optional hardware or GUI features that need attention. The report does not install packages, change databases, rebuild R2, or start/stop the service. It distinguishes the desktop account's audio session from the `r2` account's default PulseAudio/PipeWire connection and checks whether `r2` can access detected camera and ALSA device nodes when non-interactive `sudo` permits verification. A warning means access was unavailable or could not be proven; it does not itself repair permissions. The interactive launcher adds the host's `audio` group only to the R2 process's supplementary groups when that group exists, preserving the account's existing groups and avoiding a permanent account-membership change. The overnight systemd unit uses the same service-scoped audio group. This allows direct ALSA access where available, but it does not grant access to the desktop user's PulseAudio/PipeWire socket. The final speaker, microphone, and camera test must still be performed from the actual R2 launch environment.
 
 1. Confirm the repository is deployed at `/home/x/R2_Home/R2`. The sound assets remain a separate local directory at `/home/x/R2_Home/R2_sounds/FX`; that directory is not supposed to exist in GitHub.
 2. Confirm the dedicated Linux account exists: `id r2`.
@@ -30,15 +33,15 @@ It checks the source/deployment files, the local Ollama API and `qwen3.5:9b`, re
 
    The R2 launcher and installer do not run `apt-get update` automatically.
 
-4. Start Ollama and ensure the exact local model is installed:
+4. Ensure the existing host Ollama service has the model installed. This is the **source** store; R2 will use a separate copy and a separate server on port 11435:
 
    ```sh
    sudo systemctl enable --now ollama
-   ollama pull qwen3.5:9b
+   ollama pull gemma3:4b
    curl -fsS http://127.0.0.1:11434/api/tags
    ```
 
-   If Ollama is installed without a system unit named `ollama.service`, start it using the host's existing method. The R2 runner waits up to 60 seconds for the local API/model, then uses `tools/preflight_ollama_model.py` to require one real `qwen3.5:9b` chat completion (up to 180 seconds) before starting the core. This is a localhost-only inference check; it does not download model weights or contact an external API.
+   The installer copies the local model manifest and its content-addressed blobs into `/home/x/R2_Home/.ollama/models`, then starts `r2-ollama.service` as Linux user `r2` on `127.0.0.1:11435`. It does not download model weights. The installer and interactive launcher require a real `gemma3:4b` generation through that private endpoint before starting the R2 core.
 
 5. Confirm the service account can access the existing workspace and local FX assets. Do not solve permission problems with broad `chmod 777` permissions:
 
@@ -53,7 +56,7 @@ It checks the source/deployment files, the local Ollama API and `qwen3.5:9b`, re
 
 ## Local inference timeout
 
-Foreground chat and its corrective retry allow up to six hours per request by default to accommodate slow mixed CPU/GPU inference and Qwen's reasoning channel. Override the setting before starting the interactive launcher if needed:
+Foreground chat and its corrective retry allow up to six hours per request by default to accommodate slow mixed CPU/GPU inference and slow CPU/GPU inference. Override the setting before starting the interactive launcher if needed:
 
 ```sh
 export R2_OLLAMA_TIMEOUT_SECONDS=14400
@@ -90,6 +93,7 @@ First stop the overnight service and any other R2 process, then run the interact
 
 ```sh
 sudo systemctl stop r2-3po.service
+# The private Ollama server remains isolated and can be left running for the desktop launcher.
 export R2_OLLAMA_TRACE_PROMPTS=1
 /home/x/R2_Home/R2_Launch_Code.sh
 ```
@@ -125,13 +129,15 @@ The installer intentionally stops if the database audit fails. Preserve the repo
 ## Verify that R2 is actually active
 
 ```sh
+systemctl is-enabled r2-ollama.service
+systemctl is-active r2-ollama.service
 systemctl is-enabled r2-3po.service
 systemctl is-active r2-3po.service
 systemctl --no-pager --full status r2-3po.service
 journalctl -u r2-3po.service -n 100 --no-pager
 ```
 
-Expected state is `enabled` and `active`. The journal should report a successful local Ollama chat preflight and the core readiness marker (`[R2 READY] Core initialized; entering shell.`). The installer does not call the service ready based only on systemd's early `active` state. If the unit keeps restarting, inspect the logs; common causes are a missing `qwen3.5:9b` model, missing `libfaketime`, inaccessible workspace/database files, or Ollama not running.
+Expected state is `enabled` and `active`. The journal should report a successful local Ollama chat preflight and the core readiness marker (`[R2 READY] Core initialized; entering shell.`). The installer does not call the service ready based only on systemd's early `active` state. If the unit keeps restarting, inspect the logs; common causes are a missing `gemma3:4b` model in R2's private model store, missing `libfaketime`, inaccessible workspace/database files, or Ollama not running.
 
 Follow live logs with `journalctl -u r2-3po.service -f`.
 
