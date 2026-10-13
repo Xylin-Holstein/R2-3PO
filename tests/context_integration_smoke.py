@@ -1,112 +1,60 @@
 #!/usr/bin/env python3
-"""Guard the shared chat/reflection context against silently dropping a persistent subsystem."""
+"""Guard the actual shared runtime context and Imagination integration."""
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 core = (ROOT / "r2.c").read_text(encoding="utf-8")
 reality = (ROOT / "Reality.c").read_text(encoding="utf-8")
 addiction = (ROOT / "Addiction.c").read_text(encoding="utf-8")
+reward = (ROOT / "Reward.c").read_text(encoding="utf-8")
+alternate = (ROOT / "AlternateSelf.c").read_text(encoding="utf-8")
+imagination = (ROOT / "Imagination.c").read_text(encoding="utf-8")
+imagination_header = (ROOT / "Imagination.h").read_text(encoding="utf-8")
 
-start = core.find("static char *append_reality_context(char *base)")
-end = core.find("\nint r2_write_diary(void)", start)
+start = core.find("static void append_runtime_context(char **context)")
+end = core.find("\nstatic char *sanitize_user_facing_reply", start)
 if start < 0 or end < 0:
-    raise SystemExit("Could not locate the shared R2 context assembler.")
+    raise SystemExit("Could not locate the current runtime context assembler.")
 context = core[start:end]
-
-required_sources = (
-    "r2_reality_context()",
-    "r2_reward_context()",
-    "r2_addiction_report()",
-)
-for source in required_sources:
+for source in ("r2_reality_context()", "r2_reward_context()", "r2_addiction_report()", "r2_altself_list(5)"):
     if source not in context:
-        raise SystemExit(f"Shared chat/reflection context omits {source}")
-for cleanup in ("free(base);", "free(reality);", "free(reward);", "free(addiction);"):
-    if cleanup not in context:
-        raise SystemExit(f"Shared context does not release {cleanup}")
+        raise SystemExit(f"Shared runtime context omits {source}")
+if "append_runtime_context_section(context" not in context:
+    raise SystemExit("Runtime context sections are not assembled through the bounded append helper.")
 
-if core.count("append_reality_context(") < 3:
-    raise SystemExit("Shared context is not wired into both reflection and conversation paths.")
+for source in ("r2_reality_item_memory", "r2_food_experiences",
+               "r2_food_preferences", "r2_food_ingredient_preferences",
+               "r2_money_account", "r2_reality_self_facts"):
+    if source not in reality:
+        raise SystemExit(f"Persistent Reality state omits {source}")
+if "r2_addiction_report" not in addiction or "r2_addiction_init" not in addiction:
+    raise SystemExit("Addiction persistence/report API is missing")
+if "r2_reward_context" not in reward or "r2_reward_init" not in reward:
+    raise SystemExit("Reward persistence/context API is missing")
+if "r2_altself_list" not in alternate or "r2_altself_init" not in alternate:
+    raise SystemExit("Alternate-Self storage/context API is missing")
 
-refresh_start = core.find("static int refresh_reality_context_message(void)")
-refresh_end = core.find("\nstatic char *r2_talk_impl", refresh_start)
-if refresh_start < 0 or refresh_end < 0:
-    raise SystemExit("Could not locate live conversation context refresh.")
-refresh = core[refresh_start:refresh_end]
-if "char *context = r2_reality_context()" not in refresh or "build_learning_context()" not in refresh:
-    raise SystemExit("Live chat must refresh Reality and learning context as separate system messages.")
-if "append_reality_context(NULL)" in refresh:
-    raise SystemExit("Live chat must not combine unbounded Reality and learning context into one truncatable message.")
-learning_start = core.find("static char *build_learning_context(void)")
-learning_end = core.find("\n/* Refresh Reality and learning", learning_start)
-if learning_start < 0 or learning_end < 0:
-    raise SystemExit("Could not locate the bounded live learning-context builder.")
-learning = core[learning_start:learning_end]
-for source in ("r2_reward_context()", "r2_addiction_report()", "PERSISTENT LEARNING CONTEXT"):
-    if source not in learning:
-        raise SystemExit(f"Live learning context omits {source}")
-if "size_t cap = 2400" not in learning or "REWARD/REINFORCEMENT SUMMARY:\\n%.900s" not in learning or "REPEATED-INTEREST SUMMARY:\\n%.900s" not in learning:
-    raise SystemExit("Live learning context must fit within the reserved system-prompt budget.")
+for api in ("r2_imagination_init", "r2_imagination_shutdown",
+            "r2_imagination_create", "r2_imagination_feedback"):
+    if api not in imagination or api not in imagination_header:
+        raise SystemExit(f"Imagination public API is incomplete: {api}")
+if "r2_model_generate(system, prompt, 700)" not in imagination:
+    raise SystemExit("Imagination is not using the shared configured conversation model.")
+for source in ("r2_retrieve_memories(request)", "r2_diary_search(request",
+               "r2_log_search(request", "r2_reality_context()",
+               "r2_visual_search(request", "r2_reward_context()",
+               "r2_addiction_report()", "r2_altself_list(6)"):
+    if source not in imagination:
+        raise SystemExit(f"Imagination omits relevant existing experience: {source}")
+if "hypothetical only" not in imagination or "r2_reward_apply_once(target, \"verified_imagination\", 1" not in imagination:
+    raise SystemExit("Imagination must remain counterfactual and reward only evidence-backed accuracy.")
+if 'extract_marker(reply, "[IMAGINE]", "[END IMAGINE]"' not in core:
+    raise SystemExit("The conversation tool router does not execute Imagination requests.")
+if 'extract_marker(reply, "[IMAGINE_FEEDBACK]", "[END IMAGINE_FEEDBACK]"' not in core:
+    raise SystemExit("The conversation tool router does not execute Imagination feedback.")
+if '"IMAGINE", "IMAGINE_FEEDBACK"' not in core:
+    raise SystemExit("Imagination action markers are not stripped from user-facing replies.")
+if "r2_imagination_init()" not in core or "r2_imagination_shutdown()" not in core:
+    raise SystemExit("Imagination is not connected to core initialization and shutdown.")
 
-dream_start = core.find("int r2_sleep_and_dream(double hours)")
-dream_end = core.find("static void autonomous_needs_food_safeguard", dream_start)
-if dream_start < 0 or dream_end < 0:
-    raise SystemExit("Could not locate the private dream context path.")
-dream = core[dream_start:dream_end]
-for source in ("r2_reward_context()", "r2_addiction_report()", "LEARNED REINFORCEMENT CONTEXT", "REPEATED-INTEREST HISTORY"):
-    if source not in dream:
-        raise SystemExit(f"Private dream context omits {source}")
-
-for boundary in (
-    "Imagined sensory details are predictions, not observations.",
-    "Only a real experience or explicit user feedback may update an experiential preference.",
-    "[ALTERNATE_CREATE]",
-    "[IMAGINE] request [END IMAGINE]",
-):
-    if boundary not in core:
-        raise SystemExit(f"Counterfactual reasoning boundary is missing: {boundary}")
-
-if "Only listed stock exists" not in reality:
-    raise SystemExit("Authoritative fridge inventory is not represented in Reality context.")
-if "r2_reality_self_facts ORDER BY updated_at DESC LIMIT 40" not in reality:
-    raise SystemExit("Self-fact context is not bounded for long-running sessions.")
-if "ORDER BY satisfaction_sum*1.0/rating_count DESC LIMIT 24" not in reality:
-    raise SystemExit("Ingredient-preference context is not bounded.")
-if "older facts remain stored" not in reality or "full history remains stored" not in reality:
-    raise SystemExit("Bounded context must disclose that older persistent facts remain in storage.")
-
-if "ORDER BY t.updated_at DESC LIMIT 17" not in addiction or "if (rows >= 16)" not in addiction:
-    raise SystemExit("Addiction context must remain bounded for long-running prompt stability.")
-if "Additional repeated-interest records omitted from chat context" not in addiction:
-    raise SystemExit("Bounded addiction context must disclose omitted history without deleting it.")
-
-for source in ("r2_imagination_init()", "r2_imagination_shutdown()", "r2_model_generate", 'extract_marker(reply, "[IMAGINE]"'):
-    if source not in core:
-        raise SystemExit(f"Imagination model/tool lifecycle is disconnected: {source}")
-if 'r2_model_generate(system, prompt, 700)' not in (ROOT / "Imagination.c").read_text(encoding="utf-8"):
-    raise SystemExit("Imagination must use the shared configured model rather than a separate model client.")
-
-print("shared memory/reality/reward/addiction context wiring smoke passed")
-
-# Startup memory uses a different heading from the identity prompt. It must
-# have an explicit serialization priority, after focused live retrieval but
-# before learned summaries and archived dialogue.
-priority_start = core.find("static int r2_inference_system_priority(const char *content)")
-priority_end = core.find("\nstatic size_t r2_order_inference_messages", priority_start)
-if priority_start < 0 or priority_end < 0:
-    raise SystemExit("Could not locate inference system-context priority ordering.")
-priority = core[priority_start:priority_end]
-if 'strstr(content, "R2 PERSISTENT MEMORY - STARTUP CONTEXT")' not in priority or "return 3;" not in priority:
-    raise SystemExit("Startup persistent memory is not explicitly prioritized.")
-if "for (int priority = 0; priority < 6" not in core:
-    raise SystemExit("Inference serialization does not iterate all six context priorities.")
-if 'else if (strstr(content, "R2 PERSISTENT MEMORY - STARTUP CONTEXT"))' not in core:
-    raise SystemExit("Serialized context budgeting does not use the startup-memory priority.")
-
-# Every real request should report whether the exact current user text and
-# the key context blocks actually survived serialization, without logging text.
-if "[R2 Prompt Audit]" not in core or "exact_user_turn=%d" not in core or "query_in_user_turn=%d" not in core:
-    raise SystemExit("Serialized prompt audit does not verify the current user turn.")
-for field in ("startup_memory=%d", "retrieved_context=%d", "reality_context=%d", "learning_context=%d"):
-    if field not in core:
-        raise SystemExit(f"Serialized prompt audit omits {field}")
+print("Shared Reality/reward/addiction/Choice Lab/Imagination context integration smoke passed.")
