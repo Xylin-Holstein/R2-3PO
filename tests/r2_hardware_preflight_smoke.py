@@ -32,7 +32,7 @@ required = (
     'Reality.c Reality.h',
     'Addiction.c Addiction.h',
     'Reward.c Reward.h',
-    'AlternateSelf.c AlternateSelf.h',
+    'AlternateSelf.c AlternateSelf.h', 'Imagination.c Imagination.h',
     'R2Sounds.c R2Sounds.h',
     'R2Reply.c R2Reply.h',
     'shell.c shell.h',
