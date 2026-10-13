@@ -1364,6 +1364,13 @@ static int shell_imagine(char *argument)
         while (*cursor && !isspace((unsigned char)*cursor)) ++cursor;
         if (*cursor) *cursor++ = '\0';
         char *notes = shell_trim(cursor);
+        int positive_assessment = !strcasecmp(assessment, "accurate") ||
+                                  !strcasecmp(assessment, "correct") ||
+                                  !strcasecmp(assessment, "confirmed");
+        if (positive_assessment && (!notes || !*notes)) {
+            printf("Accurate feedback requires evidence notes; no reward was issued.\\n");
+            return 1;
+        }
         size_t needed = strlen(notes ? notes : "") + strlen(assessment) + 256;
         request = malloc(needed);
         if (request)
