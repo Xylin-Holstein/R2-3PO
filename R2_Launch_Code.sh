@@ -382,6 +382,14 @@ if not any(name == model or name.startswith(model + "-") for name in names):
     exit 1
 fi
 
+if ! sudo -u r2 env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
+    R2_MODEL="$R2_MODEL" R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
+    python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 60 --timeout 180; then
+    echo "ERROR: Gemma is listed but did not complete a real chat generation through R2's private endpoint."
+    echo "R2 will not launch with a disconnected or non-generative model."
+    exit 1
+fi
+
 # ------------------------------------------------------------
 # START R2 WITH ITS PRIVATE CLOCK
 # ------------------------------------------------------------
