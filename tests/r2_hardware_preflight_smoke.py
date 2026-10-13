@@ -40,7 +40,7 @@ required = (
     'run_as_r2_with_audio_group()',
     'Hardware preflight identity: %s (uid=%s, groups=%s)',
     'DROP=(setpriv --reuid="$R2_UID" --regid="$R2_GID" --groups="$R2_RUNTIME_GROUPS" --)',
-    'sudo -n "${DROP[@]}" env HOME="$R2_HOME_DIR" USER=r2 LOGNAME=r2',
+    'sudo -n "${DROP[@]}" env HOME="$R2_ROOT" USER=r2 LOGNAME=r2',
     'sudo -n setpriv --reuid="$uid" --regid="$gid" --groups="$groups" -- "$@"',
     'libfaketime.so.1 is missing',
     'sudo apt-get update && sudo apt-get install -y ffmpeg',
@@ -87,12 +87,20 @@ launch_required = (
 missing_launch = [item for item in launch_required if item not in launcher]
 if missing_launch:
     raise SystemExit(f"launcher does not run/guard the startup preflight: {missing_launch}")
-# The preflight must run before duplicate-process checks, directory creation,
-# model checks, package installation, compilation, and observer startup.
+# Check for an already-running core before installing UID-scoped firewall rules.
+# Then isolate r2 before the preflight's runtime-account checks, and finish all
+# read-only preflight checks before workspace writes, package installation,
+# compilation, and Observer startup.
+network_at = launcher.index('echo "[Network] Applying R2-only network isolation..."')
 preflight_at = launcher.index('bash "$R2_PREFLIGHT"')
+if launcher.index("systemctl is-active --quiet r2-3po.service") > network_at:
+    raise SystemExit("duplicate service check must precede temporary network rules")
+if launcher.index("pgrep -x r2") > network_at:
+    raise SystemExit("duplicate process check must precede temporary network rules")
+if network_at > preflight_at:
+    raise SystemExit("R2-only network isolation must precede runtime preflight")
 for marker in (
-    'systemctl is-active --quiet r2-3po.service',
-    'mkdir -p "$R2_ROOT"',
+    'Checking R2 workspace directories...',
     'Checking the local Ollama API and required model',
     'sudo apt-get install -y libfaketime',
     'Recompiling R2',
