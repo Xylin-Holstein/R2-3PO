@@ -45,9 +45,10 @@ require(
     "the launcher passes one selected model identity to both conversation and vision",
 )
 require(
-    'http://127.0.0.1:11434/api/tags' in launcher
-    and 'os.environ["R2_MODEL"]' in launcher
-    and 'sudo -u r2 env R2_MODEL="$R2_MODEL" python3' in launcher,
+    'R2_OLLAMA_BASE_URL="${R2_OLLAMA_BASE_URL:-http://127.0.0.1:11435}"' in launcher
+    and 'sudo -u r2 env R2_MODEL="$R2_MODEL" R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL"' in launcher
+    and "preflight_ollama_model.py" in launcher
+    and 'systemctl show r2-ollama.service -p User' in launcher,
     "preflight checks that the selected model is installed before launching R2 as Linux user r2",
 )
 require(
