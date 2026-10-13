@@ -11,6 +11,13 @@ class OvernightServiceTests(unittest.TestCase):
         from datetime import datetime, timezone
 
         offset = -852076800
+        baseline = datetime(2026, 10, 13, 12, 0, 0, tzinfo=timezone.utc)
+        baseline_virtual = datetime.fromtimestamp(baseline.timestamp() + offset, timezone.utc)
+        self.assertEqual(
+            baseline_virtual,
+            datetime(1999, 10, 13, 12, 0, 0, tzinfo=timezone.utc),
+        )
+
         before = datetime(1999, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
         host_before = before.timestamp() - offset
         virtual_before = datetime.fromtimestamp(host_before + offset, timezone.utc)
