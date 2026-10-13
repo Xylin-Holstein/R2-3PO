@@ -78,6 +78,14 @@ done
 echo "All R2 source modules found."
 echo
 
+# Read-only host/database/device checks run before build or runtime setup.
+R2_PREFLIGHT="$R2_SOURCE/tools/preflight_r2_hardware.sh"
+if ! bash "$R2_PREFLIGHT"; then
+    echo
+    echo "R2 launch cancelled: preflight reported one or more failures."
+    read -r -p "Press Enter to continue launching R2, or Ctrl+C to cancel..."
+fi
+
 echo "[2/4] Configuring R2 private clock..."
 echo
 
