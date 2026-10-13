@@ -7,6 +7,9 @@ R2_SOURCE="${R2_SOURCE:-$R2_ROOT/R2}"
 R2_EXEC="${R2_EXEC:-$R2_ROOT/r2}"
 R2_FX_DIR="${R2_FX_DIR:-$R2_ROOT/R2_sounds/FX}"
 OLLAMA_TAGS_URL="http://127.0.0.1:11434/api/tags"
+R2_MODEL="${R2_MODEL:-gemma3:4b}"
+R2_VISION_MODEL="$R2_MODEL"
+export R2_MODEL R2_VISION_MODEL
 
 # Keep the runtime account's home-relative defaults inside the canonical R2
 # project tree; the Linux account's actual home is not a second data directory.
@@ -98,9 +101,9 @@ fi
 # This is localhost-only; no model downloads or external network requests occur.
 [[ -r "$R2_SOURCE/tools/preflight_ollama_model.py" ]] ||
     fail "shared Ollama inference preflight is missing: $R2_SOURCE/tools/preflight_ollama_model.py"
-log "Waiting for local Qwen 3.5 model availability and a real chat completion..."
-if ! python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 60 --timeout 180; then
-    fail "Ollama did not complete a real qwen3.5:9b chat preflight. Check the local model/server; systemd will retry automatically."
+log "Waiting for local $R2_MODEL availability and a real chat completion..."
+if ! R2_MODEL="$R2_MODEL" python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 60 --timeout 180; then
+    fail "Ollama did not complete a real $R2_MODEL chat preflight. Check the local model/server; systemd will retry automatically."
 fi
 
 # Preserve the established private, continuously advancing 1999 clock. The host clock is untouched.
@@ -147,7 +150,8 @@ R2_ENV=(/usr/bin/env
     "R2_OLLAMA_TIMEOUT_SECONDS=${R2_OLLAMA_TIMEOUT_SECONDS:-}"
     "R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU"
     "R2_FX_DIR=$R2_FX_DIR"
-    "R2_VISION_MODEL=qwen3.5:9b"
+    "R2_MODEL=$R2_MODEL"
+    "R2_VISION_MODEL=$R2_VISION_MODEL"
     "$R2_EXEC")
 
 # The inhibitor, when available, already wraps this entire runner and its child.
