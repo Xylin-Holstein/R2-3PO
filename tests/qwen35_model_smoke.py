@@ -32,7 +32,7 @@ assert "r2_reality_autonomous_feed_if_needed(void)" in reality
 assert "r2_reality_autonomous_food_available(void)" in reality
 assert 'const char *world_scan = reply;' in core and 'r2_reality_fridge_eat(fields[1], -1.0)' in core
 assert 'r2_sounds_process_reply(reply)' in core and 'r2_reply_sanitize(reply)' in core
-assert 'legacy_copy_table' in reality and 'r2_reality_item_memory' in reality
+assert 'legacy_table_exists' in reality and 'r2_reality_item_memory' in reality
 assert 'r2_food_experiences' in reality and 'r2_food_preferences' in reality and 'r2_money_account' in reality
 assert 'guaranteed fridge meal' not in reality
 assert 'fridge_seed_if_empty_locked' not in reality
