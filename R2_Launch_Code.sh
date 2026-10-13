@@ -59,6 +59,9 @@ REQUIRED_FILES=(
 
     "$R2_SOURCE/shell.c"
     "$R2_SOURCE/shell.h"
+
+    "$R2_SOURCE/TV.py"
+    "$R2_SOURCE/GameBoyAdvance.py"
 )
 
 for FILE in "${REQUIRED_FILES[@]}"; do
