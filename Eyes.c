@@ -109,6 +109,8 @@ struct R2Eyes
 #define R2_VWEBCAM_MAX_W 960U
 #define R2_VWEBCAM_MAX_H 540U
 static pid_t r2_vwebcam_pid = -1;
+static uint64_t r2_vwebcam_last_publish_ms = 0;
+static uint64_t r2_vwebcam_last_status_ms = 0;
 
 static int r2_vwebcam_prepare_dir(void)
 {
@@ -125,8 +127,19 @@ static int r2_vwebcam_prepare_dir(void)
 
 static void r2_vwebcam_write_status(const R2Eyes *eyes, int active)
 {
+    uint64_t now_ms = eyes ? eyes->timestamp : 0;
+    if (active && eyes && eyes->frame_count == 0) {
+        r2_vwebcam_last_publish_ms = 0;
+        r2_vwebcam_last_status_ms = 0;
+    } else if (active && now_ms && r2_vwebcam_last_status_ms &&
+               now_ms >= r2_vwebcam_last_status_ms &&
+               now_ms - r2_vwebcam_last_status_ms < 500) {
+        return;
+    }
     if (r2_vwebcam_prepare_dir() != 0)
         return;
+    if (active && now_ms)
+        r2_vwebcam_last_status_ms = now_ms;
     char tmp[PATH_MAX], path[PATH_MAX], source[sizeof(eyes->source_name)];
     int tn = snprintf(tmp, sizeof(tmp), "%s/status.tmp", R2_VWEBCAM_DIR);
     int pn = snprintf(path, sizeof(path), "%s/status.txt", R2_VWEBCAM_DIR);
@@ -167,6 +180,10 @@ static void r2_vwebcam_write_status(const R2Eyes *eyes, int active)
 
 static void r2_vwebcam_publish_frame(const R2Eyes *eyes)
 {
+    if (eyes && eyes->timestamp && r2_vwebcam_last_publish_ms &&
+        eyes->timestamp >= r2_vwebcam_last_publish_ms &&
+        eyes->timestamp - r2_vwebcam_last_publish_ms < 100)
+        return;
     if (!eyes || !eyes->open || !eyes->frame_buffer ||
         !eyes->format.width || !eyes->format.height ||
         r2_vwebcam_prepare_dir() != 0)
@@ -221,6 +238,8 @@ static void r2_vwebcam_publish_frame(const R2Eyes *eyes)
     }
     if (failed)
         (void)unlink(tmp);
+    else if (eyes->timestamp)
+        r2_vwebcam_last_publish_ms = eyes->timestamp;
 }
 
 static void r2_vwebcam_start_viewer(void)
