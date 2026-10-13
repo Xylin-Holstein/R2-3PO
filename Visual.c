@@ -393,10 +393,28 @@ char *r2_visual_analyze_frame(const R2VisionFrame *frame,
     if (!description) { free(jpeg); return NULL; }
 
     char image_path[PATH_MAX];
-    snprintf(image_path, sizeof(image_path), "%s/visual_%llu_%llu.jpg",
-             visual_directory,
-             (unsigned long long)frame->timestamp,
-             (unsigned long long)frame->frame_number);
+    char image_name[64];
+    int name_length = snprintf(image_name, sizeof(image_name),
+                               "visual_%llu_%llu.jpg",
+                               (unsigned long long)frame->timestamp,
+                               (unsigned long long)frame->frame_number);
+    size_t directory_length = strnlen(visual_directory, sizeof(visual_directory));
+    if (name_length < 0 || (size_t)name_length >= sizeof(image_name) ||
+        directory_length == 0 || directory_length >= sizeof(image_path) ||
+        directory_length + 1 + (size_t)name_length >= sizeof(image_path)) {
+        errno = ENAMETOOLONG;
+        r2_log_sensory("visual_image_archive_failed",
+                       "R2 analyzed an image but could not preserve its JPEG.",
+                       "The visual archive path exceeds the supported path length.",
+                       visual_directory);
+        free(jpeg);
+        free(description);
+        return NULL;
+    }
+    memcpy(image_path, visual_directory, directory_length);
+    image_path[directory_length] = '/';
+    memcpy(image_path + directory_length + 1, image_name,
+           (size_t)name_length + 1);
     int image_fd = open(image_path, O_WRONLY | O_CREAT | O_EXCL, 0640);
     if (image_fd < 0 || write_all(image_fd, jpeg, jpeg_length) != 0) {
         if (image_fd >= 0) close(image_fd);
