@@ -32,7 +32,7 @@ static char MODEL[256] = "gemma3:4b";
        and temporarily inject them immediately before the relevant
        user message.
 
-   This gives llama3 both broad historical memory and focused
+   This gives configured conversation model both broad historical memory and focused
    contextual memory.
 */
 #define MAX_STARTUP_MEMORIES 100
@@ -924,7 +924,7 @@ static int save_memory(
    This is intentionally a SINGLE pinned message rather than
    100 individual messages.
 
-   That gives llama3 broad access to R2's recent long-term memory
+   That gives configured conversation model broad access to R2's recent long-term memory
    without consuming 100 separate entries in the conversation
    history.
 
@@ -2856,7 +2856,7 @@ static char *chat_with_relevant_memories(
            -> current user message
 
        This avoids creating an artificial consecutive USER message,
-       which can change how llama3 interprets the conversation and
+       which can change how configured conversation model interprets the conversation and
        can suppress natural conversational behavior.
 
        The permanent conversation is never modified by retrieval.
@@ -6269,7 +6269,7 @@ int r2_init(void)
        R2 loads the newest 100 persistent memories when he starts.
 
        They are inserted into the Ollama conversation as ONE pinned
-       context message so llama3 has direct access to them.
+       context message so configured conversation model has direct access to them.
 
        This does NOT replace dynamic retrieval.
 
