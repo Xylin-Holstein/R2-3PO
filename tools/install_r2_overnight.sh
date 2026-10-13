@@ -16,9 +16,9 @@ if [[ "$EUID" -eq 0 ]]; then ROOT_CMD=(); else ROOT_CMD=(sudo); fi
 root_run() { "${ROOT_CMD[@]}" "$@"; }
 run_as_r2() {
     if [[ "$EUID" -eq 0 ]]; then
-        runuser -u r2 -- "$@"
+        runuser -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 "$@"
     else
-        sudo -u r2 -- "$@"
+        sudo -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 "$@"
     fi
 }
 
