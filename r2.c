@@ -6239,7 +6239,7 @@ static char *strip_action_markers(const char *input)
                         if (!strcmp(tag, single[k])) { known = 1; break; }
                     if (known) { i = (size_t)(close - input) + 1; continue; }
                     if (!strcmp(tag, "WORLD")) {
-                        const char *line_end = strpbrk(close + 1, "\\r\\n");
+                        const char *line_end = strpbrk(close + 1, "\r\n");
                         i = line_end ? (size_t)(line_end - input) + 1 : n;
                         continue;
                     }
