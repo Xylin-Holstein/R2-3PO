@@ -301,6 +301,17 @@ static const char *SYSTEM_PROMPT =
 "Do not substitute a description of file contents for an actual WRITE.\n"
 "\n"
 "============================================================\n"
+"============================================================\n"
+"REALITY, NEEDS, INVENTORY, FRIDGE, MONEY, AND LEARNING TOOLS\n"
+"Read with [REALITY_STATUS], [ROOM_LOOK], [FRIDGE_LIST], [MONEY_STATUS], [ADDICTION_REPORT], [ALTERNATE_LIST].\n"
+"List: [REALITY_LIST] container [END REALITY_LIST]. Add: [REALITY_ADD] name|description|container|quantity [END REALITY_ADD].\n"
+"Move: [REALITY_MOVE] item|container [END REALITY_MOVE]. Remove: [REALITY_REMOVE] item [END REALITY_REMOVE].\n"
+"Fridge take: [FRIDGE_TAKE] food [END FRIDGE_TAKE]. Eat tracked food: [EAT] food [END EAT]. Eat fridge food: [FRIDGE_EAT] food [END FRIDGE_EAT].\n"
+"Rate only a real eating experience: [FOOD_RATE] food|-2..2|notes [END FOOD_RATE]. Sleep: [SLEEP] hours [END SLEEP]. Dream: [DREAM] description [END DREAM].\n"
+"Location: [LOCATION] home or away [END LOCATION] only for a known transition. Money: [MONEY_RECEIVE] amount [END MONEY_RECEIVE], [MONEY_DEPOSIT] amount [END MONEY_DEPOSIT], [MONEY_WITHDRAW] amount [END MONEY_WITHDRAW].\n"
+"Purchase: [BUY] name|description|price|destination [END BUY]. Counterfactual: [ALTERNATE_CREATE] name|scenario|assumptions|prediction|conclusion [END ALTERNATE_CREATE].\n"
+"Only C tool results confirm success. Never invent physical actions, food, money, inventory, sleep, dreams, or location changes.\n"
+"============================================================\n"
 "REAL BACKGROUND HANDS\n"
 "============================================================\n"
 "When you want the computer to perform a task, use:\n"
@@ -4155,6 +4166,31 @@ static char *extract_marker(
    TOOL PROCESSING
    ============================================================ */
 
+static int split_tool_fields(char *text, char **fields, size_t capacity)
+{
+    if (!text || !fields || !capacity) return -1;
+    size_t count = 1; fields[0] = trim(text);
+    for (char *p = text; *p; ++p) if (*p == '|') {
+        *p = '\0'; if (count >= capacity) return -1; fields[count++] = trim(p + 1);
+    }
+    return (int)count;
+}
+static int parse_tool_double(const char *text, double *value)
+{
+    if (!text || !*text || !value) return 0;
+    errno = 0; char *end = NULL; double v = strtod(text, &end);
+    while (end && *end && isspace((unsigned char)*end)) ++end;
+    if (errno || end == text || (end && *end) || !isfinite(v)) return 0;
+    *value = v; return 1;
+}
+static int parse_tool_int(const char *text, long *value)
+{
+    if (!text || !*text || !value) return 0;
+    errno = 0; char *end = NULL; long v = strtol(text, &end, 10);
+    while (end && *end && isspace((unsigned char)*end)) ++end;
+    if (errno || end == text || (end && *end)) return 0;
+    *value = v; return 1;
+}
 static char *process_tools(
     const char *reply)
 {
@@ -4189,6 +4225,136 @@ static char *process_tools(
             results[len] = '\0';                                     \
         }                                                             \
     } while (0)
+
+    /* Persistent Reality and learning operations. Every result is verified by C. */
+    if (strstr(reply, "[REALITY_STATUS]")) {
+        char *v = r2_reality_status(); APPEND("REALITY STATUS:\n%s\n", v ? v : "unavailable\n"); free(v);
+    }
+    if (strstr(reply, "[ROOM_LOOK]")) {
+        char *v = r2_reality_room_look(); APPEND("ROOM LOOK:\n%s\n", v ? v : "unavailable\n"); free(v);
+    }
+    if (strstr(reply, "[FRIDGE_LIST]")) {
+        char *v = r2_fridge_context(); APPEND("FRIDGE:\n%s\n", v ? v : "unavailable\n"); free(v);
+    }
+    if (strstr(reply, "[MONEY_STATUS]")) {
+        char *v = r2_reality_money_context(); APPEND("MONEY:\n%s\n", v ? v : "unavailable\n"); free(v);
+    }
+    if (strstr(reply, "[ADDICTION_REPORT]")) {
+        char *v = r2_addiction_report(); APPEND("LEARNED HABITS (not a diagnosis):\n%s\n", v ? v : "unavailable\n"); free(v);
+    }
+    if (strstr(reply, "[ALTERNATE_LIST]")) {
+        char *v = r2_altself_list(20); APPEND("HYPOTHETICAL BRANCHES:\n%s\n", v ? v : "unavailable\n"); free(v);
+    }
+    size_t rp = 0;
+    while (1) {
+        char *e = extract_marker(reply, "[REALITY_LIST]", "[END REALITY_LIST]", &rp);
+        if (!e) break; char *v = r2_reality_list(trim(e));
+        APPEND("INVENTORY:\n%s\n", v ? v : "unavailable\n"); free(v); free(e);
+    }
+    rp = 0;
+    while (1) {
+        char *e = extract_marker(reply, "[REALITY_ADD]", "[END REALITY_ADD]", &rp);
+        if (!e) break; char *f[4] = {0}; long q = 1; int n = split_tool_fields(e, f, 4);
+        int ok = n == 4 && *f[0] && *f[2] && parse_tool_int(f[3], &q) && q > 0 && q <= INT_MAX;
+        int rc = ok ? r2_reality_add_item(f[0], f[1], f[2], (int)q) : -1;
+        APPEND("REALITY ADD %s.\n", rc == 0 ? "RESULT: item saved" : "ERROR: expected name|description|container|quantity"); free(e);
+    }
+    rp = 0;
+    while (1) {
+        char *e = extract_marker(reply, "[REALITY_MOVE]", "[END REALITY_MOVE]", &rp);
+        if (!e) break; char *f[2] = {0}; int n = split_tool_fields(e, f, 2);
+        int rc = n == 2 ? r2_reality_move_item(f[0], f[1]) : -1;
+        APPEND("REALITY MOVE %s.\n", rc == 0 ? "RESULT: moved" : "ERROR: expected item|container"); free(e);
+    }
+    rp = 0;
+    while (1) {
+        char *e = extract_marker(reply, "[REALITY_REMOVE]", "[END REALITY_REMOVE]", &rp);
+        if (!e) break; int rc = r2_reality_remove_item(trim(e));
+        APPEND("REALITY REMOVE %s.\n", rc == 0 ? "RESULT: removed" : "ERROR: item not found"); free(e);
+    }
+    rp = 0;
+    while (1) {
+        char *e = extract_marker(reply, "[FRIDGE_TAKE]", "[END FRIDGE_TAKE]", &rp);
+        if (!e) break; int rc = r2_fridge_take(trim(e));
+        APPEND("FRIDGE TAKE %s.\n", rc == 0 ? "RESULT: moved to inventory" : "ERROR: food unavailable"); free(e);
+    }
+    rp = 0;
+    while (1) {
+        char *e = extract_marker(reply, "[EAT]", "[END EAT]", &rp);
+        if (!e) break; int rc = r2_reality_eat(trim(e), -1.0);
+        APPEND("EAT %s.\n", rc == 0 ? "RESULT: consumed tracked food" : "ERROR: food unavailable"); free(e);
+    }
+    rp = 0;
+    while (1) {
+        char *e = extract_marker(reply, "[FRIDGE_EAT]", "[END FRIDGE_EAT]", &rp);
+        if (!e) break; int rc = r2_reality_fridge_eat(trim(e), -1.0);
+        APPEND("FRIDGE EAT %s.\n", rc == 0 ? "RESULT: consumed stock" : "ERROR: food unavailable"); free(e);
+    }
+    rp = 0;
+    while (1) {
+        char *e = extract_marker(reply, "[SLEEP]", "[END SLEEP]", &rp);
+        if (!e) break; double hours = 0; int ok = parse_tool_double(trim(e), &hours) && hours > 0 && hours <= 24;
+        int rc = ok ? r2_reality_sleep(hours) : -1;
+        APPEND("SLEEP %s.\n", rc == 0 ? "RESULT: needs updated" : "ERROR: enter hours in (0,24]"); free(e);
+    }
+    rp = 0;
+    while (1) {
+        char *e = extract_marker(reply, "[DREAM]", "[END DREAM]", &rp);
+        if (!e) break; int rc = r2_reality_record_dream(trim(e));
+        APPEND("DREAM %s.\n", rc == 0 ? "RESULT: saved as a dream" : "ERROR: could not save"); free(e);
+    }
+    rp = 0;
+    while (1) {
+        char *e = extract_marker(reply, "[FOOD_RATE]", "[END FOOD_RATE]", &rp);
+        if (!e) break; char *f[3] = {0}; long rating = 99; int n = split_tool_fields(e, f, 3);
+        int ok = n == 3 && parse_tool_int(f[1], &rating) && rating >= -2 && rating <= 2;
+        int rc = ok ? r2_reality_rate_food(f[0], (int)rating, f[2]) : -1;
+        APPEND("FOOD RATE %s.\n", rc == 0 ? "RESULT: experience recorded" : "ERROR: expected food|-2..2|notes"); free(e);
+    }
+    rp = 0;
+    while (1) {
+        char *e = extract_marker(reply, "[LOCATION]", "[END LOCATION]", &rp);
+        if (!e) break; char *where = trim(e); int home = !strcasecmp(where, "home");
+        int valid = home || !strcasecmp(where, "away") || !strcasecmp(where, "outside");
+        int rc = valid ? r2_reality_set_location(home) : -1;
+        APPEND("LOCATION %s.\n", rc == 0 ? (home ? "RESULT: home" : "RESULT: away") : "ERROR: expected home or away"); free(e);
+    }
+    rp = 0;
+    while (1) {
+        char *e = extract_marker(reply, "[MONEY_RECEIVE]", "[END MONEY_RECEIVE]", &rp);
+        if (!e) break; double amount = 0; int ok = parse_tool_double(trim(e), &amount) && amount > 0;
+        int rc = ok ? r2_reality_money_receive(amount) : -1;
+        APPEND("MONEY RECEIVE %s.\n", rc == 0 ? "RESULT: recorded" : "ERROR: expected positive amount"); free(e);
+    }
+    rp = 0;
+    while (1) {
+        char *e = extract_marker(reply, "[MONEY_DEPOSIT]", "[END MONEY_DEPOSIT]", &rp);
+        if (!e) break; double amount = 0; int ok = parse_tool_double(trim(e), &amount) && amount > 0;
+        int rc = ok ? r2_reality_money_deposit(amount) : -1;
+        APPEND("MONEY DEPOSIT %s.\n", rc == 0 ? "RESULT: deposited" : "ERROR: check cash"); free(e);
+    }
+    rp = 0;
+    while (1) {
+        char *e = extract_marker(reply, "[MONEY_WITHDRAW]", "[END MONEY_WITHDRAW]", &rp);
+        if (!e) break; double amount = 0; int ok = parse_tool_double(trim(e), &amount) && amount > 0;
+        int rc = ok ? r2_reality_money_withdraw(amount) : -1;
+        APPEND("MONEY WITHDRAW %s.\n", rc == 0 ? "RESULT: withdrawn" : "ERROR: check balance"); free(e);
+    }
+    rp = 0;
+    while (1) {
+        char *e = extract_marker(reply, "[BUY]", "[END BUY]", &rp);
+        if (!e) break; char *f[4] = {0}; double price = 0; int n = split_tool_fields(e, f, 4);
+        int ok = n == 4 && *f[0] && *f[3] && parse_tool_double(f[2], &price) && price >= 0;
+        int rc = ok ? r2_reality_buy_item(f[0], f[1], price, f[3]) : -1;
+        APPEND("PURCHASE %s.\n", rc == 0 ? "RESULT: recorded" : "ERROR: expected name|description|price|destination"); free(e);
+    }
+    rp = 0;
+    while (1) {
+        char *e = extract_marker(reply, "[ALTERNATE_CREATE]", "[END ALTERNATE_CREATE]", &rp);
+        if (!e) break; char *f[5] = {0}; int n = split_tool_fields(e, f, 5);
+        int64_t id = n == 5 && *f[0] && *f[1] ? r2_altself_create(f[0], f[1], f[2], f[3], f[4], 0) : -1;
+        APPEND("ALTERNATE-SELF %s.\n", id > 0 ? "RESULT: hypothetical saved separately" : "ERROR: expected name|scenario|assumptions|prediction|conclusion"); free(e);
+    }
 
     if (strstr(reply, "[READ_DIARY]")) {
 
