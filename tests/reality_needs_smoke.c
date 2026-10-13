@@ -922,6 +922,27 @@ int main(void)
     if (hunger < 89.8 || hunger > 90.1)
         fail("fullness must drain by about 10 points over 475 seconds (0.1 per 4.75 seconds)");
 
+    /* Low fullness is an urgent hunger state, but the prolonged-starvation
+       label belongs to the independent 72-hour no-meal threshold. */
+    if (sqlite3_open(path, &db) != SQLITE_OK)
+        fail("could not open Reality database for starvation-label regression");
+    if (sqlite3_prepare_v2(db,
+        "UPDATE r2_reality_self SET hunger=5,seconds_since_meal=3600,last_tick=? WHERE id=1",
+        -1, &st, NULL) != SQLITE_OK)
+        fail("could not prepare early starvation-label state");
+    sqlite3_bind_int64(st, 1, (sqlite3_int64)time(NULL));
+    if (sqlite3_step(st) != SQLITE_DONE)
+        fail("could not seed early starvation-label state");
+    sqlite3_finalize(st);
+    sqlite3_close(db);
+    char *early_status = r2_reality_status();
+    if (!early_status || !strstr(early_status, "(critically hungry)") ||
+        strstr(early_status, "(starving)")) {
+        free(early_status);
+        fail("low fullness before 72 hours must not be mislabeled as prolonged starvation");
+    }
+    free(early_status);
+
     /* At the 72-hour starvation marker, status must not still say only
        "very hungry" while the prolonged-starvation event is recorded. */
     if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality database for starvation status");
