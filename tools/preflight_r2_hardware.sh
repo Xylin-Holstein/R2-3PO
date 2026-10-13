@@ -124,6 +124,7 @@ for file in \
   Addiction.c Addiction.h \
   Reward.c Reward.h \
   AlternateSelf.c AlternateSelf.h \
+  Imagination.c Imagination.h \
   Visual.c Visual.h \
   Ears.c Ears.h \
   Eyes.c Eyes.h \
