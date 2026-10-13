@@ -1893,7 +1893,9 @@ static void shell_gameboy_sync_verified_events(void)
 
 static int shell_gameboy(const char *arg)
 {
-    const char *device = "/home/x/R2_Home/Devices/GameBoyAdvance/GameBoyAdvance";
+    const char *configured = getenv("R2_GAMEBOY_EXECUTABLE");
+    const char *device = configured && *configured
+        ? configured : "/home/x/R2_Home/Devices/GameBoyAdvance/GameBoyAdvance";
     const char *sub = (arg && *arg) ? arg : "power on";
     char *copy = strdup(sub);
     if (!copy) {
