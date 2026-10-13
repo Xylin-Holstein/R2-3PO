@@ -72,6 +72,19 @@ int main(void)
     assert(r2_sounds_select_file(mismatch_dir, "beep", "curious", path, sizeof(path)) != 0);
     assert(r2_sounds_select_file(mismatch_dir, "beep", "sleepy", path, sizeof(path)) == 0);
     assert(strstr(path, "R2_Beep_Sleepy.mp3"));
+    char conflict_dir[] = "/tmp/r2-fx-conflict-XXXXXX";
+    assert(mkdtemp(conflict_dir));
+    touch(conflict_dir, "R2_Beep_Sleepy_Default.mp3");
+    /* A generic suffix must not disguise a clip explicitly tagged for a
+       conflicting state. */
+    assert(r2_sounds_select_file(conflict_dir, "beep", "curious", path, sizeof(path)) != 0);
+    assert(r2_sounds_select_file(conflict_dir, "beep", "sleepy", path, sizeof(path)) == 0);
+    assert(strstr(path, "R2_Beep_Sleepy_Default.mp3"));
+    char conflict_file[4096];
+    snprintf(conflict_file, sizeof(conflict_file), "%s/R2_Beep_Sleepy_Default.mp3", conflict_dir);
+    unlink(conflict_file);
+    rmdir(conflict_dir);
+
     char mismatch_file[4096];
     snprintf(mismatch_file, sizeof(mismatch_file), "%s/R2_Beep_Sleepy.mp3", mismatch_dir);
     unlink(mismatch_file);
