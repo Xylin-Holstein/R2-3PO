@@ -12,7 +12,8 @@
    FEATURE CONFIGURATION
    ============================================================ */
 
-#define MODEL "llama3"
+/* One model identity for all R2 conversation requests. */
+static char MODEL[256] = "gemma3:4b";
 
 #define THINK_INTERVAL 900
 
@@ -5985,8 +5986,34 @@ int r2_conversation(void)
    CORE INITIALIZATION / SHUTDOWN
    ============================================================ */
 
+static int configure_conversation_model(void)
+{
+    const char *requested = getenv("R2_MODEL");
+    if (!requested || !*requested)
+        return 0;
+
+    size_t length = strlen(requested);
+    if (length >= sizeof(MODEL))
+        return -1;
+
+    for (const unsigned char *p = (const unsigned char *)requested; *p; ++p) {
+        if (!( (*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
+               (*p >= '0' && *p <= '9') || *p == ':' || *p == '_' ||
+               *p == '-' || *p == '.' || *p == '/'))
+            return -1;
+    }
+
+    memcpy(MODEL, requested, length + 1);
+    return 0;
+}
+
 int r2_init(void)
 {
+    if (configure_conversation_model() != 0) {
+        fprintf(stderr, "[R2] Invalid R2_MODEL value; refusing to start with an invalid model name.\\n");
+        return -1;
+    }
+
     shutting_down = 0;
     watch_running = 0;
     startup_memory_loaded = 0;
