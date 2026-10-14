@@ -52,7 +52,27 @@ static int is_hidden_close(const char *p, size_t *length)
 static const char *find_hidden_close_balanced(const char *p,
                                                const HiddenBlock *block)
 {
-    size_t capacity = strlen(p) + 1;
+    /*
+       Bound stack memory by the number of actual nested private-tag openings,
+       not by the response's byte length. A long ordinary response should not
+       allocate one pointer per character just to sanitize a single tag.
+    */
+    size_t nested_open_count = 0;
+    const char *scan = p;
+    while (*scan) {
+        const HiddenBlock *nested = NULL;
+        const char *after_open = find_hidden_open(scan, &nested);
+        if (after_open) {
+            if (nested_open_count == (size_t)-1) return NULL;
+            ++nested_open_count;
+            scan = after_open;
+        } else {
+            ++scan;
+        }
+    }
+
+    if (nested_open_count == (size_t)-1) return NULL;
+    size_t capacity = nested_open_count + 1;
     if (capacity > (size_t)-1 / sizeof(const HiddenBlock *)) return NULL;
     const HiddenBlock **stack = malloc(capacity * sizeof(*stack));
     if (!stack) return NULL;
