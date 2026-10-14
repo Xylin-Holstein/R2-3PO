@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 header = (ROOT / "r2.h").read_text(encoding="utf-8")
 core = (ROOT / "r2.c").read_text(encoding="utf-8")
 readme = (ROOT / "README.md").read_text(encoding="utf-8")
+conversation_qa = (ROOT / "docs/conversation-quality-regression.md").read_text(encoding="utf-8")
 
 
 def require(ok: bool, message: str) -> None:
@@ -27,6 +28,12 @@ require(
 require(
     "Qwen 3.5 model broad access" in core,
     "startup memory comments describe the configured Qwen model rather than a retired model",
+)
+require(
+    "currently configured local Ollama model" in conversation_qa
+    and "Gemma" not in conversation_qa
+    and "llama3" not in conversation_qa.lower(),
+    "live chat QA documentation stays model-current instead of naming a retired model",
 )
 for stale_name in ("llama3", "gemma", "qwen2.5vl"):
     require(
