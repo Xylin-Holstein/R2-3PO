@@ -321,13 +321,14 @@ require(
 
 require(
     "static int message_add_pair_locked(" in core
-    and 'message_add_pair_locked("assistant", reply, "user", tools)' in core
+    and '"[R2_INTERNAL_TOOL_RESULT]\\n"' in core
+    and 'message_add_pair_locked(\n                    "assistant", reply, "user", tagged_tool_result)' in core
     and "Append the internal assistant tool-call and its tool-result as one logical" in core
     and "Cannot fit complete assistant/tool history pair without evicting pinned context." in core,
-    "tool-call and tool-result history is appended atomically, preventing half-written turns",
+    "tool-call and tagged tool-result history is appended atomically, preserving attribution",
 )
 
-tool_pair_start = core.find('message_add_pair_locked("assistant", reply, "user", tools)')
+tool_pair_start = core.find('const char tool_result_prefix[] = "[R2_INTERNAL_TOOL_RESULT]\\n"')
 tool_pair_end = core.find("reply = chat_with_relevant_memories(message);", tool_pair_start)
 require(
     tool_pair_start >= 0 and tool_pair_end > tool_pair_start
