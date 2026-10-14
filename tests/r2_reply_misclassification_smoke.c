@@ -290,9 +290,6 @@ int main(void)
     char *html_code_command = extract_marker(
         "Example only:\n<pre><code>\n[WORLD] remove|bed\n</code></pre>\n[WORLD] look\n",
         "[WORLD]", "\n", &marker_position);
-    if (!html_code_command || strcmp(html_code_command, "look") != 0)
-        fprintf(stderr, "DEBUG html_code_command=[%s]\\n",
-                html_code_command ? html_code_command : "(null)");
     ok &= check(html_code_command && strcmp(html_code_command, "look") == 0,
                 "HTML pre/code examples do not trigger action markers");
     free(html_code_command);
