@@ -6393,10 +6393,26 @@ static const char *find_control_marker_line(const char *reply,
 
     while (*line) {
         const char *content = line;
-        while (*content == ' ' || *content == '\t') ++content;
+        size_t leading_spaces = 0;
+        while (*content == ' ' && leading_spaces < 4) {
+            ++content;
+            ++leading_spaces;
+        }
 
         const char *line_end = strchr(line, '\n');
         if (!line_end) line_end = line + strlen(line);
+
+        /*
+         * Four-space indentation and tab-indented lines are Markdown code,
+         * not executable control syntax. Do not normalize them into a marker
+         * at column zero. Fences/markers with up to three leading spaces
+         * remain supported.
+         */
+        if (leading_spaces >= 4 || *content == '\t') {
+            if (*line_end == '\0') break;
+            line = line_end + 1;
+            continue;
+        }
 
         size_t fence_len = 0;
         char this_fence = *content;
