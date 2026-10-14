@@ -5038,6 +5038,10 @@ static char *r2_build_associative_search_query(const char *query)
     return combined;
 }
 
+static const char *find_control_marker_line(const char *reply,
+                                            const char *marker,
+                                            size_t from_position);
+
 static int r2_recent_message_is_tool_payload(const char *content)
 {
     static const char *const markers[] = {
@@ -5047,7 +5051,7 @@ static int r2_recent_message_is_tool_payload(const char *content)
     };
     if (!content) return 1;
     for (size_t i = 0; i < sizeof(markers) / sizeof(markers[0]); ++i)
-        if (strstr(content, markers[i])) return 1;
+        if (find_control_marker_line(content, markers[i], 0)) return 1;
     return 0;
 }
 
@@ -6792,7 +6796,7 @@ static char *process_tools_with_status(
     }
 
     /* Alternate-Self Lab queries read, create, or compare hypothetical branches only. */
-    if (strstr(reply, "[ALTERNATE_LIST]")) {
+    if (find_control_marker_line(reply, "[ALTERNATE_LIST]", 0)) {
         char *branches = r2_altself_list(20);
         if (branches) {
             APPEND("ALTERNATE-SELF LAB RESULT (all entries are hypothetical):\n%s\n", branches);
@@ -6802,7 +6806,7 @@ static char *process_tools_with_status(
         }
     }
 
-    const char *alt_marker = strstr(reply, "[ALTERNATE_SHOW]");
+    const char *alt_marker = find_control_marker_line(reply, "[ALTERNATE_SHOW]", 0);
     if (alt_marker) {
         long long branch_id = 0;
         if (sscanf(alt_marker + strlen("[ALTERNATE_SHOW]"), "%lld", &branch_id) == 1 && branch_id > 0) {
@@ -6814,7 +6818,7 @@ static char *process_tools_with_status(
         } else APPEND("ALTERNATE-SELF LAB ERROR: expected a positive branch ID.\n");
     }
 
-    alt_marker = strstr(reply, "[ALTERNATE_COMPARE]");
+    alt_marker = find_control_marker_line(reply, "[ALTERNATE_COMPARE]", 0);
     if (alt_marker) {
         long long first_id = 0, second_id = 0;
         char extra = '\0';
@@ -6828,7 +6832,7 @@ static char *process_tools_with_status(
         } else APPEND("ALTERNATE-SELF LAB ERROR: expected two positive branch IDs.\n");
     }
 
-    alt_marker = strstr(reply, "[ALTERNATE_RETAIN]");
+    alt_marker = find_control_marker_line(reply, "[ALTERNATE_RETAIN]", 0);
     if (alt_marker) {
         long long branch_id = 0;
         if (sscanf(alt_marker + strlen("[ALTERNATE_RETAIN]"), "%lld", &branch_id) == 1 &&
@@ -6838,7 +6842,7 @@ static char *process_tools_with_status(
             APPEND("ALTERNATE-SELF LAB ERROR: branch could not be retained; expected an existing positive ID.\n");
     }
 
-    alt_marker = strstr(reply, "[ALTERNATE_DISCARD]");
+    alt_marker = find_control_marker_line(reply, "[ALTERNATE_DISCARD]", 0);
     if (alt_marker) {
         long long branch_id = 0;
         if (sscanf(alt_marker + strlen("[ALTERNATE_DISCARD]"), "%lld", &branch_id) == 1 &&
@@ -6848,7 +6852,7 @@ static char *process_tools_with_status(
             APPEND("ALTERNATE-SELF LAB ERROR: branch could not be discarded; expected an existing positive ID.\n");
     }
 
-    if (strstr(reply, "[READ_DIARY]")) {
+    if (find_control_marker_line(reply, "[READ_DIARY]", 0)) {
 
         char *diary_context =
             r2_diary_build_reflection_context(50);
@@ -6911,7 +6915,7 @@ static char *process_tools_with_status(
     }
 
     const char *m =
-        strstr(reply, "[READ]");
+        find_control_marker_line(reply, "[READ]", 0);
 
     if (m) {
 
@@ -6949,7 +6953,7 @@ static char *process_tools_with_status(
     }
 
     m =
-        strstr(reply, "[LIST]");
+        find_control_marker_line(reply, "[LIST]", 0);
 
     if (m) {
 
@@ -6990,7 +6994,7 @@ static char *process_tools_with_status(
     }
 
     m =
-        strstr(reply, "[DELETE]");
+        find_control_marker_line(reply, "[DELETE]", 0);
 
     if (m) {
 
@@ -7027,7 +7031,7 @@ static char *process_tools_with_status(
     }
 
     m =
-        strstr(reply, "[WRITE]");
+        find_control_marker_line(reply, "[WRITE]", 0);
 
     if (m) {
 
@@ -7083,10 +7087,8 @@ static char *process_tools_with_status(
                 content++;
 
             const char *e =
-                strstr(
-                    content,
-                    "[END WRITE]"
-                );
+                find_control_marker_line(reply, "[END WRITE]",
+                                               (size_t)(content - reply));
 
             if (e) {
 
@@ -7269,10 +7271,8 @@ static char *process_tools_with_status(
             m + 5;
 
         const char *e =
-            strstr(
-                p,
-                "[END RUN]"
-            );
+            find_control_marker_line(reply, "[END RUN]",
+                                           (size_t)(p - reply));
 
         if (e) {
 
@@ -7734,17 +7734,11 @@ static char *process_tools_with_status(
     }
 
     m =
-        strstr(
-            reply,
-            "[HAND]"
-        );
+        find_control_marker_line(reply, "[HAND]", 0);
 
     if (
         m &&
-        !strstr(
-            reply,
-            "[HAND_REQUEST]"
-        )
+        !find_control_marker_line(reply, "[HAND_REQUEST]", 0)
     ) {
 
         char cmd[MAX_COMMAND + 1] = {0};
