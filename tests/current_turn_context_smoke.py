@@ -151,4 +151,32 @@ require(
     "the conversation prompt preserves human/tool speaker attribution",
 )
 
+marker_parser_start = core.find("static const char *find_control_marker_line(")
+marker_parser_end = core.find("\nstatic char *extract_marker(", marker_parser_start)
+if marker_parser_start < 0 or marker_parser_end < 0:
+    raise SystemExit("Could not isolate the control-marker line parser.")
+marker_parser = core[marker_parser_start:marker_parser_end]
+require(
+    "fence_char" in marker_parser
+    and "in_fence" in marker_parser
+    and "from_position" in marker_parser
+    and "return content;" in marker_parser,
+    "control markers are accepted only as standalone line prefixes outside fenced examples",
+)
+require(
+    'find_control_marker_line(reply, "[WRITE]", 0)' in core
+    and 'find_control_marker_line(reply, "[RUN]", 0)' in core
+    and 'find_control_marker_line(reply, "[HAND]", 0)' in core
+    and 'find_control_marker_line(reply, "[WORLD]", 0)' in core
+    and 'find_control_marker_line(reply, "[END WRITE]"' in core
+    and 'find_control_marker_line(reply, "[END RUN]"' in core,
+    "filesystem, process, hand, and world action parsers all use line-scoped markers",
+)
+require(
+    'strstr(reply, "[WRITE]")' not in core
+    and 'strstr(reply, "[RUN]")' not in core
+    and 'strstr(reply, "[HAND]")' not in core,
+    "no direct substring-based execution path bypasses the control-marker parser",
+)
+
 print("Current-turn context separation smoke passed.")
