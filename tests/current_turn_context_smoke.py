@@ -132,7 +132,7 @@ require(
 )
 require(
     "static int r2_is_internal_tool_result(const Message *message)" in core
-    and "if (r2_is_internal_tool_result(m->content))\n            continue;" in recent_context,
+    and "if (r2_is_internal_tool_result(m))\n            continue;" in recent_context,
     "only explicitly tagged internal action-result messages are excluded from recent human-facing context",
 )
 ollama_start = core.find("static char *ollama_chat_with_limit(")
