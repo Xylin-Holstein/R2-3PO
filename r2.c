@@ -6462,6 +6462,11 @@ static const char *find_control_marker_line(const char *reply,
                 skip_html_line = 1;
             }
 
+            if (strstr(reply, "<pre><code>") || strstr(reply, "<!--")) {
+                fprintf(stderr, "DEBUG scan line=[%.*s] pre=%d code=%d comment=%d skip=%d fence=%d\\n",
+                        (int)(line_end - line), line, in_html_pre, in_html_code,
+                        in_html_comment, skip_html_line, in_fence);
+            }
             if (skip_html_line) {
                 if (in_html_comment && strstr(content, "-->"))
                     in_html_comment = 0;
