@@ -322,7 +322,7 @@ require(
 require(
     "static int message_add_pair_locked(" in core
     and '"[R2_INTERNAL_TOOL_RESULT]\\n"' in core
-    and 'message_add_pair_locked(\\n                    "assistant", reply, "user", tagged_tool_result)' in core
+    and 'message_add_pair_locked(\n                    "assistant", reply, "user", tagged_tool_result)' in core
     and "Append the internal assistant tool-call and its tool-result as one logical" in core
     and "Cannot fit complete assistant/tool history pair without evicting pinned context." in core,
     "tool-call and tagged tool-result history is appended atomically, preserving attribution",
