@@ -1397,7 +1397,7 @@ static int save_memory(
    This is intentionally a SINGLE pinned message rather than
    100 individual messages.
 
-   That gives the configured Qwen 3.5 model broad access to R2's recent long-term memory
+   That gives the configured local model broad access to R2's recent long-term memory
    without consuming 100 separate entries in the conversation
    history.
 
