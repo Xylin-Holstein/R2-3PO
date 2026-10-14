@@ -222,5 +222,58 @@ int main(void)
                 "failed corrective inference does not expose the original bad reply");
     free(missing_retry);
 
+    /* Tool results travel through a user-role message for the next model
+       call, but are not human speech. A user mentioning the marker in ordinary
+       prose must not be dropped from Imagination's recent context. */
+    pthread_mutex_lock(&messages_lock);
+    int tool_result_added = message_add(
+        "user", "[R2_INTERNAL_TOOL_RESULT]\nPRIVATE_ACTION_RESULT");
+    int human_turn_added = message_add(
+        "user", "The room needs a bed.");
+    int marker_discussion_added = message_add(
+        "user", "Please explain [R2_INTERNAL_TOOL_RESULT] markers.");
+    pthread_mutex_unlock(&messages_lock);
+
+    char *recent_context = r2_recent_conversation_context(NULL, 1800);
+    ok &= check(tool_result_added == 0 && human_turn_added == 0 &&
+                    marker_discussion_added == 0 &&
+                    recent_context &&
+                    !strstr(recent_context, "PRIVATE_ACTION_RESULT") &&
+                    strstr(recent_context, "The room needs a bed.") &&
+                    strstr(recent_context, "Please explain [R2_INTERNAL_TOOL_RESULT] markers."),
+                "recent context excludes internal results but preserves human discussion of the marker");
+    free(recent_context);
+
+    pthread_mutex_lock(&messages_lock);
+    message_free_all();
+    pthread_mutex_unlock(&messages_lock);
+
+    size_t marker_position = 0;
+    char *quoted_command = extract_marker(
+        "Example only:\n```text\n[WORLD] remove|bed\n```\n",
+        "[WORLD]", "\n", &marker_position);
+    ok &= check(quoted_command == NULL,
+                "control markers inside fenced examples are not executable commands");
+    free(quoted_command);
+
+    marker_position = 0;
+    char *real_command = extract_marker(
+        "Example only:\n```text\n[WORLD] remove|bed\n```\n[WORLD] look\n",
+        "[WORLD]", "\n", &marker_position);
+    ok &= check(real_command && strcmp(real_command, "look") == 0,
+                "a real standalone control marker after a fenced example is still recognized");
+    free(real_command);
+
+    marker_position = 0;
+    char *block_with_quoted_end = extract_marker(
+        "[DIARY]\nvisible before\n```text\n[END DIARY]\n```\nvisible after\n[END DIARY]\n",
+        "[DIARY]", "[END DIARY]", &marker_position);
+    ok &= check(block_with_quoted_end &&
+                    strstr(block_with_quoted_end, "visible before") &&
+                    strstr(block_with_quoted_end, "[END DIARY]") &&
+                    strstr(block_with_quoted_end, "visible after"),
+                "block terminators inside fenced content do not truncate an action payload");
+    free(block_with_quoted_end);
+
     return ok ? 0 : 1;
 }
