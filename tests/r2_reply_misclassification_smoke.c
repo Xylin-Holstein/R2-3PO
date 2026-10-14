@@ -263,6 +263,22 @@ int main(void)
     free(quoted_command);
 
     marker_position = 0;
+    char *indented_command = extract_marker(
+        "Example only:\n    [WORLD] remove|bed\n[WORLD] look\n",
+        "[WORLD]", "\n", &marker_position);
+    ok &= check(indented_command && strcmp(indented_command, "look") == 0,
+                "four-space-indented Markdown code is not treated as an executable action");
+    free(indented_command);
+
+    marker_position = 0;
+    char *tab_indented_command = extract_marker(
+        "Example only:\n\t[WORLD] remove|bed\n[WORLD] look\n",
+        "[WORLD]", "\n", &marker_position);
+    ok &= check(tab_indented_command && strcmp(tab_indented_command, "look") == 0,
+                "tab-indented code is not treated as an executable action");
+    free(tab_indented_command);
+
+    marker_position = 0;
     char *real_command = extract_marker(
         "Example only:\n```text\n[WORLD] remove|bed\n```\n[WORLD] look\n",
         "[WORLD]", "\n", &marker_position);
