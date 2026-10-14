@@ -46,6 +46,11 @@ jobs:
           python3 -m py_compile tests/build_configuration_smoke.py
           python3 tests/build_configuration_smoke.py
 
+      - name: Check model references and implemented lifecycle documentation
+        run: |
+          python3 -m py_compile tests/model_reference_consistency_smoke.py
+          python3 tests/model_reference_consistency_smoke.py
+
       - name: Check every shell script for syntax errors
         run: find . -type f -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
 
