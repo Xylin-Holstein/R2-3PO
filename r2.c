@@ -1392,20 +1392,9 @@ static int save_memory(
    ============================================================ */
 
 /*
-   Load the newest 100 persistent memories at startup.
-
-   This is intentionally a SINGLE pinned message rather than
-   100 individual messages.
-
-   That gives llama3 broad access to R2's recent long-term memory
-   without consuming 100 separate entries in the conversation
-   history.
-
-   These memories remain available for the entire lifetime of the
-   process.
-
-   Dynamic relevant-memory retrieval is still performed separately
-   on every conversation turn.
+   Load the newest 100 persistent memories at startup as one pinned
+   context message. This keeps startup context compact while preserving
+   the separate dynamic relevant-memory retrieval performed on each turn.
 */
 
 static char *get_startup_memories(int limit)
