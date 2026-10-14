@@ -7800,6 +7800,7 @@ static void *autonomous_thinking(void *arg)
                          NULL, "autonomous_thinking");
             fprintf(stderr,
                     "[R2 diary] Could not build reflection context.\n");
+            last_reflection_ms = r2_log_elapsed_ms();
             continue;
         }
 
@@ -7813,6 +7814,7 @@ static void *autonomous_thinking(void *arg)
             r2_log_event(R2_LOG_SYSTEM, "reflection_deferred_for_conversation",
                          "Autonomous reflection was deferred because a foreground turn arrived while context was being assembled.",
                          NULL, "autonomous_thinking");
+            last_reflection_ms = r2_log_elapsed_ms();
             continue;
         }
 
@@ -7868,7 +7870,6 @@ static void *autonomous_thinking(void *arg)
             break;
         }
 
-        now_ms = r2_log_elapsed_ms();
         if (atomic_load(&last_conversation_activity_ms) !=
                 reflection_activity_ms ||
             atomic_load(&foreground_conversation_waiting) > 0 ||
@@ -7878,6 +7879,7 @@ static void *autonomous_thinking(void *arg)
                          "reflection_discarded_after_user_activity",
                          "An autonomous reflection result was discarded because a foreground conversation took priority.",
                          NULL, "autonomous_thinking");
+            last_reflection_ms = r2_log_elapsed_ms();
             continue;
         }
 
@@ -7885,6 +7887,7 @@ static void *autonomous_thinking(void *arg)
             r2_log_event(R2_LOG_ERROR, "reflection_generation_failed",
                          "Autonomous reflection generation failed.",
                          NULL, "autonomous_thinking");
+            last_reflection_ms = r2_log_elapsed_ms();
             continue;
         }
 
@@ -7908,6 +7911,7 @@ static void *autonomous_thinking(void *arg)
                     "[R2 diary] Failed to write autonomous reflection.\n");
         }
 
+        last_reflection_ms = r2_log_elapsed_ms();
         free(reflection);
         char cycle_details[128];
         snprintf(cycle_details, sizeof(cycle_details),
