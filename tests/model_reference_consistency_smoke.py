@@ -17,11 +17,11 @@ def require(ok: bool, message: str) -> None:
     print(f"PASS: {message}")
 
 
-match = re.search(r'^#define\\s+R2_OLLAMA_MODEL\\s+"([^"]+)"', header, re.MULTILINE)
+match = re.search(r'^#define\s+R2_OLLAMA_MODEL\s+"([^"]+)"', header, re.MULTILINE)
 require(match is not None, "the shared public header declares the single Ollama model")
 model = match.group(1)
 require(
-    f"conversation model and visual-perception model are both \`{model}\`" in readme,
+    f"conversation model and visual-perception model are both `{model}`" in readme,
     "README conversation and vision model names match the compiled configuration",
 )
 require(
