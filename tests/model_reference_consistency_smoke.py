@@ -26,7 +26,7 @@ require(
     "README conversation and vision model names match the compiled configuration",
 )
 require(
-    "Load the newest 100 persistent memories at startup as one pinned" in core,
+    "Load the newest 100 persistent memories as one pinned context" in core,
     "startup memory comments describe the compact pinned-memory design",
 )
 require(
