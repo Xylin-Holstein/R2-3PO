@@ -6,6 +6,7 @@ on:
       - main
       - 'fix/**'
       - 'feature/**'
+      - 'test/**'
       - 'integrate/**'
       - fix/text-model-network-and-sensory-continuity
       - r2-audit-fixes-2026-10-09
@@ -19,6 +20,7 @@ on:
   pull_request:
     branches:
       - main
+      - 'integrate/**'
       - clean-copy-r2-audit-2026-10-09
       - r2-hunger-reflection-fix-2026-10-10
       - consolidate/b2-5w2-latest-audit-2026-10-11
@@ -45,6 +47,11 @@ jobs:
         run: |
           python3 -m py_compile tests/build_configuration_smoke.py
           python3 tests/build_configuration_smoke.py
+
+      - name: Check model references and implemented lifecycle documentation
+        run: |
+          python3 -m py_compile tests/model_reference_consistency_smoke.py
+          python3 tests/model_reference_consistency_smoke.py
 
       - name: Check every shell script for syntax errors
         run: find . -type f -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
