@@ -287,6 +287,31 @@ int main(void)
     free(real_command);
 
     marker_position = 0;
+    char *html_code_command = extract_marker(
+        "Example only:\n<pre><code>\n[WORLD] remove|bed\n</code></pre>\n[WORLD] look\n",
+        "[WORLD]", "\n", &marker_position);
+    ok &= check(html_code_command && strcmp(html_code_command, "look") == 0,
+                "HTML pre/code examples do not trigger action markers");
+    free(html_code_command);
+
+    marker_position = 0;
+    char *split_html_close_command = extract_marker(
+        "Example only:\n<pre><code>\n[WORLD] remove|bed\n</code>\n[WORLD] still_example|bed\n</pre>\n[WORLD] look\n",
+        "[WORLD]", "\n", &marker_position);
+    ok &= check(split_html_close_command &&
+                    strcmp(split_html_close_command, "look") == 0,
+                "closing a nested HTML code tag does not expose markers before its enclosing pre tag closes");
+    free(split_html_close_command);
+
+    marker_position = 0;
+    char *html_comment_command = extract_marker(
+        "Example only:\n<!--\n[WORLD] remove|bed\n-->\n[WORLD] look\n",
+        "[WORLD]", "\n", &marker_position);
+    ok &= check(html_comment_command && strcmp(html_comment_command, "look") == 0,
+                "HTML comments do not trigger action markers");
+    free(html_comment_command);
+
+    marker_position = 0;
     char *block_with_quoted_end = extract_marker(
         "[DIARY]\nvisible before\n```text\n[END DIARY]\n```\nvisible after\n[END DIARY]\n",
         "[DIARY]", "[END DIARY]", &marker_position);

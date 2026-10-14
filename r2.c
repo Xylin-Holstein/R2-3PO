@@ -6377,6 +6377,25 @@ static char *collect_completed(void)
    MARKER EXTRACTION
    ============================================================ */
 
+/* Search only within the current line; strstr/strcasestr on a line pointer
+   would scan later lines and could incorrectly open/close a code block early. */
+static int r2_line_contains_token(const char *line, const char *line_end,
+                                 const char *token)
+{
+    if (!line || !line_end || !token) return 0;
+    size_t token_len = strlen(token);
+    if ((size_t)(line_end - line) < token_len) return 0;
+    for (const char *p = line; p + token_len <= line_end; ++p) {
+        size_t i = 0;
+        while (i < token_len &&
+               tolower((unsigned char)p[i]) ==
+                   tolower((unsigned char)token[i]))
+            ++i;
+        if (i == token_len) return 1;
+    }
+    return 0;
+}
+
 /* Recognize control markers only as standalone line prefixes outside
    Markdown fenced code. Otherwise a reply explaining a command could execute
    the example it is trying to show the user. */
@@ -6390,6 +6409,9 @@ static const char *find_control_marker_line(const char *reply,
     int in_fence = 0;
     char fence_char = '\0';
     size_t opening_fence_len = 0;
+    int in_html_pre = 0;
+    int in_html_code = 0;
+    int in_html_comment = 0;
 
     while (*line) {
         const char *content = line;
@@ -6436,12 +6458,43 @@ static const char *find_control_marker_line(const char *reply,
                     opening_fence_len = 0;
                 }
             }
-        } else if (!in_fence && (size_t)(content - reply) >= from_position &&
-                   strncmp(content, marker, marker_len) == 0) {
-            char after = content[marker_len];
-            if (after == '\0' || after == '\n' || after == '\r' ||
-                after == ' ' || after == '\t')
-                return content;
+        } else if (!in_fence) {
+            /*
+             * HTML code/pre blocks and comments can also contain literal
+             * action examples. Track them line-by-line just like fenced code,
+             * so a standalone marker inside such a block remains inert.
+             */
+            int skip_html_line =
+                in_html_pre || in_html_code || in_html_comment;
+            if (!in_html_comment && r2_line_contains_token(content, line_end, "<!--")) {
+                in_html_comment = 1;
+                skip_html_line = 1;
+            }
+            if (!in_html_comment && !in_html_pre &&
+                r2_line_contains_token(content, line_end, "<pre")) {
+                in_html_pre = 1;
+                skip_html_line = 1;
+            }
+            if (!in_html_comment && !in_html_code &&
+                r2_line_contains_token(content, line_end, "<code")) {
+                in_html_code = 1;
+                skip_html_line = 1;
+            }
+
+            if (skip_html_line) {
+                if (in_html_comment && r2_line_contains_token(content, line_end, "-->"))
+                    in_html_comment = 0;
+                if (in_html_pre && r2_line_contains_token(content, line_end, "</pre"))
+                    in_html_pre = 0;
+                if (in_html_code && r2_line_contains_token(content, line_end, "</code"))
+                    in_html_code = 0;
+            } else if ((size_t)(content - reply) >= from_position &&
+                       strncmp(content, marker, marker_len) == 0) {
+                char after = content[marker_len];
+                if (after == '\0' || after == '\n' || after == '\r' ||
+                    after == ' ' || after == '\t')
+                    return content;
+            }
         }
 
         if (*line_end == '\0') break;
