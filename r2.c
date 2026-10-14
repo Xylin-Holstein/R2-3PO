@@ -7901,6 +7901,8 @@ static void *autonomous_thinking(void *arg)
                               "Private autonomous reflection",
                               "R2 periodically reflects on supplied persistent context after a sustained idle period.",
                               "completed", NULL, "autonomous_thinking");
+            /* The full reflection is stored in the diary. Never print its
+               private contents into the active conversation terminal. */
             fprintf(stderr,
                     "[R2 diary] Autonomous reflection written to diary and Life Log.\n");
         } else {
