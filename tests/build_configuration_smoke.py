@@ -55,6 +55,11 @@ require(
     "fullness meter drains over three hours and eating restores it",
 )
 require(
+    "static const double SATIETY_PER_SECOND = 0.1 / 4.75;" in reality
+    and "double satisfaction = sqlite3_column_double(st, 4) - elapsed * SATIETY_PER_SECOND;" in reality,
+    "satisfaction independently decays by 0.1 per 4.75 seconds",
+)
+require(
     "return valid_hunger && hunger < 50.0;" in core
     and "if (hunger < 50.0) {" in core
     and "If the fullness meter is below 50/100" in core,
