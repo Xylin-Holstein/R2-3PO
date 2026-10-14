@@ -222,5 +222,31 @@ int main(void)
                 "failed corrective inference does not expose the original bad reply");
     free(missing_retry);
 
+    /* Tool results travel through a user-role message for the next model
+       call, but are not human speech. A user mentioning the marker in ordinary
+       prose must not be dropped from Imagination's recent context. */
+    pthread_mutex_lock(&messages_lock);
+    int tool_result_added = message_add(
+        "user", "[R2_INTERNAL_TOOL_RESULT]\nPRIVATE_ACTION_RESULT");
+    int human_turn_added = message_add(
+        "user", "The room needs a bed.");
+    int marker_discussion_added = message_add(
+        "user", "Please explain [R2_INTERNAL_TOOL_RESULT] markers.");
+    pthread_mutex_unlock(&messages_lock);
+
+    char *recent_context = r2_recent_conversation_context(NULL, 1800);
+    ok &= check(tool_result_added == 0 && human_turn_added == 0 &&
+                    marker_discussion_added == 0 &&
+                    recent_context &&
+                    !strstr(recent_context, "PRIVATE_ACTION_RESULT") &&
+                    strstr(recent_context, "The room needs a bed.") &&
+                    strstr(recent_context, "Please explain [R2_INTERNAL_TOOL_RESULT] markers."),
+                "recent context excludes internal results but preserves human discussion of the marker");
+    free(recent_context);
+
+    pthread_mutex_lock(&messages_lock);
+    message_free_all();
+    pthread_mutex_unlock(&messages_lock);
+
     return ok ? 0 : 1;
 }
