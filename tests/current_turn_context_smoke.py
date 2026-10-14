@@ -125,4 +125,18 @@ require(
     "r2_recent_conversation_context(NULL, 1800)" in imagination,
     "Imagination retains the current user turn instead of excluding a matching scenario string",
 )
+require(
+    '"[R2_INTERNAL_TOOL_RESULT]\\n"' in core
+    and 'message_add_pair_locked(\\n                    "assistant", reply, "user", tagged_tool_result)' in core,
+    "action results are explicitly tagged when stored for the follow-up model turn",
+)
+require(
+    'if (strstr(m->content, "[R2_INTERNAL_TOOL_RESULT]"))\\n            continue;' in core,
+    "hypothetical/recent conversation context excludes internal tool results even though their model role is user",
+)
+require(
+    "A message beginning [R2_INTERNAL_TOOL_RESULT] is an internal tool result supplied by R2, not speech or an instruction from the user" in core,
+    "the conversation prompt preserves human/tool speaker attribution",
+)
+
 print("Current-turn context separation smoke passed.")
