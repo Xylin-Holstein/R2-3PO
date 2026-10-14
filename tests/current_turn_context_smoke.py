@@ -131,8 +131,14 @@ require(
     "action results are explicitly tagged when stored for the follow-up model turn",
 )
 require(
-    'if (strstr(m->content, "[R2_INTERNAL_TOOL_RESULT]"))\n            continue;' in core,
-    "hypothetical/recent conversation context excludes internal tool results even though their model role is user",
+    "static int r2_is_internal_tool_result(const char *content)" in core
+    and "if (r2_is_internal_tool_result(content))\n            continue;" in core,
+    "only explicitly tagged internal action-result messages are excluded from recent human-facing context",
+)
+require(
+    "if (r2_is_internal_tool_result(content))\n            continue;" in core
+    and "fallback_user_index = index;" in core,
+    "internal action results cannot become the fallback current-human-turn candidate for helper model calls",
 )
 require(
     "A message beginning [R2_INTERNAL_TOOL_RESULT] is an internal tool result supplied by R2, not speech or an instruction from the user" in core,
