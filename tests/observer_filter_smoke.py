@@ -3,6 +3,9 @@
 import importlib.util
 from pathlib import Path
 path = Path(__file__).resolve().parents[1] / "Observer.py"
+source_text = path.read_text(encoding="utf-8")
+assert "/home/x/R2_Home/R2_Log/Activity.txt" in source_text
+assert "/home/x/R2_Home/R2_Diary/Activity.txt" not in source_text
 spec = importlib.util.spec_from_file_location("r2_observer", path)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
