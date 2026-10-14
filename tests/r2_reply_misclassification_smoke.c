@@ -248,5 +248,21 @@ int main(void)
     message_free_all();
     pthread_mutex_unlock(&messages_lock);
 
+    size_t marker_position = 0;
+    char *quoted_command = extract_marker(
+        "Example only:\n```text\n[WORLD] remove|bed\n```\n",
+        "[WORLD]", "\n", &marker_position);
+    ok &= check(quoted_command == NULL,
+                "control markers inside fenced examples are not executable commands");
+    free(quoted_command);
+
+    marker_position = 0;
+    char *real_command = extract_marker(
+        "Example only:\n```text\n[WORLD] remove|bed\n```\n[WORLD] look\n",
+        "[WORLD]", "\n", &marker_position);
+    ok &= check(real_command && strcmp(real_command, "look") == 0,
+                "a real standalone control marker after a fenced example is still recognized");
+    free(real_command);
+
     return ok ? 0 : 1;
 }
