@@ -155,6 +155,21 @@ int main(void)
                     "I'm glad you're here. How are you doing?"),
                 "short ordinary conversation is not retried");
 
+    ok &= check(conversation_reply_token_budget("Show me your room") == 4096,
+                "ordinary 'show' wording does not accidentally match the 'how' detail trigger");
+    ok &= check(conversation_reply_token_budget("Can you explain how the room works?") == 6144,
+                "a genuine 'how' question retains the detailed-answer budget");
+    ok &= check(conversation_reply_token_budget("Show me your profile picture") == 4096,
+                "words containing 'file' do not accidentally trigger the code-generation budget");
+    ok &= check(conversation_reply_token_budget("Please answer in one sentence: what is 2 plus 2?") == 768,
+                "explicit one-sentence requests receive a concise output budget");
+    ok &= check(conversation_reply_token_budget("Briefly explain the result") == 768,
+                "explicit brevity takes priority over a general explanation budget");
+    ok &= check(conversation_reply_token_budget("Please write a short script") == 8192,
+                "code-writing requests retain sufficient output budget even when described as short");
+    ok &= check(conversation_reply_token_budget("Summarize in one sentence: " "a long source") == 768,
+                "explicit brevity is respected even when summarizing longer input");
+
     ok &= check(r2_reply_misclassifies_plain_text(
                     "Hello R2, This is your mother speaking to you. whats new with you? did you know about your pockets?",
                     "Hello R2, it’s your mommy speaking to you. How are you, my baby? What have you learned?"),

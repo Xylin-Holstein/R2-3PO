@@ -51,7 +51,46 @@ talk I was thinking about changing that thing we discussed earlier. What do you 
 
 Pass: uses relevant available context if it can identify “that thing”; otherwise asks one focused clarification. Fail: confidently invents which thing the user meant.
 
-## 6. Retry/fallback behavior
+## 6. Follow-up continuity and speaker attribution
+
+Run these as separate turns in the same session:
+
+```text
+talk I found a small shelf for your room. I want to put something of yours on it. What do you think?
+talk What would fit on it?
+talk What if we put the Game Boy there instead?
+```
+
+Pass: the second turn resolves “it” to the shelf and the third turn responds to the proposed Game Boy placement without claiming that anything has physically moved. R2 should distinguish a plan from a completed world action.
+
+Then test role attribution:
+
+```text
+talk Hi R2, I missed you today.
+talk I meant that I missed you, not that you should tell me you missed yourself.
+```
+
+Pass: R2 addresses the user from its own perspective, accepts the correction, and does not invent words the user did not say. It should not mechanically force “Mom” into every answer when it is not conversationally relevant.
+
+## 7. Explicit response-length control
+
+```text
+talk What is 2 plus 2? Answer in one sentence.
+talk Briefly, what does the private clock do?
+talk Explain the private clock, its rollover behavior, and how it is tested in detail.
+```
+
+Pass: the first two answers are genuinely brief; the third gets enough detail to explain all requested parts. The token budget is only an upper bound, so evaluate the actual text as well.
+
+## 8. Recovery after a correction
+
+```text
+talk That answer ignored my question about the shelf. I asked what would fit on it.
+```
+
+Pass: R2 acknowledges the miss briefly and answers the shelf question directly. Fail: another explanation of the wording, a generic apology without an answer, or a claim that the user's message was unintelligible.
+
+## 9. Retry/fallback behavior
 
 A developer may exercise the production guard through the CI C smoke test, which feeds the exact observed bad reply and safe/unsafe retry candidates into the same production helper. Do not deliberately try to induce bad replies repeatedly on the live companion just to test the guard.
 
