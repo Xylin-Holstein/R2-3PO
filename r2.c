@@ -4292,12 +4292,15 @@ static int query_has_phrase(const char *query, const char *phrase)
         return 0;
 
     size_t length = strlen(phrase);
-    for (const char *p = query; *p; ++p) {
+    const char *end = query + strlen(query);
+    for (const char *p = query; p < end; ++p) {
         if (p != query && isalnum((unsigned char)p[-1]))
             continue;
-        if (strlen(p) < length || strncasecmp(p, phrase, length) != 0)
+        if ((size_t)(end - p) < length)
+            break;
+        if (strncasecmp(p, phrase, length) != 0)
             continue;
-        if (!isalnum((unsigned char)p[length]))
+        if (p + length == end || !isalnum((unsigned char)p[length]))
             return 1;
     }
     return 0;
