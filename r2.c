@@ -117,6 +117,8 @@ static pthread_mutex_t ollama_request_lock = PTHREAD_MUTEX_INITIALIZER;
 static atomic_int foreground_ollama_waiting = ATOMIC_VAR_INIT(0);
 /* Covers the whole live turn, including time spent building context before HTTP. */
 static atomic_int foreground_conversation_waiting = ATOMIC_VAR_INIT(0);
+/* Monotonic elapsed time of the most recent foreground user turn. */
+static atomic_uint_fast64_t last_conversation_activity_ms = ATOMIC_VAR_INIT(0);
 static _Thread_local int ollama_background_mode = 0;
 /* Nested model calls made by the foreground turn itself are not background work. */
 static _Thread_local int ollama_foreground_turn_mode = 0;
@@ -7776,66 +7778,107 @@ static char *process_tools(const char *reply)
    AUTONOMOUS DIARY REFLECTION
    ============================================================ */
 
-static void *autonomous_thinking(
-    void *arg)
+static void *autonomous_thinking(void *arg)
 {
     (void)arg;
-    /* Every model call made by this worker, including post-reflection
-       extraction, is background work and must yield to live conversation. */
+    /* Every model call made by this worker is background work and must yield
+       to live conversation. */
     ollama_background_mode = 1;
 
+    const uint64_t interval_ms = (uint64_t)THINK_INTERVAL * 1000U;
+    uint64_t last_periodic_check_ms = 0;
+    uint64_t last_reflection_ms = 0;
+
     while (!shutting_down && atomic_load(&diary_running)) {
-
-        for (
-            int i = 0;
-            i < THINK_INTERVAL &&
-            !shutting_down &&
-            atomic_load(&diary_running);
-            ++i
-        )
-            sleep(1);
-
+        /* Poll once per real second so the idle timer resets immediately when
+           a new foreground turn arrives; do not sleep a fixed 900 seconds. */
+        sleep(1);
         if (shutting_down || !atomic_load(&diary_running))
             break;
 
-        r2_reality_tick();
-        autonomous_needs_check();
-        if (shutting_down || !atomic_load(&diary_running)) break;
-        uint64_t cycle_started_ms = r2_log_elapsed_ms();
+        uint64_t now_ms = r2_log_elapsed_ms();
+        if (!now_ms)
+            continue;
+
+        if (!last_periodic_check_ms)
+            last_periodic_check_ms = now_ms;
+        if (!last_reflection_ms)
+            last_reflection_ms = now_ms;
+
+        uint64_t last_activity_ms =
+            atomic_load(&last_conversation_activity_ms);
+        if (!last_activity_ms) {
+            atomic_store(&last_conversation_activity_ms, now_ms);
+            last_activity_ms = now_ms;
+        }
+
+        /* Reality ticking and deterministic needs safeguards keep their
+           existing 900-second cadence even while the user is active. */
+        if (now_ms >= last_periodic_check_ms &&
+            now_ms - last_periodic_check_ms >= interval_ms) {
+            last_periodic_check_ms = now_ms;
+            r2_reality_tick();
+            autonomous_needs_check();
+            if (shutting_down || !atomic_load(&diary_running))
+                break;
+            now_ms = r2_log_elapsed_ms();
+            if (!now_ms)
+                continue;
+            last_activity_ms =
+                atomic_load(&last_conversation_activity_ms);
+        }
+
+        if (now_ms < last_activity_ms ||
+            now_ms - last_activity_ms < interval_ms ||
+            now_ms < last_reflection_ms ||
+            now_ms - last_reflection_ms < interval_ms ||
+            atomic_load(&foreground_conversation_waiting) > 0 ||
+            atomic_load(&foreground_ollama_waiting) > 0)
+            continue;
+
+        /* Rate-limit failed reflection attempts too; otherwise a database or
+           model error would cause one retry every second during idle time. */
+        const uint64_t reflection_activity_ms = last_activity_ms;
+        last_reflection_ms = now_ms;
+        uint64_t cycle_started_ms = now_ms;
         r2_log_thinking("cycle_started",
-                        "Autonomous reflection cycle started.",
+                        "Autonomous reflection cycle started after a sustained idle period.",
                         "This records cycle boundaries and results, not hidden model reasoning.");
         r2_log_system_snapshot("periodic_reflection_interval");
 
-        char *ctx =
-            r2_diary_build_reflection_context(
-                10
-            );
+        char *ctx = r2_diary_build_reflection_context(10);
         ctx = append_reality_context(ctx);
 
         if (!ctx) {
             r2_log_event(R2_LOG_ERROR, "reflection_context_failed",
                          "Could not build autonomous reflection context.",
                          NULL, "autonomous_thinking");
+            fprintf(stderr,
+                    "[R2 diary] Could not build reflection context.\n");
+            last_reflection_ms = r2_log_elapsed_ms();
+            continue;
+        }
 
-            fprintf(
-                stderr,
-                "[R2 diary] Could not build "
-                "reflection context.\n"
-            );
-
+        /* The context may have taken time to build. If the user has spoken
+           since its snapshot was selected, discard it before spending an
+           inference call on stale conversation state. */
+        if (atomic_load(&last_conversation_activity_ms) !=
+                reflection_activity_ms ||
+            atomic_load(&foreground_conversation_waiting) > 0) {
+            free(ctx);
+            r2_log_event(R2_LOG_SYSTEM, "reflection_deferred_for_conversation",
+                         "Autonomous reflection was deferred because a foreground turn arrived while context was being assembled.",
+                         NULL, "autonomous_thinking");
+            last_reflection_ms = r2_log_elapsed_ms();
             continue;
         }
 
         const char *prompt =
-            "You are R2-3PO's private autonomous "
-            "reflection process.\n"
+            "You are R2-3PO's private autonomous reflection process.\n"
             "\n"
-            "The information supplied to you is "
-            "private diary/reflection context.\n"
+            "The information supplied to you is private diary/reflection context.\n"
             "\n"
-            "Write a private diary reflection based "
-            "ONLY on the information supplied.\n"
+            "Write a private diary reflection based ONLY on the information supplied.\n"
             "\n"
             "Do not merely summarize it.\n"
             "\n"
@@ -7858,9 +7901,7 @@ static void *autonomous_thinking(
             "- recognize that rereading the same event is not new evidence by itself;\n"
             "- turn suspected operational problems into testable questions rather than treating prose as proof;\n"
             "\n"
-            "The important part is that the diary can think "
-            "about its own previous thinking rather than "
-            "merely recording events.\n"
+            "The important part is that the diary can think about its own previous thinking rather than merely recording events.\n"
             "\n"
             "Do not invent events.\n"
             "Do not invent conversations.\n"
@@ -7871,46 +7912,41 @@ static void *autonomous_thinking(
             "\n"
             "Return ONLY the private diary reflection.";
 
-        Message m = {
-            "user",
-            ctx,
-            0
-        };
-
-        /* Reflection is background work: yield immediately to live turns. */
+        Message m = { "user", ctx, 0 };
         int previous_background_mode = ollama_background_mode;
         ollama_background_mode = 1;
-        char *reflection =
-            ollama_chat_with_limit(
-                &m,
-                1,
-                prompt,
-                1024,
-                600L
-            );
+        char *reflection = ollama_chat_with_limit(
+            &m, 1, prompt, 1024, 600L);
         ollama_background_mode = previous_background_mode;
-
         free(ctx);
 
-        /* A stop request during inference must not write a late diary entry. */
         if (shutting_down || !atomic_load(&diary_running)) {
             free(reflection);
             break;
+        }
+
+        if (atomic_load(&last_conversation_activity_ms) !=
+                reflection_activity_ms ||
+            atomic_load(&foreground_conversation_waiting) > 0 ||
+            atomic_load(&foreground_ollama_waiting) > 0) {
+            free(reflection);
+            r2_log_event(R2_LOG_SYSTEM,
+                         "reflection_discarded_after_user_activity",
+                         "An autonomous reflection result was discarded because a foreground conversation took priority.",
+                         NULL, "autonomous_thinking");
+            last_reflection_ms = r2_log_elapsed_ms();
+            continue;
         }
 
         if (!reflection) {
             r2_log_event(R2_LOG_ERROR, "reflection_generation_failed",
                          "Autonomous reflection generation failed.",
                          NULL, "autonomous_thinking");
+            last_reflection_ms = r2_log_elapsed_ms();
             continue;
         }
 
-        if (
-            r2_diary_write(
-                reflection
-            ) == 0
-        ) {
-
+        if (r2_diary_write(reflection) == 0) {
             int64_t reflection_event_id =
                 r2_log_thinking("reflection_completed",
                                 "Autonomous diary reflection was written.",
@@ -7918,26 +7954,21 @@ static void *autonomous_thinking(
             log_structured_self_report(reflection, reflection_event_id);
             r2_log_continuity("r2_private_reflection", "routine",
                               "Private autonomous reflection",
-                              "R2 periodically reflects on supplied persistent context.",
+                              "R2 periodically reflects on supplied persistent context after a sustained idle period.",
                               "completed", NULL, "autonomous_thinking");
-
-            /* The full reflection is stored in the diary. A background thread
-               must not print it into the active conversation terminal. */
+            /* The full reflection is stored in the diary. Never print its
+               private contents into the active conversation terminal. */
             fprintf(stderr,
                     "[R2 diary] Autonomous reflection written to diary and Life Log.\n");
-
         } else {
             r2_log_event(R2_LOG_ERROR, "reflection_write_failed",
-                         "Failed to write autonomous diary reflection.",
+                         "Failed to write autonomous reflection.",
                          NULL, "autonomous_thinking");
-
-            fprintf(
-                stderr,
-                "[R2 diary] Failed to write "
-                "autonomous reflection.\n"
-            );
+            fprintf(stderr,
+                    "[R2 diary] Failed to write autonomous reflection.\n");
         }
 
+        last_reflection_ms = r2_log_elapsed_ms();
         free(reflection);
         char cycle_details[128];
         snprintf(cycle_details, sizeof(cycle_details),
@@ -7950,7 +7981,6 @@ static void *autonomous_thinking(
 
     return NULL;
 }
-
 
 /* ============================================================
    MEMORY DECISION
@@ -9863,6 +9893,12 @@ finalize_reply:
  */
 char *r2_talk(const char *message)
 {
+    /* Reset autonomous-reflection idleness before waiting for the turn lock,
+       so queued user turns also take priority over background thought. */
+    uint64_t activity_ms = r2_log_elapsed_ms();
+    if (activity_ms > 0)
+        atomic_store(&last_conversation_activity_ms, activity_ms);
+
     /* Announce foreground intent before waiting for the turn lock. Background
        inference/actions can then yield even while this caller is queued. */
     atomic_fetch_add(&foreground_conversation_waiting, 1);

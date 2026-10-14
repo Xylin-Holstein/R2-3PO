@@ -134,6 +134,11 @@ jobs:
       - name: Guard against silent conversation failures
         run: python3 tests/silent_turn_regression.py
 
+      - name: Defer autonomous reflection until R2 has been idle
+        run: |
+          python3 -m py_compile tests/autonomous_reflection_idle_smoke.py
+          python3 tests/autonomous_reflection_idle_smoke.py
+
       - name: Check runtime headroom and backwards-compatible memory migration
         run: python3 tests/runtime_headroom_smoke.py
 
