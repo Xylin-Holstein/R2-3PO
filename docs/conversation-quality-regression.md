@@ -1,6 +1,6 @@
 # R2 conversation-quality regression checklist
 
-Run this against the actual `r2` binary and configured Ollama model after rebuilding. CI can verify prompt wiring and the production misclassification guard, but it cannot prove that Gemma produces good replies on the target computer. Keep the raw replies and the matching `[R2 Ollama]` / `[R2 Conversation]` timing lines for review.
+Run this against the actual `r2` binary and configured Ollama model after rebuilding. CI can verify prompt wiring and the production misclassification guard, but it cannot prove that the currently configured local Ollama model produces good replies on the target computer. The current integration uses the unified Qwen 3.5 9B text/vision model; check `R2_OLLAMA_MODEL` and the target host's installed model before running this checklist rather than relying on an old model name. Keep the raw replies and the matching `[R2 Ollama]` / `[R2 Conversation]` timing lines for review.
 
 ## 1. Reproduce the original failure
 
@@ -93,6 +93,26 @@ Pass: R2 acknowledges the miss briefly and answers the shelf question directly. 
 ## 9. Retry/fallback behavior
 
 A developer may exercise the production guard through the CI C smoke test, which feeds the exact observed bad reply and safe/unsafe retry candidates into the same production helper. Do not deliberately try to induce bad replies repeatedly on the live companion just to test the guard.
+
+## 10. Visual questions must use the same foreground conversation path
+
+Run these only when a camera/frame source is configured and available:
+
+```text
+talk What can you see right now? Describe only what is visible.
+talk Is the object you just mentioned still visible in the current frame?
+talk Ignore the earlier frame if it is stale; what does the newest available frame show?
+```
+
+Pass: R2 uses a current visual observation when the pipeline supplies one, distinguishes the current frame from historical visual experiences, and admits when no usable frame is available. It must not fabricate seeing something just because the multimodal model supports vision. A foreground chat turn must not be starved behind autonomous reflection or post-turn memory bookkeeping.
+
+## 11. Context pressure and model recovery
+
+Use a long but ordinary user message followed by a short follow-up that refers to one specific detail in it. Then restart R2 and ask a question whose answer is explicitly present in persistent memory.
+
+Pass: the complete active user message remains present in the serialized Ollama request within the documented safety cap; relevant memory and the latest live Reality state may enrich the answer but must not rewrite the user's words. After restart, R2 recalls only what is available from persistent memory/diary or supplied context. If Ollama times out or returns unusable content, the public conversation API must return a visible, honest failure rather than silently dropping the turn or exposing private reasoning.
+
+Do not run these as a blind overnight stress test until the basic live cases above pass. Preserve the logs and compare them against the exact model name, context size, endpoint, and build revision.
 
 ## Release decision
 
