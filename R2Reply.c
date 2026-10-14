@@ -46,30 +46,50 @@ static int is_hidden_close(const char *p, size_t *length)
     return 0;
 }
 
-/* Handle nested instances of the same private tag. Searching for the first
-   closing tag is insufficient: an inner </think> must not expose the rest of
-   an outer private block. */
+/* Track nested private-tag types, not just repetitions of the outer tag.
+   A malformed crossing such as <think><analysis></think>...</analysis></think>
+   must not close the outer block early and expose the intervening text. */
 static const char *find_hidden_close_balanced(const char *p,
                                                const HiddenBlock *block)
 {
-    size_t depth = 1;
-    size_t open_len = strlen(block->open);
-    size_t close_len = strlen(block->close);
+    size_t capacity = strlen(p) + 1;
+    if (capacity > (size_t)-1 / sizeof(const HiddenBlock *)) return NULL;
+    const HiddenBlock **stack = malloc(capacity * sizeof(*stack));
+    if (!stack) return NULL;
 
+    size_t depth = 1;
+    stack[0] = block;
     while (*p) {
-        if (!strncasecmp(p, block->open, open_len)) {
-            ++depth;
-            p += open_len;
+        const HiddenBlock *opened = NULL;
+        const char *after_open = find_hidden_open(p, &opened);
+        if (after_open) {
+            if (depth >= capacity) {
+                free(stack);
+                return NULL;
+            }
+            stack[depth++] = opened;
+            p = after_open;
             continue;
         }
-        if (!strncasecmp(p, block->close, close_len)) {
-            --depth;
-            if (depth == 0) return p;
+
+        size_t close_len = 0;
+        if (is_hidden_close(p, &close_len)) {
+            const char *expected = stack[depth - 1]->close;
+            if (!strncasecmp(p, expected, strlen(expected))) {
+                --depth;
+                if (depth == 0) {
+                    free(stack);
+                    return p;
+                }
+            }
+            /* A close for an outer tag cannot close through an unclosed
+               nested tag. Ignore it until the nested block is closed. */
             p += close_len;
             continue;
         }
         ++p;
     }
+    free(stack);
     return NULL;
 }
 
