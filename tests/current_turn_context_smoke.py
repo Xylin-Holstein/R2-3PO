@@ -132,12 +132,18 @@ require(
 )
 require(
     "static int r2_is_internal_tool_result(const char *content)" in core
-    and "if (r2_is_internal_tool_result(content))\n            continue;" in core,
+    and "if (r2_is_internal_tool_result(m->content))\n            continue;" in recent_context,
     "only explicitly tagged internal action-result messages are excluded from recent human-facing context",
 )
+ollama_start = core.find("static char *ollama_chat_with_limit(")
+ollama_end = core.find("\nstatic char *ollama_chat(", ollama_start)
+if ollama_start < 0 or ollama_end < 0:
+    raise SystemExit("Could not isolate Ollama context-window selection.")
+ollama_builder = core[ollama_start:ollama_end]
 require(
-    "if (r2_is_internal_tool_result(content))\n            continue;" in core
-    and "fallback_user_index = index;" in core,
+    "if (r2_is_internal_tool_result(content))\n            continue;" in ollama_builder
+    and ollama_builder.index("if (r2_is_internal_tool_result(content))") <
+        ollama_builder.index("fallback_user_index = index;"),
     "internal action results cannot become the fallback current-human-turn candidate for helper model calls",
 )
 require(
