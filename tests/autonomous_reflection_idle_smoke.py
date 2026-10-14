@@ -42,7 +42,7 @@ for required in (
 
 if "for (\n            int i = 0;\n            i < THINK_INTERVAL" in worker:
     raise SystemExit("Reflection still uses a fixed 900-second sleep that ignores recent conversation.")
-if "The user has spoken since its snapshot was selected" not in worker:
+if "If the user has spoken since its context snapshot was selected" not in worker:
     raise SystemExit("Reflection must reject stale context assembled before a new user turn.")
 if "THINK_INTERVAL 900" not in core:
     raise SystemExit("The established 900-second idle interval was changed.")
