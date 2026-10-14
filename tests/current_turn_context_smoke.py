@@ -126,7 +126,7 @@ require(
     "Imagination retains the current user turn instead of excluding a matching scenario string",
 )
 require(
-    '"[R2_INTERNAL_TOOL_RESULT]\n"' in core
+    '"[R2_INTERNAL_TOOL_RESULT]\\n"' in core
     and 'message_add_pair_locked(\n                    "assistant", reply, "user", tagged_tool_result)' in core,
     "action results are explicitly tagged when stored for the follow-up model turn",
 )
