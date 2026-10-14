@@ -7260,10 +7260,7 @@ static char *process_tools_with_status(
     }
 
     m =
-        strstr(
-            reply,
-            "[RUN]"
-        );
+        find_control_marker_line(reply, "[RUN]", 0);
 
     if (m) {
 
