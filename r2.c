@@ -5371,6 +5371,8 @@ static char *chat_with_relevant_memories(
 
         copy[i].pinned =
             messages.items[i].pinned;
+        copy[i].internal_tool_result =
+            messages.items[i].internal_tool_result;
 
         if (!copy[i].role || !copy[i].content)
             copy_failed = 1;
@@ -5465,6 +5467,7 @@ static char *chat_with_relevant_memories(
         copy[context_index].role = context_role;
         copy[context_index].content = context_content;
         copy[context_index].pinned = 0;
+        copy[context_index].internal_tool_result = 0;
         ++base_count;
     }
 
@@ -5690,6 +5693,7 @@ static char *plan_hand_request(
     Message m = {
         "system",
         prompt,
+        0,
         0
     };
 
@@ -8125,6 +8129,7 @@ static char *memory_decision(
     Message m = {
         "user",
         u,
+        0,
         0
     };
 
