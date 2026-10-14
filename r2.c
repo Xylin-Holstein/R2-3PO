@@ -6390,6 +6390,8 @@ static const char *find_control_marker_line(const char *reply,
     int in_fence = 0;
     char fence_char = '\0';
     size_t opening_fence_len = 0;
+    int in_html_code = 0;
+    int in_html_comment = 0;
 
     while (*line) {
         const char *content = line;
@@ -6436,12 +6438,39 @@ static const char *find_control_marker_line(const char *reply,
                     opening_fence_len = 0;
                 }
             }
-        } else if (!in_fence && (size_t)(content - reply) >= from_position &&
-                   strncmp(content, marker, marker_len) == 0) {
-            char after = content[marker_len];
-            if (after == '\0' || after == '\n' || after == '\r' ||
-                after == ' ' || after == '\t')
-                return content;
+        } else if (!in_fence) {
+            /*
+             * HTML code/pre blocks and comments can also contain literal
+             * action examples. Track them line-by-line just like fenced code,
+             * so a standalone marker inside such a block remains inert.
+             */
+            int skip_html_line = in_html_code || in_html_comment;
+            if (!in_html_comment && !in_html_code &&
+                strstr(content, "<!--")) {
+                in_html_comment = 1;
+                skip_html_line = 1;
+            }
+            if (!in_html_comment && !in_html_code &&
+                (strcasestr(content, "<pre") ||
+                 strcasestr(content, "<code"))) {
+                in_html_code = 1;
+                skip_html_line = 1;
+            }
+
+            if (skip_html_line) {
+                if (in_html_comment && strstr(content, "-->"))
+                    in_html_comment = 0;
+                if (in_html_code &&
+                    (strcasestr(content, "</pre") ||
+                     strcasestr(content, "</code")))
+                    in_html_code = 0;
+            } else if ((size_t)(content - reply) >= from_position &&
+                       strncmp(content, marker, marker_len) == 0) {
+                char after = content[marker_len];
+                if (after == '\0' || after == '\n' || after == '\r' ||
+                    after == ' ' || after == '\t')
+                    return content;
+            }
         }
 
         if (*line_end == '\0') break;
