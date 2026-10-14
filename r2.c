@@ -6437,11 +6437,14 @@ static char *extract_marker(
 
     const char *p = marker + strlen(start);
 
-    const char *q =
-        strstr(
-            p,
-            end
-        );
+    const char *q = NULL;
+    if (strcmp(end, "\n") == 0) {
+        q = strstr(p, end);
+    } else {
+        /* Block terminators are control markers too: ignore copies quoted
+           inside fenced examples or embedded in ordinary prose. */
+        q = find_control_marker_line(reply, end, (size_t)(p - reply));
+    }
 
     /* Line-based action markers such as [WORLD] may be the final
        output with no trailing newline. Treat end-of-reply as the line end. */
@@ -8677,7 +8680,7 @@ static void autonomous_needs_check(void)
     }
 
     int world_action_succeeded = 0;
-    const char *marker = strstr(decision, "[WORLD]");
+    const char *marker = find_control_marker_line(decision, "[WORLD]", 0);
     if (marker) {
         const char *end = strpbrk(marker, "\r\n");
         size_t length = end ? (size_t)(end - marker) : strlen(marker);
