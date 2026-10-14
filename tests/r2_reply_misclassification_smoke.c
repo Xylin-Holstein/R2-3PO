@@ -222,5 +222,27 @@ int main(void)
                 "failed corrective inference does not expose the original bad reply");
     free(missing_retry);
 
+    /* Exercise the real recent-context selector: a tool result is carried
+       in a user-role message for the next model call, but must not be
+       represented as something the human said in Imagination context. */
+    pthread_mutex_lock(&messages_lock);
+    int tool_result_added = message_add(
+        "user", "[R2_INTERNAL_TOOL_RESULT]\\nPRIVATE_ACTION_RESULT");
+    int human_turn_added = message_add(
+        "user", "The room needs a bed.");
+    pthread_mutex_unlock(&messages_lock);
+
+    char *recent_context = r2_recent_conversation_context(NULL, 1800);
+    ok &= check(tool_result_added == 0 && human_turn_added == 0 &&
+                    recent_context &&
+                    !strstr(recent_context, "PRIVATE_ACTION_RESULT") &&
+                    strstr(recent_context, "The room needs a bed."),
+                "recent human-facing context excludes internal tool-result payloads while retaining real user speech");
+    free(recent_context);
+
+    pthread_mutex_lock(&messages_lock);
+    message_free_all();
+    pthread_mutex_unlock(&messages_lock);
+
     return ok ? 0 : 1;
 }
