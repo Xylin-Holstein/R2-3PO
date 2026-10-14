@@ -151,7 +151,10 @@ require(
     "the conversation prompt preserves human/tool speaker attribution",
 )
 
-marker_parser_start = core.find("static const char *find_control_marker_line(")
+marker_parser_start = core.find(
+    "static const char *find_control_marker_line(const char *reply,",
+    core.find("MARKER EXTRACTION"),
+)
 marker_parser_end = core.find("\nstatic char *extract_marker(", marker_parser_start)
 if marker_parser_start < 0 or marker_parser_end < 0:
     raise SystemExit("Could not isolate the control-marker line parser.")
@@ -167,7 +170,8 @@ require(
     'find_control_marker_line(reply, "[WRITE]", 0)' in core
     and 'find_control_marker_line(reply, "[RUN]", 0)' in core
     and 'find_control_marker_line(reply, "[HAND]", 0)' in core
-    and 'find_control_marker_line(reply, "[WORLD]", 0)' in core
+    and 'find_control_marker_line(decision, "[WORLD]", 0)' in core
+    and 'find_control_marker_line(reply, start, *position)' in core
     and 'find_control_marker_line(reply, "[END WRITE]"' in core
     and 'find_control_marker_line(reply, "[END RUN]"' in core,
     "filesystem, process, hand, and world action parsers all use line-scoped markers",
