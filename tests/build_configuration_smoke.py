@@ -43,6 +43,13 @@ require(
     'make clean all CFLAGS="-std=c11 -Wall -Wextra -Werror -O2"' in workflow,
     "CI compiles with the same strict compiler policy",
 )
+push_triggers = workflow.split("  pull_request:", 1)[0]
+pull_request_triggers = workflow.split("  pull_request:", 1)[1].split("  workflow_dispatch:", 1)[0]
+require(
+    "      - 'test/**'" in push_triggers
+    and "      - 'integrate/**'" in pull_request_triggers,
+    "CI runs on QA branch pushes and on pull requests targeting the integration branch",
+)
 source_block = re.search(r"^SOURCES\s*=\s*(.+)$", makefile, re.MULTILINE)
 require(source_block is not None, "Makefile declares its production source list")
 for source in required_sources:
