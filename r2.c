@@ -6363,22 +6363,75 @@ static char *collect_completed(void)
    MARKER EXTRACTION
    ============================================================ */
 
+/* Recognize control markers only as standalone line prefixes outside
+   Markdown fenced code. Otherwise a reply explaining a command could execute
+   the example it is trying to show the user. */
+static const char *find_control_marker_line(const char *reply,
+                                            const char *marker,
+                                            size_t from_position)
+{
+    if (!reply || !marker) return NULL;
+    const size_t marker_len = strlen(marker);
+    const char *line = reply;
+    int in_fence = 0;
+    char fence_char = '\0';
+    size_t opening_fence_len = 0;
+
+    while (*line) {
+        const char *content = line;
+        while (*content == ' ' || *content == '\t') ++content;
+
+        const char *line_end = strchr(line, '\n');
+        if (!line_end) line_end = line + strlen(line);
+
+        size_t fence_len = 0;
+        char this_fence = *content;
+        if (this_fence == '`' || this_fence == '~') {
+            while (content[fence_len] == this_fence) ++fence_len;
+        }
+        if (fence_len >= 3) {
+            if (!in_fence) {
+                in_fence = 1;
+                fence_char = this_fence;
+                opening_fence_len = fence_len;
+            } else if (this_fence == fence_char &&
+                       fence_len >= opening_fence_len) {
+                const char *tail = content + fence_len;
+                while (tail < line_end &&
+                       (*tail == ' ' || *tail == '\t' || *tail == '\r'))
+                    ++tail;
+                if (tail == line_end) {
+                    in_fence = 0;
+                    fence_char = '\0';
+                    opening_fence_len = 0;
+                }
+            }
+        } else if (!in_fence && (size_t)(content - reply) >= from_position &&
+                   strncmp(content, marker, marker_len) == 0) {
+            char after = content[marker_len];
+            if (after == '\0' || after == '\n' || after == '\r' ||
+                after == ' ' || after == '\t')
+                return content;
+        }
+
+        if (*line_end == '\0') break;
+        line = line_end + 1;
+    }
+    return NULL;
+}
+
 static char *extract_marker(
     const char *reply,
     const char *start,
     const char *end,
     size_t *position)
 {
-    const char *p =
-        strstr(
-            reply + *position,
-            start
-        );
-
-    if (!p)
+    if (!reply || !start || !end || !position) return NULL;
+    const char *marker = find_control_marker_line(reply, start, *position);
+    if (!marker)
         return NULL;
 
-    p += strlen(start);
+    const char *p = marker + strlen(start);
 
     const char *q =
         strstr(
