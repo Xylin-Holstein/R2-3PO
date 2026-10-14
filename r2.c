@@ -3407,6 +3407,12 @@ int r2_ollama_chat_url(char *out, size_t out_cap)
     return 0;
 }
 
+static int r2_is_internal_tool_result(const char *content)
+{
+    static const char prefix[] = "[R2_INTERNAL_TOOL_RESULT]\n";
+    return content && strncmp(content, prefix, sizeof(prefix) - 1) == 0;
+}
+
 static char *ollama_chat_with_limit(
     Message *msgs,
     size_t count,
@@ -3550,10 +3556,13 @@ static char *ollama_chat_with_limit(
         size_t index = i - 1;
         if (!msgs[index].role || strcmp(msgs[index].role, "user") != 0)
             continue;
+        const char *content = msgs[index].content ? msgs[index].content : "";
+        /* Internal action results use a user role only for Ollama's follow-up
+           handoff; never let one become the fallback "current human turn". */
+        if (r2_is_internal_tool_result(content))
+            continue;
         if (fallback_user_index == SIZE_MAX)
             fallback_user_index = index;
-
-        const char *content = msgs[index].content ? msgs[index].content : "";
         if (authoritative_query && strcmp(content, authoritative_query) == 0) {
             current_user_index = index;
             break;
@@ -5069,7 +5078,7 @@ char *r2_recent_conversation_context(const char *exclude_latest, size_t max_char
         }
         /* Tool results are stored as user-role payloads for the next
            model turn, but they are not words spoken by the human. */
-        if (strstr(m->content, "[R2_INTERNAL_TOOL_RESULT]"))
+        if (r2_is_internal_tool_result(m->content))
             continue;
         if (strcmp(m->role, "assistant") == 0 &&
             r2_recent_message_is_tool_payload(m->content))
