@@ -70,6 +70,28 @@ int main(void)
     reply = r2_reply_sanitize("");
     assert(reply == NULL);
 
+    /* A long response with one private block must not need a pointer-sized
+       stack slot for every byte of input. This also guards large-input safety. */
+    const size_t prefix_len = 512U * 1024U;
+    const size_t suffix_len = 512U * 1024U;
+    const char *private_block = "<think>private</think>";
+    const size_t private_len = strlen(private_block);
+    char *large_input = malloc(prefix_len + private_len + suffix_len + 1);
+    assert(large_input);
+    memset(large_input, 'a', prefix_len);
+    memcpy(large_input + prefix_len, private_block, private_len);
+    memset(large_input + prefix_len + private_len, 'b', suffix_len);
+    large_input[prefix_len + private_len + suffix_len] = '\0';
+
+    reply = r2_reply_sanitize(large_input);
+    assert(reply);
+    assert(strlen(reply) == prefix_len + suffix_len);
+    assert(reply[prefix_len - 1] == 'a');
+    assert(reply[prefix_len] == 'b');
+    assert(reply[prefix_len + suffix_len - 1] == 'b');
+    free(reply);
+    free(large_input);
+
     puts("R2 user-facing reply sanitizer smoke passed");
     return 0;
 }
