@@ -81,7 +81,7 @@ int main(void)
     memset(large_input, 'a', prefix_len);
     memcpy(large_input + prefix_len, private_block, private_len);
     memset(large_input + prefix_len + private_len, 'b', suffix_len);
-    large_input[prefix_len + private_len + suffix_len] = '\\0';
+    large_input[prefix_len + private_len + suffix_len] = '\0';
 
     reply = r2_reply_sanitize(large_input);
     assert(reply);
