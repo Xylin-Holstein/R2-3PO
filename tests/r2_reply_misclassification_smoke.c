@@ -264,5 +264,16 @@ int main(void)
                 "a real standalone control marker after a fenced example is still recognized");
     free(real_command);
 
+    marker_position = 0;
+    char *block_with_quoted_end = extract_marker(
+        "[DIARY]\nvisible before\n```text\n[END DIARY]\n```\nvisible after\n[END DIARY]\n",
+        "[DIARY]", "[END DIARY]", &marker_position);
+    ok &= check(block_with_quoted_end &&
+                    strstr(block_with_quoted_end, "visible before") &&
+                    strstr(block_with_quoted_end, "[END DIARY]") &&
+                    strstr(block_with_quoted_end, "visible after"),
+                "block terminators inside fenced content do not truncate an action payload");
+    free(block_with_quoted_end);
+
     return ok ? 0 : 1;
 }
