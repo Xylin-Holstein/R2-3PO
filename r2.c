@@ -6390,6 +6390,7 @@ static const char *find_control_marker_line(const char *reply,
     int in_fence = 0;
     char fence_char = '\0';
     size_t opening_fence_len = 0;
+    int in_html_pre = 0;
     int in_html_code = 0;
     int in_html_comment = 0;
 
@@ -6444,15 +6445,19 @@ static const char *find_control_marker_line(const char *reply,
              * action examples. Track them line-by-line just like fenced code,
              * so a standalone marker inside such a block remains inert.
              */
-            int skip_html_line = in_html_code || in_html_comment;
-            if (!in_html_comment && !in_html_code &&
-                strstr(content, "<!--")) {
+            int skip_html_line =
+                in_html_pre || in_html_code || in_html_comment;
+            if (!in_html_comment && strstr(content, "<!--")) {
                 in_html_comment = 1;
                 skip_html_line = 1;
             }
+            if (!in_html_comment && !in_html_pre &&
+                strcasestr(content, "<pre")) {
+                in_html_pre = 1;
+                skip_html_line = 1;
+            }
             if (!in_html_comment && !in_html_code &&
-                (strcasestr(content, "<pre") ||
-                 strcasestr(content, "<code"))) {
+                strcasestr(content, "<code")) {
                 in_html_code = 1;
                 skip_html_line = 1;
             }
@@ -6460,9 +6465,9 @@ static const char *find_control_marker_line(const char *reply,
             if (skip_html_line) {
                 if (in_html_comment && strstr(content, "-->"))
                     in_html_comment = 0;
-                if (in_html_code &&
-                    (strcasestr(content, "</pre") ||
-                     strcasestr(content, "</code")))
+                if (in_html_pre && strcasestr(content, "</pre"))
+                    in_html_pre = 0;
+                if (in_html_code && strcasestr(content, "</code"))
                     in_html_code = 0;
             } else if ((size_t)(content - reply) >= from_position &&
                        strncmp(content, marker, marker_len) == 0) {
