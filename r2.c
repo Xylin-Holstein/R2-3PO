@@ -1397,7 +1397,7 @@ static int save_memory(
    This is intentionally a SINGLE pinned message rather than
    100 individual messages.
 
-   That gives llama3 broad access to R2's recent long-term memory
+   That gives the configured Qwen 3.5 model broad access to R2's recent long-term memory
    without consuming 100 separate entries in the conversation
    history.
 
@@ -10302,20 +10302,9 @@ int r2_init(void)
        ======================================================== */
 
     /*
-       THIS IS THE OLD MEMORY SYSTEM RESTORED.
-
-       R2 loads the newest 100 persistent memories when he starts.
-
-       They are inserted into the Ollama conversation as ONE pinned
-       context message so llama3 has direct access to them.
-
-       This does NOT replace dynamic retrieval.
-
-       The dynamic retrieval system continues to search the entire
-       SQLite memory database during every exchange.
-
-       Therefore R2 starts with broad memory AND can dynamically
-       retrieve additional memories later.
+       Load the newest 100 persistent memories into one pinned context
+       message at startup. This complements, rather than replaces, dynamic
+       retrieval from the SQLite memory database during each exchange.
     */
 
     char *startup_memories =
