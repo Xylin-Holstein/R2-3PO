@@ -4264,34 +4264,86 @@ static char *chat_copy_all(void)
 */
 
 /*
- * Bound reply generation by task complexity. Short conversational turns should
- * not spend time generating a long answer; requests that need code, tools, or
- * detailed analysis retain a larger output budget.
+ * Match at the start of a word rather than anywhere inside another word.
+ * Substring checks made "show me" look like "how" and "profile" look like
+ * "file", unnecessarily granting ordinary chat a large generation budget.
+ * Prefix matching still supports useful stems such as "diagnosing" and
+ * "summarize".
+ */
+static int query_has_word_prefix(const char *query, const char *prefix)
+{
+    if (!query || !prefix || !*prefix)
+        return 0;
+
+    size_t length = strlen(prefix);
+    for (const char *p = query; *p; ++p) {
+        if ((p == query || !isalnum((unsigned char)p[-1])) &&
+            !strncasecmp(p, prefix, length))
+            return 1;
+    }
+    return 0;
+}
+
+/* Exact phrase matching is used for brevity instructions so "short" inside
+ * unrelated words cannot change output behavior. */
+static int query_has_phrase(const char *query, const char *phrase)
+{
+    if (!query || !phrase || !*phrase)
+        return 0;
+
+    size_t length = strlen(phrase);
+    for (const char *p = query; *p; ++p) {
+        if (p != query && isalnum((unsigned char)p[-1]))
+            continue;
+        if (strlen(p) < length || strncasecmp(p, phrase, length) != 0)
+            continue;
+        if (!isalnum((unsigned char)p[length]))
+            return 1;
+    }
+    return 0;
+}
+
+/*
+ * Bound reply generation by task complexity and the user's explicit style
+ * request. A concise request wins over a long quoted/input message, while
+ * code-writing requests retain enough room to return useful code.
  */
 static int conversation_reply_token_budget(const char *query)
 {
     if (!query || !*query)
         return 768;
 
+    static const char *const code_terms[] = {
+        "write", "rewrite", "create", "implement", "code", "script",
+        "program", "file", "debug", "diagnos", "generate", "build",
+        "modify", "fix"
+    };
+    for (size_t i = 0; i < sizeof(code_terms) / sizeof(code_terms[0]); ++i) {
+        if (query_has_word_prefix(query, code_terms[i]))
+            return 8192;
+    }
+
+    static const char *const concise_phrases[] = {
+        "briefly", "short answer", "one sentence", "in one sentence",
+        "in a sentence", "in 1 sentence", "in a few words", "yes or no",
+        "just the answer", "answer only", "keep it short", "be concise",
+        "concise answer", "tl;dr"
+    };
+    for (size_t i = 0; i < sizeof(concise_phrases) / sizeof(concise_phrases[0]); ++i) {
+        if (query_has_phrase(query, concise_phrases[i]))
+            return 768;
+    }
+
     if (strlen(query) > 1200)
         return 8192;
 
-    static const char *const code_terms[] = {
-        "write", "create", "implement", "code", "script", "program",
-        "file", "debug", "diagnos", "generate", "build", "modify", "fix"
-    };
     static const char *const detailed_terms[] = {
         "explain", "compare", "analy", "review", "step-by-step", "detailed",
         "summar", "research", "teach", "calculate", "design", "plan", "list",
         "why", "how"
     };
-
-    for (size_t i = 0; i < sizeof(code_terms) / sizeof(code_terms[0]); ++i) {
-        if (strcasestr(query, code_terms[i]))
-            return 8192;
-    }
     for (size_t i = 0; i < sizeof(detailed_terms) / sizeof(detailed_terms[0]); ++i) {
-        if (strcasestr(query, detailed_terms[i]))
+        if (query_has_word_prefix(query, detailed_terms[i]))
             return 6144;
     }
     return 4096;
