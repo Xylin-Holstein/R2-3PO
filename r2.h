@@ -53,8 +53,8 @@ int r2_ollama_chat_url(char *out, size_t out_cap);
  *   0  = success
  *  -1  = failure
  *
- * This should eventually contain/use the same initialization
- * sequence currently performed by r2.c's main().
+ * The implementation uses the production initialization sequence shared
+ * with the core executable; callers must not initialize subsystems separately.
  */
 int r2_init(void);
 
