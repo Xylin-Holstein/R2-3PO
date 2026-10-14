@@ -53,6 +53,12 @@ jobs:
           python3 -m py_compile tests/model_reference_consistency_smoke.py
           python3 tests/model_reference_consistency_smoke.py
 
+      - name: Check reply sanitizer never exposes private reasoning
+        run: |
+          gcc -std=c11 -Wall -Wextra -Werror -O2 -I. R2Reply.c tests/r2_reply_sanitizer_regression.c -o /tmp/r2-reply-sanitizer-test
+          /tmp/r2-reply-sanitizer-test
+          rm -f /tmp/r2-reply-sanitizer-test
+
       - name: Check every shell script for syntax errors
         run: find . -type f -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
 
