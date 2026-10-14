@@ -26,8 +26,8 @@ require(
     "README conversation and vision model names match the compiled configuration",
 )
 require(
-    "Qwen 3.5 model broad access" in core,
-    "startup memory comments describe the configured Qwen model rather than a retired model",
+    "configured local model broad access" in core,
+    "startup memory comments describe the configured model without a stale model-specific name",
 )
 require(
     "currently configured local Ollama model" in conversation_qa
