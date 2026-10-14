@@ -53,6 +53,23 @@ int main(void)
     assert(reply && !strcmp(reply, "A normal reply about analysis: the results are useful."));
     free(reply);
 
+    /* Crossing mixed-type tags must remain private until the outer tag closes. */
+    reply = r2_reply_sanitize("<think>outer <analysis>inner </think> STILL_PRIVATE </analysis> outer_private</think>Visible answer.");
+    assert(reply && !strcmp(reply, "Visible answer."));
+    free(reply);
+
+    /* An unclosed nested tag must not let a mismatched outer close expose text. */
+    reply = r2_reply_sanitize("<think>outer <analysis>inner</think> still private");
+    assert(reply == NULL);
+
+    /* An unclosed private block may preserve text that was already outside it. */
+    reply = r2_reply_sanitize("Safe preface. <think>unfinished private material");
+    assert(reply && !strcmp(reply, "Safe preface."));
+    free(reply);
+
+    reply = r2_reply_sanitize("");
+    assert(reply == NULL);
+
     puts("R2 user-facing reply sanitizer smoke passed");
     return 0;
 }
