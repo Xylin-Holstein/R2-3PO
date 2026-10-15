@@ -6288,6 +6288,16 @@ static char *start_background_task(
         &task_queue_lock
     );
 
+    /* Do not enqueue work after shutdown has started: the worker may already
+       have observed the shutdown predicate and exited permanently. */
+    if (shutting_down) {
+        pthread_mutex_unlock(&task_queue_lock);
+        free(t->command);
+        free(t);
+        free(id);
+        return NULL;
+    }
+
     if (task_tail)
         task_tail->next = t;
     else
@@ -9359,10 +9369,10 @@ void r2_watch_status(void)
 
 void r2_request_shutdown(void)
 {
-    shutting_down = 1;
-    /* Pair the state change/wakeup with the worker's queue mutex so a
-       transition cannot be lost between its predicate check and cond_wait. */
+    /* Change the predicate and wake the worker under the same mutex used by
+       its check/cond_wait sequence; this also blocks late task enqueues. */
     pthread_mutex_lock(&task_queue_lock);
+    shutting_down = 1;
     pthread_cond_broadcast(&task_queue_cond);
     pthread_mutex_unlock(&task_queue_lock);
 }
@@ -10716,11 +10726,12 @@ int r2_init(void)
         ) != 0
     ) {
         atomic_store(&diary_running, 0);
-        shutting_down = 1;
 
-        pthread_cond_broadcast(
-            &task_queue_cond
-        );
+        /* Keep failed-startup shutdown atomic with the worker's predicate. */
+        pthread_mutex_lock(&task_queue_lock);
+        shutting_down = 1;
+        pthread_cond_broadcast(&task_queue_cond);
+        pthread_mutex_unlock(&task_queue_lock);
 
         pthread_join(
             hands_thread,
@@ -10807,7 +10818,12 @@ void r2_shutdown(void)
     if (!core_initialized && !db && !eyes && !ears)
         return;
 
+    /* Stop task submission atomically with the Hands worker's queue predicate. */
+    pthread_mutex_lock(&task_queue_lock);
     shutting_down = 1;
+    pthread_cond_broadcast(&task_queue_cond);
+    pthread_mutex_unlock(&task_queue_lock);
+
     atomic_store(&diary_running, 0);
     watch_running = 0;
     r2_vision_watch_stop();
@@ -10818,16 +10834,25 @@ void r2_shutdown(void)
                      "R2 shutdown requested.", NULL, "r2_shutdown");
     }
 
-    /* Synchronize the wakeup with hands_worker()'s condition predicate. */
-    pthread_mutex_lock(&task_queue_lock);
-    pthread_cond_broadcast(&task_queue_cond);
-    pthread_mutex_unlock(&task_queue_lock);
-
     r2_stop_thinking();
 
     if (hands_thread_started) {
         pthread_join(hands_thread, NULL);
         hands_thread_started = 0;
+    }
+
+    /* The worker exits promptly on shutdown rather than executing queued
+       actions. Reclaim those now-unrunnable task nodes after the worker joins. */
+    pthread_mutex_lock(&task_queue_lock);
+    Task *pending_tasks = task_head;
+    task_head = NULL;
+    task_tail = NULL;
+    pthread_mutex_unlock(&task_queue_lock);
+    while (pending_tasks) {
+        Task *next = pending_tasks->next;
+        free(pending_tasks->command);
+        free(pending_tasks);
+        pending_tasks = next;
     }
 
     /* Stop background post-turn Ollama/DB work before closing persistent stores. */
