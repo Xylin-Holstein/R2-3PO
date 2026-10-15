@@ -2014,24 +2014,31 @@ static char *get_relevant_memories(
                     capacity = new_capacity;
                 }
 
+                /*
+                 * A partially initialized candidate must never enter the
+                 * sorter: it calls strcmp() on updated_at and strlen() on
+                 * memory/category. Under allocation pressure, discard this
+                 * candidate and stop collecting rather than dereference NULL.
+                 */
+                char *memory_copy = xstrdup(memory);
+                char *category_copy = xstrdup(category);
+                char *updated_copy = xstrdup(updated);
+                if (!memory_copy || !category_copy || !updated_copy) {
+                    free(memory_copy);
+                    free(category_copy);
+                    free(updated_copy);
+                    break;
+                }
+
                 candidates[count].id =
                     sqlite3_column_int64(
                         st,
                         0
                     );
-
-                candidates[count].memory =
-                    xstrdup(memory);
-
-                candidates[count].category =
-                    xstrdup(category);
-
-                candidates[count].updated_at =
-                    xstrdup(updated);
-
-                candidates[count].score =
-                    score;
-
+                candidates[count].memory = memory_copy;
+                candidates[count].category = category_copy;
+                candidates[count].updated_at = updated_copy;
+                candidates[count].score = score;
                 count++;
             }
 
