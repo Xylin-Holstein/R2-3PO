@@ -5982,15 +5982,11 @@ static void execute_task(
 
         close(pipefd[0]);
 
-        dup2(
-            pipefd[1],
-            STDOUT_FILENO
-        );
-
-        dup2(
-            pipefd[1],
-            STDERR_FILENO
-        );
+        if (dup2(pipefd[1], STDOUT_FILENO) < 0 ||
+            dup2(pipefd[1], STDERR_FILENO) < 0) {
+            close(pipefd[1]);
+            _exit(126);
+        }
 
         close(pipefd[1]);
 
@@ -6091,6 +6087,7 @@ static void execute_task(
             );
 
         if (!p) {
+            output_read_failed = 1;
             kill(pid, SIGTERM);
             break;
         }
@@ -6275,11 +6272,14 @@ static char *start_background_task(
 
     random_task_id(t->id);
 
-    t->command =
-        xstrdup(command);
-
-    char *id =
-        xstrdup(t->id);
+    t->command = xstrdup(command);
+    char *id = xstrdup(t->id);
+    if (!t->command || !id) {
+        free(t->command);
+        free(t);
+        free(id);
+        return NULL;
+    }
 
     pthread_mutex_lock(
         &task_queue_lock
