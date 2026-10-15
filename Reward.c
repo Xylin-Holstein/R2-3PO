@@ -433,6 +433,76 @@ int r2_reward_apply_once(const char *target, const char *source, int points,
                                  voluntary_choice, 1);
 }
 
+int r2_reward_reconnect_history(int limit)
+{
+    PendingReward *pending = NULL;
+    sqlite3_stmt *st = NULL;
+    int rc, count = 0, linked = 0;
+    if (!r2_log_is_initialized()) return -1;
+    if (limit <= 0) limit = 100;
+    if (limit > 500) limit = 500;
+
+    pending = calloc((size_t)limit, sizeof(*pending));
+    if (!pending) return -1;
+    pthread_mutex_lock(&reward_lock);
+    if (ensure_db_locked() != 0) {
+        pthread_mutex_unlock(&reward_lock);
+        free(pending);
+        return -1;
+    }
+    rc = sqlite3_prepare_v2(reward_db,
+        "SELECT id,COALESCE(log_event_id,0),memory_indexed,target,source,points,reason,occurred_at,modifier,expires_at "
+        "FROM reward_events WHERE log_event_id IS NULL OR log_event_id=0 OR memory_indexed=0 "
+        "ORDER BY id LIMIT ?", -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        sqlite3_bind_int(st, 1, limit);
+        while ((rc = sqlite3_step(st)) == SQLITE_ROW && count < limit) {
+            PendingReward *item = &pending[count++];
+            const unsigned char *target_text = sqlite3_column_text(st, 3);
+            const unsigned char *source_text = sqlite3_column_text(st, 4);
+            const unsigned char *reason_text = sqlite3_column_text(st, 6);
+            item->id = sqlite3_column_int64(st, 0);
+            item->log_event_id = sqlite3_column_int64(st, 1);
+            item->memory_indexed = sqlite3_column_int(st, 2);
+            snprintf(item->target, sizeof(item->target), "%s",
+                target_text ? (const char *)target_text : "unknown");
+            snprintf(item->source, sizeof(item->source), "%s",
+                source_text ? (const char *)source_text : "unknown");
+            item->points = sqlite3_column_int(st, 5);
+            snprintf(item->reason, sizeof(item->reason), "%s",
+                reason_text ? (const char *)reason_text : "");
+            item->occurred_at = sqlite3_column_int64(st, 7);
+            item->modifier = sqlite3_column_int(st, 8);
+            item->expires_at = sqlite3_column_int64(st, 9);
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reward_lock);
+    if (rc != SQLITE_DONE && rc != SQLITE_ROW) {
+        free(pending);
+        return -1;
+    }
+
+    for (int i = 0; i < count; ++i) {
+        PendingReward *item = &pending[i];
+        int64_t log_event_id = item->log_event_id > 0
+            ? item->log_event_id : find_existing_log_event(item->id);
+        char summary[512], details[1600];
+        format_reward_event(item, summary, sizeof(summary), details, sizeof(details));
+        if (log_event_id <= 0)
+            log_event_id = r2_log_event_with_memory(R2_LOG_WORLD,
+                "enjoyment_changed", summary, details, "Reward.c", 0);
+        if (log_event_id > 0) {
+            int memory_indexed = ensure_reward_memory_pointer(log_event_id, summary);
+            if (store_log_link(item->id, log_event_id, memory_indexed > 0) == 0 &&
+                memory_indexed > 0)
+                linked++;
+        }
+    }
+    free(pending);
+    return linked;
+}
+
 int r2_reward_current_modifier(const char *target)
 {
     sqlite3_stmt *st = NULL;
