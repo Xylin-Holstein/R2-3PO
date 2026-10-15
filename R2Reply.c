@@ -124,6 +124,39 @@ static char *trim_reply(char *text)
     return text;
 }
 
+/* Markdown code is user-facing literal content, not a private-tag
+   instruction. Keep fenced examples and inline code intact while stripping
+   actual private blocks from ordinary prose. */
+static int reply_fence_line(const char *line, size_t length,
+                            char expected_char, size_t expected_length,
+                            int closing, char *found_char, size_t *found_length)
+{
+    size_t pos = 0;
+    while (pos < length && line[pos] == ' ' && pos < 4) ++pos;
+    if (pos > 3 || pos >= length ||
+        (line[pos] != '`' && line[pos] != '~'))
+        return 0;
+
+    char ch = line[pos];
+    size_t run = 0;
+    while (pos + run < length && line[pos + run] == ch) ++run;
+    if (run < 3) return 0;
+
+    if (closing) {
+        if (ch != expected_char || run < expected_length) return 0;
+        pos += run;
+        while (pos < length && (line[pos] == ' ' || line[pos] == '\t')) ++pos;
+        if (pos != length) return 0;
+    } else if (ch == '`') {
+        for (size_t i = pos + run; i < length; ++i)
+            if (line[i] == '`') return 0;
+    }
+
+    if (found_char) *found_char = ch;
+    if (found_length) *found_length = run;
+    return 1;
+}
+
 char *r2_reply_sanitize(const char *reply)
 {
     if (!reply) return NULL;
@@ -165,23 +198,78 @@ char *r2_reply_sanitize(const char *reply)
 
     size_t src = 0, dst = 0;
     size_t len = strlen(start);
+    size_t inline_ticks = 0;
+    int in_fence = 0;
+    char fence_char = 0;
+    size_t fence_length = 0;
     while (src < len) {
-        const HiddenBlock *block = NULL;
-        const char *after_open = find_hidden_open(start + src, &block);
-        if (after_open) {
-            const char *close = find_hidden_close_balanced(after_open, block);
-            if (!close) {
-                /* An unclosed private block is not safe to display. */
-                break;
+        /* Markdown fences are recognized only at a line boundary and outside
+           inline code. Copy each fenced line verbatim, including tag examples. */
+        if (inline_ticks == 0 && (src == 0 || start[src - 1] == '\n')) {
+            size_t line_end = src;
+            while (line_end < len && start[line_end] != '\n') ++line_end;
+            size_t line_length = line_end - src;
+            size_t check_length = line_length;
+            if (check_length && start[src + check_length - 1] == '\r')
+                --check_length;
+            size_t after_line = line_end < len ? line_end + 1 : line_end;
+            if (in_fence) {
+                memcpy(clean + dst, start + src, after_line - src);
+                dst += after_line - src;
+                char ignored_char = 0;
+                size_t ignored_length = 0;
+                if (reply_fence_line(start + src, check_length,
+                                     fence_char, fence_length, 1,
+                                     &ignored_char, &ignored_length))
+                    in_fence = 0;
+                src = after_line;
+                continue;
             }
-            src = (size_t)(close - start) + strlen(block->close);
+            char opening_char = 0;
+            size_t opening_length = 0;
+            if (reply_fence_line(start + src, check_length, 0, 0, 0,
+                                 &opening_char, &opening_length)) {
+                memcpy(clean + dst, start + src, after_line - src);
+                dst += after_line - src;
+                in_fence = 1;
+                fence_char = opening_char;
+                fence_length = opening_length;
+                src = after_line;
+                continue;
+            }
+        }
+
+        if (start[src] == '`') {
+            size_t run = 1;
+            while (src + run < len && start[src + run] == '`') ++run;
+            if (inline_ticks == 0)
+                inline_ticks = run;
+            else if (inline_ticks == run)
+                inline_ticks = 0;
+            memcpy(clean + dst, start + src, run);
+            src += run;
+            dst += run;
             continue;
         }
 
-        size_t close_len = 0;
-        if (is_hidden_close(start + src, &close_len)) {
-            src += close_len;
-            continue;
+        if (inline_ticks == 0) {
+            const HiddenBlock *block = NULL;
+            const char *after_open = find_hidden_open(start + src, &block);
+            if (after_open) {
+                const char *close = find_hidden_close_balanced(after_open, block);
+                if (!close) {
+                    /* An unclosed private block is not safe to display. */
+                    break;
+                }
+                src = (size_t)(close - start) + strlen(block->close);
+                continue;
+            }
+
+            size_t close_len = 0;
+            if (is_hidden_close(start + src, &close_len)) {
+                src += close_len;
+                continue;
+            }
         }
 
         clean[dst++] = start[src++];
