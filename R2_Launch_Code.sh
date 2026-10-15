@@ -24,6 +24,24 @@ if [[ ! "$R2_UID" =~ ^[0-9]+$ || ! "$R2_GID" =~ ^[0-9]+$ || -z "$R2_HOME_DIR" ]]
 fi
 
 R2_NETWORK_LOCK_ACTIVE=0
+OBSERVER_XHOST_GRANTED=0
+OBSERVER_PID=""
+
+# Observer/display cleanup must run for every exit path, not only after R2
+# returns normally. In particular, an early launch failure after opening the
+# X-server permission must not leave a stale observer or grant behind.
+r2_observer_cleanup() {
+    if [[ -n "${OBSERVER_PID:-}" ]]; then
+        kill "$OBSERVER_PID" 2>/dev/null || true
+        wait "$OBSERVER_PID" 2>/dev/null || true
+        OBSERVER_PID=""
+    fi
+    if [[ "${OBSERVER_XHOST_GRANTED:-0}" -eq 1 ]]; then
+        xhost -SI:localuser:r2 >/dev/null 2>&1 || true
+        OBSERVER_XHOST_GRANTED=0
+    fi
+}
+
 r2_remove_network_jumps() {
     local binary="$1" chain="$2"
     while sudo -n "$binary" -w -C OUTPUT -m owner --uid-owner "$R2_UID" -j "$chain" >/dev/null 2>&1; do
@@ -46,6 +64,7 @@ r2_remove_network_lock() {
 r2_network_cleanup() {
     local exit_status=$?
     trap - EXIT
+    r2_observer_cleanup
     if [[ "$R2_NETWORK_LOCK_ACTIVE" -eq 1 ]]; then
         if r2_remove_network_lock; then
             echo "[Network] R2-only network lock removed."
@@ -579,8 +598,6 @@ echo
 # The observer must run as r2 to read the private Life Log database, but
 # the desktop X server normally rejects that separate Linux user. Grant only
 # r2 access to this local X server, then revoke it when R2 exits.
-OBSERVER_XHOST_GRANTED=0
-OBSERVER_PID=""
 if [ -n "${DISPLAY:-}" ] && command -v xhost >/dev/null 2>&1 && xhost +SI:localuser:r2 >/dev/null 2>&1; then
     OBSERVER_XHOST_GRANTED=1
     # Don't pass the desktop user's cookie or R2's virtual-clock environment.
@@ -643,13 +660,9 @@ sudo -n setpriv --reuid="$R2_UID" --regid="$R2_GID" --groups="$R2_RUNTIME_GROUPS
 
 status=$?
 
-# Avoid leaving a stale observer window or X-server permission after R2 exits.
-if [ -n "${OBSERVER_PID:-}" ]; then
-    kill "$OBSERVER_PID" 2>/dev/null || true
-fi
-if [ "${OBSERVER_XHOST_GRANTED:-0}" -eq 1 ]; then
-    xhost -SI:localuser:r2 >/dev/null 2>&1 || true
-fi
+# Also clean up immediately after a normal R2 exit; the EXIT trap is an
+# idempotent fallback for all early exits and signals.
+r2_observer_cleanup
 
 echo
 echo "========================================"
