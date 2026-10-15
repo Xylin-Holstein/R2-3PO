@@ -37,6 +37,9 @@ require("ollama_json_object_add_checked(root, \"options\", options) != 0" in fun
         "the complete options object must attach successfully")
 require("ollama_json_append_message(arr, \"system\", system_override," in function,
         "the system override uses checked message serialization")
+require("ollama_json_object_add_checked(override_message, \"content\"," in function
+        and 'json_object_object_add(override_message, "content", bounded_override)' not in function,
+        "budget-trimmed system prompts fail closed if replacement insertion fails")
 require("json_object_object_add(root, \"model\", json_object_new_string(MODEL))" not in function
         and "if (options) {" not in function,
         "old unchecked metadata/options paths are absent")
