@@ -4962,9 +4962,15 @@ static const char *find_control_marker_line(const char *reply,
 static int r2_recent_message_is_tool_payload(const char *content)
 {
     static const char *const markers[] = {
+        /* World, sensory, device, diary, and task actions. */
         "[WORLD]", "[IMAGINE]", "[IMAGINE_FEEDBACK]", "[SENSORY_JOURNAL]",
         "[ALTERNATE_CREATE]", "[ALTERNATE_DISCARD]", "[ALTERNATE_RETAIN]",
-        "[GAMEBOY]", "[TV]", "[DIARY]", "[TASK]", "[FRIDGE]"
+        "[ALTERNATE_COMPARE]", "[ALTERNATE_LIST]", "[ALTERNATE_SHOW]",
+        "[GAMEBOY]", "[TV]", "[DIARY]", "[READ_DIARY]", "[TASK]", "[FRIDGE]",
+        /* Filesystem and computer-execution controls must never be replayed
+           as ordinary recent assistant dialogue after their side effects ran. */
+        "[READ]", "[LIST]", "[DELETE]", "[WRITE]", "[HAND]",
+        "[HAND_REQUEST]", "[RUN]"
     };
     if (!content) return 1;
     for (size_t i = 0; i < sizeof(markers) / sizeof(markers[0]); ++i)
