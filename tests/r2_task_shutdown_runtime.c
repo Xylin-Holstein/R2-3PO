@@ -34,7 +34,7 @@ int main(void)
     assert(pthread_create(&stopper, NULL, request_shutdown_after_delay, NULL) == 0);
     assert(clock_gettime(CLOCK_MONOTONIC, &start) == 0);
 
-    execute_task("shutdown", "sleep 30 & wait");
+    execute_task("shutdown", "printf started; sleep 30 & wait");
 
     assert(clock_gettime(CLOCK_MONOTONIC, &end) == 0);
     assert(pthread_join(stopper, NULL) == 0);
@@ -43,6 +43,7 @@ int main(void)
     pthread_mutex_lock(&tasks_lock);
     CompletedTask *completed = completed_head;
     assert(completed != NULL);
+    assert(completed->output != NULL && strstr(completed->output, "started") != NULL);
     assert(completed->return_code == -1);
     pthread_mutex_unlock(&tasks_lock);
 
