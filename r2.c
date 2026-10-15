@@ -3693,7 +3693,15 @@ static char *ollama_chat_with_limit(
                     json_object_put(root);
                     return NULL;
                 }
-                json_object_object_add(override_message, "content", bounded_override);
+                if (json_object_object_add(override_message, "content",
+                                            bounded_override) != 0) {
+                    json_object_put(bounded_override);
+                    free(include);
+                    free(limits);
+                    json_object_put(arr);
+                    json_object_put(root);
+                    return NULL;
+                }
             }
         }
     }
