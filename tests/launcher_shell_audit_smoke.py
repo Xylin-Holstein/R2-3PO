@@ -68,6 +68,8 @@ require('trap r2_network_cleanup EXIT' in launcher
         and 'r2_network_cleanup() {' in launcher
         and 'r2_observer_cleanup' in launcher,
         "EXIT cleanup always handles observer/display permissions and network rules")
+require(re.search(r"\\bsudo -u r2\\b", launcher) is None,
+        "all optional r2 helper/observer launches are non-interactive and cannot hang on a sudo prompt")
 cleanup_start = launcher.find("r2_observer_cleanup() {")
 cleanup_end = launcher.find("\nr2_remove_network_jumps()", cleanup_start)
 cleanup = launcher[cleanup_start:cleanup_end]
