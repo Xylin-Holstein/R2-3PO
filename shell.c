@@ -2488,7 +2488,6 @@ int r2_shell_run(void)
         fprintf(stderr, "[R2 Shell] Could not allocate bounded input buffer.\n");
         return -1;
     }
-    size_t capacity = (size_t)SHELL_INPUT_MAX + 2U;
     sigset_t service_signals, original_mask, wait_mask;
     int service_signals_blocked = 0;
 
