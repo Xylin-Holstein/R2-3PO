@@ -279,6 +279,39 @@ int r2_addiction_record_choice(const char *target, const char *target_type,
         pthread_mutex_unlock(&addiction_lock);
         return -1;
     }
+    /* Reinforcement choices carry a stable reward_event_id in details. If
+       a caller retries after the reward transaction committed but before this
+       side effect completed, treat the already-recorded choice as success. */
+    if (source && strcmp(source, "reinforcement") == 0 &&
+        details && strstr(details, "reward_event_id=") != NULL) {
+        sqlite3_stmt *existing = NULL;
+        int check_rc = sqlite3_prepare_v2(addiction_db,
+            "SELECT 1 FROM addiction_events WHERE target=? COLLATE NOCASE "
+            "AND event_kind='choice' AND source=? AND details=? LIMIT 1",
+            -1, &existing, NULL);
+        if (check_rc == SQLITE_OK) {
+            sqlite3_bind_text(existing, 1, target, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(existing, 2, source, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(existing, 3, details, -1, SQLITE_TRANSIENT);
+            check_rc = sqlite3_step(existing);
+            if (check_rc == SQLITE_ROW) {
+                sqlite3_finalize(existing);
+                pthread_mutex_unlock(&addiction_lock);
+                return 0;
+            }
+            if (check_rc != SQLITE_DONE) {
+                sqlite3_finalize(existing);
+                pthread_mutex_unlock(&addiction_lock);
+                return -1;
+            }
+        }
+        if (existing) sqlite3_finalize(existing);
+        if (check_rc != SQLITE_OK && check_rc != SQLITE_DONE) {
+            pthread_mutex_unlock(&addiction_lock);
+            return -1;
+        }
+    }
+
     /* Preserve learned enjoyment across repeated choices. A new target starts
        with the neutral default supplied by the caller; existing targets keep
        their latest learned score until feedback changes it. */
