@@ -3313,6 +3313,44 @@ static int r2_is_internal_tool_result(const Message *message)
     return message && message->internal_tool_result;
 }
 
+/* Build each serialized message transactionally. A partial JSON object must
+   never be sent to Ollama, and allocation failure must not silently drop the
+   active user turn or an instruction-bearing system message. */
+static int ollama_json_append_message(struct json_object *array,
+                                      const char *role,
+                                      const char *content,
+                                      size_t content_length)
+{
+    if (!array || !role || !content || content_length > INT_MAX)
+        return -1;
+
+    struct json_object *message = json_object_new_object();
+    struct json_object *role_value = json_object_new_string(role);
+    struct json_object *content_value =
+        json_object_new_string_len(content, (int)content_length);
+    if (!message || !role_value || !content_value)
+        goto fail;
+
+    if (json_object_object_add(message, "role", role_value) != 0)
+        goto fail;
+    role_value = NULL; /* ownership transferred to message */
+
+    if (json_object_object_add(message, "content", content_value) != 0)
+        goto fail;
+    content_value = NULL; /* ownership transferred to message */
+
+    if (json_object_array_add(array, message) != 0)
+        goto fail;
+    message = NULL; /* ownership transferred to array */
+    return 0;
+
+fail:
+    if (role_value) json_object_put(role_value);
+    if (content_value) json_object_put(content_value);
+    if (message) json_object_put(message);
+    return -1;
+}
+
 static char *ollama_chat_with_limit(
     Message *msgs,
     size_t count,
@@ -3732,19 +3770,29 @@ static char *ollama_chat_with_limit(
         msgs, include, count, message_order, count);
     for (size_t pos = 0; pos < ordered_count; ++pos) {
         size_t i = message_order[pos];
-        struct json_object *m = json_object_new_object();
-        if (!m) continue;
         const char *role = msgs[i].role ? msgs[i].role : "user";
         const char *content = msgs[i].content ? msgs[i].content : "";
-        json_object_object_add(m, "role", json_object_new_string(role));
-        json_object_object_add(m, "content",
-                               json_object_new_string_len(content, (int)limits[i]));
-        json_object_array_add(arr, m);
+        if (ollama_json_append_message(arr, role, content, limits[i]) != 0) {
+            fprintf(stderr,
+                    "[R2 Ollama] refusing inference: could not serialize message %zu/%zu; no partial payload will be sent.\n",
+                    pos + 1, ordered_count);
+            free(message_order);
+            free(include);
+            free(limits);
+            json_object_put(arr);
+            json_object_put(root);
+            return NULL;
+        }
     }
     free(message_order);
     free(include);
     free(limits);
-    json_object_object_add(root, "messages", arr);
+    if (json_object_object_add(root, "messages", arr) != 0) {
+        json_object_put(arr);
+        json_object_put(root);
+        return NULL;
+    }
+    arr = NULL; /* root owns the completed message array */
 
     const char *payload = json_object_to_json_string_ext(root, JSON_C_TO_STRING_PLAIN);
     if (!payload) {
