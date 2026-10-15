@@ -9943,8 +9943,12 @@ int r2_conversation(void)
     if (!core_initialized)
         return -1;
 
-    char *line = NULL;
-    size_t linecap = 0;
+    char *line = malloc((size_t)OLLAMA_MAX_MESSAGE_CHARS + 2U);
+    if (!line) {
+        fprintf(stderr, "[R2] Could not allocate bounded conversation input buffer.\n");
+        return -1;
+    }
+    size_t linecap = (size_t)OLLAMA_MAX_MESSAGE_CHARS + 2U;
 
     while (!shutting_down) {
         handle_completed_messages();
@@ -9952,14 +9956,30 @@ int r2_conversation(void)
         printf("You: ");
         fflush(stdout);
 
-        ssize_t nr = getline(&line, &linecap, stdin);
-        if (nr < 0) break;
-
-        if (nr && line[nr - 1] == '\n')
-            line[nr - 1] = '\0';
+        errno = 0;
+        if (!fgets(line, (int)linecap, stdin)) {
+            if (errno == EINTR) {
+                clearerr(stdin);
+                continue;
+            }
+            if (ferror(stdin))
+                fprintf(stderr, "[R2] Direct conversation input read failed.\n");
+            break;
+        }
 
         size_t input_bytes = strlen(line);
+        int has_newline = input_bytes > 0 && line[input_bytes - 1] == '\n';
+        if (has_newline)
+            line[--input_bytes] = '\0';
+
+        /*
+         * Use a fixed-size buffer and drain an oversized line before the next
+         * prompt. This bounds memory use and prevents its tail from becoming
+         * a second, accidental conversation turn.
+         */
         if (input_bytes > OLLAMA_MAX_MESSAGE_CHARS) {
+            int ch;
+            while ((ch = getchar()) != '\n' && ch != EOF) {}
             fprintf(stderr,
                     "[R2] Direct conversation input rejected (%zu bytes; maximum %d).\n",
                     input_bytes, OLLAMA_MAX_MESSAGE_CHARS);
