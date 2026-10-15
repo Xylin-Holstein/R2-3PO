@@ -144,6 +144,9 @@ jobs:
       - name: Guard direct conversation against stderr-only failures
         run: python3 tests/direct_conversation_failure_smoke.py
 
+      - name: Guard final assembled conversation context budget
+        run: python3 tests/final_context_budget_smoke.py
+
       - name: Defer autonomous reflection until R2 has been idle
         run: |
           python3 -m py_compile tests/autonomous_reflection_idle_smoke.py
