@@ -56,7 +56,10 @@ for required in (
     "size_t max_user_reserve = input_budget > 1500",
     "current_user_reserve > max_user_reserve",
     "size_t reality_reserve = system_budget / 3;",
-    "size_t override_budget = system_budget / 4;",
+    "size_t identity_minimum = system_budget / 5;",
+    "system_budget > reality_reserve + 2000",
+    "system_budget - reality_reserve - identity_minimum",
+    "Prefer a complete sentence boundary when the cap falls inside the",
     "size_t identity_budget = system_budget > override_length + reality_reserve",
     "message_priority == 0 && length > identity_budget",
     'json_object_object_add(override_message, "content", bounded_override)',
@@ -65,7 +68,7 @@ for required in (
         raise SystemExit(f"Adaptive prompt budget is missing its context safeguard: {required}")
 
 def allocation_for_context(num_ctx: int, num_predict: int, override_length: int,
-                           current_user_reserve: int = 1500) -> tuple[int, int, int, int, int, int]:
+                           current_user_reserve: int = 1500) -> tuple[int, int, int, int, int, int, int]:
     input_budget = (num_ctx - num_predict - 512) * 32 // 10
     input_budget = min(input_budget, history_total)
     max_user_reserve = (
@@ -77,11 +80,21 @@ def allocation_for_context(num_ctx: int, num_predict: int, override_length: int,
         if input_budget > current_user_reserve + 500 else 0
     )
     system_budget = min(system_budget, system_total, input_budget)
-    bounded_override = min(override_length, system_budget // 4)
     reality_reserve = min(system_budget // 3, 3000)
+    identity_minimum = system_budget // 5
+    if identity_minimum < 1000 and system_budget > reality_reserve + 2000:
+        identity_minimum = 1000
+    identity_capacity = system_budget - reality_reserve
+    identity_minimum = min(identity_minimum, identity_capacity)
+    override_budget = (
+        system_budget - reality_reserve - identity_minimum
+        if system_budget > reality_reserve + identity_minimum
+        else system_budget // 4
+    )
+    bounded_override = min(override_length, override_budget)
     identity_budget = max(0, system_budget - bounded_override - reality_reserve)
     return (system_budget, bounded_override, identity_budget, reality_reserve,
-            current_user_reserve, input_budget)
+            current_user_reserve, input_budget, identity_minimum)
 
 # Exercise low-memory, normal, and long-user-message paths. The allocator must
 # leave a system budget and a bounded current-turn reservation at every size.
@@ -92,17 +105,22 @@ for num_ctx, num_predict, override_length, requested_user_reserve in (
     (8192, 768, 12000, 1500),
     (16384, 3072, 12000, 12000),
 ):
-    system_budget, override, identity, reality, user_reserve, input_budget = (
+    system_budget, override, identity, reality, user_reserve, input_budget, identity_minimum = (
         allocation_for_context(num_ctx, num_predict, override_length,
                               requested_user_reserve)
     )
-    if system_budget <= 0 or override > system_budget // 4:
+    if system_budget <= 0 or override > system_budget:
         raise SystemExit(f"Invalid override allocation at context={num_ctx}")
-    if identity <= 0 or reality <= 0:
+    if identity < identity_minimum or reality <= 0:
         raise SystemExit(
             f"Identity/live Reality context starved at context={num_ctx}: "
             f"system={system_budget}, override={override}, "
-            f"identity={identity}, reality={reality}"
+            f"identity={identity}, minimum_identity={identity_minimum}, reality={reality}"
+        )
+    if system_budget > 3000 and override <= system_budget // 4:
+        raise SystemExit(
+            f"Conversation contract did not receive more than the old quarter-cap "
+            f"at context={num_ctx}: system={system_budget}, override={override}"
         )
     if override + identity + reality > system_budget:
         raise SystemExit(f"Prompt allocations exceed system budget at context={num_ctx}")

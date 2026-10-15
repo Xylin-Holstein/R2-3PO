@@ -304,6 +304,30 @@ int main(void)
     free(split_html_close_command);
 
     marker_position = 0;
+    char *html_script_command = extract_marker(
+        "Example only:\n<script>\n[WORLD] remove|bed\n</script>\n[WORLD] look\n",
+        "[WORLD]", "\n", &marker_position);
+    ok &= check(html_script_command && strcmp(html_script_command, "look") == 0,
+                "HTML script examples do not trigger action markers");
+    free(html_script_command);
+
+    marker_position = 0;
+    char *html_style_command = extract_marker(
+        "Example only:\n<style>\n[WORLD] remove|bed\n</style>\n[WORLD] look\n",
+        "[WORLD]", "\n", &marker_position);
+    ok &= check(html_style_command && strcmp(html_style_command, "look") == 0,
+                "HTML style examples do not trigger action markers");
+    free(html_style_command);
+
+    marker_position = 0;
+    char *html_textarea_command = extract_marker(
+        "Example only:\n<textarea>\n[WORLD] remove|bed\n</textarea>\n[WORLD] look\n",
+        "[WORLD]", "\n", &marker_position);
+    ok &= check(html_textarea_command && strcmp(html_textarea_command, "look") == 0,
+                "HTML textarea contents do not trigger action markers");
+    free(html_textarea_command);
+
+    marker_position = 0;
     char *html_comment_command = extract_marker(
         "Example only:\n<!--\n[WORLD] remove|bed\n-->\n[WORLD] look\n",
         "[WORLD]", "\n", &marker_position);

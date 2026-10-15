@@ -175,6 +175,14 @@ require(
     and "Insert after any leading system context, before dialogue begins." in core,
     "retrieved history stays separate and is placed before dialogue without modifying the current user message",
 )
+
+require(
+    "size_t identity_minimum = system_budget / 5;" in core
+    and "system_budget - reality_reserve - identity_minimum" in core
+    and "Prefer a complete sentence boundary when the cap falls inside the" in core
+    and "override_budget = system_budget / 4;" not in core,
+    "adaptive context budgeting preserves more of the conversation contract without dropping identity or live Reality",
+)
 require(
     "Return ONLY valid JSON with keys description and focus" in visual
     and "observation for R2's conversation to use as sensory evidence, not as a user-facing answer." in visual
@@ -322,12 +330,15 @@ require(
 require(
     "static int message_add_pair_locked(" in core
     and '"[R2_INTERNAL_TOOL_RESULT]\\n"' in core
+    and '"[R2_INTERNAL_TOOL_REQUEST]\\n"' in core
     and "int internal_tool_result;" in core
-    and 'message_add_pair_locked(\n                    "assistant", reply, "user", tagged_tool_result)' in core
+    and 'message_add_pair_locked(\n                    "assistant", tool_request_context, "user", tagged_tool_result)' in core
     and "messages.items[messages.count - 1].internal_tool_result = 1;" in core
     and "Append the internal assistant tool-call and its tool-result as one logical" in core
-    and "Cannot fit complete assistant/tool history pair without evicting pinned context." in core,
-    "tool-call and tagged tool-result history is atomic and trusted status is explicit metadata",
+    and "Cannot fit complete assistant/tool history pair without evicting pinned context." in core
+    and "raw [WORLD]/[RUN]/etc. commands into later model context" in core
+    and "do not repeat it unless the user asks again" in core,
+    "tool-result history stays atomic and trusted while executed control syntax is not replayed as dialogue",
 )
 
 tool_pair_start = core.find('const char tool_result_prefix[] = "[R2_INTERNAL_TOOL_RESULT]\\n"')
