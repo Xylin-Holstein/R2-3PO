@@ -55,6 +55,10 @@ jobs:
 
       - name: Check every shell script for syntax errors
         run: find . -type f -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
+      - name: Check TV control socket framing and shutdown lifecycle
+        run: |
+          python3 -m py_compile tests/tv_control_lifecycle_smoke.py
+          python3 tests/tv_control_lifecycle_smoke.py
       - name: Keep launcher, compiled modules, model, and cleanup in sync
         run: |
           python3 -m py_compile tests/launcher_shell_audit_smoke.py
