@@ -9961,10 +9961,10 @@ int r2_conversation(void)
         size_t input_bytes = strlen(line);
         if (input_bytes > OLLAMA_MAX_MESSAGE_CHARS) {
             fprintf(stderr,
-                    "[R2] Direct conversation input rejected (%zu bytes; maximum %d).\\n",
+                    "[R2] Direct conversation input rejected (%zu bytes; maximum %d).\n",
                     input_bytes, OLLAMA_MAX_MESSAGE_CHARS);
-            printf("\\nR2-3PO: That message is too long for one turn (%d-byte limit). "
-                   "Nothing from it was sent; please split it into smaller messages.\\n\\n",
+            printf("\nR2-3PO: That message is too long for one turn (%d-byte limit). "
+                   "Nothing from it was sent; please split it into smaller messages.\n\n",
                    OLLAMA_MAX_MESSAGE_CHARS);
             fflush(stdout);
             continue;
