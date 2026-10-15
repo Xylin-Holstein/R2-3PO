@@ -27,6 +27,9 @@ require('if (rc != SQLITE_OK) return -1;' in body,
 require("static int reward_apply_internal" in source
         and "return reward_apply_internal(target, source, points, reason," in source,
         "public reward APIs must share the atomic implementation")
+require("int r2_reward_reconnect_history(" in source
+        and "find_existing_log_event(item->id)" in source,
+        "reward history reconciliation must remain available after the refactor")
 once_start = source.index("int r2_reward_apply_once(")
 once_end = source.index("\nint r2_reward_current_modifier(", once_start)
 once_body = source[once_start:once_end]
