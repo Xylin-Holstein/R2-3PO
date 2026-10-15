@@ -113,6 +113,10 @@ jobs:
         run: |
           python3 -m py_compile V-Webcam.py tests/vwebcam_smoke.py
           python3 tests/vwebcam_smoke.py
+      - name: Check fail-closed vision JSON construction
+        run: |
+          python3 -m py_compile tests/vision_json_failure_smoke.py
+          python3 tests/vision_json_failure_smoke.py
 
       - name: Check local Ollama readiness probe without network access
         run: |
