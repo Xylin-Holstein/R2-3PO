@@ -474,22 +474,27 @@ static char *call_vision_model(const char *image_base64, const char *question,
             fprintf(stderr, "[R2 Vision] Ignoring invalid R2_OLLAMA_NUM_GPU value.\n");
         }
     }
-    R2_VISION_ADD_OBJECT(root, "options", options);
-    options = NULL; /* root owns options */
+    json_object *options_to_attach = options;
+    options = NULL; /* helper owns the value on both success and failure */
+    R2_VISION_ADD_OBJECT(root, "options", options_to_attach);
 
     R2_VISION_ADD_OBJECT(sys, "role", json_object_new_string("system"));
     R2_VISION_ADD_OBJECT(sys, "content", json_object_new_string(system_prompt));
     R2_VISION_ADD_OBJECT(user, "role", json_object_new_string("user"));
     R2_VISION_ADD_OBJECT(user, "content", json_object_new_string(asked));
     R2_VISION_ADD_ARRAY(images, json_object_new_string(image_base64));
-    R2_VISION_ADD_OBJECT(user, "images", images);
-    images = NULL; /* user owns image array */
-    R2_VISION_ADD_ARRAY(messages, sys);
-    sys = NULL; /* messages owns system message */
-    R2_VISION_ADD_ARRAY(messages, user);
-    user = NULL; /* messages owns user message */
-    R2_VISION_ADD_OBJECT(root, "messages", messages);
-    messages = NULL; /* root owns message array */
+    json_object *images_to_attach = images;
+    images = NULL;
+    R2_VISION_ADD_OBJECT(user, "images", images_to_attach);
+    json_object *system_to_attach = sys;
+    sys = NULL;
+    R2_VISION_ADD_ARRAY(messages, system_to_attach);
+    json_object *user_to_attach = user;
+    user = NULL;
+    R2_VISION_ADD_ARRAY(messages, user_to_attach);
+    json_object *messages_to_attach = messages;
+    messages = NULL;
+    R2_VISION_ADD_OBJECT(root, "messages", messages_to_attach);
 
     free(system_prompt);
     system_prompt = NULL;
