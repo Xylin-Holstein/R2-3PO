@@ -176,8 +176,9 @@ static char *sj_query(const char *query, int limit)
         "e.details,e.source,d.diary_entry_id FROM r2_sensory_journal j "
         "JOIN r2_log_events e ON e.id=j.event_id "
         "LEFT JOIN r2_sensory_journal_diary_links d ON d.event_id=e.id "
-        "WHERE e.summary LIKE ? OR e.details LIKE ? OR e.event_type LIKE ? "
-        "OR j.journal_kind LIKE ? OR e.source LIKE ? ORDER BY e.id DESC LIMIT ?;";
+        "WHERE e.summary LIKE ? ESCAPE '!' OR e.details LIKE ? ESCAPE '!' "
+        "OR e.event_type LIKE ? ESCAPE '!' OR j.journal_kind LIKE ? ESCAPE '!' "
+        "OR e.source LIKE ? ESCAPE '!' ORDER BY e.id DESC LIMIT ?;";
     sqlite3_stmt *st = NULL;
     if (sqlite3_prepare_v2(sj_db, query ? sql_search : sql_recent, -1, &st, NULL) != SQLITE_OK) {
         pthread_mutex_unlock(&sj_lock);
@@ -186,9 +187,24 @@ static char *sj_query(const char *query, int limit)
     if (query) {
         size_t n = strlen(query);
         if (n > 1024) n = 1024;
-        char *pat = malloc(n + 3);
+        /* Treat user search text literally: LIKE's %, _, and our escape
+           character must not silently broaden the requested search. */
+        if (n > ((size_t)-1 - 3) / 2) {
+            sqlite3_finalize(st);
+            pthread_mutex_unlock(&sj_lock);
+            return NULL;
+        }
+        char *pat = malloc(n * 2 + 3);
         if (!pat) { sqlite3_finalize(st); pthread_mutex_unlock(&sj_lock); return NULL; }
-        pat[0] = '%'; memcpy(pat + 1, query, n); pat[n + 1] = '%'; pat[n + 2] = '\0';
+        size_t pat_len = 0;
+        pat[pat_len++] = '%';
+        for (size_t i = 0; i < n; ++i) {
+            if (query[i] == '%' || query[i] == '_' || query[i] == '!')
+                pat[pat_len++] = '!';
+            pat[pat_len++] = query[i];
+        }
+        pat[pat_len++] = '%';
+        pat[pat_len] = '\0';
         for (int i = 1; i <= 5; ++i) sqlite3_bind_text(st, i, pat, -1, SQLITE_TRANSIENT);
         sqlite3_bind_int(st, 6, limit);
         free(pat);
