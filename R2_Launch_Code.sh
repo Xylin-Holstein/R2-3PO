@@ -525,13 +525,13 @@ sudo -n -u r2 -- gcc -std=c11 -Wall -Wextra -Werror -O2 \
     "$R2_SOURCE/Addiction.c" \
     "$R2_SOURCE/Reward.c" \
     "$R2_SOURCE/AlternateSelf.c" \
+    "$R2_SOURCE/Imagination.c" \
+    "$R2_SOURCE/SensoryJournal.c" \
     "$R2_SOURCE/Visual.c" \
     "$R2_SOURCE/Ears.c" \
     "$R2_SOURCE/Eyes.c" \
     "$R2_SOURCE/R2Sounds.c" \
     "$R2_SOURCE/R2Reply.c" \
-    "$R2_SOURCE/Imagination.c" \
-    "$R2_SOURCE/SensoryJournal.c" \
     -o "$TEMP_EXEC" \
     -lcurl \
     -lsqlite3 \
