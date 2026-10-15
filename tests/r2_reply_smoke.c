@@ -49,6 +49,30 @@ int main(void)
     assert(reply && !strcmp(reply, "Safe answer."));
     free(reply);
 
+    /* Literal private-tag syntax in Markdown code is user-facing content,
+       not an instruction to remove the example. */
+    reply = r2_reply_sanitize("Use `<think>example</think>` literally.");
+    assert(reply && strstr(reply, "`<think>[content omitted]</think>`"));
+    assert(!strstr(reply, "example"));
+    free(reply);
+
+    reply = r2_reply_sanitize(
+        "Example:\n```xml\n<think>sample private thoughts</think>\n```\nThis is the literal syntax.");
+    assert(reply && strstr(reply, "```xml\n<think>[content omitted]</think>\n```"));
+    assert(!strstr(reply, "sample private thoughts"));
+    assert(strstr(reply, "This is the literal syntax."));
+    free(reply);
+
+    reply = r2_reply_sanitize("A stray ` marker must not hide <think>private material</think>.");
+    assert(reply && !strstr(reply, "private material"));
+    assert(strstr(reply, "stray ` marker"));
+    free(reply);
+
+    reply = r2_reply_sanitize("Actual <think>private material</think> public answer.");
+    assert(reply && !strstr(reply, "private material"));
+    assert(strstr(reply, "public answer."));
+    free(reply);
+
     reply = r2_reply_sanitize("A normal reply about analysis: the results are useful.");
     assert(reply && !strcmp(reply, "A normal reply about analysis: the results are useful."));
     free(reply);
