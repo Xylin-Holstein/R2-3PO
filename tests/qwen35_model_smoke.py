@@ -175,6 +175,14 @@ require(
     and "Insert after any leading system context, before dialogue begins." in core,
     "retrieved history stays separate and is placed before dialogue without modifying the current user message",
 )
+
+require(
+    "size_t identity_minimum = system_budget / 5;" in core
+    and "system_budget - reality_reserve - identity_minimum" in core
+    and "Prefer a complete sentence boundary when the cap falls inside the" in core
+    and "override_budget = system_budget / 4;" not in core,
+    "adaptive context budgeting preserves more of the conversation contract without dropping identity or live Reality",
+)
 require(
     "Return ONLY valid JSON with keys description and focus" in visual
     and "observation for R2's conversation to use as sensory evidence, not as a user-facing answer." in visual
