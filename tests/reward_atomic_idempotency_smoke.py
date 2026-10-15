@@ -18,8 +18,9 @@ total_update = body.index('UPDATE reward_totals SET points=points+?')
 commit = body.index('sqlite3_exec(reward_db, "COMMIT;"')
 require(begin < key_insert < event_insert < total_update < commit,
         "once-key, reward row, total, and commit must share one transaction")
-require('SELECT id FROM reward_events WHERE target=? AND source=? LIMIT 1' in body,
-        "retry must detect a reward row committed by an earlier attempt")
+require('FROM reward_events WHERE target=? AND source=? LIMIT 1' in body
+        and 'prior_event.id = sqlite3_column_int64(st, 0)' in body,
+        "retry must detect and reconstruct a reward row committed by an earlier attempt")
 require("if (duplicate)" in body and "return 1;" in body,
         "already-recorded once events must not increment totals twice")
 require("prior_event.id > 0" in body and "r2_addiction_record_choice" in body,
