@@ -3668,19 +3668,46 @@ static char *ollama_chat_with_limit(
         system_budget = input_budget;
 
     /*
-     * Under memory pressure, a long per-call override must not consume the
-     * entire system budget and silently evict R2's identity and live world
-     * context. Reserve a share for high-priority live context, cap the
-     * override, then give the core identity prompt the remaining space.
-     * At large contexts these caps do not reduce ordinary-sized prompts.
+     * Under memory pressure, keep three essentials in the serialized prompt:
+     * the conversation contract, core identity, and live Reality. A fixed
+     * one-quarter cap truncated the conversation contract even when there was
+     * enough room to preserve it by trimming lower-priority historical context.
+     * Reserve live Reality and a meaningful identity share first, then give the
+     * conversation contract the remaining system budget.
      */
     size_t reality_reserve = system_budget / 3;
     if (reality_reserve > 3000)
         reality_reserve = 3000;
 
-    size_t override_budget = system_budget / 4;
+    size_t identity_minimum = system_budget / 5;
+    if (identity_minimum < 1000 &&
+        system_budget > reality_reserve + 1000)
+        identity_minimum = 1000;
+    size_t identity_capacity = system_budget - reality_reserve;
+    if (identity_minimum > identity_capacity)
+        identity_minimum = identity_capacity;
+
+    size_t override_budget =
+        system_budget > reality_reserve + identity_minimum
+            ? system_budget - reality_reserve - identity_minimum
+            : system_budget / 4;
     if (override_length > override_budget) {
-        override_length = override_budget;
+        /*
+         * Prefer a complete sentence boundary when the cap falls inside the
+         * prompt. Fall back to the exact cap only when no reasonable boundary
+         * exists in the latter half of the available prefix.
+         */
+        size_t boundary = override_budget;
+        while (boundary > override_budget / 2 && boundary > 0) {
+            char c = system_override[boundary - 1];
+            if (c == '\n' || c == '!' || c == '?' ||
+                (c == '.' && (system_override[boundary] == ' ' ||
+                              system_override[boundary] == '\n')))
+                break;
+            --boundary;
+        }
+        override_length = boundary >= override_budget / 2
+            ? boundary : override_budget;
         if (system_override && json_object_array_length(arr) > 0) {
             struct json_object *override_message = json_object_array_get_idx(arr, 0);
             if (override_message) {
