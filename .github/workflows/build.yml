@@ -117,6 +117,10 @@ jobs:
         run: |
           python3 -m py_compile tests/vision_json_failure_smoke.py
           python3 tests/vision_json_failure_smoke.py
+      - name: Check vision HTTP setup and response bounds
+        run: |
+          python3 -m py_compile tests/vision_transport_smoke.py
+          python3 tests/vision_transport_smoke.py
 
       - name: Check local Ollama readiness probe without network access
         run: |
