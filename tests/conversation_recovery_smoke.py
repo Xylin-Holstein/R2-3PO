@@ -40,6 +40,13 @@ require(
     "the original user turn is stored before contextual generation begins",
 )
 require(
+    core.includes("RELATIONSHIP AND NAME CONTINUITY")
+    and "quoted message, an archived conversation, a diary" in core
+    and "prioritize the correction" in core,
+    "explicit family relationships survive name contamination from quoted/retrieved history while current corrections win",
+)
+
+require(
     impl.count("chat_with_relevant_memories(message)") >= 3
     and "first contextual response attempt failed" in impl
     and "returning a visible fallback and preserving the user turn" in impl,
