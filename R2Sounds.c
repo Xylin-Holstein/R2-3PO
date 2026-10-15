@@ -490,7 +490,8 @@ static char *process_reply_markers(const char *reply, int play_sound)
             if (sound_fence_line(reply + src, line_length, fence_char,
                                  fence_length, 1, NULL, NULL))
                 in_fence = 0;
-        } else if (sound_fence_line(reply + src, line_length, '\0', 0, 0,
+        } else if (inline_ticks == 0 &&
+                   sound_fence_line(reply + src, line_length, '\0', 0, 0,
                                     &found_fence_char, &found_fence_length)) {
             /* Fenced examples are literal text, never hidden actions. */
             memcpy(clean + dst, reply + src, line_length);
