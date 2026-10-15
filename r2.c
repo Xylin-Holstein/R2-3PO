@@ -6438,6 +6438,9 @@ static const char *find_control_marker_line(const char *reply,
     size_t opening_fence_len = 0;
     int in_html_pre = 0;
     int in_html_code = 0;
+    int in_html_script = 0;
+    int in_html_style = 0;
+    int in_html_textarea = 0;
     int in_html_comment = 0;
 
     while (*line) {
@@ -6492,8 +6495,11 @@ static const char *find_control_marker_line(const char *reply,
              * so a standalone marker inside such a block remains inert.
              */
             int skip_html_line =
-                in_html_pre || in_html_code || in_html_comment;
-            if (!in_html_comment && r2_line_contains_token(content, line_end, "<!--")) {
+                in_html_pre || in_html_code || in_html_script ||
+                in_html_style || in_html_textarea || in_html_comment;
+            if (!in_html_comment && !in_html_pre && !in_html_code &&
+                !in_html_script && !in_html_style && !in_html_textarea &&
+                r2_line_contains_token(content, line_end, "<!--")) {
                 in_html_comment = 1;
                 skip_html_line = 1;
             }
@@ -6507,6 +6513,25 @@ static const char *find_control_marker_line(const char *reply,
                 in_html_code = 1;
                 skip_html_line = 1;
             }
+            /* Executable/style and prefilled user-text blocks are code-like too. */
+            if (!in_html_comment && !in_html_pre && !in_html_code &&
+                !in_html_script &&
+                r2_line_contains_token(content, line_end, "<script")) {
+                in_html_script = 1;
+                skip_html_line = 1;
+            }
+            if (!in_html_comment && !in_html_pre && !in_html_code &&
+                !in_html_style &&
+                r2_line_contains_token(content, line_end, "<style")) {
+                in_html_style = 1;
+                skip_html_line = 1;
+            }
+            if (!in_html_comment && !in_html_pre && !in_html_code &&
+                !in_html_textarea &&
+                r2_line_contains_token(content, line_end, "<textarea")) {
+                in_html_textarea = 1;
+                skip_html_line = 1;
+            }
 
             if (skip_html_line) {
                 if (in_html_comment && r2_line_contains_token(content, line_end, "-->"))
@@ -6515,6 +6540,12 @@ static const char *find_control_marker_line(const char *reply,
                     in_html_pre = 0;
                 if (in_html_code && r2_line_contains_token(content, line_end, "</code"))
                     in_html_code = 0;
+                if (in_html_script && r2_line_contains_token(content, line_end, "</script"))
+                    in_html_script = 0;
+                if (in_html_style && r2_line_contains_token(content, line_end, "</style"))
+                    in_html_style = 0;
+                if (in_html_textarea && r2_line_contains_token(content, line_end, "</textarea"))
+                    in_html_textarea = 0;
             } else if ((size_t)(content - reply) >= from_position &&
                        strncmp(content, marker, marker_len) == 0) {
                 char after = content[marker_len];
