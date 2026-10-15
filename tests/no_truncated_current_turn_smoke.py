@@ -8,7 +8,7 @@ start = source.find("static char *ollama_chat_with_limit")
 if start < 0:
     raise SystemExit("FAIL: payload builder was not found")
 guard = source.find("ollama_current_user_turn_truncated", start)
-serialize = source.find("json_object_array_add(arr, m);", guard)
+serialize = source.find("json_object_array_add(array, message)", guard)
 if guard < 0 or serialize < 0 or guard > serialize:
     raise SystemExit("FAIL: active-turn truncation guard must run before payload serialization")
 window = source[max(start, guard - 6000):guard + 1800]
