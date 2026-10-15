@@ -3313,6 +3313,23 @@ static int r2_is_internal_tool_result(const Message *message)
     return message && message->internal_tool_result;
 }
 
+/* Add a JSON value only when both allocation and insertion succeed.
+   On failure this helper retains ownership of, and releases, the value. */
+static int ollama_json_object_add_checked(struct json_object *object,
+                                          const char *key,
+                                          struct json_object *value)
+{
+    if (!object || !key || !value) {
+        if (value) json_object_put(value);
+        return -1;
+    }
+    if (json_object_object_add(object, key, value) != 0) {
+        json_object_put(value);
+        return -1;
+    }
+    return 0;
+}
+
 /* Build each serialized message transactionally. A partial JSON object must
    never be sent to Ollama, and allocation failure must not silently drop the
    active user turn or an instruction-bearing system message. */
@@ -3361,8 +3378,15 @@ static char *ollama_chat_with_limit(
     struct json_object *root = json_object_new_object();
     if (!root) return NULL;
 
-    json_object_object_add(root, "model", json_object_new_string(MODEL));
-    json_object_object_add(root, "stream", json_object_new_boolean(0));
+    /* Do not silently fall back to Ollama defaults if request metadata
+       cannot be allocated or inserted. */
+    if (ollama_json_object_add_checked(root, "model",
+                                       json_object_new_string(MODEL)) != 0 ||
+        ollama_json_object_add_checked(root, "stream",
+                                       json_object_new_boolean(0)) != 0) {
+        json_object_put(root);
+        return NULL;
+    }
     /* Let the main conversation and corrective retry use Qwen's reasoning
        channel. Ollama's message.content remains the only user-facing output;
        message.thinking is measured for diagnostics but never displayed. Short
@@ -3370,8 +3394,13 @@ static char *ollama_chat_with_limit(
     int allow_reasoning = ollama_audit_stage &&
         (!strcmp(ollama_audit_stage, "conversation-answer") ||
          !strcmp(ollama_audit_stage, "conversation-retry"));
-    json_object_object_add(root, "think", json_object_new_boolean(allow_reasoning));
-    json_object_object_add(root, "keep_alive", json_object_new_string("10m"));
+    if (ollama_json_object_add_checked(root, "think",
+                                       json_object_new_boolean(allow_reasoning)) != 0 ||
+        ollama_json_object_add_checked(root, "keep_alive",
+                                       json_object_new_string("10m")) != 0) {
+        json_object_put(root);
+        return NULL;
+    }
 
     int num_ctx = r2_ollama_context_tokens();
     /* Foreground reasoning needs room for both internal deliberation and the
@@ -3390,49 +3419,64 @@ static char *ollama_chat_with_limit(
     if (num_predict > max_predict) num_predict = max_predict;
 
     struct json_object *options = json_object_new_object();
-    if (options) {
-        json_object_object_add(options, "num_ctx", json_object_new_int(num_ctx));
-        json_object_object_add(options, "num_predict", json_object_new_int(num_predict));
-
-        /*
-         * Qwen3.5 uses different recommended samplers for thinking and
-         * non-thinking requests. Foreground answers use the official general
-         * thinking preset; vision/planner/helper calls keep the non-thinking
-         * preset. Set both explicitly so the model's Modelfile cannot silently
-         * override the intended mode.
-         */
-        double temperature = allow_reasoning ? 1.0 : 0.7;
-        double top_p = allow_reasoning ? 0.95 : 0.8;
-        json_object_object_add(options, "temperature", json_object_new_double(temperature));
-        json_object_object_add(options, "top_p", json_object_new_double(top_p));
-        json_object_object_add(options, "top_k", json_object_new_int(20));
-        json_object_object_add(options, "min_p", json_object_new_double(0.0));
-        json_object_object_add(options, "presence_penalty", json_object_new_double(1.5));
-        json_object_object_add(options, "repeat_penalty", json_object_new_double(1.0));
-
-        /*
-         * Ollama otherwise chooses GPU placement automatically. The optional
-         * layer count permits deliberate mixed CPU/GPU execution when a
-         * supported GPU backend is available.
-         */
-        const char *gpu_layers_env = getenv("R2_OLLAMA_NUM_GPU");
-        if (gpu_layers_env && *gpu_layers_env) {
-            errno = 0;
-            char *gpu_end = NULL;
-            long gpu_layers = strtol(gpu_layers_env, &gpu_end, 10);
-            if (!errno && gpu_end != gpu_layers_env && *gpu_end == '\0' &&
-                gpu_layers >= -1 && gpu_layers <= 999) {
-                if (gpu_layers != 0)
-                    json_object_object_add(options, "num_gpu",
-                                           json_object_new_int((int)gpu_layers));
-                else
-                    fprintf(stderr, "[R2 Ollama] GPU layer override is 0; using Ollama automatic placement.\n");
-            } else {
-                fprintf(stderr, "[R2 Ollama] Ignoring invalid R2_OLLAMA_NUM_GPU value; using Ollama automatic placement.\n");
-            }
-        }
-        json_object_object_add(root, "options", options);
+    if (!options) {
+        json_object_put(root);
+        return NULL;
     }
+#define R2_OLLAMA_ADD_OPTION(key, value) \
+    do { \
+        if (ollama_json_object_add_checked(options, (key), (value)) != 0) { \
+            json_object_put(options); \
+            json_object_put(root); \
+            return NULL; \
+        } \
+    } while (0)
+    R2_OLLAMA_ADD_OPTION("num_ctx", json_object_new_int(num_ctx));
+    R2_OLLAMA_ADD_OPTION("num_predict", json_object_new_int(num_predict));
+
+    /*
+     * Qwen3.5 uses different recommended samplers for thinking and
+     * non-thinking requests. Foreground answers use the official general
+     * thinking preset; vision/planner/helper calls keep the non-thinking
+     * preset. Set both explicitly so the model's Modelfile cannot silently
+     * override the intended mode.
+     */
+    double temperature = allow_reasoning ? 1.0 : 0.7;
+    double top_p = allow_reasoning ? 0.95 : 0.8;
+    R2_OLLAMA_ADD_OPTION("temperature", json_object_new_double(temperature));
+    R2_OLLAMA_ADD_OPTION("top_p", json_object_new_double(top_p));
+    R2_OLLAMA_ADD_OPTION("top_k", json_object_new_int(20));
+    R2_OLLAMA_ADD_OPTION("min_p", json_object_new_double(0.0));
+    R2_OLLAMA_ADD_OPTION("presence_penalty", json_object_new_double(1.5));
+    R2_OLLAMA_ADD_OPTION("repeat_penalty", json_object_new_double(1.0));
+
+    /*
+     * Ollama otherwise chooses GPU placement automatically. The optional
+     * layer count permits deliberate mixed CPU/GPU execution when a
+     * supported GPU backend is available.
+     */
+    const char *gpu_layers_env = getenv("R2_OLLAMA_NUM_GPU");
+    if (gpu_layers_env && *gpu_layers_env) {
+        errno = 0;
+        char *gpu_end = NULL;
+        long gpu_layers = strtol(gpu_layers_env, &gpu_end, 10);
+        if (!errno && gpu_end != gpu_layers_env && *gpu_end == '\\0' &&
+            gpu_layers >= -1 && gpu_layers <= 999) {
+            if (gpu_layers != 0)
+                R2_OLLAMA_ADD_OPTION("num_gpu",
+                                     json_object_new_int((int)gpu_layers));
+            else
+                fprintf(stderr, "[R2 Ollama] GPU layer override is 0; using Ollama automatic placement.\\n");
+        } else {
+            fprintf(stderr, "[R2 Ollama] Ignoring invalid R2_OLLAMA_NUM_GPU value; using Ollama automatic placement.\\n");
+        }
+    }
+#undef R2_OLLAMA_ADD_OPTION
+    if (ollama_json_object_add_checked(root, "options", options) != 0) {
+        json_object_put(root);
+        return NULL;
+    }
+    options = NULL; /* root owns the complete options object */
 
     struct json_object *arr = json_object_new_array();
     if (!arr) {
@@ -3443,18 +3487,12 @@ static char *ollama_chat_with_limit(
     size_t override_length = system_override ? strlen(system_override) : 0;
     if (override_length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS)
         override_length = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;
-    if (system_override) {
-        struct json_object *m = json_object_new_object();
-        if (!m) {
-            json_object_put(arr);
-            json_object_put(root);
-            return NULL;
-        }
-        json_object_object_add(m, "role", json_object_new_string("system"));
-        json_object_object_add(m, "content",
-                               json_object_new_string_len(system_override,
-                                                          (int)override_length));
-        json_object_array_add(arr, m);
+    if (system_override &&
+        ollama_json_append_message(arr, "system", system_override,
+                                   override_length) != 0) {
+        json_object_put(arr);
+        json_object_put(root);
+        return NULL;
     }
 
     /*
