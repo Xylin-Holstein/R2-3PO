@@ -3785,6 +3785,70 @@ static char *ollama_chat_with_limit(
         ++recent_count;
     }
 
+    /*
+     * Never send a prefix of the active user message as if it were the whole
+     * turn. Adaptive context budgets may shrink system/history content, but
+     * if the exact authoritative query does not fit inside the serialized
+     * current-user message, fail visibly instead of asking the model to answer
+     * a silently truncated question.
+     */
+    if (authoritative_query && *authoritative_query) {
+        int current_turn_complete = 0;
+        size_t query_length = strlen(authoritative_query);
+        if (current_user_index != SIZE_MAX && include[current_user_index]) {
+            const char *current_content = msgs[current_user_index].content
+                ? msgs[current_user_index].content : "";
+            size_t query_offset = SIZE_MAX;
+            if (strcmp(current_content, authoritative_query) == 0) {
+                query_offset = 0;
+            } else {
+                const char *begin_marker = "----- BEGIN CURRENT USER MESSAGE -----\n";
+                const char *end_marker = "----- END CURRENT USER MESSAGE -----";
+                const char *begin = strstr(current_content, begin_marker);
+                const char *end = begin
+                    ? strstr(begin + strlen(begin_marker), end_marker) : NULL;
+                if (begin && end) {
+                    const char *query_start = begin + strlen(begin_marker);
+                    size_t wrapped_length = (size_t)(end - query_start);
+                    if (wrapped_length && query_start[wrapped_length - 1] == '\n')
+                        --wrapped_length;
+                    if (wrapped_length == query_length &&
+                        memcmp(query_start, authoritative_query, query_length) == 0)
+                        query_offset = (size_t)(query_start - current_content);
+                }
+            }
+
+            size_t serialized_length = limits[current_user_index];
+            if (query_offset != SIZE_MAX &&
+                query_offset <= serialized_length &&
+                query_length <= serialized_length - query_offset)
+                current_turn_complete = 1;
+        }
+
+        if (!current_turn_complete) {
+            size_t serialized_length = current_user_index != SIZE_MAX
+                ? limits[current_user_index] : 0;
+            char details[256];
+            snprintf(details, sizeof(details),
+                     "query_chars=%zu; current_turn_serialized_chars=%zu; stage=%s; user_text_logged=no",
+                     query_length, serialized_length,
+                     ollama_audit_stage ? ollama_audit_stage : "unspecified");
+            fprintf(stderr,
+                    "[R2 Ollama] refusing inference: the complete active user message "
+                    "does not fit the adaptive input budget (query_chars=%zu, serialized_chars=%zu).\n",
+                    query_length, serialized_length);
+            if (r2_log_is_initialized())
+                r2_log_event(R2_LOG_ERROR, "ollama_current_user_turn_truncated",
+                             "Ollama inference was refused rather than sending a truncated active user message.",
+                             details, MODEL);
+            free(include);
+            free(limits);
+            json_object_put(arr);
+            json_object_put(root);
+            return NULL;
+        }
+    }
+
     size_t *message_order = count ? calloc(count, sizeof(*message_order)) : NULL;
     if (count && !message_order) {
         free(include);
