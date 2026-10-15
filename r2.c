@@ -7038,6 +7038,42 @@ static void gameboy_start_activity_sessions(const char *title)
                           "physical_and_virtual_views_of_same_session", game);
 }
 
+/* A console adapter event may remain pending when acknowledgement fails or the
+ * process exits between the Life Log write and adapter acknowledgement. Find its
+ * existing durable Life Log record so replay can finish reward/ack work without
+ * duplicating the historical event. */
+static int64_t gameboy_find_life_event_for_console_event(int64_t console_event_id)
+{
+    if (console_event_id <= 0)
+        return 0;
+
+    sqlite3 *log_db = NULL;
+    sqlite3_stmt *stmt = NULL;
+    int64_t life_event_id = 0;
+    char pattern[96];
+    snprintf(pattern, sizeof(pattern), "%%console_event_id=%lld;%%",
+             (long long)console_event_id);
+
+    if (sqlite3_open_v2(R2_DIARY_DATABASE, &log_db,
+            SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX, NULL) != SQLITE_OK) {
+        if (log_db) sqlite3_close(log_db);
+        return 0;
+    }
+    sqlite3_busy_timeout(log_db, 3000);
+    if (sqlite3_prepare_v2(log_db,
+            "SELECT id FROM r2_log_events "
+            "WHERE event_type='gameboy_game_event' AND details LIKE ? "
+            "ORDER BY id LIMIT 1",
+            -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, pattern, -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(stmt) == SQLITE_ROW)
+            life_event_id = sqlite3_column_int64(stmt, 0);
+    }
+    if (stmt) sqlite3_finalize(stmt);
+    sqlite3_close(log_db);
+    return life_event_id;
+}
+
 /* Pull only adapter-verified virtual events into the authoritative Life Log.
  * Each console event is acknowledged only after the Life Log insert succeeds. */
 static int sync_gameboy_verified_events(void)
@@ -7082,23 +7118,41 @@ static int sync_gameboy_verified_events(void)
                  "observed_at=%s; adapter_details=%.2200s",
                  event_type, title, evidence, (long long)event_id,
                  session, timestamp, details_text ? details_text : "");
-        int64_t life_event_id = r2_log_event(
-            R2_LOG_WORLD, "gameboy_game_event", summary, details, "GameBoyAdvance");
+        /* Adapter events are at-least-once until acknowledged. Reuse the
+           durable Life Log event on replay instead of duplicating history. */
+        int64_t life_event_id =
+            gameboy_find_life_event_for_console_event(event_id);
+        if (life_event_id <= 0) {
+            life_event_id = r2_log_event(
+                R2_LOG_WORLD, "gameboy_game_event", summary, details, "GameBoyAdvance");
+        }
         if (life_event_id <= 0)
             continue;
 
-        /* Reinforce only adapter-verified game state changes, never raw button
-           presses or guessed achievements. Feedback is game-agnostic. */
+        /* Reinforce only adapter-verified state changes. The source key includes
+           the stable adapter event ID, so a crash or failed acknowledgement
+           cannot award the same event twice while the target remains per-game. */
         char reward_target[300];
+        char reward_source[96];
         snprintf(reward_target, sizeof(reward_target), "game:%.240s",
                  title && *title ? title : "unknown");
+        snprintf(reward_source, sizeof(reward_source), "game_event:%lld",
+                 (long long)event_id);
         int reward_points = (!strcmp(event_type, "life_lost") ||
                              !strcmp(event_type, "damage_taken")) ? -1 :
                             (!strcmp(event_type, "game_completed") ||
                              !strcmp(event_type, "level_completed")) ? 3 : 1;
-        (void)r2_reward_apply(reward_target, "verified_game_event", reward_points,
+        int reward_rc = r2_reward_apply_once(
+            reward_target, reward_source, reward_points,
             "A separately verified game-state change was recorded by the adapter.",
             reward_points > 0);
+        if (reward_rc < 0) {
+            /* Leave the adapter event pending so reward persistence can retry. */
+            fprintf(stderr,
+                    "[R2 Game Boy] Could not persist reward for adapter event %lld; leaving it pending.\n",
+                    (long long)event_id);
+            continue;
+        }
 
         char event_id_text[32];
         char ack_output[512] = {0};
