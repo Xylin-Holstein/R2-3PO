@@ -10718,9 +10718,10 @@ int r2_init(void)
         atomic_store(&diary_running, 0);
         shutting_down = 1;
 
-        pthread_cond_broadcast(
-            &task_queue_cond
-        );
+        /* hands_worker() tests its shutdown predicate under task_queue_lock. */
+        pthread_mutex_lock(&task_queue_lock);
+        pthread_cond_broadcast(&task_queue_cond);
+        pthread_mutex_unlock(&task_queue_lock);
 
         pthread_join(
             hands_thread,
