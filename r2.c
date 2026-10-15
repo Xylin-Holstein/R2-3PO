@@ -5168,7 +5168,9 @@ static int r2_history_has_event_id(
     size_t token_length = close - start + 1;
     const char *cursor = history;
     while ((cursor = strchr(cursor, '[')) != NULL) {
-        if ((cursor == history || cursor[-1] == '\n') &&
+        if ((cursor == history ||
+             (cursor - history >= 2 && cursor[-1] == '\n' &&
+              cursor[-2] == '\n')) &&
             strlen(cursor) > token_length &&
             strncmp(cursor, record + start, token_length) == 0 &&
             cursor[token_length] == ' ')
