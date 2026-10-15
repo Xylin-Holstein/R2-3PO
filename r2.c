@@ -10893,6 +10893,28 @@ void r2_shutdown(void)
         pending_tasks = next;
     }
 
+    /* No worker can publish another result after its join. Clear any results
+       that would otherwise leak or be mistaken for a new session after reinit. */
+    pthread_mutex_lock(&tasks_lock);
+    CompletedTask *completed_tasks = completed_head;
+    completed_head = NULL;
+    completed_tail = NULL;
+    RunningTask *remaining_running = running_head;
+    running_head = NULL;
+    pthread_mutex_unlock(&tasks_lock);
+    while (completed_tasks) {
+        CompletedTask *next = completed_tasks->next;
+        free(completed_tasks->command);
+        free(completed_tasks->output);
+        free(completed_tasks);
+        completed_tasks = next;
+    }
+    while (remaining_running) {
+        RunningTask *next = remaining_running->next;
+        free(remaining_running);
+        remaining_running = next;
+    }
+
     /* Stop background post-turn Ollama/DB work before closing persistent stores. */
     pthread_mutex_lock(&post_turn_lock);
     while (post_turn_active > 0)
