@@ -62,7 +62,9 @@ for required in (
     "Prefer a complete sentence boundary when the cap falls inside the",
     "size_t identity_budget = system_budget > override_length + reality_reserve",
     "message_priority == 0 && length > identity_budget",
-    'json_object_object_add(override_message, "content", bounded_override)',
+    'json_object_object_add(override_message, "content",',
+    'bounded_override) != 0',
+    'json_object_put(bounded_override);',
 ):
     if required not in core:
         raise SystemExit(f"Adaptive prompt budget is missing its context safeguard: {required}")
