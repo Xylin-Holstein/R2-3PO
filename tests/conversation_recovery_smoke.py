@@ -127,6 +127,23 @@ require(
     shutdown_lock >= 0 and shutdown_wake > shutdown_lock and shutdown_unlock > shutdown_wake,
     "core shutdown cannot lose the Hands worker condition-variable wakeup",
 )
+init_start = core.find("int r2_init(void)")
+shutdown_start = core.find("void r2_shutdown(void)", init_start)
+init_body = core[init_start:shutdown_start] if init_start >= 0 and shutdown_start > init_start else ""
+diary_create = init_body.find("pthread_create(\n            &diary_thread")
+failure_start = init_body.find(
+    "atomic_store(&diary_running, 0);\n        shutting_down = 1;",
+    diary_create,
+)
+failure_end = init_body.find("pthread_join(\n            hands_thread", failure_start)
+init_failure = init_body[failure_start:failure_end] if failure_start >= 0 and failure_end > failure_start else ""
+init_lock = init_failure.find("pthread_mutex_lock(&task_queue_lock)")
+init_wake = init_failure.find("pthread_cond_broadcast(&task_queue_cond)")
+init_unlock = init_failure.find("pthread_mutex_unlock(&task_queue_lock)")
+require(
+    init_lock >= 0 and init_wake > init_lock and init_unlock > init_wake,
+    "initialization failure synchronizes the Hands worker wakeup before joining it",
+)
 
 # Keep action side effects and their history representation paired; never
 # preserve raw model control syntax as a future instruction.
