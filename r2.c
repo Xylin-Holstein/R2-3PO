@@ -1939,7 +1939,7 @@ static char *get_relevant_memories(
                             (candidates[insert_at].score == score &&
                              (strcmp(candidates[insert_at].updated_at, updated) > 0 ||
                               (strcmp(candidates[insert_at].updated_at, updated) == 0 &&
-                               candidates[insert_at].id >= candidate_id))))
+                               candidates[insert_at].id >= candidate_id)))))
                         ++insert_at;
                     if (insert_at >= (size_t)limit)
                         continue;
