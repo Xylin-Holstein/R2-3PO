@@ -111,6 +111,11 @@ jobs:
       - name: Reject oversized shell messages without truncation
         run: python3 tests/shell_input_limit_smoke.py
 
+      - name: Exercise shared bounded input reader
+        run: |
+          cc $FLAGS -I. tests/r2_input_smoke.c -o /tmp/r2-input-smoke
+          /tmp/r2-input-smoke
+
       - name: Check model-assisted associative memory retrieval
         run: python3 tests/associative_retrieval_smoke.py
 
