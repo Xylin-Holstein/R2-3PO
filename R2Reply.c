@@ -209,11 +209,21 @@ char *r2_reply_sanitize(const char *reply)
         start = final + strlen("\nfinal:");
     }
 
-    char *clean = malloc(strlen(start) + 1);
+    size_t len = strlen(start);
+    size_t block_count = 0;
+    for (size_t i = 0; i < len; ++i) {
+        if (start[i] == '<') {
+            const HiddenBlock *ignored = NULL;
+            if (find_hidden_open(start + i, &ignored)) ++block_count;
+        }
+    }
+    /* Code examples keep their tag delimiters but replace the body with a
+       fixed placeholder, so reserve space for every possible expansion. */
+    if (block_count > ((size_t)-1 - len - 1) / 32) return NULL;
+    char *clean = malloc(len + block_count * 32 + 1);
     if (!clean) return NULL;
 
     size_t src = 0, dst = 0;
-    size_t len = strlen(start);
     size_t inline_ticks = 0;
     int in_fence = 0;
     char fence_char = 0;
