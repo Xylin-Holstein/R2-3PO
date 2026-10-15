@@ -3460,15 +3460,15 @@ static char *ollama_chat_with_limit(
         errno = 0;
         char *gpu_end = NULL;
         long gpu_layers = strtol(gpu_layers_env, &gpu_end, 10);
-        if (!errno && gpu_end != gpu_layers_env && *gpu_end == '\\0' &&
+        if (!errno && gpu_end != gpu_layers_env && *gpu_end == '\0' &&
             gpu_layers >= -1 && gpu_layers <= 999) {
             if (gpu_layers != 0)
                 R2_OLLAMA_ADD_OPTION("num_gpu",
                                      json_object_new_int((int)gpu_layers));
             else
-                fprintf(stderr, "[R2 Ollama] GPU layer override is 0; using Ollama automatic placement.\\n");
+                fprintf(stderr, "[R2 Ollama] GPU layer override is 0; using Ollama automatic placement.\n");
         } else {
-            fprintf(stderr, "[R2 Ollama] Ignoring invalid R2_OLLAMA_NUM_GPU value; using Ollama automatic placement.\\n");
+            fprintf(stderr, "[R2 Ollama] Ignoring invalid R2_OLLAMA_NUM_GPU value; using Ollama automatic placement.\n");
         }
     }
 #undef R2_OLLAMA_ADD_OPTION
