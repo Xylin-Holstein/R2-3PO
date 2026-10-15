@@ -59,6 +59,17 @@ require(
     "specific concepts and multi-cue coverage receive more weight than short generic overlaps",
 )
 require(
+    "char *memory_copy = xstrdup(memory);" in memory_ranker
+    and "char *category_copy = xstrdup(category);" in memory_ranker
+    and "char *updated_copy = xstrdup(updated);" in memory_ranker
+    and "if (!memory_copy || !category_copy || !updated_copy)" in memory_ranker
+    and "free(memory_copy);" in memory_ranker
+    and "free(category_copy);" in memory_ranker
+    and "free(updated_copy);" in memory_ranker
+    and "candidates[count].updated_at = updated_copy;" in memory_ranker,
+    "allocation failure cannot put a partially initialized record into sorting or strlen operations",
+)
+require(
     "r2_diary_search" in builder and "r2_visual_search" in builder,
     "the same associations also search the separate diary and visual experience stores",
 )
