@@ -9360,7 +9360,11 @@ void r2_watch_status(void)
 void r2_request_shutdown(void)
 {
     shutting_down = 1;
+    /* Pair the state change/wakeup with the worker's queue mutex so a
+       transition cannot be lost between its predicate check and cond_wait. */
+    pthread_mutex_lock(&task_queue_lock);
     pthread_cond_broadcast(&task_queue_cond);
+    pthread_mutex_unlock(&task_queue_lock);
 }
 
 int r2_request_restart(void)
@@ -10814,7 +10818,10 @@ void r2_shutdown(void)
                      "R2 shutdown requested.", NULL, "r2_shutdown");
     }
 
+    /* Synchronize the wakeup with hands_worker()'s condition predicate. */
+    pthread_mutex_lock(&task_queue_lock);
     pthread_cond_broadcast(&task_queue_cond);
+    pthread_mutex_unlock(&task_queue_lock);
 
     r2_stop_thinking();
 
