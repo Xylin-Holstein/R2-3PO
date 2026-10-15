@@ -116,6 +116,11 @@ jobs:
       - name: Check model-assisted associative memory retrieval
         run: python3 tests/associative_retrieval_smoke.py
 
+      - name: Deduplicate overlapping Life Log retrieval results
+        run: |
+          python3 -m py_compile tests/life_log_retrieval_dedupe_smoke.py
+          python3 tests/life_log_retrieval_dedupe_smoke.py
+
       - name: Check bounded RAM context cache and hardware telemetry
         run: python3 tests/context_cache_smoke.py
 
