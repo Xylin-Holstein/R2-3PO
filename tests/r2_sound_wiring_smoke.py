@@ -35,7 +35,7 @@ checks = {
     "sound scheduling records an event in the existing Life Log": 'r2_log_event(R2_LOG_SENSORY, "sound_effect_scheduled"' in sounds,
     "core stops/reaps audio playback on shutdown": "r2_sounds_shutdown();" in r2,
     "core resets sound lifecycle during initialization": "r2_sounds_init();" in r2 and "void r2_sounds_init(void)" in sounds,
-    "sound control marker recognition is case-insensitive": "find_sound_marker" in sounds and "strncasecmp(p, marker, marker_len)" in sounds,
+    "sound marker recognition is case-insensitive and ignores Markdown code examples": "strncasecmp(reply + pos, marker_text, marker_length)" in sounds and "inline_ticks == 0" in sounds and "sound_fence_line" in sounds and "if (in_fence)" in sounds,
     "marker cleanup failure returns a visible fallback instead of exposing control text": "Reply cleanup produced no visible text; returning a visible reply and preserving the user turn." in r2 and "if (!reply_has_visible_text(sound_clean_reply))" in r2,
     "empty or marker-only replies trigger recovery before a visible fallback is returned": "Model output contained no visible reply after marker cleanup; retrying once." in r2 and "Retry still produced no visible reply" in r2 and "Your message hasn't been discarded" in r2,
     "tool output append clamps snprintf lengths before copying": "if (_append_n >= sizeof(_b))" in r2 and "memcpy(results + len, _b, _append_n)" in r2 and "[tool output truncated]" in r2 and "memcpy(results + len, _b, (size_t)_n)" not in r2,
