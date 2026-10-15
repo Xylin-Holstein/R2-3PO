@@ -41,7 +41,7 @@ if start < 0 or end <= start:
 vision = source[start:end]
 require("R2_VISION_ADD_OBJECT(root, \"model\"" in vision
         and "R2_VISION_ADD_OBJECT(root, \"think\"" in vision
-        and "R2_VISION_ADD_OBJECT(root, \"options\", options)" in vision,
+        and "R2_VISION_ADD_OBJECT(root, \"options\", options_to_attach)" in vision,
         "vision model metadata and generation options are checked")
 require("R2_VISION_ADD_ARRAY(images, json_object_new_string(image_base64))" in vision
         and "R2_VISION_ADD_OBJECT(user, \"images\", images)" in vision
