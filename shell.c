@@ -1825,7 +1825,9 @@ static int shell_gameboy_capture_events(char *output, size_t capacity)
 
 static int shell_gameboy_ack_event(int64_t event_id)
 {
-    const char *device = "/home/x/R2_Home/Devices/GameBoyAdvance/GameBoyAdvance";
+    const char *configured = getenv("R2_GAMEBOY_EXECUTABLE");
+    const char *device = configured && *configured
+        ? configured : "/home/x/R2_Home/Devices/GameBoyAdvance/GameBoyAdvance";
     char id[32];
     pid_t child;
     int status = 0;
