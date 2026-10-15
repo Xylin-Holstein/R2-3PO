@@ -218,7 +218,9 @@ static size_t response_write(char *ptr, size_t size, size_t nmemb, void *userdat
     struct response_buffer *b = userdata;
     if (!b || (size && nmemb > SIZE_MAX / size)) return 0;
     size_t amount = size * nmemb;
-    if (amount > R2_VISION_MAX_RESPONSE - b->length) return 0;
+    if (b->length > R2_VISION_MAX_RESPONSE ||
+        amount > R2_VISION_MAX_RESPONSE - b->length)
+        return 0;
     size_t needed = b->length + amount + 1;
     if (needed > b->capacity) {
         size_t cap = b->capacity ? b->capacity : 4096;
@@ -524,67 +526,113 @@ vision_json_build_complete:
     struct response_buffer response = {0};
     struct curl_slist *headers = NULL;
     char *answer = NULL;
-    if (curl) {
-        headers = curl_slist_append(headers, "Content-Type: application/json");
-        curl_easy_setopt(curl, CURLOPT_URL, ollama_url);
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-        curl_easy_setopt(curl, CURLOPT_POST, 1L);
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload);
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)strlen(payload));
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, response_write);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L);
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 180L);
-        curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
-        curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, vision_progress);
-        if (!r2_ollama_vision_request_begin()) {
-            r2_log_sensory("vision_request_deferred",
-                           "R2 deferred visual inference because the shared Ollama model is busy or a foreground turn is waiting.",
-                           "The captured frame remains unreported rather than blocking ordinary conversation.",
-                           model);
-            curl_slist_free_all(headers);
-            curl_easy_cleanup(curl);
-            free(response.data);
-            json_object_put(root);
-            return NULL;
-        }
-        CURLcode cc = curl_easy_perform(curl);
-        int yielded_to_foreground =
-            cc == CURLE_ABORTED_BY_CALLBACK &&
-            r2_ollama_vision_request_should_abort();
-        r2_ollama_vision_request_end();
-        long http_status = 0;
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_status);
-        if (cc == CURLE_OK && http_status >= 200 && http_status < 300 &&
-            response.data) {
-            json_object *parsed = json_tokener_parse(response.data);
-            json_object *message = NULL, *content = NULL;
-            if (parsed && json_object_object_get_ex(parsed, "message", &message) &&
-                json_object_object_get_ex(message, "content", &content) &&
-                json_object_is_type(content, json_type_string)) {
-                const char *text = json_object_get_string(content);
-                if (text && *text) answer = strdup(text);
-            }
-            if (parsed) json_object_put(parsed);
-        } else if (yielded_to_foreground) {
-            r2_log_sensory("vision_request_yielded",
-                           "R2's visual inference yielded to an ordinary conversation request.",
-                           "The incomplete visual result was discarded and will not be used as an answer.",
-                           model);
-        } else {
-            char failure[1200];
-            snprintf(failure, sizeof(failure),
-                     "curl=%s; HTTP=%ld; response_bytes=%zu; model=%s",
-                     curl_easy_strerror(cc), http_status, response.length, model);
-            r2_log_sensory("vision_model_request_failed",
-                           "R2's vision model request failed.",
-                           response.data ? response.data : failure,
-                           model);
-        }
+    if (!curl) {
+        r2_log_sensory("vision_curl_init_failed",
+                       "R2 could not initialize the local vision HTTP client.",
+                       "No request was sent; the captured frame remains unanalyzed.",
+                       model);
+        json_object_put(root);
+        return NULL;
+    }
+
+    headers = curl_slist_append(NULL, "Content-Type: application/json");
+    if (!headers) {
+        r2_log_sensory("vision_http_header_allocation_failed",
+                       "R2 could not allocate the vision request content-type header.",
+                       "No request was sent; the captured frame remains unanalyzed.",
+                       model);
+        curl_easy_cleanup(curl);
+        json_object_put(root);
+        return NULL;
+    }
+
+    /* Treat a failed curl option as a setup failure, not as permission to
+       send a request with missing URL/body/timeout or callback configuration. */
+    CURLcode setup = CURLE_OK;
+#define R2_VISION_SETOPT(option, value) \
+    do { \
+        if (setup == CURLE_OK) \
+            setup = curl_easy_setopt(curl, (option), (value)); \
+    } while (0)
+    R2_VISION_SETOPT(CURLOPT_URL, ollama_url);
+    R2_VISION_SETOPT(CURLOPT_HTTPHEADER, headers);
+    R2_VISION_SETOPT(CURLOPT_POST, 1L);
+    R2_VISION_SETOPT(CURLOPT_POSTFIELDS, payload);
+    R2_VISION_SETOPT(CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t)strlen(payload));
+    R2_VISION_SETOPT(CURLOPT_WRITEFUNCTION, response_write);
+    R2_VISION_SETOPT(CURLOPT_WRITEDATA, &response);
+    R2_VISION_SETOPT(CURLOPT_CONNECTTIMEOUT, 5L);
+    R2_VISION_SETOPT(CURLOPT_TIMEOUT, 180L);
+    R2_VISION_SETOPT(CURLOPT_NOSIGNAL, 1L);
+    R2_VISION_SETOPT(CURLOPT_NOPROGRESS, 0L);
+    R2_VISION_SETOPT(CURLOPT_XFERINFOFUNCTION, vision_progress);
+#undef R2_VISION_SETOPT
+    if (setup != CURLE_OK) {
+        char failure[512];
+        snprintf(failure, sizeof(failure),
+                 "curl setup=%s; model=%s; request_not_sent=yes",
+                 curl_easy_strerror(setup), model);
+        r2_log_sensory("vision_curl_setup_failed",
+                       "R2 could not fully configure the local vision HTTP request.",
+                       failure, model);
         curl_slist_free_all(headers);
         curl_easy_cleanup(curl);
+        json_object_put(root);
+        return NULL;
     }
+
+    if (!r2_ollama_vision_request_begin()) {
+        r2_log_sensory("vision_request_deferred",
+                       "R2 deferred visual inference because the shared Ollama model is busy or a foreground turn is waiting.",
+                       "The captured frame remains unreported rather than blocking ordinary conversation.",
+                       model);
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+        json_object_put(root);
+        return NULL;
+    }
+
+    CURLcode cc = curl_easy_perform(curl);
+    int yielded_to_foreground =
+        cc == CURLE_ABORTED_BY_CALLBACK &&
+        r2_ollama_vision_request_should_abort();
+    r2_ollama_vision_request_end();
+    long http_status = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_status);
+    if (cc == CURLE_OK && http_status >= 200 && http_status < 300 &&
+        response.data) {
+        json_object *parsed = json_tokener_parse(response.data);
+        json_object *message = NULL, *content = NULL;
+        if (parsed && json_object_object_get_ex(parsed, "message", &message) &&
+            json_object_object_get_ex(message, "content", &content) &&
+            json_object_is_type(content, json_type_string)) {
+            const char *text = json_object_get_string(content);
+            if (text && *text) answer = strdup(text);
+        }
+        if (parsed) json_object_put(parsed);
+        if (!answer) {
+            r2_log_sensory("vision_response_parse_failed",
+                           "R2's vision endpoint returned a successful HTTP response without a usable message.content string.",
+                           "The incomplete or malformed visual result was discarded.",
+                           model);
+        }
+    } else if (yielded_to_foreground) {
+        r2_log_sensory("vision_request_yielded",
+                       "R2's visual inference yielded to an ordinary conversation request.",
+                       "The incomplete visual result was discarded and will not be used as an answer.",
+                       model);
+    } else {
+        char failure[1200];
+        snprintf(failure, sizeof(failure),
+                 "curl=%s; HTTP=%ld; response_bytes=%zu; model=%s",
+                 curl_easy_strerror(cc), http_status, response.length, model);
+        r2_log_sensory("vision_model_request_failed",
+                       "R2's vision model request failed.",
+                       response.data ? response.data : failure,
+                       model);
+    }
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
     free(response.data);
     json_object_put(root);
     return answer;
