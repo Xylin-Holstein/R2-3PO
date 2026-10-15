@@ -131,6 +131,15 @@ require(
     and shutdown_wake > shutdown_state and shutdown_unlock > shutdown_wake,
     "core shutdown changes the worker predicate and wakes it under the queue mutex",
 )
+hands_join = shutdown_tail.find("pthread_join(hands_thread, NULL)")
+pending_drain = shutdown_tail.find("Task *pending_tasks = task_head")
+require(
+    hands_join >= 0 and pending_drain > hands_join
+    and "task_head = NULL;" in shutdown_tail[pending_drain:]
+    and "task_tail = NULL;" in shutdown_tail[pending_drain:]
+    and "free(pending_tasks->command);" in shutdown_tail[pending_drain:],
+    "shutdown reclaims queued task nodes after the Hands worker stops without executing them",
+)
 init_start = core.find("int r2_init(void)")
 shutdown_start = core.find("void r2_shutdown(void)", init_start)
 init_body = core[init_start:shutdown_start] if init_start >= 0 and shutdown_start > init_start else ""
