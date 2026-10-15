@@ -20,19 +20,18 @@ if start < 0 or end <= start:
     raise SystemExit("FAIL: could not isolate r2_shell_run()")
 loop = shell[start:end]
 
-require("#define SHELL_INPUT_MAX       4096" in shell
-        and "char line[SHELL_INPUT_MAX + 1];" in loop,
-        "terminal input uses the existing fixed input-size limit")
-require("fgets(line, sizeof(line), stdin)" in loop
+require("#define SHELL_INPUT_MAX       12000" in shell
+        and "char line[SHELL_INPUT_MAX + 2];" in loop,
+        "terminal input uses a fixed 12,000-byte input buffer")
+require("r2_read_bounded_line(stdin, line, SHELL_INPUT_MAX, &input_bytes)" in loop
         and "getline(" not in loop,
-        "interactive input cannot trigger unbounded getline allocation")
-require("if (length >= SHELL_INPUT_MAX)" in loop
-        and "Input line exceeds %d bytes; command discarded." in loop,
-        "oversized complete lines are rejected before command dispatch")
-require("while (!shell_shutdown &&" in loop
-        and "fgetc(stdin)" in loop
-        and "command discarded." in loop,
-        "the remainder of an oversized physical line is drained rather than reinterpreted as a new command")
+        "interactive input uses the shared bounded reader, not unbounded getline allocation")
+require("if (input_status == R2_INPUT_LINE_TOO_LONG)" in loop
+        and "Nothing from this line was sent to R2." in loop,
+        "oversized lines are rejected before command dispatch")
+require("R2_INPUT_LINE_EMBEDDED_NUL" in loop
+        and "fflush(stdout);" in loop,
+        "binary NULs are rejected and the user-facing warning is flushed to stdout")
 require("if (shell_shutdown || r2_is_shutting_down())" in loop,
         "interrupted input cannot dispatch a partial command during shutdown")
 
