@@ -56,11 +56,23 @@ int main(void)
     assert(!strstr(reply, "example"));
     free(reply);
 
+    reply = r2_reply_sanitize("Use `<think>` to open and `</think>` to close.");
+    assert(reply && strstr(reply, "`<think>[unclosed content omitted]`"));
+    assert(strstr(reply, "`</think>` to close."));
+    free(reply);
+
     reply = r2_reply_sanitize(
         "Example:\n```xml\n<think>sample private thoughts</think>\n```\nThis is the literal syntax.");
     assert(reply && strstr(reply, "```xml\n<think>[content omitted]</think>\n```"));
     assert(!strstr(reply, "sample private thoughts"));
     assert(strstr(reply, "This is the literal syntax."));
+    free(reply);
+
+    reply = r2_reply_sanitize(
+        "```xml\n<think>private text without a matching close\n```\nSafe prose resumes.");
+    assert(reply && strstr(reply, "<think>[unclosed content omitted]"));
+    assert(!strstr(reply, "private text without a matching close"));
+    assert(strstr(reply, "Safe prose resumes."));
     free(reply);
 
     reply = r2_reply_sanitize("A stray ` marker must not hide <think>private material</think>.");
