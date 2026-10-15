@@ -116,7 +116,7 @@ jobs:
 
       - name: Exercise shared bounded input reader
         run: |
-          cc $FLAGS -I. tests/r2_input_smoke.c -o /tmp/r2-input-smoke
+          cc -std=c11 -Wall -Wextra -Werror -O2 -I. tests/r2_input_smoke.c -o /tmp/r2-input-smoke
           /tmp/r2-input-smoke
 
       - name: Check model-assisted associative memory retrieval
