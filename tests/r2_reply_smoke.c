@@ -49,6 +49,42 @@ int main(void)
     assert(reply && !strcmp(reply, "Safe answer."));
     free(reply);
 
+    /* Literal private-tag syntax in Markdown code is user-facing content,
+       not an instruction to remove the example. */
+    reply = r2_reply_sanitize("Use `<think>example</think>` literally.");
+    assert(reply && strstr(reply, "`<think>[content omitted]</think>`"));
+    assert(!strstr(reply, "example"));
+    free(reply);
+
+    reply = r2_reply_sanitize("Use `<think>` to open and `</think>` to close.");
+    assert(reply && strstr(reply, "`<think>[unclosed content omitted]`"));
+    assert(strstr(reply, "`</think>` to close."));
+    free(reply);
+
+    reply = r2_reply_sanitize(
+        "Example:\n```xml\n<think>sample private thoughts</think>\n```\nThis is the literal syntax.");
+    assert(reply && strstr(reply, "```xml\n<think>[content omitted]</think>\n```"));
+    assert(!strstr(reply, "sample private thoughts"));
+    assert(strstr(reply, "This is the literal syntax."));
+    free(reply);
+
+    reply = r2_reply_sanitize(
+        "```xml\n<think>private text without a matching close\n```\nSafe prose resumes.");
+    assert(reply && strstr(reply, "<think>[unclosed content omitted]"));
+    assert(!strstr(reply, "private text without a matching close"));
+    assert(strstr(reply, "Safe prose resumes."));
+    free(reply);
+
+    reply = r2_reply_sanitize("A stray ` marker must not hide <think>private material</think>.");
+    assert(reply && !strstr(reply, "private material"));
+    assert(strstr(reply, "stray ` marker"));
+    free(reply);
+
+    reply = r2_reply_sanitize("Actual <think>private material</think> public answer.");
+    assert(reply && !strstr(reply, "private material"));
+    assert(strstr(reply, "public answer."));
+    free(reply);
+
     reply = r2_reply_sanitize("A normal reply about analysis: the results are useful.");
     assert(reply && !strcmp(reply, "A normal reply about analysis: the results are useful."));
     free(reply);
@@ -69,6 +105,28 @@ int main(void)
 
     reply = r2_reply_sanitize("");
     assert(reply == NULL);
+
+    /* A long response with one private block must not need a pointer-sized
+       stack slot for every byte of input. This also guards large-input safety. */
+    const size_t prefix_len = 512U * 1024U;
+    const size_t suffix_len = 512U * 1024U;
+    const char *private_block = "<think>private</think>";
+    const size_t private_len = strlen(private_block);
+    char *large_input = malloc(prefix_len + private_len + suffix_len + 1);
+    assert(large_input);
+    memset(large_input, 'a', prefix_len);
+    memcpy(large_input + prefix_len, private_block, private_len);
+    memset(large_input + prefix_len + private_len, 'b', suffix_len);
+    large_input[prefix_len + private_len + suffix_len] = '\0';
+
+    reply = r2_reply_sanitize(large_input);
+    assert(reply);
+    assert(strlen(reply) == prefix_len + suffix_len);
+    assert(reply[prefix_len - 1] == 'a');
+    assert(reply[prefix_len] == 'b');
+    assert(reply[prefix_len + suffix_len - 1] == 'b');
+    free(reply);
+    free(large_input);
 
     puts("R2 user-facing reply sanitizer smoke passed");
     return 0;

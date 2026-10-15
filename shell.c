@@ -43,11 +43,13 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/stat.h>
+#include <poll.h>
 #include <pthread.h>
 #include <stdatomic.h>
 
 #include "shell.h"
 #include "r2.h"
+#include "r2_input.h"
 #include "Log.h"
 #include "Reality.h"
 #include "Addiction.h"
@@ -60,7 +62,7 @@
    SHELL CONFIGURATION
    ============================================================ */
 
-#define SHELL_INPUT_MAX       4096
+#define SHELL_INPUT_MAX       12000
 #define SHELL_PROMPT          "R2> "
 
 #define WATCH_POLL_INTERVAL   2
@@ -90,20 +92,74 @@ static void *tv_control_server(void *unused)
     /* Keep a stable descriptor value while the main thread shuts the socket down. */
     int server_fd = tv_control_fd;
     while (!atomic_load(&tv_control_stop)) {
+        /* Never block indefinitely in accept(): the stop flag is checked at
+           least every 250 ms, and the listener stays open until this thread joins. */
+        struct pollfd listener = {
+            .fd = server_fd,
+            .events = POLLIN,
+            .revents = 0
+        };
+        int ready = poll(&listener, 1, 250);
+        if (ready < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        if (ready == 0) continue;
+        if (!(listener.revents & POLLIN)) {
+            if (listener.revents & (POLLERR | POLLHUP | POLLNVAL)) break;
+            continue;
+        }
+
         int client = accept(server_fd, NULL, NULL);
         if (client < 0) {
-            if (errno == EINTR) continue;
+            if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) continue;
             break;
         }
 
         char command[1200] = {0};
         size_t used = 0;
-        while (used < sizeof(command) - 1) {
-            ssize_t got = recv(client, command + used, sizeof(command) - 1 - used, 0);
-            if (got <= 0) break;
-            used += (size_t)got;
-            if (memchr(command, '\n', used)) break;
+        int complete_line = 0;
+        int idle_polls = 0;
+        while (used < sizeof(command) - 1 &&
+               !atomic_load(&tv_control_stop)) {
+            struct pollfd input = {
+                .fd = client,
+                .events = POLLIN,
+                .revents = 0
+            };
+            ready = poll(&input, 1, 250);
+            if (ready < 0) {
+                if (errno == EINTR) continue;
+                break;
+            }
+            if (ready == 0) {
+                if (++idle_polls >= 8) break; /* Bound idle clients to two seconds. */
+                continue;
+            }
+            if (!(input.revents & POLLIN)) break;
+
+            ssize_t received = recv(client, command + used,
+                                    sizeof(command) - 1 - used, 0);
+            if (received < 0 && errno == EINTR) continue;
+            if (received <= 0) break;
+            used += (size_t)received;
+            idle_polls = 0;
+            char *newline = memchr(command, '\n', used);
+            if (newline) {
+                used = (size_t)(newline - command) + 1;
+                complete_line = 1;
+                break;
+            }
         }
+
+        /* A partial or oversized command is never dispatched. This also lets
+           shutdown abandon a client that connected but never sent a full line. */
+        if (!complete_line || atomic_load(&tv_control_stop)) {
+            close(client);
+            if (atomic_load(&tv_control_stop)) break;
+            continue;
+        }
+
         command[used] = '\0';
         ssize_t got = (ssize_t)used;
         while (got > 0 && (command[got - 1] == '\n' || command[got - 1] == '\r'))
@@ -248,10 +304,11 @@ static void tv_control_stop_server(void)
 {
     if (!tv_control_started) return;
     atomic_store(&tv_control_stop, 1);
-    shutdown(tv_control_fd, SHUT_RDWR);
+    /* The server uses bounded poll() waits and must finish before its listener
+       descriptor is closed, avoiding close/accept races and an unbounded join. */
+    pthread_join(tv_control_thread, NULL);
     close(tv_control_fd);
     tv_control_fd = -1;
-    pthread_join(tv_control_thread, NULL);
     unlink(tv_control_path);
     tv_control_started = 0;
 }
@@ -1790,6 +1847,7 @@ static int shell_gameboy_capture_events(char *output, size_t capacity)
     pid_t child;
     if (!output || capacity < 2 || pipe(pipefd) != 0) return 0;
     output[0] = '\0';
+    int read_failed = 0;
     child = fork();
     if (child < 0) {
         close(pipefd[0]); close(pipefd[1]);
@@ -1807,7 +1865,10 @@ static int shell_gameboy_capture_events(char *output, size_t capacity)
         ssize_t n = read(pipefd[0], output + used, capacity - used - 1);
         if (n > 0) used += (size_t)n;
         else if (n == 0) break;
-        else if (errno != EINTR) break;
+        else if (errno != EINTR) {
+            read_failed = 1;
+            break;
+        }
     }
     close(pipefd[0]);
     output[used] = '\0';
@@ -1815,12 +1876,15 @@ static int shell_gameboy_capture_events(char *output, size_t capacity)
         if (errno == EINTR) continue;
         return 0;
     }
-    return WIFEXITED(status) && WEXITSTATUS(status) == 0 && used > 0;
+    return !read_failed && WIFEXITED(status) &&
+           WEXITSTATUS(status) == 0 && used > 0;
 }
 
 static int shell_gameboy_ack_event(int64_t event_id)
 {
-    const char *device = "/home/x/R2_Home/Devices/GameBoyAdvance/GameBoyAdvance";
+    const char *configured = getenv("R2_GAMEBOY_EXECUTABLE");
+    const char *device = configured && *configured
+        ? configured : "/home/x/R2_Home/Devices/GameBoyAdvance/GameBoyAdvance";
     char id[32];
     pid_t child;
     int status = 0;
@@ -2482,8 +2546,9 @@ int r2_shell_run(void)
         return -1;
     }
 
-    char *line = NULL;
-    size_t capacity = 0;
+    /* Fixed-size input prevents a pasted or redirected line from forcing
+       dynamic line allocation before we can reject it. */
+    char line[SHELL_INPUT_MAX + 2];
     sigset_t service_signals, original_mask, wait_mask;
     int service_signals_blocked = 0;
 
@@ -2534,33 +2599,38 @@ int r2_shell_run(void)
         shell_prompt();
 
         errno = 0;
-
-        ssize_t length =
-            getline(
-                &line,
-                &capacity,
-                stdin
-            );
-
-        if (length < 0) {
-
+        size_t input_bytes = 0;
+        R2InputLineStatus input_status =
+            r2_read_bounded_line(stdin, line, SHELL_INPUT_MAX, &input_bytes);
+        if (input_status == R2_INPUT_LINE_EOF) {
+            printf("\n[R2 Shell] End of input.\n");
+            break;
+        }
+        if (input_status == R2_INPUT_LINE_IO_ERROR) {
             if (errno == EINTR) {
                 clearerr(stdin);
                 continue;
             }
-
-            /*
-             * EOF (Ctrl-D).
-             */
-            printf(
-                "\n[R2 Shell] End of input.\n"
-            );
-
+            fprintf(stderr, "[R2 Shell] Failed to read input.\n");
             break;
         }
+        if (input_status == R2_INPUT_LINE_TOO_LONG) {
+            printf("[R2 Shell] Input exceeds the %d-byte limit. "
+                   "Nothing from this line was sent to R2.\n",
+                   SHELL_INPUT_MAX);
+            fflush(stdout);
+            continue;
+        }
+        if (input_status == R2_INPUT_LINE_EMBEDDED_NUL) {
+            printf("[R2 Shell] Input contained an unsupported NUL byte. "
+                   "Nothing from this line was sent to R2.\n");
+            fflush(stdout);
+            continue;
+        }
 
-        if (length > 0 && line[length - 1] == '\n')
-            line[length - 1] = '\0';
+        /* Never dispatch a partial line after shutdown interrupted input. */
+        if (shell_shutdown || r2_is_shutting_down())
+            break;
 
         char *input =
             shell_trim(line);
@@ -2580,8 +2650,6 @@ int r2_shell_run(void)
     }
 
     tv_control_stop_server();
-    free(line);
-
     if (service_signals_blocked)
         (void)sigprocmask(SIG_SETMASK, &original_mask, NULL);
 

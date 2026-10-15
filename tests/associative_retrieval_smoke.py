@@ -59,6 +59,26 @@ require(
     "specific concepts and multi-cue coverage receive more weight than short generic overlaps",
 )
 require(
+    "char *memory_copy = xstrdup(memory);" in memory_ranker
+    and "char *category_copy = xstrdup(category);" in memory_ranker
+    and "char *updated_copy = xstrdup(updated);" in memory_ranker
+    and "if (!memory_copy || !category_copy || !updated_copy)" in memory_ranker
+    and "free(memory_copy);" in memory_ranker
+    and "free(category_copy);" in memory_ranker
+    and "free(updated_copy);" in memory_ranker
+    and "candidates[insert_at].updated_at = updated_copy;" in memory_ranker,
+    "allocation failure cannot put a partially initialized record into ranking or result formatting",
+)
+ranked_scan = memory_ranker.split("\n    } else {", 1)[0]
+require(
+    "calloc((size_t)limit, sizeof(*candidates))" in ranked_scan
+    and "if (insert_at >= (size_t)limit)" in ranked_scan
+    and "candidates[insert_at].score = score;" in ranked_scan
+    and "candidates[j].score >" not in ranked_scan
+    and '"ORDER BY updated_at DESC"' not in ranked_scan,
+    "keyword ranking retains only top results and avoids quadratic C and full-table SQL sorts",
+)
+require(
     "r2_diary_search" in builder and "r2_visual_search" in builder,
     "the same associations also search the separate diary and visual experience stores",
 )

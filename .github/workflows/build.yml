@@ -55,6 +55,29 @@ jobs:
 
       - name: Check every shell script for syntax errors
         run: find . -type f -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
+      - name: Check TV control socket framing and shutdown lifecycle
+        run: |
+          python3 -m py_compile tests/tv_control_lifecycle_smoke.py
+          python3 tests/tv_control_lifecycle_smoke.py
+      - name: Check bounded terminal shell input
+        run: |
+          python3 -m py_compile tests/shell_input_bound_smoke.py
+          python3 tests/shell_input_bound_smoke.py
+      - name: Check fail-closed Ollama message serialization
+        run: |
+          python3 -m py_compile tests/ollama_payload_allocation_smoke.py
+          python3 tests/ollama_payload_allocation_smoke.py
+      - name: Check fail-closed Ollama request configuration
+        run: |
+          python3 -m py_compile tests/ollama_request_config_smoke.py
+          python3 tests/ollama_request_config_smoke.py
+      - name: Keep launcher, compiled modules, model, and cleanup in sync
+        run: |
+          python3 -m py_compile tests/launcher_shell_audit_smoke.py
+          python3 tests/launcher_shell_audit_smoke.py
+
+      - name: Check launcher preflight and Makefile dependency for bounded input header
+        run: python3 tests/launcher_input_header_smoke.py
 
       - name: Check read-only hardware deployment preflight
         run: |
@@ -105,11 +128,49 @@ jobs:
       - name: Keep retrieved context separate from the active user turn
         run: python3 tests/current_turn_context_smoke.py
 
+      - name: Preserve newest conversation turns in bounded history context
+        run: |
+          python3 -m py_compile tests/recent_context_budget_smoke.py
+          python3 tests/recent_context_budget_smoke.py
+          ROOT=/tmp/r2-recent-context-runtime
+          rm -rf "$ROOT"
+          mkdir -p "$ROOT/R2"
+          FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\"$ROOT\" -DR2_HOME=\"$ROOT/R2\" -DR2_WORKSPACE=\"$ROOT\" -DR2_DIARY_DATABASE=\"$ROOT/R2/r2_memory.db\" -DR2_DIARY_DIR=\"$ROOT/R2_Diary\""
+          cc $FLAGS tests/recent_context_budget_runtime.c shell.c r2_diary.c Log.c SensoryJournal.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c R2Sounds.c R2Reply.c Imagination.c -o /tmp/r2-recent-context-runtime-test -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
+          /tmp/r2-recent-context-runtime-test
+
+      - name: Check multi-turn recovery and conversation serialization
+        run: |
+          python3 -m py_compile tests/conversation_recovery_smoke.py
+          python3 tests/conversation_recovery_smoke.py
+
       - name: Keep diagnostics out of the interactive conversation stream
         run: python3 tests/console_diagnostics_isolation_smoke.py
 
+      - name: Guard direct conversation against stderr-only failures
+        run: python3 tests/direct_conversation_failure_smoke.py
+
+      - name: Reject oversized shell messages without truncation
+        run: python3 tests/shell_input_limit_smoke.py
+
+      - name: Reject oversized direct-conversation messages without truncation
+        run: python3 tests/direct_conversation_input_limit_smoke.py
+
+      - name: Exercise shared bounded input reader
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -O2 -I. tests/r2_input_smoke.c -o /tmp/r2-input-smoke
+          /tmp/r2-input-smoke
+
+      - name: Guard final assembled conversation context budget
+        run: python3 tests/final_context_budget_smoke.py
+
       - name: Check model-assisted associative memory retrieval
         run: python3 tests/associative_retrieval_smoke.py
+
+      - name: Deduplicate overlapping Life Log retrieval results
+        run: |
+          python3 -m py_compile tests/life_log_retrieval_dedupe_smoke.py
+          python3 tests/life_log_retrieval_dedupe_smoke.py
 
       - name: Check bounded RAM context cache and hardware telemetry
         run: python3 tests/context_cache_smoke.py
@@ -126,8 +187,23 @@ jobs:
       - name: Keep the current user turn in bounded Ollama payloads
         run: python3 tests/ollama_current_turn_smoke.py
 
+      - name: Refuse silently truncated active user turns
+        run: python3 tests/no_truncated_current_turn_smoke.py
+
       - name: Retry obvious nonresponsive text misclassification once
         run: python3 tests/nonresponsive_reply_retry_smoke.py
+      - name: Guard task pipe and child waits against interrupted system calls
+        run: |
+          python3 -m py_compile tests/r2_task_wait_smoke.py
+          python3 tests/r2_task_wait_smoke.py
+      - name: Cancel a silent active HAND task during shutdown
+        run: |
+          ROOT=/tmp/r2-task-shutdown-smoke
+          rm -rf "$ROOT" /tmp/r2-task-shutdown-smoke-test
+          mkdir -p "$ROOT/R2"
+          FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\"$ROOT\" -DR2_HOME=\"$ROOT/R2\" -DR2_WORKSPACE=\"$ROOT\" -DR2_DIARY_DATABASE=\"$ROOT/R2/r2_memory.db\" -DR2_DIARY_DIR=\"$ROOT/R2_Diary\""
+          cc $FLAGS tests/r2_task_shutdown_runtime.c shell.c r2_diary.c Log.c SensoryJournal.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c R2Sounds.c R2Reply.c Imagination.c -o /tmp/r2-task-shutdown-smoke-test -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
+          /tmp/r2-task-shutdown-smoke-test
 
       - name: Exercise the production reply-misclassification guard
         run: |
@@ -157,6 +233,15 @@ jobs:
           FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\"$ROOT\" -DR2_HOME=\"$ROOT/R2\" -DR2_WORKSPACE=\"$ROOT\" -DR2_DIARY_DATABASE=\"$ROOT/R2/r2_memory.db\" -DR2_DIARY_DIR=\"$ROOT/R2_Diary\""
           cc $FLAGS tests/memory_schema_migration_smoke.c shell.c r2_diary.c Log.c SensoryJournal.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c R2Sounds.c R2Reply.c Imagination.c -o /tmp/r2-memory-schema-smoke-test -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
           /tmp/r2-memory-schema-smoke-test
+
+      - name: Exercise persistent-memory top-k ranking behavior
+        run: |
+          ROOT=/tmp/r2-memory-ranking-smoke
+          rm -rf "$ROOT"
+          mkdir -p "$ROOT/R2"
+          FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\"$ROOT\" -DR2_HOME=\"$ROOT/R2\" -DR2_WORKSPACE=\"$ROOT\" -DR2_DIARY_DATABASE=\"$ROOT/R2/r2_memory.db\" -DR2_DIARY_DIR=\"$ROOT/R2_Diary\""
+          cc $FLAGS tests/memory_ranking_behavior_smoke.c shell.c r2_diary.c Log.c SensoryJournal.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c R2Sounds.c R2Reply.c Imagination.c -o /tmp/r2-memory-ranking-smoke-test -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
+          /tmp/r2-memory-ranking-smoke-test
 
       - name: Check R2 shell Game Boy control-plane routing
         run: python3 tests/gameboy_shell_control_smoke.py
@@ -216,6 +301,20 @@ jobs:
             tests/diary_integration_smoke.c r2_diary.c Reward.c -lsqlite3 -lpthread \
             -o /tmp/r2-diary-integration-smoke
           /tmp/r2-diary-integration-smoke
+
+      - name: Exercise Sensory Journal literal search semantics
+        run: |
+          ROOT=/tmp/r2-sj-smoke
+          rm -rf "$ROOT"
+          cc -std=c11 -Wall -Wextra -Werror -O2 -I. \
+            -DR2_ROOT='"'"$ROOT"'"' \
+            -DR2_HOME='"'"$ROOT/R2"'"' \
+            -DR2_WORKSPACE='"'"$ROOT"'"' \
+            -DR2_DIARY_DATABASE='"'"$ROOT/R2/r2_memory.db"'"' \
+            -DR2_DIARY_DIR='"'"$ROOT/R2_Diary"'"' \
+            tests/sensory_journal_search_smoke.c SensoryJournal.c -lsqlite3 -lpthread \
+            -o /tmp/r2-sensory-journal-search-smoke
+          /tmp/r2-sensory-journal-search-smoke
 
       - name: Exercise Reality hunger, sleepiness, and energy progression
         run: |
