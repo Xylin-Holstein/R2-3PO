@@ -259,6 +259,7 @@ echo
 REQUIRED_FILES=(
     "$R2_SOURCE/r2.c"
     "$R2_SOURCE/r2.h"
+    "$R2_SOURCE/r2_input.h"
 
     "$R2_SOURCE/r2_diary.c"
     "$R2_SOURCE/r2_diary.h"
