@@ -2506,6 +2506,7 @@ int r2_shell_run(void)
         sigaddset(&service_signals, SIGTERM);
         if (sigprocmask(SIG_BLOCK, &service_signals, &original_mask) != 0) {
             fprintf(stderr, "[R2 Shell] Could not prepare reliable service signal handling.\n");
+            free(line);
             return -1;
         }
         service_signals_blocked = 1;
