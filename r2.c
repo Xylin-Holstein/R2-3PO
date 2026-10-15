@@ -10841,6 +10841,20 @@ void r2_shutdown(void)
         hands_thread_started = 0;
     }
 
+    /* The worker exits promptly on shutdown rather than executing queued
+       actions. Reclaim those now-unrunnable task nodes after the worker joins. */
+    pthread_mutex_lock(&task_queue_lock);
+    Task *pending_tasks = task_head;
+    task_head = NULL;
+    task_tail = NULL;
+    pthread_mutex_unlock(&task_queue_lock);
+    while (pending_tasks) {
+        Task *next = pending_tasks->next;
+        free(pending_tasks->command);
+        free(pending_tasks);
+        pending_tasks = next;
+    }
+
     /* Stop background post-turn Ollama/DB work before closing persistent stores. */
     pthread_mutex_lock(&post_turn_lock);
     while (post_turn_active > 0)
