@@ -137,6 +137,9 @@ jobs:
       - name: Keep the current user turn in bounded Ollama payloads
         run: python3 tests/ollama_current_turn_smoke.py
 
+      - name: Refuse silently truncated active user turns
+        run: python3 tests/no_truncated_current_turn_smoke.py
+
       - name: Retry obvious nonresponsive text misclassification once
         run: python3 tests/nonresponsive_reply_retry_smoke.py
 
