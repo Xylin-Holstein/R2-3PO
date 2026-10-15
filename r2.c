@@ -3680,20 +3680,31 @@ static char *ollama_chat_with_limit(
         }
         override_length = boundary >= override_budget / 2
             ? boundary : override_budget;
-        if (system_override && json_object_array_length(arr) > 0) {
-            struct json_object *override_message = json_object_array_get_idx(arr, 0);
-            if (override_message) {
-                struct json_object *bounded_override =
-                    json_object_new_string_len(system_override, (int)override_length);
-                if (!bounded_override) {
-                    free(include);
-                    free(limits);
-                    json_object_put(arr);
-                    json_object_put(root);
-                    return NULL;
-                }
-                json_object_object_add(override_message, "content", bounded_override);
-            }
+        struct json_object *override_message =
+            json_object_array_get_idx(arr, 0);
+        if (!override_message) {
+            free(include);
+            free(limits);
+            json_object_put(arr);
+            json_object_put(root);
+            return NULL;
+        }
+        struct json_object *bounded_override =
+            json_object_new_string_len(system_override, (int)override_length);
+        if (!bounded_override) {
+            free(include);
+            free(limits);
+            json_object_put(arr);
+            json_object_put(root);
+            return NULL;
+        }
+        if (ollama_json_object_add_checked(override_message, "content",
+                                           bounded_override) != 0) {
+            free(include);
+            free(limits);
+            json_object_put(arr);
+            json_object_put(root);
+            return NULL;
         }
     }
 
