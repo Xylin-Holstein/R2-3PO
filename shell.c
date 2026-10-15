@@ -1874,7 +1874,7 @@ static int shell_wait_child_bounded(pid_t child, int timeout_ms, int *status_out
             (void)kill(-child, SIGKILL);
             while (waitpid(child, status_out, 0) < 0 && errno == EINTR) {}
             fprintf(stderr,
-                    "[R2 Game Boy] Device helper exceeded its %d ms timeout and was terminated.\\n",
+                    "[R2 Game Boy] Device helper exceeded its %d ms timeout and was terminated.\n",
                     timeout_ms);
             return 1;
         }
