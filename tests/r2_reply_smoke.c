@@ -56,6 +56,11 @@ int main(void)
     assert(!strstr(reply, "example"));
     free(reply);
 
+    reply = r2_reply_sanitize("Use `<think>` to open and `</think>` to close.");
+    assert(reply && strstr(reply, "`<think>[unclosed content omitted]`"));
+    assert(strstr(reply, "`</think>` to close."));
+    free(reply);
+
     reply = r2_reply_sanitize(
         "Example:\n```xml\n<think>sample private thoughts</think>\n```\nThis is the literal syntax.");
     assert(reply && strstr(reply, "```xml\n<think>[content omitted]</think>\n```"));
