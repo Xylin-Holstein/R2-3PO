@@ -53,7 +53,10 @@ assert 'run_gameboy_console("ack_event", event_id_text' in sync
 helper_start = core.index("static int64_t gameboy_find_life_event_for_console_event")
 helper_end = core.index("static int sync_gameboy_verified_events", helper_start)
 helper = core[helper_start:helper_end]
-assert "WHERE event_type='gameboy_game_event' AND details LIKE ?" in helper
+assert "event_type IN ('gameboy_game_event','virtual_game_event')" in helper
+assert "AND details LIKE ?" in helper
+assert 'snprintf(source, sizeof(source), "GameBoyAdvance.py:event:%lld"' in sync
+assert 'R2_LOG_MEDIA, "virtual_game_event", summary, details, source' in sync
 assert "sqlite3_bind_text(stmt, 1, pattern, -1, SQLITE_TRANSIENT)" in helper
 
 assert "static void *tv_control_server(void *unused)" in shell
