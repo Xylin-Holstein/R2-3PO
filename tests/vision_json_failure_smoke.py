@@ -44,10 +44,10 @@ require("R2_VISION_ADD_OBJECT(root, \"model\"" in vision
         and "R2_VISION_ADD_OBJECT(root, \"options\", options_to_attach)" in vision,
         "vision model metadata and generation options are checked")
 require("R2_VISION_ADD_ARRAY(images, json_object_new_string(image_base64))" in vision
-        and "R2_VISION_ADD_OBJECT(user, \"images\", images)" in vision
-        and "R2_VISION_ADD_ARRAY(messages, sys)" in vision
-        and "R2_VISION_ADD_ARRAY(messages, user)" in vision
-        and "R2_VISION_ADD_OBJECT(root, \"messages\", messages)" in vision,
+        and "R2_VISION_ADD_OBJECT(user, \"images\", images_to_attach)" in vision
+        and "R2_VISION_ADD_ARRAY(messages, system_to_attach)" in vision
+        and "R2_VISION_ADD_ARRAY(messages, user_to_attach)" in vision
+        and "R2_VISION_ADD_OBJECT(root, \"messages\", messages_to_attach)" in vision,
         "image bytes and both chat messages must attach successfully")
 require("vision_json_build_failed:" in vision
         and "if (root) json_object_put(root);" in vision
