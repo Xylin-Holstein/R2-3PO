@@ -59,6 +59,10 @@ jobs:
         run: |
           python3 -m py_compile tests/tv_control_lifecycle_smoke.py
           python3 tests/tv_control_lifecycle_smoke.py
+      - name: Check bounded terminal shell input
+        run: |
+          python3 -m py_compile tests/shell_input_bound_smoke.py
+          python3 tests/shell_input_bound_smoke.py
       - name: Keep launcher, compiled modules, model, and cleanup in sync
         run: |
           python3 -m py_compile tests/launcher_shell_audit_smoke.py
