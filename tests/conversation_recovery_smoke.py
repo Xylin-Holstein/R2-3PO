@@ -40,7 +40,7 @@ require(
     "the original user turn is stored before contextual generation begins",
 )
 require(
-    core.includes("RELATIONSHIP AND NAME CONTINUITY")
+    "RELATIONSHIP AND NAME CONTINUITY" in core
     and "quoted message, an archived conversation, a diary" in core
     and "prioritize the correction" in core,
     "explicit family relationships survive name contamination from quoted/retrieved history while current corrections win",
