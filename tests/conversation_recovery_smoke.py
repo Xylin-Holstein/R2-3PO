@@ -93,7 +93,7 @@ require(
 )
 require(
     "pthread_mutex_trylock(&conversation_turn_lock)" in core
-    and "autonomous_needs_action_stale" in core,
+    and "autonomous_needs_stale_action" in core,
     "autonomous action path uses a non-blocking turn guard and stale-action protection",
 )
 
