@@ -83,6 +83,7 @@
 #include <sqlite3.h>
 #include <json-c/json.h>
 #include "r2.h"
+#include "r2_input.h"
 #include "R2Sounds.h"
 #include "R2Reply.h"
 
@@ -3796,6 +3797,70 @@ static char *ollama_chat_with_limit(
         ++recent_count;
     }
 
+    /*
+     * Never send a prefix of the active user message as if it were the whole
+     * turn. Adaptive context budgets may shrink system/history content, but
+     * if the exact authoritative query does not fit inside the serialized
+     * current-user message, fail visibly instead of asking the model to answer
+     * a silently truncated question.
+     */
+    if (authoritative_query && *authoritative_query) {
+        int current_turn_complete = 0;
+        size_t query_length = strlen(authoritative_query);
+        if (current_user_index != SIZE_MAX && include[current_user_index]) {
+            const char *current_content = msgs[current_user_index].content
+                ? msgs[current_user_index].content : "";
+            size_t query_offset = SIZE_MAX;
+            if (strcmp(current_content, authoritative_query) == 0) {
+                query_offset = 0;
+            } else {
+                const char *begin_marker = "----- BEGIN CURRENT USER MESSAGE -----\n";
+                const char *end_marker = "----- END CURRENT USER MESSAGE -----";
+                const char *begin = strstr(current_content, begin_marker);
+                const char *end = begin
+                    ? strstr(begin + strlen(begin_marker), end_marker) : NULL;
+                if (begin && end) {
+                    const char *query_start = begin + strlen(begin_marker);
+                    size_t wrapped_length = (size_t)(end - query_start);
+                    if (wrapped_length && query_start[wrapped_length - 1] == '\n')
+                        --wrapped_length;
+                    if (wrapped_length == query_length &&
+                        memcmp(query_start, authoritative_query, query_length) == 0)
+                        query_offset = (size_t)(query_start - current_content);
+                }
+            }
+
+            size_t serialized_length = limits[current_user_index];
+            if (query_offset != SIZE_MAX &&
+                query_offset <= serialized_length &&
+                query_length <= serialized_length - query_offset)
+                current_turn_complete = 1;
+        }
+
+        if (!current_turn_complete) {
+            size_t serialized_length = current_user_index != SIZE_MAX
+                ? limits[current_user_index] : 0;
+            char details[256];
+            snprintf(details, sizeof(details),
+                     "query_chars=%zu; current_turn_serialized_chars=%zu; stage=%s; user_text_logged=no",
+                     query_length, serialized_length,
+                     ollama_audit_stage ? ollama_audit_stage : "unspecified");
+            fprintf(stderr,
+                    "[R2 Ollama] refusing inference: the complete active user message "
+                    "does not fit the adaptive input budget (query_chars=%zu, serialized_chars=%zu).\n",
+                    query_length, serialized_length);
+            if (r2_log_is_initialized())
+                r2_log_event(R2_LOG_ERROR, "ollama_current_user_turn_truncated",
+                             "Ollama inference was refused rather than sending a truncated active user message.",
+                             details, MODEL);
+            free(include);
+            free(limits);
+            json_object_put(arr);
+            json_object_put(root);
+            return NULL;
+        }
+    }
+
     size_t *message_order = count ? calloc(count, sizeof(*message_order)) : NULL;
     if (count && !message_order) {
         free(include);
@@ -5477,6 +5542,21 @@ static char *chat_with_relevant_memories(
             memory_context = joined;
         }
         free(visual_context);
+    }
+
+    /*
+     * Per-section limits do not bound the final sum after diary, historical
+     * vision, and live visual evidence are appended. Cap the complete evidence
+     * block immediately before it is inserted into the prompt. The actual user
+     * message is stored separately and is never modified by this evidence cap.
+     */
+    size_t final_context_limit = explicit_recall ? 28000U : 16000U;
+    size_t assembled_context_chars = strlen(memory_context);
+    if (assembled_context_chars > final_context_limit) {
+        fprintf(stderr,
+                "[R2 Context] Assembled evidence exceeded the %zu-character budget (%zu); trimming before prompt construction.\n",
+                final_context_limit, assembled_context_chars);
+        r2_bound_context_records(memory_context, final_context_limit);
     }
 
     pthread_mutex_lock(
@@ -10360,8 +10440,11 @@ int r2_conversation(void)
     if (!core_initialized)
         return -1;
 
-    char *line = NULL;
-    size_t linecap = 0;
+    char *line = malloc((size_t)OLLAMA_MAX_MESSAGE_CHARS + 2U);
+    if (!line) {
+        fprintf(stderr, "[R2] Could not allocate bounded conversation input buffer.\n");
+        return -1;
+    }
 
     while (!shutting_down) {
         handle_completed_messages();
@@ -10369,11 +10452,37 @@ int r2_conversation(void)
         printf("You: ");
         fflush(stdout);
 
-        ssize_t nr = getline(&line, &linecap, stdin);
-        if (nr < 0) break;
-
-        if (nr && line[nr - 1] == '\n')
-            line[nr - 1] = '\0';
+        errno = 0;
+        size_t input_bytes = 0;
+        R2InputLineStatus input_status =
+            r2_read_bounded_line(stdin, line, OLLAMA_MAX_MESSAGE_CHARS,
+                                 &input_bytes);
+        if (input_status == R2_INPUT_LINE_EOF)
+            break;
+        if (input_status == R2_INPUT_LINE_IO_ERROR) {
+            if (errno == EINTR) {
+                clearerr(stdin);
+                continue;
+            }
+            fprintf(stderr, "[R2] Direct conversation input read failed.\n");
+            break;
+        }
+        if (input_status == R2_INPUT_LINE_TOO_LONG) {
+            fprintf(stderr,
+                    "[R2] Direct conversation input exceeded the %d-byte limit.\n",
+                    OLLAMA_MAX_MESSAGE_CHARS);
+            printf("\nR2-3PO: That message is too long for one turn (%d-byte limit). "
+                   "Nothing from it was sent; please split it into smaller messages.\n\n",
+                   OLLAMA_MAX_MESSAGE_CHARS);
+            fflush(stdout);
+            continue;
+        }
+        if (input_status == R2_INPUT_LINE_EMBEDDED_NUL) {
+            printf("\nR2-3PO: That message contained an unsupported NUL byte. "
+                   "Nothing from it was sent; please resend it as text.\n\n");
+            fflush(stdout);
+            continue;
+        }
 
         if (!strcasecmp(line, "quit") ||
             !strcasecmp(line, "exit") ||
@@ -10385,10 +10494,13 @@ int r2_conversation(void)
         if (!*line) continue;
 
         char *reply = r2_talk(line);
-
-        if (!reply) {
+        if (!reply || !*reply) {
             fprintf(stderr,
-                    "\nR2-3PO: Ollama request failed.\n");
+                    "[R2] Direct conversation API returned no usable reply; displaying fallback.\n");
+            free(reply);
+            printf("\nR2-3PO: I'm sorry, Mom—I couldn't process that turn successfully. "
+                   "Please try again in a moment.\n\n");
+            fflush(stdout);
             continue;
         }
 
@@ -10399,7 +10511,6 @@ int r2_conversation(void)
     free(line);
     return 0;
 }
-
 /* ============================================================
    CORE INITIALIZATION / SHUTDOWN
    ============================================================ */
