@@ -5002,18 +5002,54 @@ char *r2_recent_conversation_context(const char *exclude_latest, size_t max_char
         selected[found++] = index;
     }
 
-    size_t used = 0;
-    for (size_t n = found; n > 0 && used < max_chars; --n) {
-        const Message *m = &messages.items[selected[n - 1]];
-        size_t remaining = max_chars - used;
-        int written = snprintf(out + used, remaining + 1, "%s: %.1000s\n",
-            strcmp(m->role, "user") == 0 ? "User" : "R2", m->content);
-        if (written < 0) break;
-        if ((size_t)written > remaining) {
-            used = max_chars;
+    /*
+     * The selected indices are newest-first. Spend the bounded context budget
+     * on the newest complete turns first, then emit those turns chronologically.
+     * Older history must never crowd out the latest user request.
+     */
+    size_t included = 0;
+    size_t selected_chars = 0;
+    while (included < found) {
+        const Message *m = &messages.items[selected[included]];
+        size_t role_length = strcmp(m->role, "user") == 0 ? 6U : 4U;
+        size_t content_length = strlen(m->content);
+        if (content_length > 1000U) content_length = 1000U;
+        size_t line_length = role_length + content_length + 1U;
+        size_t separator_length = included ? 1U : 0U;
+        if (selected_chars > max_chars ||
+            separator_length > max_chars - selected_chars ||
+            line_length > max_chars - selected_chars - separator_length)
             break;
+        selected_chars += separator_length + line_length;
+        ++included;
+    }
+
+    size_t used = 0;
+    if (found > 0 && included == 0) {
+        /* A single very long newest turn may exceed a tiny caller budget.
+         * Preserve that turn with an explicit truncation marker, not stale history. */
+        const Message *m = &messages.items[selected[0]];
+        const char *role = strcmp(m->role, "user") == 0 ? "User: " : "R2: ";
+        const char marker[] = " [truncated]\n";
+        size_t role_length = strlen(role);
+        size_t marker_length = sizeof(marker) - 1;
+        size_t available = max_chars > role_length + marker_length
+            ? max_chars - role_length - marker_length : 0;
+        int written = snprintf(out, max_chars + 1, "%s%.*s%s",
+            role, (int)available, m->content, marker);
+        if (written > 0)
+            used = (size_t)written > max_chars ? max_chars : (size_t)written;
+    } else {
+        for (size_t n = included; n > 0; --n) {
+            const Message *m = &messages.items[selected[n - 1]];
+            size_t remaining = max_chars - used;
+            int written = snprintf(out + used, remaining + 1,
+                "%s: %.1000s\n",
+                strcmp(m->role, "user") == 0 ? "User" : "R2", m->content);
+            if (written < 0 || (size_t)written > remaining)
+                break; /* Defensive: selection above guarantees whole lines fit. */
+            used += (size_t)written;
         }
-        used += (size_t)written;
     }
     pthread_mutex_unlock(&messages_lock);
     return out;
