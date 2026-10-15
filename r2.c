@@ -5015,7 +5015,7 @@ char *r2_recent_conversation_context(const char *exclude_latest, size_t max_char
         size_t content_length = strlen(m->content);
         if (content_length > 1000U) content_length = 1000U;
         size_t line_length = role_length + content_length + 1U;
-        size_t separator_length = included ? 1U : 0U;
+        size_t separator_length = 0U;
         if (selected_chars > max_chars ||
             separator_length > max_chars - selected_chars ||
             line_length > max_chars - selected_chars - separator_length)
