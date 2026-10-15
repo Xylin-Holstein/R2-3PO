@@ -60,7 +60,7 @@
    SHELL CONFIGURATION
    ============================================================ */
 
-#define SHELL_INPUT_MAX       4096
+#define SHELL_INPUT_MAX       12000
 #define SHELL_PROMPT          "R2> "
 
 #define WATCH_POLL_INTERVAL   2
@@ -2561,6 +2561,20 @@ int r2_shell_run(void)
 
         if (length > 0 && line[length - 1] == '\n')
             line[length - 1] = '\0';
+
+        /*
+         * Keep the shell's intended input ceiling in sync with the core's
+         * bounded current-turn budget. Reject an oversized line explicitly:
+         * never silently truncate a user's message or send only a prefix.
+         */
+        size_t input_bytes = strlen(line);
+        if (input_bytes > SHELL_INPUT_MAX) {
+            fprintf(stderr,
+                    "[R2 Shell] Input is %zu bytes; the maximum is %d bytes. "
+                    "Nothing from this line was sent to R2.\n",
+                    input_bytes, SHELL_INPUT_MAX);
+            continue;
+        }
 
         char *input =
             shell_trim(line);
