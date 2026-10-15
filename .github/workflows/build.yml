@@ -105,6 +105,11 @@ jobs:
       - name: Keep retrieved context separate from the active user turn
         run: python3 tests/current_turn_context_smoke.py
 
+      - name: Check multi-turn recovery and conversation serialization
+        run: |
+          python3 -m py_compile tests/conversation_recovery_smoke.py
+          python3 tests/conversation_recovery_smoke.py
+
       - name: Keep diagnostics out of the interactive conversation stream
         run: python3 tests/console_diagnostics_isolation_smoke.py
 
