@@ -52,12 +52,14 @@ int main(void)
     /* Literal private-tag syntax in Markdown code is user-facing content,
        not an instruction to remove the example. */
     reply = r2_reply_sanitize("Use `<think>example</think>` literally.");
-    assert(reply && !strcmp(reply, "Use `<think>example</think>` literally."));
+    assert(reply && strstr(reply, "`<think>[content omitted]</think>`"));
+    assert(!strstr(reply, "example"));
     free(reply);
 
     reply = r2_reply_sanitize(
-        "Example:\n```xml\n<think>sample</think>\n```\nThis is the literal syntax.");
-    assert(reply && strstr(reply, "```xml\n<think>sample</think>\n```"));
+        "Example:\n```xml\n<think>sample private thoughts</think>\n```\nThis is the literal syntax.");
+    assert(reply && strstr(reply, "```xml\n<think>[content omitted]</think>\n```"));
+    assert(!strstr(reply, "sample private thoughts"));
     assert(strstr(reply, "This is the literal syntax."));
     free(reply);
 
