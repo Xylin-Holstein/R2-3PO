@@ -63,6 +63,11 @@ int main(void)
     assert(strstr(reply, "This is the literal syntax."));
     free(reply);
 
+    reply = r2_reply_sanitize("A stray ` marker must not hide <think>private material</think>.");
+    assert(reply && !strstr(reply, "private material"));
+    assert(strstr(reply, "stray ` marker"));
+    free(reply);
+
     reply = r2_reply_sanitize("Actual <think>private material</think> public answer.");
     assert(reply && !strstr(reply, "private material"));
     assert(strstr(reply, "public answer."));
