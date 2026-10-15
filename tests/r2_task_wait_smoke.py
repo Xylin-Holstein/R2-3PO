@@ -42,6 +42,11 @@ require("if (!t->command || !id)" in background
 require("if (dup2(pipefd[1], STDOUT_FILENO) < 0" in task
         and "_exit(126)" in task,
         "child output redirection failures terminate with a nonzero status")
+require("if (!c->command)" in task,
+        "task command allocation failure is handled before launching a child")
+require('c->command ? c->command : "[command unavailable]"' in core
+        and 'c->output ? c->output : "[output unavailable]"' in core,
+        "completed-task collection remains safe if diagnostic allocations fail")
 require("output_read_failed = 1;\n            kill(pid, SIGTERM);" in task,
         "output-buffer allocation failure cannot be reported as a successful task")
 
