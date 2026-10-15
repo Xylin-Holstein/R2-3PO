@@ -28,6 +28,6 @@ require(copy_messages >= 0 and cap < copy_messages,
         "retrieval evidence is bounded before conversation history is copied into the prompt")
 require("r2_bound_context_records(memory_context, final_context_limit);" in body,
         "oversized retrieved evidence is clipped at a record boundary")
-require("actual user message is stored separately" in body,
+require("The actual user" in body and "message is stored separately" in body,
         "retrieval cap explicitly preserves the user's actual message")
 print("Final retrieved-context budget regression passed.")
