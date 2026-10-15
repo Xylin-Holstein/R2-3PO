@@ -1790,6 +1790,7 @@ static int shell_gameboy_capture_events(char *output, size_t capacity)
     pid_t child;
     if (!output || capacity < 2 || pipe(pipefd) != 0) return 0;
     output[0] = '\0';
+    int read_failed = 0;
     child = fork();
     if (child < 0) {
         close(pipefd[0]); close(pipefd[1]);
@@ -1807,7 +1808,10 @@ static int shell_gameboy_capture_events(char *output, size_t capacity)
         ssize_t n = read(pipefd[0], output + used, capacity - used - 1);
         if (n > 0) used += (size_t)n;
         else if (n == 0) break;
-        else if (errno != EINTR) break;
+        else if (errno != EINTR) {
+            read_failed = 1;
+            break;
+        }
     }
     close(pipefd[0]);
     output[used] = '\0';
@@ -1815,12 +1819,15 @@ static int shell_gameboy_capture_events(char *output, size_t capacity)
         if (errno == EINTR) continue;
         return 0;
     }
-    return WIFEXITED(status) && WEXITSTATUS(status) == 0 && used > 0;
+    return !read_failed && WIFEXITED(status) &&
+           WEXITSTATUS(status) == 0 && used > 0;
 }
 
 static int shell_gameboy_ack_event(int64_t event_id)
 {
-    const char *device = "/home/x/R2_Home/Devices/GameBoyAdvance/GameBoyAdvance";
+    const char *configured = getenv("R2_GAMEBOY_EXECUTABLE");
+    const char *device = configured && *configured
+        ? configured : "/home/x/R2_Home/Devices/GameBoyAdvance/GameBoyAdvance";
     char id[32];
     pid_t child;
     int status = 0;

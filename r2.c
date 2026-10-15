@@ -5954,8 +5954,11 @@ static void execute_task(
         id
     );
 
-    c->command =
-        xstrdup(command);
+    c->command = xstrdup(command);
+    if (!c->command) {
+        free(c);
+        return;
+    }
 
     now_iso(c->started);
 
@@ -5982,15 +5985,11 @@ static void execute_task(
 
         close(pipefd[0]);
 
-        dup2(
-            pipefd[1],
-            STDOUT_FILENO
-        );
-
-        dup2(
-            pipefd[1],
-            STDERR_FILENO
-        );
+        if (dup2(pipefd[1], STDOUT_FILENO) < 0 ||
+            dup2(pipefd[1], STDERR_FILENO) < 0) {
+            close(pipefd[1]);
+            _exit(126);
+        }
 
         close(pipefd[1]);
 
@@ -6040,7 +6039,7 @@ static void execute_task(
     if (!out) {
         close(pipefd[0]);
         kill(pid, SIGTERM);
-        waitpid(pid, NULL, 0);
+        while (waitpid(pid, NULL, 0) < 0 && errno == EINTR) {}
         remove_running(id);
         free(c->command);
         free(c);
@@ -6055,14 +6054,17 @@ static void execute_task(
 
     ssize_t got;
 
-    while (
-        (got =
-            read(
-                pipefd[0],
-                buf,
-                sizeof(buf)
-            )) > 0
-    ) {
+    int output_read_failed = 0;
+    for (;;) {
+        got = read(pipefd[0], buf, sizeof(buf));
+        if (got < 0 && errno == EINTR)
+            continue;
+        if (got < 0) {
+            output_read_failed = 1;
+            break;
+        }
+        if (got == 0)
+            break;
         size_t got_size = (size_t)got;
 
         size_t keep =
@@ -6088,6 +6090,7 @@ static void execute_task(
             );
 
         if (!p) {
+            output_read_failed = 1;
             kill(pid, SIGTERM);
             break;
         }
@@ -6130,17 +6133,17 @@ static void execute_task(
     close(pipefd[0]);
 
     int status = 0;
-
-    waitpid(
-        pid,
-        &status,
-        0
-    );
+    pid_t waited;
+    do {
+        waited = waitpid(pid, &status, 0);
+    } while (waited < 0 && errno == EINTR);
 
     remove_running(id);
 
+    /* A signal may interrupt either pipe reads or waitpid. Do not mistake an
+       interrupted/failed wait (whose status may still be zero) for success. */
     c->return_code =
-        WIFEXITED(status)
+        !output_read_failed && waited == pid && WIFEXITED(status)
             ? WEXITSTATUS(status)
             : -1;
 
@@ -6272,11 +6275,14 @@ static char *start_background_task(
 
     random_task_id(t->id);
 
-    t->command =
-        xstrdup(command);
-
-    char *id =
-        xstrdup(t->id);
+    t->command = xstrdup(command);
+    char *id = xstrdup(t->id);
+    if (!t->command || !id) {
+        free(t->command);
+        free(t);
+        free(id);
+        return NULL;
+    }
 
     pthread_mutex_lock(
         &task_queue_lock
@@ -6337,10 +6343,14 @@ static char *collect_completed(void)
         c;
     ) {
 
+        const char *task_command =
+            c->command ? c->command : "[command unavailable]";
+        const char *task_output =
+            c->output ? c->output : "[output unavailable]";
         size_t needed =
             strlen(c->id) +
-            strlen(c->command) +
-            strlen(c->output) +
+            strlen(task_command) +
+            strlen(task_output) +
             128;
 
         char *block =
@@ -6370,9 +6380,9 @@ static char *collect_completed(void)
                 "Exit code: %d\n"
                 "Output:\n%s\n",
                 c->id,
-                c->command,
+                task_command,
                 c->return_code,
-                c->output
+                task_output
             );
 
         if (len + (size_t)bn + 1 > cap) {
@@ -6723,7 +6733,12 @@ static int run_gameboy_console(const char *subcommand,
         if (count < 0) {
             if (errno == EINTR) continue;
             close(pipes[0]);
-            (void)waitpid(pid, &status, 0);
+            /* Closing the pipe may cause the child to exit via SIGPIPE; still
+               reap it reliably before returning the I/O failure. */
+            while (waitpid(pid, &status, 0) < 0) {
+                if (errno == EINTR) continue;
+                return -1;
+            }
             return -1;
         }
         if (used + 1 < output_size) {

@@ -24,6 +24,24 @@ if [[ ! "$R2_UID" =~ ^[0-9]+$ || ! "$R2_GID" =~ ^[0-9]+$ || -z "$R2_HOME_DIR" ]]
 fi
 
 R2_NETWORK_LOCK_ACTIVE=0
+OBSERVER_XHOST_GRANTED=0
+OBSERVER_PID=""
+
+# Observer/display cleanup must run for every exit path, not only after R2
+# returns normally. In particular, an early launch failure after opening the
+# X-server permission must not leave a stale observer or grant behind.
+r2_observer_cleanup() {
+    if [[ -n "${OBSERVER_PID:-}" ]]; then
+        kill "$OBSERVER_PID" 2>/dev/null || true
+        wait "$OBSERVER_PID" 2>/dev/null || true
+        OBSERVER_PID=""
+    fi
+    if [[ "${OBSERVER_XHOST_GRANTED:-0}" -eq 1 ]]; then
+        xhost -SI:localuser:r2 >/dev/null 2>&1 || true
+        OBSERVER_XHOST_GRANTED=0
+    fi
+}
+
 r2_remove_network_jumps() {
     local binary="$1" chain="$2"
     while sudo -n "$binary" -w -C OUTPUT -m owner --uid-owner "$R2_UID" -j "$chain" >/dev/null 2>&1; do
@@ -46,6 +64,7 @@ r2_remove_network_lock() {
 r2_network_cleanup() {
     local exit_status=$?
     trap - EXIT
+    r2_observer_cleanup
     if [[ "$R2_NETWORK_LOCK_ACTIVE" -eq 1 ]]; then
         if r2_remove_network_lock; then
             echo "[Network] R2-only network lock removed."
@@ -324,12 +343,12 @@ echo
 R2_FX_DIR="${R2_FX_DIR:-/home/x/R2_Home/R2_sounds/FX}"
 SOUND_AUDIT="$R2_SOURCE/tools/audit_r2_sound_assets.py"
 if [ -f "$SOUND_AUDIT" ]; then
-    if ! sudo -u r2 env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
+    if ! sudo -n -u r2 env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
             python3 "$SOUND_AUDIT" --root "$R2_FX_DIR"; then
         echo "WARNING: r2 could not complete the sound asset inventory."
         echo "R2 will still start; beep/whistle markers may have no matching audio."
     fi
-elif sudo -u r2 env HOME="$R2_ROOT" bash -c 'test -d "$1" && test -r "$1" && find "$1" -maxdepth 1 -type f -iname "*.mp3" -print -quit | grep -q .' _ "$R2_FX_DIR"; then
+elif sudo -n -u r2 env HOME="$R2_ROOT" bash -c 'test -d "$1" && test -r "$1" && find "$1" -maxdepth 1 -type f -iname "*.mp3" -print -quit | grep -q .' _ "$R2_FX_DIR"; then
     echo "State-aware sound assets are readable by r2: $R2_FX_DIR"
 else
     echo "WARNING: r2 cannot find readable MP3 effects in: $R2_FX_DIR"
@@ -506,13 +525,13 @@ sudo -n -u r2 -- gcc -std=c11 -Wall -Wextra -Werror -O2 \
     "$R2_SOURCE/Addiction.c" \
     "$R2_SOURCE/Reward.c" \
     "$R2_SOURCE/AlternateSelf.c" \
+    "$R2_SOURCE/Imagination.c" \
+    "$R2_SOURCE/SensoryJournal.c" \
     "$R2_SOURCE/Visual.c" \
     "$R2_SOURCE/Ears.c" \
     "$R2_SOURCE/Eyes.c" \
     "$R2_SOURCE/R2Sounds.c" \
     "$R2_SOURCE/R2Reply.c" \
-    "$R2_SOURCE/Imagination.c" \
-    "$R2_SOURCE/SensoryJournal.c" \
     -o "$TEMP_EXEC" \
     -lcurl \
     -lsqlite3 \
@@ -579,12 +598,10 @@ echo
 # The observer must run as r2 to read the private Life Log database, but
 # the desktop X server normally rejects that separate Linux user. Grant only
 # r2 access to this local X server, then revoke it when R2 exits.
-OBSERVER_XHOST_GRANTED=0
-OBSERVER_PID=""
 if [ -n "${DISPLAY:-}" ] && command -v xhost >/dev/null 2>&1 && xhost +SI:localuser:r2 >/dev/null 2>&1; then
     OBSERVER_XHOST_GRANTED=1
     # Don't pass the desktop user's cookie or R2's virtual-clock environment.
-    sudo -u r2 env -u XAUTHORITY HOME="$R2_ROOT" USER=r2 LOGNAME=r2 DISPLAY="${DISPLAY}" \
+    sudo -n -u r2 env -u XAUTHORITY HOME="$R2_ROOT" USER=r2 LOGNAME=r2 DISPLAY="${DISPLAY}" \
         python3 "$R2_SOURCE/Observer.py" &
     OBSERVER_PID=$!
 else
@@ -643,13 +660,9 @@ sudo -n setpriv --reuid="$R2_UID" --regid="$R2_GID" --groups="$R2_RUNTIME_GROUPS
 
 status=$?
 
-# Avoid leaving a stale observer window or X-server permission after R2 exits.
-if [ -n "${OBSERVER_PID:-}" ]; then
-    kill "$OBSERVER_PID" 2>/dev/null || true
-fi
-if [ "${OBSERVER_XHOST_GRANTED:-0}" -eq 1 ]; then
-    xhost -SI:localuser:r2 >/dev/null 2>&1 || true
-fi
+# Also clean up immediately after a normal R2 exit; the EXIT trap is an
+# idempotent fallback for all early exits and signals.
+r2_observer_cleanup
 
 echo
 echo "========================================"

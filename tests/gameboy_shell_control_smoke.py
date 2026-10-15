@@ -19,6 +19,17 @@ assert "shell_gameboy_log_session_start(&after)" in handler
 assert "shell_gameboy_log_session_end(&before" in handler
 assert shell.count("static int shell_gameboy(") == 1
 assert 'shell_gameboy(shell_starts_with(command, "gameboy ") ? shell_trim(command + 8) : NULL);' in shell
+capture_start = shell.find("static int shell_gameboy_capture_events(")
+ack_start = shell.find("static int shell_gameboy_ack_event(")
+ack_end = shell.find("static void shell_gameboy_sync_verified_events(", ack_start)
+assert capture_start >= 0 and ack_start > capture_start and ack_end > ack_start
+capture = shell[capture_start:ack_start]
+ack = shell[ack_start:ack_end]
+assert 'getenv("R2_GAMEBOY_EXECUTABLE")' in capture
+assert 'getenv("R2_GAMEBOY_EXECUTABLE")' in ack, (
+    "event acknowledgements must use the same configured executable as event reads"
+)
+assert 'configured && *configured' in ack
 
 for command in (
     '"status"', '"verify"', '"list"', '"power"', '"insert"',
