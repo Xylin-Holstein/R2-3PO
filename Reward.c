@@ -285,6 +285,7 @@ static int reward_apply_internal(const char *target, const char *source, int poi
     sqlite3_int64 reward_id = 0;
     sqlite3_stmt *st = NULL;
     int duplicate = 0;
+    PendingReward prior_event = {0};
 
     pthread_mutex_lock(&reward_lock);
     if (ensure_db_locked() != 0) {
@@ -306,13 +307,28 @@ static int reward_apply_internal(const char *target, const char *source, int poi
         /* First check the durable event as well as the key. This repairs old
            key-only rows left by the former two-transaction implementation. */
         rc = sqlite3_prepare_v2(reward_db,
-            "SELECT id FROM reward_events WHERE target=? AND source=? LIMIT 1",
+            "SELECT id,target,source,points,reason,occurred_at,modifier,expires_at "
+            "FROM reward_events WHERE target=? AND source=? LIMIT 1",
             -1, &st, NULL);
         if (rc == SQLITE_OK) {
             sqlite3_bind_text(st, 1, target, -1, SQLITE_TRANSIENT);
             sqlite3_bind_text(st, 2, source, -1, SQLITE_TRANSIENT);
             int step_rc = sqlite3_step(st);
             if (step_rc == SQLITE_ROW) {
+                const unsigned char *saved_target = sqlite3_column_text(st, 1);
+                const unsigned char *saved_source = sqlite3_column_text(st, 2);
+                const unsigned char *saved_reason = sqlite3_column_text(st, 4);
+                prior_event.id = sqlite3_column_int64(st, 0);
+                snprintf(prior_event.target, sizeof(prior_event.target), "%s",
+                    saved_target ? (const char *)saved_target : target);
+                snprintf(prior_event.source, sizeof(prior_event.source), "%s",
+                    saved_source ? (const char *)saved_source : source);
+                prior_event.points = sqlite3_column_int(st, 3);
+                snprintf(prior_event.reason, sizeof(prior_event.reason), "%s",
+                    saved_reason ? (const char *)saved_reason : "");
+                prior_event.occurred_at = sqlite3_column_int64(st, 5);
+                prior_event.modifier = sqlite3_column_int(st, 6);
+                prior_event.expires_at = sqlite3_column_int64(st, 7);
                 duplicate = 1;
                 rc = SQLITE_OK;
             } else {
@@ -386,7 +402,23 @@ static int reward_apply_internal(const char *target, const char *source, int poi
     pthread_mutex_unlock(&reward_lock);
 
     if (rc != SQLITE_OK) return -1;
-    if (duplicate) return apply_once ? 1 : -1;
+    if (duplicate) {
+        if (!apply_once) return -1;
+        /* Repair the addiction-choice side effect if the prior process died
+           after committing the reward but before recording the choice. Its
+           stable reward_event_id makes the replay idempotent. */
+        if (voluntary_choice && prior_event.id > 0) {
+            char prior_summary[512], prior_details[1600];
+            format_reward_event(&prior_event, prior_summary, sizeof(prior_summary),
+                                prior_details, sizeof(prior_details));
+            int choice_rc = r2_addiction_record_choice(prior_event.target, "activity",
+                prior_event.points >= 0 ? (50 + prior_event.points * 5)
+                                        : (50 + prior_event.points * 4),
+                "reinforcement", prior_details);
+            if (choice_rc != 0) return -1;
+        }
+        return 1;
+    }
     if (reward_id <= 0) return -1;
 
     /* External side effects happen only after the durable reward transaction.
