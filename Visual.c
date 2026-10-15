@@ -508,6 +508,7 @@ vision_json_build_failed:
     return NULL;
 
 vision_json_build_complete:
+    ; /* A label must precede a statement in C11. */
     const char *payload = json_object_to_json_string_ext(root, JSON_C_TO_STRING_PLAIN);
     char ollama_url[128];
     if (!payload || r2_ollama_chat_url(ollama_url, sizeof(ollama_url)) != 0) {
