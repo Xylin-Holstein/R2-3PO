@@ -3681,7 +3681,7 @@ static char *ollama_chat_with_limit(
 
     size_t identity_minimum = system_budget / 5;
     if (identity_minimum < 1000 &&
-        system_budget > reality_reserve + 1000)
+        system_budget > reality_reserve + 2000)
         identity_minimum = 1000;
     size_t identity_capacity = system_budget - reality_reserve;
     if (identity_minimum > identity_capacity)
