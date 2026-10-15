@@ -74,7 +74,7 @@ int main(void)
     assert(strlen(context) <= 64);
     free(context);
     context = r2_recent_conversation_context(NULL, 0);
-    assert(context != NULL && context[0] == '\\0');
+    assert(context != NULL && context[0] == '\0');
     free(context);
 
     free(old_user);
