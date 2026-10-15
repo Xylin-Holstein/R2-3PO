@@ -142,7 +142,7 @@ require(
     'int allow_reasoning = ollama_audit_stage &&' in core
     and '"conversation-answer"' in core
     and '"conversation-retry"' in core
-    and 'json_object_object_add(root, "think", json_object_new_boolean(allow_reasoning))' in core
+    and 'ollama_json_object_add_checked(root, "think",' in core
     and "message.thinking is measured for diagnostics but never displayed" in core,
     "foreground answer and corrective retry can reason while only final content is user-facing",
 )
