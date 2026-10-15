@@ -68,6 +68,13 @@ int main(void)
     assert(strstr(reply, "This is the literal syntax."));
     free(reply);
 
+    reply = r2_reply_sanitize(
+        "```xml\n<think>private text without a matching close\n```\nSafe prose resumes.");
+    assert(reply && strstr(reply, "<think>[unclosed content omitted]"));
+    assert(!strstr(reply, "private text without a matching close"));
+    assert(strstr(reply, "Safe prose resumes."));
+    free(reply);
+
     reply = r2_reply_sanitize("A stray ` marker must not hide <think>private material</think>.");
     assert(reply && !strstr(reply, "private material"));
     assert(strstr(reply, "stray ` marker"));
