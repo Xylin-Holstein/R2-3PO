@@ -24,7 +24,7 @@ if min(helper_start, append_start, builder_start) < 0 or not (
 
 event_id_helper = core[helper_start:append_start]
 append_helper = core[append_start:builder_start]
-builder_end = core.find("/* ============================================================\\n   STRING HELPERS", builder_start)
+builder_end = core.find("/* ============================================================\n   STRING HELPERS", builder_start)
 if builder_end < 0:
     raise SystemExit("Could not isolate the contextual conversation builder.")
 builder = core[builder_start:builder_end]
