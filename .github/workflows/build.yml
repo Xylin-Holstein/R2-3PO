@@ -105,6 +105,11 @@ jobs:
       - name: Keep retrieved context separate from the active user turn
         run: python3 tests/current_turn_context_smoke.py
 
+      - name: Preserve newest conversation turns in bounded history context
+        run: |
+          python3 -m py_compile tests/recent_context_budget_smoke.py
+          python3 tests/recent_context_budget_smoke.py
+
       - name: Check multi-turn recovery and conversation serialization
         run: |
           python3 -m py_compile tests/conversation_recovery_smoke.py
