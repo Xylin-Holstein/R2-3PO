@@ -108,6 +108,8 @@ jobs:
 
       - name: Keep diagnostics out of the interactive conversation stream
         run: python3 tests/console_diagnostics_isolation_smoke.py
+      - name: Reject oversized shell messages without truncation
+        run: python3 tests/shell_input_limit_smoke.py
 
       - name: Check model-assisted associative memory retrieval
         run: python3 tests/associative_retrieval_smoke.py
