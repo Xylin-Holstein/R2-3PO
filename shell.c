@@ -2545,8 +2545,9 @@ int r2_shell_run(void)
         return -1;
     }
 
-    char *line = NULL;
-    size_t capacity = 0;
+    /* Fixed-size input prevents a pasted or redirected line from forcing
+       getline() to allocate an unbounded buffer before we can reject it. */
+    char line[SHELL_INPUT_MAX + 1];
     sigset_t service_signals, original_mask, wait_mask;
     int service_signals_blocked = 0;
 
@@ -2598,32 +2599,48 @@ int r2_shell_run(void)
 
         errno = 0;
 
-        ssize_t length =
-            getline(
-                &line,
-                &capacity,
-                stdin
-            );
-
-        if (length < 0) {
-
+        if (!fgets(line, sizeof(line), stdin)) {
             if (errno == EINTR) {
                 clearerr(stdin);
                 continue;
             }
 
-            /*
-             * EOF (Ctrl-D).
-             */
-            printf(
-                "\n[R2 Shell] End of input.\n"
-            );
-
+            /* EOF (Ctrl-D). */
+            printf("\n[R2 Shell] End of input.\n");
             break;
         }
 
-        if (length > 0 && line[length - 1] == '\n')
-            line[length - 1] = '\0';
+        size_t length = strlen(line);
+        if (length > 0 && line[length - 1] == '\n') {
+            line[--length] = '\0';
+        } else if (!feof(stdin)) {
+            /* The fixed buffer filled before a newline: drain the rest of
+               this physical line so its tail cannot become a second command. */
+            int ch;
+            while (!shell_shutdown &&
+                   (ch = fgetc(stdin)) != '\n' && ch != EOF) {
+                if (errno == EINTR) {
+                    clearerr(stdin);
+                    continue;
+                }
+            }
+            fprintf(stderr,
+                    "[R2 Shell] Input line exceeds %d bytes; command discarded.\n",
+                    SHELL_INPUT_MAX - 1);
+            continue;
+        }
+
+        if (length >= SHELL_INPUT_MAX) {
+            fprintf(stderr,
+                    "[R2 Shell] Input line exceeds %d bytes; command discarded.\n",
+                    SHELL_INPUT_MAX - 1);
+            continue;
+        }
+
+        /* A signal may have interrupted input; never dispatch a partial line
+           after the shutdown handler has requested the shell to exit. */
+        if (shell_shutdown || r2_is_shutting_down())
+            break;
 
         char *input =
             shell_trim(line);
@@ -2643,8 +2660,6 @@ int r2_shell_run(void)
     }
 
     tv_control_stop_server();
-    free(line);
-
     if (service_signals_blocked)
         (void)sigprocmask(SIG_SETMASK, &original_mask, NULL);
 
