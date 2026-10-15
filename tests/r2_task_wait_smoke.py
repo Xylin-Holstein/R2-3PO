@@ -44,4 +44,25 @@ require("if (dup2(pipefd[1], STDOUT_FILENO) < 0" in task
         "child output redirection failures terminate with a nonzero status")
 require("output_read_failed = 1;\n            kill(pid, SIGTERM);" in task,
         "output-buffer allocation failure cannot be reported as a successful task")
-print("Task I/O interruption smoke test passed.")
+
+console_bridge_start = core.find("static int run_gameboy_console(")
+console_bridge_end = core.find("static int gameboy_json_bool(", console_bridge_start)
+if console_bridge_start < 0 or console_bridge_end <= console_bridge_start:
+    raise SystemExit("FAIL: could not isolate run_gameboy_console()")
+console_bridge = core[console_bridge_start:console_bridge_end]
+require("while (waitpid(pid, &status, 0) < 0)" in console_bridge
+        and "close(pipes[0]);" in console_bridge
+        and "if (errno == EINTR) continue;" in console_bridge,
+        "console bridge reaps its child after output errors and retries interrupted waits")
+
+shell = (ROOT / "shell.c").read_text(encoding="utf-8")
+capture_start = shell.find("static int shell_gameboy_capture_events(")
+capture_end = shell.find("static int shell_gameboy_ack_event(", capture_start)
+if capture_start < 0 or capture_end <= capture_start:
+    raise SystemExit("FAIL: could not isolate shell_gameboy_capture_events()")
+capture = shell[capture_start:capture_end]
+require("int read_failed = 0;" in capture
+        and "read_failed = 1;" in capture
+        and "return !read_failed && WIFEXITED(status)" in capture,
+        "shell does not accept partial Game Boy event JSON after a read error")
+print("Task/subprocess I/O interruption smoke test passed.")
