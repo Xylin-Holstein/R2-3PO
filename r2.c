@@ -66,6 +66,7 @@
 #include <errno.h>
 #include <signal.h>
 #include <pthread.h>
+#include <poll.h>
 #include <stdatomic.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -5983,6 +5984,12 @@ static void execute_task(
 
     if (pid == 0) {
 
+        /* Give the command and its descendants one process group so shutdown
+           can terminate the whole task, not only a shell that may have spawned
+           a long-lived child holding the output pipe open. */
+        if (setpgid(0, 0) != 0)
+            _exit(126);
+
         close(pipefd[0]);
 
         if (dup2(pipefd[1], STDOUT_FILENO) < 0 ||
@@ -6026,6 +6033,13 @@ static void execute_task(
         return;
     }
 
+    /* The parent also attempts to establish the group to close the tiny
+       fork-to-child-setpgid race. EACCES means the child already exec'd after
+       setting its group; ESRCH means it exited before this call. */
+    if (setpgid(pid, pid) != 0 && errno != EACCES && errno != ESRCH) {
+        kill(pid, SIGKILL);
+    }
+
     close(pipefd[1]);
 
     add_running(
@@ -6038,7 +6052,7 @@ static void execute_task(
 
     if (!out) {
         close(pipefd[0]);
-        kill(pid, SIGTERM);
+        kill(-pid, SIGKILL);
         while (waitpid(pid, NULL, 0) < 0 && errno == EINTR) {}
         remove_running(id);
         free(c->command);
@@ -6055,12 +6069,36 @@ static void execute_task(
     ssize_t got;
 
     int output_read_failed = 0;
+    int shutdown_terminated_task = 0;
     for (;;) {
+        /* A task can otherwise hold shutdown forever by waiting silently or
+           leaving a descendant attached to the output pipe. Poll briefly so
+           shutdown can cancel the task group even when no bytes are arriving. */
+        if (shutting_down && !shutdown_terminated_task) {
+            (void)kill(-pid, SIGKILL);
+            shutdown_terminated_task = 1;
+        }
+        struct pollfd output_fd = {
+            .fd = pipefd[0],
+            .events = POLLIN | POLLHUP,
+            .revents = 0
+        };
+        int ready = poll(&output_fd, 1, 250);
+        if (ready < 0 && errno == EINTR)
+            continue;
+        if (ready < 0) {
+            output_read_failed = 1;
+            (void)kill(-pid, SIGKILL);
+            break;
+        }
+        if (ready == 0)
+            continue;
         got = read(pipefd[0], buf, sizeof(buf));
         if (got < 0 && errno == EINTR)
             continue;
         if (got < 0) {
             output_read_failed = 1;
+            (void)kill(-pid, SIGKILL);
             break;
         }
         if (got == 0)
@@ -6091,7 +6129,7 @@ static void execute_task(
 
         if (!p) {
             output_read_failed = 1;
-            kill(pid, SIGTERM);
+            (void)kill(-pid, SIGKILL);
             break;
         }
 
@@ -10853,6 +10891,28 @@ void r2_shutdown(void)
         free(pending_tasks->command);
         free(pending_tasks);
         pending_tasks = next;
+    }
+
+    /* No worker can publish another result after its join. Clear any results
+       that would otherwise leak or be mistaken for a new session after reinit. */
+    pthread_mutex_lock(&tasks_lock);
+    CompletedTask *completed_tasks = completed_head;
+    completed_head = NULL;
+    completed_tail = NULL;
+    RunningTask *remaining_running = running_head;
+    running_head = NULL;
+    pthread_mutex_unlock(&tasks_lock);
+    while (completed_tasks) {
+        CompletedTask *next = completed_tasks->next;
+        free(completed_tasks->command);
+        free(completed_tasks->output);
+        free(completed_tasks);
+        completed_tasks = next;
+    }
+    while (remaining_running) {
+        RunningTask *next = remaining_running->next;
+        free(remaining_running);
+        remaining_running = next;
     }
 
     /* Stop background post-turn Ollama/DB work before closing persistent stores. */

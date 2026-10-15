@@ -47,8 +47,23 @@ require("if (!c->command)" in task,
 require('c->command ? c->command : "[command unavailable]"' in core
         and 'c->output ? c->output : "[output unavailable]"' in core,
         "completed-task collection remains safe if diagnostic allocations fail")
-require("output_read_failed = 1;\n            kill(pid, SIGTERM);" in task,
-        "output-buffer allocation failure cannot be reported as a successful task")
+require("output_read_failed = 1;\n            (void)kill(-pid, SIGKILL);" in task,
+        "output-buffer allocation failure terminates the complete task process group")
+require("if (setpgid(0, 0) != 0)" in task
+        and "setpgid(pid, pid)" in task,
+        "task commands and descendants share a cancellable process group")
+require("poll(&output_fd, 1, 250)" in task
+        and "if (shutting_down && !shutdown_terminated_task)" in task
+        and "(void)kill(-pid, SIGKILL);" in task,
+        "silent active tasks are cancelled promptly when shutdown begins")
+shutdown_start = core.find("void r2_shutdown(void)")
+shutdown = core[shutdown_start:] if shutdown_start >= 0 else ""
+require("CompletedTask *completed_tasks = completed_head" in shutdown
+        and "completed_head = NULL;" in shutdown
+        and "completed_tail = NULL;" in shutdown
+        and "free(completed_tasks->command);" in shutdown
+        and "free(completed_tasks->output);" in shutdown,
+        "shutdown clears completed task results so they cannot leak or cross into a reinitialized session")
 
 console_bridge_start = core.find("static int run_gameboy_console(")
 console_bridge_end = core.find("static int gameboy_json_bool(", console_bridge_start)
