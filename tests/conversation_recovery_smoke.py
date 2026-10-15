@@ -173,7 +173,7 @@ require(
 start_background = core.find("static char *start_background_task(")
 end_background = core.find("/* ============================================================\n   COMPLETED TASKS", start_background)
 background = core[start_background:end_background] if start_background >= 0 and end_background > start_background else ""
-background_lock = background.find("pthread_mutex_lock(&task_queue_lock)")
+background_lock = background.find("pthread_mutex_lock(\\n        &task_queue_lock")
 background_guard = background.find("if (shutting_down)")
 background_unlock = background.find("pthread_mutex_unlock(&task_queue_lock)", background_guard)
 require(
