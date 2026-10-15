@@ -420,13 +420,42 @@ static int valid_marker_state(const char *value)
     return count == 1 && token_is_state(tokens[0]);
 }
 
-static const char *find_sound_marker(const char *text)
+static int sound_fence_line(const char *line, size_t length,
+                            char expected_char, size_t expected_length,
+                            int closing, char *found_char, size_t *found_length)
 {
-    static const char marker[] = "[R2_SOUND:";
-    size_t marker_len = sizeof(marker) - 1;
-    for (const char *p = text; p && *p; ++p)
-        if (!strncasecmp(p, marker, marker_len)) return p;
-    return NULL;
+    size_t pos = 0;
+    while (pos < length && line[pos] == ' ' && pos < 4)
+        ++pos;
+    if (pos > 3 || pos >= length ||
+        (line[pos] != '`' && line[pos] != '~'))
+        return 0;
+
+    char ch = line[pos];
+    size_t run = 0;
+    while (pos + run < length && line[pos + run] == ch)
+        ++run;
+    if (run < 3)
+        return 0;
+
+    if (closing) {
+        if (ch != expected_char || run < expected_length)
+            return 0;
+        pos += run;
+        while (pos < length && (line[pos] == ' ' || line[pos] == '\t'))
+            ++pos;
+        if (pos != length)
+            return 0;
+    } else if (ch == '`') {
+        /* Markdown forbids backticks in a backtick-fence info string. */
+        for (size_t i = pos + run; i < length; ++i)
+            if (line[i] == '`')
+                return 0;
+    }
+
+    if (found_char) *found_char = ch;
+    if (found_length) *found_length = run;
+    return 1;
 }
 
 static char *process_reply_markers(const char *reply, int play_sound)
@@ -435,49 +464,107 @@ static char *process_reply_markers(const char *reply, int play_sound)
     size_t len = strlen(reply);
     char *clean = malloc(len + 1);
     if (!clean) return NULL;
+
     size_t src = 0, dst = 0;
+    size_t inline_ticks = 0;
+    int in_fence = 0;
+    char fence_char = '\0';
+    size_t fence_length = 0;
     int marker_selected = 0;
     char selected_kind[16] = {0};
     char selected_state[R2_SOUND_MARKER_MAX] = {0};
+    static const char marker_text[] = "[R2_SOUND:";
+    const size_t marker_length = sizeof(marker_text) - 1;
+
     while (src < len) {
-        const char *marker = find_sound_marker(reply + src);
-        if (!marker) {
-            memcpy(clean + dst, reply + src, len - src);
-            dst += len - src;
-            break;
-        }
-        size_t prefix_len = (size_t)(marker - (reply + src));
-        memcpy(clean + dst, reply + src, prefix_len);
-        dst += prefix_len;
-        const char *end = strchr(marker, ']');
-        if (!end) {
-            /* An unterminated control marker is never exposed to the user. */
-            break;
-        }
-        if ((size_t)(end - marker) >= R2_SOUND_MARKER_MAX) {
-            /* Oversized markers are discarded as a unit, never exposed. */
-            src = (size_t)(end - reply) + 1;
-            continue;
-        }
-        char inside[R2_SOUND_MARKER_MAX];
-        size_t inside_len = (size_t)(end - (marker + strlen("[R2_SOUND:")));
-        memcpy(inside, marker + strlen("[R2_SOUND:"), inside_len);
-        inside[inside_len] = '\0';
-        char *sep = strchr(inside, ':');
-        if (sep) {
-            *sep++ = '\0';
-            if (!marker_selected && valid_marker_value(inside, 16) &&
-                valid_marker_state(sep) &&
-                (!strcasecmp(inside, "beep") || !strcasecmp(inside, "whistle"))) {
-                if (!strcasecmp(inside, "beep")) memcpy(selected_kind, "beep", sizeof("beep"));
-                else memcpy(selected_kind, "whistle", sizeof("whistle"));
-                snprintf(selected_state, sizeof(selected_state), "%s", sep);
-                marker_selected = 1;
+        size_t line_end = src;
+        while (line_end < len && reply[line_end] != '\n')
+            ++line_end;
+        size_t line_length = line_end - src;
+        char found_fence_char = '\0';
+        size_t found_fence_length = 0;
+
+        if (in_fence) {
+            memcpy(clean + dst, reply + src, line_length);
+            dst += line_length;
+            if (sound_fence_line(reply + src, line_length, fence_char,
+                                 fence_length, 1, NULL, NULL))
+                in_fence = 0;
+        } else if (sound_fence_line(reply + src, line_length, '\0', 0, 0,
+                                    &found_fence_char, &found_fence_length)) {
+            /* Fenced examples are literal text, never hidden actions. */
+            memcpy(clean + dst, reply + src, line_length);
+            dst += line_length;
+            in_fence = 1;
+            fence_char = found_fence_char;
+            fence_length = found_fence_length;
+        } else {
+            size_t pos = src;
+            while (pos < line_end) {
+                if (reply[pos] == '`') {
+                    size_t run = 1;
+                    while (pos + run < line_end && reply[pos + run] == '`')
+                        ++run;
+                    memcpy(clean + dst, reply + pos, run);
+                    dst += run;
+                    if (inline_ticks == 0)
+                        inline_ticks = run;
+                    else if (inline_ticks == run)
+                        inline_ticks = 0;
+                    pos += run;
+                    continue;
+                }
+
+                if (inline_ticks == 0 && line_end - pos >= marker_length &&
+                    !strncasecmp(reply + pos, marker_text, marker_length)) {
+                    const char *end = memchr(reply + pos, ']', line_end - pos);
+                    if (!end) {
+                        /* A malformed marker is control syntax, not prose. */
+                        pos = line_end;
+                        break;
+                    }
+                    size_t marker_span = (size_t)(end - (reply + pos));
+                    if (marker_span >= R2_SOUND_MARKER_MAX) {
+                        pos = (size_t)(end - reply) + 1;
+                        continue;
+                    }
+
+                    char inside[R2_SOUND_MARKER_MAX];
+                    size_t inside_length =
+                        (size_t)(end - (reply + pos + marker_length));
+                    memcpy(inside, reply + pos + marker_length, inside_length);
+                    inside[inside_length] = '\0';
+                    char *separator = strchr(inside, ':');
+                    if (separator) {
+                        *separator++ = '\0';
+                        if (!marker_selected &&
+                            valid_marker_value(inside, 16) &&
+                            valid_marker_state(separator) &&
+                            (!strcasecmp(inside, "beep") ||
+                             !strcasecmp(inside, "whistle"))) {
+                            if (!strcasecmp(inside, "beep"))
+                                memcpy(selected_kind, "beep", sizeof("beep"));
+                            else
+                                memcpy(selected_kind, "whistle", sizeof("whistle"));
+                            snprintf(selected_state, sizeof(selected_state), "%s",
+                                     separator);
+                            marker_selected = 1;
+                        }
+                    }
+                    pos = (size_t)(end - reply) + 1;
+                    continue;
+                }
+
+                clean[dst++] = reply[pos++];
             }
         }
-        src = (size_t)(end - reply) + 1;
+
+        if (line_end < len)
+            clean[dst++] = reply[line_end];
+        src = line_end < len ? line_end + 1 : len;
     }
     clean[dst] = '\0';
+
     int has_user_text = 0;
     for (size_t i = 0; i < dst; ++i) {
         if (!isspace((unsigned char)clean[i])) {
