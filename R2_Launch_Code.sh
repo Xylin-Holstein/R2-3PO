@@ -343,12 +343,12 @@ echo
 R2_FX_DIR="${R2_FX_DIR:-/home/x/R2_Home/R2_sounds/FX}"
 SOUND_AUDIT="$R2_SOURCE/tools/audit_r2_sound_assets.py"
 if [ -f "$SOUND_AUDIT" ]; then
-    if ! sudo -u r2 env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
+    if ! sudo -n -u r2 env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
             python3 "$SOUND_AUDIT" --root "$R2_FX_DIR"; then
         echo "WARNING: r2 could not complete the sound asset inventory."
         echo "R2 will still start; beep/whistle markers may have no matching audio."
     fi
-elif sudo -u r2 env HOME="$R2_ROOT" bash -c 'test -d "$1" && test -r "$1" && find "$1" -maxdepth 1 -type f -iname "*.mp3" -print -quit | grep -q .' _ "$R2_FX_DIR"; then
+elif sudo -n -u r2 env HOME="$R2_ROOT" bash -c 'test -d "$1" && test -r "$1" && find "$1" -maxdepth 1 -type f -iname "*.mp3" -print -quit | grep -q .' _ "$R2_FX_DIR"; then
     echo "State-aware sound assets are readable by r2: $R2_FX_DIR"
 else
     echo "WARNING: r2 cannot find readable MP3 effects in: $R2_FX_DIR"
@@ -601,7 +601,7 @@ echo
 if [ -n "${DISPLAY:-}" ] && command -v xhost >/dev/null 2>&1 && xhost +SI:localuser:r2 >/dev/null 2>&1; then
     OBSERVER_XHOST_GRANTED=1
     # Don't pass the desktop user's cookie or R2's virtual-clock environment.
-    sudo -u r2 env -u XAUTHORITY HOME="$R2_ROOT" USER=r2 LOGNAME=r2 DISPLAY="${DISPLAY}" \
+    sudo -n -u r2 env -u XAUTHORITY HOME="$R2_ROOT" USER=r2 LOGNAME=r2 DISPLAY="${DISPLAY}" \
         python3 "$R2_SOURCE/Observer.py" &
     OBSERVER_PID=$!
 else
