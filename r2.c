@@ -1929,12 +1929,17 @@ static char *get_relevant_memories(
                     if (score <= 0)
                         continue;
 
-                    /* Rank by score descending, then timestamp descending. */
+                    /* Rank by score, timestamp, then durable ID. The final
+                     * tie-break keeps retrieval deterministic even when legacy
+                     * records share the same timestamp. */
+                    sqlite3_int64 candidate_id = sqlite3_column_int64(st, 0);
                     size_t insert_at = 0;
                     while (insert_at < count &&
                            (candidates[insert_at].score > score ||
                             (candidates[insert_at].score == score &&
-                             strcmp(candidates[insert_at].updated_at, updated) >= 0)))
+                             (strcmp(candidates[insert_at].updated_at, updated) > 0 ||
+                              (strcmp(candidates[insert_at].updated_at, updated) == 0 &&
+                               candidates[insert_at].id >= candidate_id))))
                         ++insert_at;
                     if (insert_at >= (size_t)limit)
                         continue;
