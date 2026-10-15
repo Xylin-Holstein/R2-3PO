@@ -3774,7 +3774,7 @@ static char *ollama_chat_with_limit(
         const char *content = msgs[i].content ? msgs[i].content : "";
         if (ollama_json_append_message(arr, role, content, limits[i]) != 0) {
             fprintf(stderr,
-                    "[R2 Ollama] refusing inference: could not serialize message %zu/%zu; no partial payload will be sent.\\n",
+                    "[R2 Ollama] refusing inference: could not serialize message %zu/%zu; no partial payload will be sent.\n",
                     pos + 1, ordered_count);
             free(message_order);
             free(include);
