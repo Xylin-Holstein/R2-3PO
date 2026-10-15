@@ -5304,6 +5304,21 @@ static char *chat_with_relevant_memories(
         free(visual_context);
     }
 
+    /*
+     * Bound the fully assembled retrieval after historical and live-vision
+     * sections have all been appended. Per-section limits alone can exceed
+     * the intended budget when combined. The user's actual message remains
+     * separate and is never truncated by this evidence-only cap.
+     */
+    size_t final_context_limit = explicit_recall ? 28000U : 16000U;
+    size_t assembled_context_chars = strlen(memory_context);
+    if (assembled_context_chars > final_context_limit) {
+        fprintf(stderr,
+                "[R2 Context] Assembled evidence exceeded the %zu-character budget (%zu); trimming before prompt construction.\\n",
+                final_context_limit, assembled_context_chars);
+        r2_bound_context_records(memory_context, final_context_limit);
+    }
+
     pthread_mutex_lock(
         &messages_lock
     );
