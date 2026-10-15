@@ -1836,6 +1836,54 @@ static const char *shell_gameboy_json_string(json_object *object, const char *ke
     return text_value ? text_value : "";
 }
 
+/* Bound auxiliary device CLI calls so a wedged emulator helper cannot
+   freeze the interactive shell. Children run in their own process group so a
+   timeout also terminates descendants that inherit the output pipe. */
+static long long shell_monotonic_millis(void)
+{
+    struct timespec now;
+    if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
+        return -1;
+    return (long long)now.tv_sec * 1000LL + now.tv_nsec / 1000000LL;
+}
+
+/* Returns 0 when reaped normally, 1 when timed out and killed, -1 on wait error. */
+static int shell_wait_child_bounded(pid_t child, int timeout_ms, int *status_out)
+{
+    if (child <= 0 || timeout_ms < 0 || !status_out)
+        return -1;
+
+    long long started = shell_monotonic_millis();
+    if (started < 0) {
+        (void)kill(-child, SIGKILL);
+        while (waitpid(child, status_out, 0) < 0 && errno == EINTR) {}
+        return -1;
+    }
+
+    for (;;) {
+        pid_t waited = waitpid(child, status_out, WNOHANG);
+        if (waited == child)
+            return 0;
+        if (waited < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+
+        long long now = shell_monotonic_millis();
+        if (now < 0 || now - started >= timeout_ms) {
+            (void)kill(-child, SIGKILL);
+            while (waitpid(child, status_out, 0) < 0 && errno == EINTR) {}
+            fprintf(stderr,
+                    "[R2 Game Boy] Device helper exceeded its %d ms timeout and was terminated.\n",
+                    timeout_ms);
+            return 1;
+        }
+
+        struct timespec pause = { .tv_sec = 0, .tv_nsec = 50 * 1000 * 1000 };
+        while (nanosleep(&pause, &pause) != 0 && errno == EINTR) {}
+    }
+}
+
 static int shell_gameboy_capture_events(char *output, size_t capacity)
 {
     const char *configured = getenv("R2_GAMEBOY_EXECUTABLE");
@@ -1844,9 +1892,9 @@ static int shell_gameboy_capture_events(char *output, size_t capacity)
     int pipefd[2], status = 0;
     size_t used = 0;
     pid_t child;
+    int read_failed = 0, timed_out = 0;
     if (!output || capacity < 2 || pipe(pipefd) != 0) return 0;
     output[0] = '\0';
-    int read_failed = 0;
     child = fork();
     if (child < 0) {
         close(pipefd[0]); close(pipefd[1]);
@@ -1854,29 +1902,65 @@ static int shell_gameboy_capture_events(char *output, size_t capacity)
     }
     if (child == 0) {
         close(pipefd[0]);
+        if (setpgid(0, 0) != 0) _exit(126);
         if (dup2(pipefd[1], STDOUT_FILENO) < 0) _exit(126);
         close(pipefd[1]);
         execl(device, device, "--json", "events", (char *)NULL);
         _exit(127);
     }
+    (void)setpgid(child, child);
     close(pipefd[1]);
+
+    long long started = shell_monotonic_millis();
     while (used + 1 < capacity) {
-        ssize_t n = read(pipefd[0], output + used, capacity - used - 1);
-        if (n > 0) used += (size_t)n;
-        else if (n == 0) break;
-        else if (errno != EINTR) {
+        long long now = shell_monotonic_millis();
+        if (started < 0 || now < 0 || now - started >= 5000) {
+            timed_out = 1;
+            break;
+        }
+        int remaining_ms = (int)(5000 - (now - started));
+        struct pollfd output_fd = {
+            .fd = pipefd[0],
+            .events = POLLIN,
+            .revents = 0
+        };
+        int ready = poll(&output_fd, 1,
+                         remaining_ms < 250 ? remaining_ms : 250);
+        if (ready < 0) {
+            if (errno == EINTR) continue;
             read_failed = 1;
             break;
         }
+        if (ready == 0) continue;
+        if (output_fd.revents & POLLIN) {
+            ssize_t n = read(pipefd[0], output + used, capacity - used - 1);
+            if (n > 0) {
+                used += (size_t)n;
+                continue;
+            }
+            if (n == 0) break;
+            if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK)
+                continue;
+            read_failed = 1;
+            break;
+        }
+        if (output_fd.revents & (POLLERR | POLLHUP | POLLNVAL))
+            break;
     }
+    if (used + 1 >= capacity)
+        read_failed = 1;
+    if (timed_out || read_failed)
+        (void)kill(-child, SIGKILL);
     close(pipefd[0]);
     output[used] = '\0';
-    while (waitpid(child, &status, 0) < 0) {
-        if (errno == EINTR) continue;
-        return 0;
+
+    int wait_result = shell_wait_child_bounded(child, 1000, &status);
+    if (wait_result != 0) {
+        read_failed = 1;
+        (void)kill(-child, SIGKILL);
     }
-    return !read_failed && WIFEXITED(status) &&
-           WEXITSTATUS(status) == 0 && used > 0;
+    return !read_failed && !timed_out && wait_result == 0 &&
+           WIFEXITED(status) && WEXITSTATUS(status) == 0 && used > 0;
 }
 
 static int shell_gameboy_ack_event(int64_t event_id)
@@ -1891,15 +1975,14 @@ static int shell_gameboy_ack_event(int64_t event_id)
     child = fork();
     if (child < 0) return 0;
     if (child == 0) {
+        if (setpgid(0, 0) != 0) _exit(126);
         if (!freopen("/dev/null", "w", stdout)) _exit(126);
         execl(device, device, "--json", "ack_event", id, (char *)NULL);
         _exit(127);
     }
-    while (waitpid(child, &status, 0) < 0) {
-        if (errno == EINTR) continue;
-        return 0;
-    }
-    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+    (void)setpgid(child, child);
+    int wait_result = shell_wait_child_bounded(child, 5000, &status);
+    return wait_result == 0 && WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
 /* Verified game-world events use an outbox in the console DB. Copy them into

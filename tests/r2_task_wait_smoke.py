@@ -81,10 +81,11 @@ capture_end = shell.find("static int shell_gameboy_ack_event(", capture_start)
 if capture_start < 0 or capture_end <= capture_start:
     raise SystemExit("FAIL: could not isolate shell_gameboy_capture_events()")
 capture = shell[capture_start:capture_end]
-require("int read_failed = 0;" in capture
+require("int read_failed = 0, timed_out = 0;" in capture
         and "read_failed = 1;" in capture
-        and "return !read_failed && WIFEXITED(status)" in capture,
-        "shell does not accept partial Game Boy event JSON after a read error")
+        and "return !read_failed && !timed_out && wait_result == 0" in capture
+        and "WIFEXITED(status)" in capture,
+        "shell does not accept partial or timed-out Game Boy event JSON")
 
 completed_start = core.find("static char *collect_completed(void)")
 completed_end = core.find("MARKER EXTRACTION", completed_start)
