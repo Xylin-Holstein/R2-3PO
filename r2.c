@@ -9949,7 +9949,6 @@ int r2_conversation(void)
         fprintf(stderr, "[R2] Could not allocate bounded conversation input buffer.\n");
         return -1;
     }
-    size_t linecap = (size_t)OLLAMA_MAX_MESSAGE_CHARS + 2U;
 
     while (!shutting_down) {
         handle_completed_messages();
