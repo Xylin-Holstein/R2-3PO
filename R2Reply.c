@@ -49,20 +49,21 @@ static int is_hidden_close(const char *p, size_t *length)
 /* Track nested private-tag types, not just repetitions of the outer tag.
    A malformed crossing such as <think><analysis></think>...</analysis></think>
    must not close the outer block early and expose the intervening text. */
-static const char *find_hidden_close_balanced(const char *p,
-                                               const HiddenBlock *block)
+static const char *find_hidden_close_balanced_until(const char *p,
+                                                     const HiddenBlock *block,
+                                                     const char *limit)
 {
     /*
-       Bound stack memory by the number of actual nested private-tag openings,
-       not by the response's byte length. A long ordinary response should not
-       allocate one pointer per character just to sanitize a single tag.
+       Bound stack memory by actual nested tag openings. When sanitizing code,
+       limit the search to that code span so a literal opener cannot pair with
+       a closing token from unrelated prose or another example.
     */
     size_t nested_open_count = 0;
     const char *scan = p;
-    while (*scan) {
+    while (*scan && (!limit || scan < limit)) {
         const HiddenBlock *nested = NULL;
         const char *after_open = find_hidden_open(scan, &nested);
-        if (after_open) {
+        if (after_open && (!limit || after_open <= limit)) {
             if (nested_open_count == (size_t)-1) return NULL;
             ++nested_open_count;
             scan = after_open;
@@ -79,10 +80,10 @@ static const char *find_hidden_close_balanced(const char *p,
 
     size_t depth = 1;
     stack[0] = block;
-    while (*p) {
+    while (*p && (!limit || p < limit)) {
         const HiddenBlock *opened = NULL;
         const char *after_open = find_hidden_open(p, &opened);
-        if (after_open) {
+        if (after_open && (!limit || after_open <= limit)) {
             if (depth >= capacity) {
                 free(stack);
                 return NULL;
@@ -94,6 +95,10 @@ static const char *find_hidden_close_balanced(const char *p,
 
         size_t close_len = 0;
         if (is_hidden_close(p, &close_len)) {
+            if (limit && (size_t)(limit - p) < close_len) {
+                ++p;
+                continue;
+            }
             const char *expected = stack[depth - 1]->close;
             if (!strncasecmp(p, expected, strlen(expected))) {
                 --depth;
@@ -113,6 +118,12 @@ static const char *find_hidden_close_balanced(const char *p,
     return NULL;
 }
 
+static const char *find_hidden_close_balanced(const char *p,
+                                               const HiddenBlock *block)
+{
+    return find_hidden_close_balanced_until(p, block, NULL);
+}
+
 static char *trim_reply(char *text)
 {
     char *start = text;
@@ -126,8 +137,8 @@ static char *trim_reply(char *text)
 
 /* Markdown code is user-facing syntax, not permission to expose private
    contents. Preserve tag delimiters in examples while redacting their body. */
-static int reply_has_matching_ticks(const char *text, size_t length,
-                                      size_t after, size_t run_length)
+static const char *reply_find_matching_ticks(const char *text, size_t length,
+                                                size_t after, size_t run_length)
 {
     size_t pos = after;
     while (pos < length) {
@@ -137,10 +148,10 @@ static int reply_has_matching_ticks(const char *text, size_t length,
         }
         size_t run = 1;
         while (pos + run < length && text[pos + run] == '`') ++run;
-        if (run == run_length) return 1;
+        if (run == run_length) return text + pos;
         pos += run;
     }
-    return 0;
+    return NULL;
 }
 
 static int reply_fence_line(const char *line, size_t length,
@@ -171,6 +182,29 @@ static int reply_fence_line(const char *line, size_t length,
     if (found_char) *found_char = ch;
     if (found_length) *found_length = run;
     return 1;
+}
+
+static const char *reply_find_fence_close(const char *text, size_t length,
+                                          size_t from, char fence_char,
+                                          size_t fence_length)
+{
+    size_t pos = from;
+    while (pos < length) {
+        if (pos != 0 && text[pos - 1] != '\n') {
+            ++pos;
+            continue;
+        }
+        size_t line_end = pos;
+        while (line_end < length && text[line_end] != '\n') ++line_end;
+        size_t check_length = line_end - pos;
+        if (check_length && text[pos + check_length - 1] == '\r')
+            --check_length;
+        if (reply_fence_line(text + pos, check_length,
+                             fence_char, fence_length, 1, NULL, NULL))
+            return text + pos;
+        pos = line_end < length ? line_end + 1 : line_end;
+    }
+    return text + length;
 }
 
 char *r2_reply_sanitize(const char *reply)
