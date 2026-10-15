@@ -6726,7 +6726,12 @@ static int run_gameboy_console(const char *subcommand,
         if (count < 0) {
             if (errno == EINTR) continue;
             close(pipes[0]);
-            (void)waitpid(pid, &status, 0);
+            /* Closing the pipe may cause the child to exit via SIGPIPE; still
+               reap it reliably before returning the I/O failure. */
+            while (waitpid(pid, &status, 0) < 0) {
+                if (errno == EINTR) continue;
+                return -1;
+            }
             return -1;
         }
         if (used + 1 < output_size) {
