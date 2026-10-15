@@ -124,9 +124,8 @@ static char *trim_reply(char *text)
     return text;
 }
 
-/* Markdown code is user-facing literal content, not a private-tag
-   instruction. Keep fenced examples and inline code intact while stripping
-   actual private blocks from ordinary prose. */
+/* Markdown code is user-facing syntax, not permission to expose private
+   contents. Preserve tag delimiters in examples while redacting their body. */
 static int reply_has_matching_ticks(const char *text, size_t length,
                                       size_t after, size_t run_length)
 {
