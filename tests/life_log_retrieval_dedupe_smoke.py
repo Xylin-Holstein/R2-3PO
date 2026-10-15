@@ -32,6 +32,7 @@ builder = core[builder_start:builder_end]
 require(
     "isdigit((unsigned char)record[close])" in event_id_helper
     and "cursor[-1] == '\\n'" in event_id_helper
+    and "cursor[-2] == '\\n'" in event_id_helper
     and "cursor[token_length] == ' '" in event_id_helper,
     "deduplication compares complete numeric Life Log IDs at record boundaries",
 )
