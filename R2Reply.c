@@ -247,12 +247,16 @@ char *r2_reply_sanitize(const char *reply)
             size_t opening_length = 0;
             if (reply_fence_line(start + src, check_length, 0, 0, 0,
                                  &opening_char, &opening_length)) {
-                memcpy(clean + dst, start + src, after_line - src);
-                dst += after_line - src;
+                size_t indent = 0;
+                while (indent < check_length && start[src + indent] == ' ')
+                    ++indent;
+                size_t prefix_length = indent + opening_length;
+                memcpy(clean + dst, start + src, prefix_length);
+                dst += prefix_length;
                 in_fence = 1;
                 fence_char = opening_char;
                 fence_length = opening_length;
-                src = after_line;
+                src += prefix_length;
                 continue;
             }
         }
