@@ -4977,7 +4977,8 @@ static int r2_recent_message_is_tool_payload(const char *content)
    excluded; this transcript is contextual evidence, not a new instruction. */
 char *r2_recent_conversation_context(const char *exclude_latest, size_t max_chars)
 {
-    if (max_chars < 256) max_chars = 256;
+    /* Treat max_chars as a hard cap; do not silently inflate small budgets. */
+    if (max_chars == 0) return xstrdup("");
     if (max_chars > 8192) max_chars = 8192;
     char *out = calloc(max_chars + 1, 1);
     if (!out) return NULL;
