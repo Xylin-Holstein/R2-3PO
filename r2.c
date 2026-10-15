@@ -1929,12 +1929,17 @@ static char *get_relevant_memories(
                     if (score <= 0)
                         continue;
 
-                    /* Rank by score descending, then timestamp descending. */
+                    /* Rank by score, timestamp, then durable ID. The final
+                     * tie-break keeps retrieval deterministic even when legacy
+                     * records share the same timestamp. */
+                    sqlite3_int64 candidate_id = sqlite3_column_int64(st, 0);
                     size_t insert_at = 0;
                     while (insert_at < count &&
                            (candidates[insert_at].score > score ||
                             (candidates[insert_at].score == score &&
-                             strcmp(candidates[insert_at].updated_at, updated) >= 0)))
+                             (strcmp(candidates[insert_at].updated_at, updated) > 0 ||
+                              (strcmp(candidates[insert_at].updated_at, updated) == 0 &&
+                               candidates[insert_at].id >= candidate_id)))))
                         ++insert_at;
                     if (insert_at >= (size_t)limit)
                         continue;
@@ -4957,9 +4962,15 @@ static const char *find_control_marker_line(const char *reply,
 static int r2_recent_message_is_tool_payload(const char *content)
 {
     static const char *const markers[] = {
+        /* World, sensory, device, diary, and task actions. */
         "[WORLD]", "[IMAGINE]", "[IMAGINE_FEEDBACK]", "[SENSORY_JOURNAL]",
         "[ALTERNATE_CREATE]", "[ALTERNATE_DISCARD]", "[ALTERNATE_RETAIN]",
-        "[GAMEBOY]", "[TV]", "[DIARY]", "[TASK]", "[FRIDGE]"
+        "[ALTERNATE_COMPARE]", "[ALTERNATE_LIST]", "[ALTERNATE_SHOW]",
+        "[GAMEBOY]", "[TV]", "[DIARY]", "[READ_DIARY]", "[TASK]", "[FRIDGE]",
+        /* Filesystem and computer-execution controls must never be replayed
+           as ordinary recent assistant dialogue after their side effects ran. */
+        "[READ]", "[LIST]", "[DELETE]", "[WRITE]", "[HAND]",
+        "[HAND_REQUEST]", "[RUN]"
     };
     if (!content) return 1;
     for (size_t i = 0; i < sizeof(markers) / sizeof(markers[0]); ++i)
@@ -4972,7 +4983,8 @@ static int r2_recent_message_is_tool_payload(const char *content)
    excluded; this transcript is contextual evidence, not a new instruction. */
 char *r2_recent_conversation_context(const char *exclude_latest, size_t max_chars)
 {
-    if (max_chars < 256) max_chars = 256;
+    /* Treat max_chars as a hard cap; do not silently inflate small budgets. */
+    if (max_chars == 0) return xstrdup("");
     if (max_chars > 8192) max_chars = 8192;
     char *out = calloc(max_chars + 1, 1);
     if (!out) return NULL;

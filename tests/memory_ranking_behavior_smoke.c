@@ -54,8 +54,25 @@ int main(void)
     assert(strongest < newer_tie);
     assert(newer_tie < older_tie);
     assert(strstr(result, "nebula quiet") == NULL);
+    free(result);
 
-    printf("PASS: bounded memory ranking returns the strongest top 3, orders ties by updated_at, and excludes weaker matches.\n");
+    /* Equal timestamps also need a stable tie-break: newest durable ID first. */
+    assert(db_exec(
+        "UPDATE memories SET updated_at='2025-01-01T00:00:00' "
+        "WHERE memory IN ('nebula spaceship telescope observation', "
+        "'nebula telescope satellite observation');") == 0);
+    result = get_relevant_memories(
+        "nebula spaceship telescope satellite", 3);
+    assert(result != NULL);
+    const char *higher_id = strstr(
+        result, "nebula telescope satellite observation");
+    const char *lower_id = strstr(
+        result, "nebula spaceship telescope observation");
+    assert(higher_id != NULL && lower_id != NULL);
+    assert(higher_id < lower_id);
+    assert(strstr(result, "nebula quiet") == NULL);
+
+    printf("PASS: bounded memory ranking orders by score, timestamp, and stable ID; excludes weaker matches.\n");
     free(result);
     context_cache_invalidate();
     sqlite3_close(db);

@@ -42,6 +42,24 @@ int main(void)
 
     clear_test_messages();
 
+    /* Executable control turns are history metadata, not human-facing dialogue. */
+    assert(message_add("assistant",
+        "[RUN] echo unsafe\n[END RUN]") == 0);
+    assert(message_add("assistant",
+        "[HAND_REQUEST] inspect the workspace [END HAND_REQUEST]") == 0);
+    assert(message_add("assistant",
+        "Documentation example:\n```text\n[RUN] echo safe\n[END RUN]\n```") == 0);
+    assert(message_add("user",
+        "I literally saw [RUN] in a manual.") == 0);
+    context = r2_recent_conversation_context(NULL, 2048);
+    assert(context != NULL);
+    assert(strstr(context, "echo unsafe") == NULL);
+    assert(strstr(context, "inspect the workspace") == NULL);
+    assert(strstr(context, "echo safe") != NULL);
+    assert(strstr(context, "I literally saw [RUN] in a manual.") != NULL);
+    free(context);
+    clear_test_messages();
+
     char *old_user = repeat_char('O', 900);
     char *old_assistant = repeat_char('A', 900);
     char *oversized_latest = repeat_char('N', 600);
@@ -64,6 +82,17 @@ int main(void)
     assert(strstr(context, "NNNN") != NULL);
     assert(strstr(context, "[truncated]") != NULL);
     assert(strlen(context) <= 256);
+    free(context);
+
+    /* Small caller budgets must remain hard limits, not be inflated to 256. */
+    context = r2_recent_conversation_context(NULL, 64);
+    assert(context != NULL);
+    assert(strstr(context, "NNNN") != NULL);
+    assert(strstr(context, "[truncated]") != NULL);
+    assert(strlen(context) <= 64);
+    free(context);
+    context = r2_recent_conversation_context(NULL, 0);
+    assert(context != NULL && context[0] == '\0');
     free(context);
 
     free(old_user);
