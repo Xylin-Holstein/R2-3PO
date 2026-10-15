@@ -76,6 +76,9 @@ jobs:
           python3 -m py_compile tests/launcher_shell_audit_smoke.py
           python3 tests/launcher_shell_audit_smoke.py
 
+      - name: Check launcher preflight and Makefile dependency for bounded input header
+        run: python3 tests/launcher_input_header_smoke.py
+
       - name: Check read-only hardware deployment preflight
         run: |
           bash -n tools/preflight_r2_hardware.sh
@@ -144,6 +147,23 @@ jobs:
       - name: Keep diagnostics out of the interactive conversation stream
         run: python3 tests/console_diagnostics_isolation_smoke.py
 
+      - name: Guard direct conversation against stderr-only failures
+        run: python3 tests/direct_conversation_failure_smoke.py
+
+      - name: Reject oversized shell messages without truncation
+        run: python3 tests/shell_input_limit_smoke.py
+
+      - name: Reject oversized direct-conversation messages without truncation
+        run: python3 tests/direct_conversation_input_limit_smoke.py
+
+      - name: Exercise shared bounded input reader
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -O2 -I. tests/r2_input_smoke.c -o /tmp/r2-input-smoke
+          /tmp/r2-input-smoke
+
+      - name: Guard final assembled conversation context budget
+        run: python3 tests/final_context_budget_smoke.py
+
       - name: Check model-assisted associative memory retrieval
         run: python3 tests/associative_retrieval_smoke.py
 
@@ -166,6 +186,9 @@ jobs:
 
       - name: Keep the current user turn in bounded Ollama payloads
         run: python3 tests/ollama_current_turn_smoke.py
+
+      - name: Refuse silently truncated active user turns
+        run: python3 tests/no_truncated_current_turn_smoke.py
 
       - name: Retry obvious nonresponsive text misclassification once
         run: python3 tests/nonresponsive_reply_retry_smoke.py
