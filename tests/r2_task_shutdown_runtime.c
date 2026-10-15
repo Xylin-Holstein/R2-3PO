@@ -34,7 +34,7 @@ int main(void)
     assert(pthread_create(&stopper, NULL, request_shutdown_after_delay, NULL) == 0);
     assert(clock_gettime(CLOCK_MONOTONIC, &start) == 0);
 
-    execute_task("shutdown", "sleep 30");
+    execute_task("shutdown", "sleep 30 & wait");
 
     assert(clock_gettime(CLOCK_MONOTONIC, &end) == 0);
     assert(pthread_join(stopper, NULL) == 0);
