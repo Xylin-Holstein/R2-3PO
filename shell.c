@@ -43,6 +43,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/stat.h>
+#include <poll.h>
 #include <pthread.h>
 #include <stdatomic.h>
 
@@ -90,20 +91,74 @@ static void *tv_control_server(void *unused)
     /* Keep a stable descriptor value while the main thread shuts the socket down. */
     int server_fd = tv_control_fd;
     while (!atomic_load(&tv_control_stop)) {
+        /* Never block indefinitely in accept(): the stop flag is checked at
+           least every 250 ms, and the listener stays open until this thread joins. */
+        struct pollfd listener = {
+            .fd = server_fd,
+            .events = POLLIN,
+            .revents = 0
+        };
+        int ready = poll(&listener, 1, 250);
+        if (ready < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        if (ready == 0) continue;
+        if (!(listener.revents & POLLIN)) {
+            if (listener.revents & (POLLERR | POLLHUP | POLLNVAL)) break;
+            continue;
+        }
+
         int client = accept(server_fd, NULL, NULL);
         if (client < 0) {
-            if (errno == EINTR) continue;
+            if (errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) continue;
             break;
         }
 
         char command[1200] = {0};
         size_t used = 0;
-        while (used < sizeof(command) - 1) {
-            ssize_t got = recv(client, command + used, sizeof(command) - 1 - used, 0);
-            if (got <= 0) break;
-            used += (size_t)got;
-            if (memchr(command, '\n', used)) break;
+        int complete_line = 0;
+        int idle_polls = 0;
+        while (used < sizeof(command) - 1 &&
+               !atomic_load(&tv_control_stop)) {
+            struct pollfd input = {
+                .fd = client,
+                .events = POLLIN,
+                .revents = 0
+            };
+            ready = poll(&input, 1, 250);
+            if (ready < 0) {
+                if (errno == EINTR) continue;
+                break;
+            }
+            if (ready == 0) {
+                if (++idle_polls >= 8) break; /* Bound idle clients to two seconds. */
+                continue;
+            }
+            if (!(input.revents & POLLIN)) break;
+
+            ssize_t received = recv(client, command + used,
+                                    sizeof(command) - 1 - used, 0);
+            if (received < 0 && errno == EINTR) continue;
+            if (received <= 0) break;
+            used += (size_t)received;
+            idle_polls = 0;
+            char *newline = memchr(command, '\n', used);
+            if (newline) {
+                used = (size_t)(newline - command) + 1;
+                complete_line = 1;
+                break;
+            }
         }
+
+        /* A partial or oversized command is never dispatched. This also lets
+           shutdown abandon a client that connected but never sent a full line. */
+        if (!complete_line || atomic_load(&tv_control_stop)) {
+            close(client);
+            if (atomic_load(&tv_control_stop)) break;
+            continue;
+        }
+
         command[used] = '\0';
         ssize_t got = (ssize_t)used;
         while (got > 0 && (command[got - 1] == '\n' || command[got - 1] == '\r'))
@@ -248,10 +303,11 @@ static void tv_control_stop_server(void)
 {
     if (!tv_control_started) return;
     atomic_store(&tv_control_stop, 1);
-    shutdown(tv_control_fd, SHUT_RDWR);
+    /* The server uses bounded poll() waits and must finish before its listener
+       descriptor is closed, avoiding close/accept races and an unbounded join. */
+    pthread_join(tv_control_thread, NULL);
     close(tv_control_fd);
     tv_control_fd = -1;
-    pthread_join(tv_control_thread, NULL);
     unlink(tv_control_path);
     tv_control_started = 0;
 }
