@@ -104,6 +104,30 @@ require(
     "autonomous action path uses a non-blocking turn guard and stale-action protection",
 )
 
+# The Hands worker checks task_head/shutting_down while holding task_queue_lock.
+# Shutdown broadcasts must use that same mutex or a wakeup can land in the
+# predicate-check/cond_wait gap and leave the worker asleep during shutdown.
+request_shutdown = function_slice(
+    "void r2_request_shutdown(void)",
+    "int r2_request_restart(void)",
+)
+request_lock = request_shutdown.find("pthread_mutex_lock(&task_queue_lock)")
+request_wake = request_shutdown.find("pthread_cond_broadcast(&task_queue_cond)")
+request_unlock = request_shutdown.find("pthread_mutex_unlock(&task_queue_lock)")
+require(
+    request_lock >= 0 and request_wake > request_lock and request_unlock > request_wake,
+    "public shutdown wakeup is synchronized with the Hands worker queue mutex",
+)
+shutdown_start = core.find("void r2_shutdown(void)")
+shutdown_tail = core[shutdown_start:] if shutdown_start >= 0 else ""
+shutdown_lock = shutdown_tail.find("pthread_mutex_lock(&task_queue_lock)")
+shutdown_wake = shutdown_tail.find("pthread_cond_broadcast(&task_queue_cond)")
+shutdown_unlock = shutdown_tail.find("pthread_mutex_unlock(&task_queue_lock)")
+require(
+    shutdown_lock >= 0 and shutdown_wake > shutdown_lock and shutdown_unlock > shutdown_wake,
+    "core shutdown cannot lose the Hands worker condition-variable wakeup",
+)
+
 # Keep action side effects and their history representation paired; never
 # preserve raw model control syntax as a future instruction.
 require(
