@@ -471,7 +471,7 @@ static char *call_vision_model(const char *image_base64, const char *question,
                                  json_object_new_int((int)gpu_layers));
         } else if (errno || gpu_end == gpu_layers_env || *gpu_end != '\0' ||
                    gpu_layers < -1 || gpu_layers > 999) {
-            fprintf(stderr, "[R2 Vision] Ignoring invalid R2_OLLAMA_NUM_GPU value.\\n");
+            fprintf(stderr, "[R2 Vision] Ignoring invalid R2_OLLAMA_NUM_GPU value.\n");
         }
     }
     R2_VISION_ADD_OBJECT(root, "options", options);
