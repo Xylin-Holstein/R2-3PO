@@ -1864,10 +1864,11 @@ static char *get_relevant_memories(
 
     if (keyword_count > 0) {
 
+        /* Ranking below compares score and timestamp directly, so SQLite
+           need not sort the entire table before the bounded top-k scan. */
         const char *sql =
             "SELECT id,memory,category,updated_at "
-            "FROM memories "
-            "ORDER BY updated_at DESC";
+            "FROM memories";
 
         sqlite3_stmt *st = NULL;
 
