@@ -23,6 +23,8 @@ require(strip < check < dispatch,
 guard = shell[check:dispatch]
 require("Nothing from this line was sent to R2." in guard,
         "oversized messages are explicitly rejected rather than silently truncated")
-require("strlen(line)" in guard and "continue;" in guard,
-        "the full line is measured and rejected before it can enter conversation")
+require("size_t input_bytes = strlen(line);" in shell and
+        shell.find("size_t input_bytes = strlen(line);", read) < check and
+        "continue;" in guard,
+        "the full line is measured before the guard and rejected before conversation")
 print("Shell input boundary regression passed.")
