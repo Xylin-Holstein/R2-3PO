@@ -5954,8 +5954,11 @@ static void execute_task(
         id
     );
 
-    c->command =
-        xstrdup(command);
+    c->command = xstrdup(command);
+    if (!c->command) {
+        free(c);
+        return;
+    }
 
     now_iso(c->started);
 
@@ -6340,10 +6343,14 @@ static char *collect_completed(void)
         c;
     ) {
 
+        const char *task_command =
+            c->command ? c->command : "[command unavailable]";
+        const char *task_output =
+            c->output ? c->output : "[output unavailable]";
         size_t needed =
             strlen(c->id) +
-            strlen(c->command) +
-            strlen(c->output) +
+            strlen(task_command) +
+            strlen(task_output) +
             128;
 
         char *block =
@@ -6373,9 +6380,9 @@ static char *collect_completed(void)
                 "Exit code: %d\n"
                 "Output:\n%s\n",
                 c->id,
-                c->command,
+                task_command,
                 c->return_code,
-                c->output
+                task_output
             );
 
         if (len + (size_t)bn + 1 > cap) {
