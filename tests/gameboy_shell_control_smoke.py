@@ -45,7 +45,7 @@ sync_start = core.index("static int sync_gameboy_verified_events(void)")
 sync_end = core.index("\nstatic char *process_tools_with_status", sync_start)
 sync = core[sync_start:sync_end]
 assert "gameboy_find_life_event_for_console_event(event_id)" in sync
-assert 'r2_log_event(\n                R2_LOG_WORLD, "gameboy_game_event"' in sync
+assert 'R2_LOG_MEDIA, "virtual_game_event", summary, details, source' in sync
 assert "r2_reward_apply_once(" in sync
 assert 'snprintf(reward_source, sizeof(reward_source), "game_event:%lld"' in sync
 assert "if (reward_rc < 0)" in sync and "leaving it pending" in sync
