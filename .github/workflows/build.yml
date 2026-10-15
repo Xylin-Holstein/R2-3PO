@@ -67,6 +67,10 @@ jobs:
         run: |
           python3 -m py_compile tests/ollama_payload_allocation_smoke.py
           python3 tests/ollama_payload_allocation_smoke.py
+      - name: Check fail-closed Ollama request configuration
+        run: |
+          python3 -m py_compile tests/ollama_request_config_smoke.py
+          python3 tests/ollama_request_config_smoke.py
       - name: Keep launcher, compiled modules, model, and cleanup in sync
         run: |
           python3 -m py_compile tests/launcher_shell_audit_smoke.py
