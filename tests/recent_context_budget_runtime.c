@@ -66,6 +66,17 @@ int main(void)
     assert(strlen(context) <= 256);
     free(context);
 
+    /* Small caller budgets must remain hard limits, not be inflated to 256. */
+    context = r2_recent_conversation_context(NULL, 64);
+    assert(context != NULL);
+    assert(strstr(context, "NNNN") != NULL);
+    assert(strstr(context, "[truncated]") != NULL);
+    assert(strlen(context) <= 64);
+    free(context);
+    context = r2_recent_conversation_context(NULL, 0);
+    assert(context != NULL && context[0] == '\\0');
+    free(context);
+
     free(old_user);
     free(old_assistant);
     free(oversized_latest);
