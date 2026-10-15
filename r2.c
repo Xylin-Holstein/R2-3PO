@@ -6040,7 +6040,7 @@ static void execute_task(
     if (!out) {
         close(pipefd[0]);
         kill(pid, SIGTERM);
-        waitpid(pid, NULL, 0);
+        while (waitpid(pid, NULL, 0) < 0 && errno == EINTR) {}
         remove_running(id);
         free(c->command);
         free(c);
@@ -6055,14 +6055,17 @@ static void execute_task(
 
     ssize_t got;
 
-    while (
-        (got =
-            read(
-                pipefd[0],
-                buf,
-                sizeof(buf)
-            )) > 0
-    ) {
+    int output_read_failed = 0;
+    for (;;) {
+        got = read(pipefd[0], buf, sizeof(buf));
+        if (got < 0 && errno == EINTR)
+            continue;
+        if (got < 0) {
+            output_read_failed = 1;
+            break;
+        }
+        if (got == 0)
+            break;
         size_t got_size = (size_t)got;
 
         size_t keep =
@@ -6130,17 +6133,17 @@ static void execute_task(
     close(pipefd[0]);
 
     int status = 0;
-
-    waitpid(
-        pid,
-        &status,
-        0
-    );
+    pid_t waited;
+    do {
+        waited = waitpid(pid, &status, 0);
+    } while (waited < 0 && errno == EINTR);
 
     remove_running(id);
 
+    /* A signal may interrupt either pipe reads or waitpid. Do not mistake an
+       interrupted/failed wait (whose status may still be zero) for success. */
     c->return_code =
-        WIFEXITED(status)
+        !output_read_failed && waited == pid && WIFEXITED(status)
             ? WEXITSTATUS(status)
             : -1;
 
