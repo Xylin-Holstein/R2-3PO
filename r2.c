@@ -7062,8 +7062,8 @@ static int64_t gameboy_find_life_event_for_console_event(int64_t console_event_i
     sqlite3_busy_timeout(log_db, 3000);
     if (sqlite3_prepare_v2(log_db,
             "SELECT id FROM r2_log_events "
-            "WHERE event_type='gameboy_game_event' AND details LIKE ? "
-            "ORDER BY id LIMIT 1",
+            "WHERE event_type IN ('gameboy_game_event','virtual_game_event') "
+            "AND details LIKE ? ORDER BY id LIMIT 1",
             -1, &stmt, NULL) == SQLITE_OK) {
         sqlite3_bind_text(stmt, 1, pattern, -1, SQLITE_TRANSIENT);
         if (sqlite3_step(stmt) == SQLITE_ROW)
@@ -7123,8 +7123,11 @@ static int sync_gameboy_verified_events(void)
         int64_t life_event_id =
             gameboy_find_life_event_for_console_event(event_id);
         if (life_event_id <= 0) {
+            char source[96];
+            snprintf(source, sizeof(source), "GameBoyAdvance.py:event:%lld",
+                     (long long)event_id);
             life_event_id = r2_log_event(
-                R2_LOG_WORLD, "gameboy_game_event", summary, details, "GameBoyAdvance");
+                R2_LOG_MEDIA, "virtual_game_event", summary, details, source);
         }
         if (life_event_id <= 0)
             continue;
