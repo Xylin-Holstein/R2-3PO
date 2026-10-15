@@ -82,6 +82,7 @@
 #include <sqlite3.h>
 #include <json-c/json.h>
 #include "r2.h"
+#include "r2_input.h"
 #include "R2Sounds.h"
 #include "R2Reply.h"
 
@@ -9957,35 +9958,33 @@ int r2_conversation(void)
         fflush(stdout);
 
         errno = 0;
-        if (!fgets(line, (int)linecap, stdin)) {
+        size_t input_bytes = 0;
+        R2InputLineStatus input_status =
+            r2_read_bounded_line(stdin, line, OLLAMA_MAX_MESSAGE_CHARS,
+                                 &input_bytes);
+        if (input_status == R2_INPUT_LINE_EOF)
+            break;
+        if (input_status == R2_INPUT_LINE_IO_ERROR) {
             if (errno == EINTR) {
                 clearerr(stdin);
                 continue;
             }
-            if (ferror(stdin))
-                fprintf(stderr, "[R2] Direct conversation input read failed.\n");
+            fprintf(stderr, "[R2] Direct conversation input read failed.\n");
             break;
         }
-
-        size_t input_bytes = strlen(line);
-        int has_newline = input_bytes > 0 && line[input_bytes - 1] == '\n';
-        if (has_newline)
-            line[--input_bytes] = '\0';
-
-        /*
-         * Use a fixed-size buffer and drain an oversized line before the next
-         * prompt. This bounds memory use and prevents its tail from becoming
-         * a second, accidental conversation turn.
-         */
-        if (input_bytes > OLLAMA_MAX_MESSAGE_CHARS) {
-            int ch;
-            while ((ch = getchar()) != '\n' && ch != EOF) {}
+        if (input_status == R2_INPUT_LINE_TOO_LONG) {
             fprintf(stderr,
-                    "[R2] Direct conversation input rejected (%zu bytes; maximum %d).\n",
-                    input_bytes, OLLAMA_MAX_MESSAGE_CHARS);
+                    "[R2] Direct conversation input exceeded the %d-byte limit.\n",
+                    OLLAMA_MAX_MESSAGE_CHARS);
             printf("\nR2-3PO: That message is too long for one turn (%d-byte limit). "
                    "Nothing from it was sent; please split it into smaller messages.\n\n",
                    OLLAMA_MAX_MESSAGE_CHARS);
+            fflush(stdout);
+            continue;
+        }
+        if (input_status == R2_INPUT_LINE_EMBEDDED_NUL) {
+            printf("\nR2-3PO: That message contained an unsupported NUL byte. "
+                   "Nothing from it was sent; please resend it as text.\n\n");
             fflush(stdout);
             continue;
         }
