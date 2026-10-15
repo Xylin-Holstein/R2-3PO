@@ -66,8 +66,17 @@ require(
     and "free(memory_copy);" in memory_ranker
     and "free(category_copy);" in memory_ranker
     and "free(updated_copy);" in memory_ranker
-    and "candidates[count].updated_at = updated_copy;" in memory_ranker,
-    "allocation failure cannot put a partially initialized record into sorting or strlen operations",
+    and "candidates[insert_at].updated_at = updated_copy;" in memory_ranker,
+    "allocation failure cannot put a partially initialized record into ranking or result formatting",
+)
+ranked_scan = memory_ranker.split("\n    } else {", 1)[0]
+require(
+    "calloc((size_t)limit, sizeof(*candidates))" in ranked_scan
+    and "if (insert_at >= (size_t)limit)" in ranked_scan
+    and "candidates[insert_at].score = score;" in ranked_scan
+    and "candidates[j].score >" not in ranked_scan
+    and '"ORDER BY updated_at DESC"' not in ranked_scan,
+    "keyword ranking retains only top results and avoids quadratic C and full-table SQL sorts",
 )
 require(
     "r2_diary_search" in builder and "r2_visual_search" in builder,

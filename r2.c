@@ -1864,10 +1864,11 @@ static char *get_relevant_memories(
 
     if (keyword_count > 0) {
 
+        /* Ranking below compares score and timestamp directly, so SQLite
+           need not sort the entire table before the bounded top-k scan. */
         const char *sql =
             "SELECT id,memory,category,updated_at "
-            "FROM memories "
-            "ORDER BY updated_at DESC";
+            "FROM memories";
 
         sqlite3_stmt *st = NULL;
 
@@ -1889,214 +1890,85 @@ static char *get_relevant_memories(
                 int score;
             } MemoryCandidate;
 
+            /* Keep only the best `limit` records, avoiding an unbounded
+             * candidate array and a quadratic full-database sort. */
             MemoryCandidate *candidates =
-                NULL;
-
+                calloc((size_t)limit, sizeof(*candidates));
             size_t count = 0;
-            size_t capacity = 0;
 
-            while (
-                sqlite3_step(st) ==
-                SQLITE_ROW
-            ) {
+            if (candidates) {
+                while (sqlite3_step(st) == SQLITE_ROW) {
+                    const char *memory = (const char *)sqlite3_column_text(st, 1);
+                    const char *category = (const char *)sqlite3_column_text(st, 2);
+                    const char *updated = (const char *)sqlite3_column_text(st, 3);
+                    if (!memory) memory = "";
+                    if (!category) category = "";
+                    if (!updated) updated = "";
 
-                const char *memory =
-                    (const char *)
-                    sqlite3_column_text(
-                        st,
-                        1
-                    );
-
-                const char *category =
-                    (const char *)
-                    sqlite3_column_text(
-                        st,
-                        2
-                    );
-
-                const char *updated =
-                    (const char *)
-                    sqlite3_column_text(
-                        st,
-                        3
-                    );
-
-                if (!memory)
-                    memory = "";
-
-                if (!category)
-                    category = "";
-
-                if (!updated)
-                    updated = "";
-
-                size_t combined_len =
-                    strlen(memory) +
-                    strlen(category) +
-                    2;
-
-                char *combined =
-                    malloc(
-                        combined_len
-                        + 1
-                    );
-
-                if (!combined)
-                    continue;
-
-                snprintf(
-                    combined,
-                    combined_len + 1,
-                    "%s %s",
-                    memory,
-                    category
-                );
-
-                for (
-                    char *p = combined;
-                    *p;
-                    ++p
-                ) {
-                    *p =
-                        (char)tolower(
-                            (unsigned char)*p
-                        );
-                }
-
-                int score = 0;
-                int matched_keywords = 0;
-
-                for (
-                    size_t k = 0;
-                    k < keyword_count;
-                    ++k
-                ) {
-                    if (r2_memory_has_keyword(combined, keywords[k])) {
-                        size_t keyword_length = strlen(keywords[k]);
-                        /*
-                         * Specific concepts carry more information than short
-                         * generic terms. Whole-token matching prevents partial
-                         * collisions; coverage rewards records connecting more
-                         * than one cue. This remains bounded lexical ranking,
-                         * not a claim of vector/embedding semantics.
-                         */
-                        score += keyword_length >= 9 ? 4 :
-                                 keyword_length >= 6 ? 2 : 1;
-                        ++matched_keywords;
-                    }
-                }
-                if (matched_keywords > 1)
-                    score += matched_keywords - 1;
-
-                free(combined);
-
-                if (score <= 0)
-                    continue;
-
-                if (count == capacity) {
-
-                    size_t new_capacity =
-                        capacity
-                            ? capacity * 2
-                            : 32;
-
-                    MemoryCandidate *tmp =
-                        realloc(
-                            candidates,
-                            new_capacity *
-                            sizeof(*tmp)
-                        );
-
-                    if (!tmp)
+                    size_t combined_len = strlen(memory) + strlen(category) + 2;
+                    char *combined = malloc(combined_len + 1);
+                    if (!combined)
                         break;
+                    snprintf(combined, combined_len + 1, "%s %s", memory, category);
+                    for (char *p = combined; *p; ++p)
+                        *p = (char)tolower((unsigned char)*p);
 
-                    candidates = tmp;
-                    capacity = new_capacity;
+                    int score = 0;
+                    int matched_keywords = 0;
+                    for (size_t k = 0; k < keyword_count; ++k) {
+                        if (r2_memory_has_keyword(combined, keywords[k])) {
+                            size_t keyword_length = strlen(keywords[k]);
+                            score += keyword_length >= 9 ? 4 :
+                                     keyword_length >= 6 ? 2 : 1;
+                            ++matched_keywords;
+                        }
+                    }
+                    if (matched_keywords > 1)
+                        score += matched_keywords - 1;
+                    free(combined);
+                    if (score <= 0)
+                        continue;
+
+                    /* Rank by score descending, then timestamp descending. */
+                    size_t insert_at = 0;
+                    while (insert_at < count &&
+                           (candidates[insert_at].score > score ||
+                            (candidates[insert_at].score == score &&
+                             strcmp(candidates[insert_at].updated_at, updated) >= 0)))
+                        ++insert_at;
+                    if (insert_at >= (size_t)limit)
+                        continue;
+
+                    char *memory_copy = xstrdup(memory);
+                    char *category_copy = xstrdup(category);
+                    char *updated_copy = xstrdup(updated);
+                    if (!memory_copy || !category_copy || !updated_copy) {
+                        free(memory_copy);
+                        free(category_copy);
+                        free(updated_copy);
+                        break;
+                    }
+
+                    if (count == (size_t)limit) {
+                        free(candidates[count - 1].memory);
+                        free(candidates[count - 1].category);
+                        free(candidates[count - 1].updated_at);
+                    } else {
+                        ++count;
+                    }
+                    for (size_t j = count - 1; j > insert_at; --j)
+                        candidates[j] = candidates[j - 1];
+
+                    candidates[insert_at].id = sqlite3_column_int64(st, 0);
+                    candidates[insert_at].memory = memory_copy;
+                    candidates[insert_at].category = category_copy;
+                    candidates[insert_at].updated_at = updated_copy;
+                    candidates[insert_at].score = score;
                 }
-
-                /*
-                 * A partially initialized candidate must never enter the
-                 * sorter: it calls strcmp() on updated_at and strlen() on
-                 * memory/category. Under allocation pressure, discard this
-                 * candidate and stop collecting rather than dereference NULL.
-                 */
-                char *memory_copy = xstrdup(memory);
-                char *category_copy = xstrdup(category);
-                char *updated_copy = xstrdup(updated);
-                if (!memory_copy || !category_copy || !updated_copy) {
-                    free(memory_copy);
-                    free(category_copy);
-                    free(updated_copy);
-                    break;
-                }
-
-                candidates[count].id =
-                    sqlite3_column_int64(
-                        st,
-                        0
-                    );
-                candidates[count].memory = memory_copy;
-                candidates[count].category = category_copy;
-                candidates[count].updated_at = updated_copy;
-                candidates[count].score = score;
-                count++;
             }
 
             sqlite3_finalize(st);
             st = NULL;
-
-            /*
-               Sort strongest matches first. For equal scores,
-               newer memories remain preferred.
-            */
-            for (
-                size_t i = 0;
-                i < count;
-                ++i
-            ) {
-
-                for (
-                    size_t j = i + 1;
-                    j < count;
-                    ++j
-                ) {
-
-                    int swap = 0;
-
-                    if (
-                        candidates[j].score >
-                        candidates[i].score
-                    ) {
-
-                        swap = 1;
-
-                    } else if (
-                        candidates[j].score ==
-                        candidates[i].score
-                    ) {
-
-                        if (
-                            strcmp(
-                                candidates[j].updated_at,
-                                candidates[i].updated_at
-                            ) > 0
-                        )
-                            swap = 1;
-                    }
-
-                    if (swap) {
-
-                        MemoryCandidate tmp =
-                            candidates[i];
-
-                        candidates[i] =
-                            candidates[j];
-
-                        candidates[j] =
-                            tmp;
-                    }
-                }
-            }
 
             size_t selected = 0;
 
