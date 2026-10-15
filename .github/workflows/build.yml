@@ -50,6 +50,7 @@ jobs:
           python3 tests/build_configuration_smoke.py
 
       - name: Check model references and implemented lifecycle documentation
+        run: python3 tests/launcher_input_header_smoke.py
         run: |
           python3 -m py_compile tests/model_reference_consistency_smoke.py
           python3 tests/model_reference_consistency_smoke.py
