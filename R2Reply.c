@@ -224,8 +224,8 @@ char *r2_reply_sanitize(const char *reply)
             in_fence = 0;
             fence_close_after = (size_t)-1;
         }
-        /* Markdown fences are recognized only at a line boundary and outside
-           inline code. Copy each fenced line verbatim, including tag examples. */
+        /* Recognize Markdown fences only at line boundaries and outside
+           inline code; private tag bodies are still redacted within examples. */
         if (inline_ticks == 0 && (src == 0 || start[src - 1] == '\n')) {
             size_t line_end = src;
             while (line_end < len && start[line_end] != '\n') ++line_end;
@@ -244,7 +244,8 @@ char *r2_reply_sanitize(const char *reply)
             }
             char opening_char = 0;
             size_t opening_length = 0;
-            if (reply_fence_line(start + src, check_length, 0, 0, 0,
+            if (!in_fence &&
+                reply_fence_line(start + src, check_length, 0, 0, 0,
                                  &opening_char, &opening_length)) {
                 size_t indent = 0;
                 while (indent < check_length && start[src + indent] == ' ')
