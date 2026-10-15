@@ -49,6 +49,7 @@
 
 #include "shell.h"
 #include "r2.h"
+#include "r2_input.h"
 #include "Log.h"
 #include "Reality.h"
 #include "Addiction.h"
@@ -61,7 +62,7 @@
    SHELL CONFIGURATION
    ============================================================ */
 
-#define SHELL_INPUT_MAX       4096
+#define SHELL_INPUT_MAX       12000
 #define SHELL_PROMPT          "R2> "
 
 #define WATCH_POLL_INTERVAL   2
@@ -2547,7 +2548,7 @@ int r2_shell_run(void)
 
     /* Fixed-size input prevents a pasted or redirected line from forcing
        dynamic line allocation before we can reject it. */
-    char line[SHELL_INPUT_MAX + 1];
+    char line[SHELL_INPUT_MAX + 2];
     sigset_t service_signals, original_mask, wait_mask;
     int service_signals_blocked = 0;
 
@@ -2598,47 +2599,36 @@ int r2_shell_run(void)
         shell_prompt();
 
         errno = 0;
-
-        if (!fgets(line, sizeof(line), stdin)) {
+        size_t input_bytes = 0;
+        R2InputLineStatus input_status =
+            r2_read_bounded_line(stdin, line, SHELL_INPUT_MAX, &input_bytes);
+        if (input_status == R2_INPUT_LINE_EOF) {
+            printf("\n[R2 Shell] End of input.\n");
+            break;
+        }
+        if (input_status == R2_INPUT_LINE_IO_ERROR) {
             if (errno == EINTR) {
                 clearerr(stdin);
                 continue;
             }
-
-            /* EOF (Ctrl-D). */
-            printf("\n[R2 Shell] End of input.\n");
+            fprintf(stderr, "[R2 Shell] Failed to read input.\n");
             break;
         }
-
-        size_t length = strlen(line);
-        if (length > 0 && line[length - 1] == '\n') {
-            line[--length] = '\0';
-        } else if (!feof(stdin)) {
-            /* The fixed buffer filled before a newline: drain the rest of
-               this physical line so its tail cannot become a second command. */
-            int ch;
-            while (!shell_shutdown &&
-                   (ch = fgetc(stdin)) != '\n' && ch != EOF) {
-                if (errno == EINTR) {
-                    clearerr(stdin);
-                    continue;
-                }
-            }
-            fprintf(stderr,
-                    "[R2 Shell] Input line exceeds %d bytes; command discarded.\n",
-                    SHELL_INPUT_MAX - 1);
+        if (input_status == R2_INPUT_LINE_TOO_LONG) {
+            printf("[R2 Shell] Input exceeds the %d-byte limit. "
+                   "Nothing from this line was sent to R2.\n",
+                   SHELL_INPUT_MAX);
+            fflush(stdout);
+            continue;
+        }
+        if (input_status == R2_INPUT_LINE_EMBEDDED_NUL) {
+            printf("[R2 Shell] Input contained an unsupported NUL byte. "
+                   "Nothing from this line was sent to R2.\n");
+            fflush(stdout);
             continue;
         }
 
-        if (length >= SHELL_INPUT_MAX) {
-            fprintf(stderr,
-                    "[R2 Shell] Input line exceeds %d bytes; command discarded.\n",
-                    SHELL_INPUT_MAX - 1);
-            continue;
-        }
-
-        /* A signal may have interrupted input; never dispatch a partial line
-           after the shutdown handler has requested the shell to exit. */
+        /* Never dispatch a partial line after shutdown interrupted input. */
         if (shell_shutdown || r2_is_shutting_down())
             break;
 
