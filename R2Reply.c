@@ -127,6 +127,23 @@ static char *trim_reply(char *text)
 /* Markdown code is user-facing literal content, not a private-tag
    instruction. Keep fenced examples and inline code intact while stripping
    actual private blocks from ordinary prose. */
+static int reply_has_matching_ticks(const char *text, size_t length,
+                                      size_t after, size_t run_length)
+{
+    size_t pos = after;
+    while (pos < length) {
+        if (text[pos] != '`') {
+            ++pos;
+            continue;
+        }
+        size_t run = 1;
+        while (pos + run < length && text[pos + run] == '`') ++run;
+        if (run == run_length) return 1;
+        pos += run;
+    }
+    return 0;
+}
+
 static int reply_fence_line(const char *line, size_t length,
                             char expected_char, size_t expected_length,
                             int closing, char *found_char, size_t *found_length)
@@ -202,7 +219,12 @@ char *r2_reply_sanitize(const char *reply)
     int in_fence = 0;
     char fence_char = 0;
     size_t fence_length = 0;
+    size_t fence_close_after = (size_t)-1;
     while (src < len) {
+        if (fence_close_after != (size_t)-1 && src >= fence_close_after) {
+            in_fence = 0;
+            fence_close_after = (size_t)-1;
+        }
         /* Markdown fences are recognized only at a line boundary and outside
            inline code. Copy each fenced line verbatim, including tag examples. */
         if (inline_ticks == 0 && (src == 0 || start[src - 1] == '\n')) {
@@ -214,16 +236,12 @@ char *r2_reply_sanitize(const char *reply)
                 --check_length;
             size_t after_line = line_end < len ? line_end + 1 : line_end;
             if (in_fence) {
-                memcpy(clean + dst, start + src, after_line - src);
-                dst += after_line - src;
                 char ignored_char = 0;
                 size_t ignored_length = 0;
                 if (reply_fence_line(start + src, check_length,
                                      fence_char, fence_length, 1,
                                      &ignored_char, &ignored_length))
-                    in_fence = 0;
-                src = after_line;
-                continue;
+                    fence_close_after = after_line;
             }
             char opening_char = 0;
             size_t opening_length = 0;
@@ -239,37 +257,57 @@ char *r2_reply_sanitize(const char *reply)
             }
         }
 
-        if (start[src] == '`') {
+        if (!in_fence && start[src] == '`') {
             size_t run = 1;
             while (src + run < len && start[src + run] == '`') ++run;
-            if (inline_ticks == 0)
-                inline_ticks = run;
-            else if (inline_ticks == run)
+            if (inline_ticks == 0) {
+                if (reply_has_matching_ticks(start, len, src + run, run))
+                    inline_ticks = run;
+            } else if (inline_ticks == run) {
                 inline_ticks = 0;
+            }
             memcpy(clean + dst, start + src, run);
             src += run;
             dst += run;
             continue;
         }
 
-        if (inline_ticks == 0) {
-            const HiddenBlock *block = NULL;
-            const char *after_open = find_hidden_open(start + src, &block);
-            if (after_open) {
-                const char *close = find_hidden_close_balanced(after_open, block);
-                if (!close) {
-                    /* An unclosed private block is not safe to display. */
-                    break;
+        int inside_code = in_fence || inline_ticks != 0;
+        const HiddenBlock *block = NULL;
+        const char *after_open = find_hidden_open(start + src, &block);
+        if (after_open) {
+            const char *close = find_hidden_close_balanced(after_open, block);
+            if (!close) {
+                if (inside_code) {
+                    size_t open_len = (size_t)(after_open - (start + src));
+                    memcpy(clean + dst, start + src, open_len);
+                    dst += open_len;
+                    static const char omitted[] = "[unclosed content omitted]";
+                    memcpy(clean + dst, omitted, sizeof(omitted) - 1);
+                    dst += sizeof(omitted) - 1;
                 }
-                src = (size_t)(close - start) + strlen(block->close);
-                continue;
+                /* An unclosed private block is never displayed verbatim. */
+                break;
             }
+            if (inside_code) {
+                size_t open_len = (size_t)(after_open - (start + src));
+                memcpy(clean + dst, start + src, open_len);
+                dst += open_len;
+                static const char omitted[] = "[content omitted]";
+                memcpy(clean + dst, omitted, sizeof(omitted) - 1);
+                dst += sizeof(omitted) - 1;
+                size_t close_len = strlen(block->close);
+                memcpy(clean + dst, close, close_len);
+                dst += close_len;
+            }
+            src = (size_t)(close - start) + strlen(block->close);
+            continue;
+        }
 
-            size_t close_len = 0;
-            if (is_hidden_close(start + src, &close_len)) {
-                src += close_len;
-                continue;
-            }
+        size_t close_len = 0;
+        if (is_hidden_close(start + src, &close_len) && !inside_code) {
+            src += close_len;
+            continue;
         }
 
         clean[dst++] = start[src++];
