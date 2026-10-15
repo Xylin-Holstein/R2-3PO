@@ -2482,8 +2482,12 @@ int r2_shell_run(void)
         return -1;
     }
 
-    char *line = NULL;
-    size_t capacity = 0;
+    char *line = malloc((size_t)SHELL_INPUT_MAX + 2U);
+    if (!line) {
+        fprintf(stderr, "[R2 Shell] Could not allocate bounded input buffer.\n");
+        return -1;
+    }
+    size_t capacity = (size_t)SHELL_INPUT_MAX + 2U;
     sigset_t service_signals, original_mask, wait_mask;
     int service_signals_blocked = 0;
 
@@ -2534,45 +2538,38 @@ int r2_shell_run(void)
         shell_prompt();
 
         errno = 0;
-
-        ssize_t length =
-            getline(
-                &line,
-                &capacity,
-                stdin
-            );
-
-        if (length < 0) {
-
+        if (!fgets(line, (int)capacity, stdin)) {
             if (errno == EINTR) {
                 clearerr(stdin);
                 continue;
             }
-
-            /*
-             * EOF (Ctrl-D).
-             */
-            printf(
-                "\n[R2 Shell] End of input.\n"
-            );
-
+            if (ferror(stdin)) {
+                fprintf(stderr, "[R2 Shell] Failed to read input.\n");
+                break;
+            }
+            /* EOF (Ctrl-D). */
+            printf("\n[R2 Shell] End of input.\n");
             break;
         }
 
-        if (length > 0 && line[length - 1] == '\n')
-            line[length - 1] = '\0';
+        size_t input_bytes = strlen(line);
+        int has_newline = input_bytes > 0 && line[input_bytes - 1] == '\n';
+        if (has_newline)
+            line[--input_bytes] = '\0';
 
         /*
-         * Keep the shell's intended input ceiling in sync with the core's
-         * bounded current-turn budget. Reject an oversized line explicitly:
-         * never silently truncate a user's message or send only a prefix.
+         * Read into a fixed-size buffer so an arbitrarily long pasted line
+         * cannot force getline() to allocate unbounded memory. If the line
+         * exceeds the limit, drain its remainder before prompting again;
+         * never dispatch a truncated prefix as a new message.
          */
-        size_t input_bytes = strlen(line);
         if (input_bytes > SHELL_INPUT_MAX) {
+            int ch;
+            while ((ch = getchar()) != '\n' && ch != EOF) {}
             fprintf(stderr,
-                    "[R2 Shell] Input is %zu bytes; the maximum is %d bytes. "
+                    "[R2 Shell] Input exceeds the %d-byte limit. "
                     "Nothing from this line was sent to R2.\n",
-                    input_bytes, SHELL_INPUT_MAX);
+                    SHELL_INPUT_MAX);
             continue;
         }
 
