@@ -112,37 +112,43 @@ request_shutdown = function_slice(
     "int r2_request_restart(void)",
 )
 request_lock = request_shutdown.find("pthread_mutex_lock(&task_queue_lock)")
+request_state = request_shutdown.find("shutting_down = 1;")
 request_wake = request_shutdown.find("pthread_cond_broadcast(&task_queue_cond)")
 request_unlock = request_shutdown.find("pthread_mutex_unlock(&task_queue_lock)")
 require(
-    request_lock >= 0 and request_wake > request_lock and request_unlock > request_wake,
-    "public shutdown wakeup is synchronized with the Hands worker queue mutex",
+    request_lock >= 0 and request_state > request_lock
+    and request_wake > request_state and request_unlock > request_wake,
+    "public shutdown changes the worker predicate and wakes it under the queue mutex",
 )
 shutdown_start = core.find("void r2_shutdown(void)")
 shutdown_tail = core[shutdown_start:] if shutdown_start >= 0 else ""
 shutdown_lock = shutdown_tail.find("pthread_mutex_lock(&task_queue_lock)")
+shutdown_state = shutdown_tail.find("shutting_down = 1;")
 shutdown_wake = shutdown_tail.find("pthread_cond_broadcast(&task_queue_cond)")
 shutdown_unlock = shutdown_tail.find("pthread_mutex_unlock(&task_queue_lock)")
 require(
-    shutdown_lock >= 0 and shutdown_wake > shutdown_lock and shutdown_unlock > shutdown_wake,
-    "core shutdown cannot lose the Hands worker condition-variable wakeup",
+    shutdown_lock >= 0 and shutdown_state > shutdown_lock
+    and shutdown_wake > shutdown_state and shutdown_unlock > shutdown_wake,
+    "core shutdown changes the worker predicate and wakes it under the queue mutex",
 )
 init_start = core.find("int r2_init(void)")
 shutdown_start = core.find("void r2_shutdown(void)", init_start)
 init_body = core[init_start:shutdown_start] if init_start >= 0 and shutdown_start > init_start else ""
 diary_create = init_body.find("pthread_create(\n            &diary_thread")
 failure_start = init_body.find(
-    "atomic_store(&diary_running, 0);\n        shutting_down = 1;",
+    "/* Keep failed-startup shutdown atomic with the worker's predicate. */",
     diary_create,
 )
 failure_end = init_body.find("pthread_join(\n            hands_thread", failure_start)
 init_failure = init_body[failure_start:failure_end] if failure_start >= 0 and failure_end > failure_start else ""
 init_lock = init_failure.find("pthread_mutex_lock(&task_queue_lock)")
+init_state = init_failure.find("shutting_down = 1;")
 init_wake = init_failure.find("pthread_cond_broadcast(&task_queue_cond)")
 init_unlock = init_failure.find("pthread_mutex_unlock(&task_queue_lock)")
 require(
-    init_lock >= 0 and init_wake > init_lock and init_unlock > init_wake,
-    "initialization failure synchronizes the Hands worker wakeup before joining it",
+    init_lock >= 0 and init_state > init_lock and init_wake > init_state
+    and init_unlock > init_wake,
+    "initialization failure changes the worker predicate and wakes it before joining",
 )
 
 # Keep action side effects and their history representation paired; never
@@ -153,6 +159,18 @@ require(
     and "[R2_INTERNAL_TOOL_RESULT]" in impl
     and "raw [WORLD]/[RUN]/etc. commands into later model context" in impl,
     "executed tool actions are recorded as an atomic tagged result, not replayable raw commands",
+)
+
+start_background = core.find("static char *start_background_task(")
+end_background = core.find("/* ============================================================\n   COMPLETED TASKS", start_background)
+background = core[start_background:end_background] if start_background >= 0 and end_background > start_background else ""
+background_lock = background.find("pthread_mutex_lock(&task_queue_lock)")
+background_guard = background.find("if (shutting_down)")
+background_unlock = background.find("pthread_mutex_unlock(&task_queue_lock)", background_guard)
+require(
+    background_lock >= 0 and background_guard > background_lock
+    and background_unlock > background_guard and "free(id)" in background[background_guard:],
+    "background task submission refuses late work after shutdown has begun",
 )
 
 print("PASS: conversation recovery and serialization regression suite")
