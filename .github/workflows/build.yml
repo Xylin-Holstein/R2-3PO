@@ -141,6 +141,9 @@ jobs:
       - name: Guard against silent conversation failures
         run: python3 tests/silent_turn_regression.py
 
+      - name: Guard direct conversation against stderr-only failures
+        run: python3 tests/direct_conversation_failure_smoke.py
+
       - name: Defer autonomous reflection until R2 has been idle
         run: |
           python3 -m py_compile tests/autonomous_reflection_idle_smoke.py
