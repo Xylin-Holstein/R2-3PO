@@ -14,7 +14,7 @@ if guard < 0 or serialize < 0 or guard > serialize:
 window = source[max(start, guard - 6000):guard + 1800]
 checks = {
     "the exact authoritative query length is checked": "size_t query_length = strlen(authoritative_query);" in window,
-    "raw and explicitly wrapped current turns are handled": "BEGIN CURRENT USER MESSAGE" in window,
+    "raw and explicitly wrapped current turns are handled": "BEGIN CURRENT USER MESSAGE" in source[start:guard],
     "serialized message limits verify the entire query": "query_length <= serialized_length - query_offset" in window,
     "inference fails instead of sending a prefix": "return NULL;" in window,
     "diagnostics omit user text": "user_text_logged=no" in window,
