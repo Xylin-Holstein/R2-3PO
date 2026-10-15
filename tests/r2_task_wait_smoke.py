@@ -85,4 +85,20 @@ require("int read_failed = 0;" in capture
         and "read_failed = 1;" in capture
         and "return !read_failed && WIFEXITED(status)" in capture,
         "shell does not accept partial Game Boy event JSON after a read error")
+
+completed_start = core.find("static char *collect_completed(void)")
+completed_end = core.find("MARKER EXTRACTION", completed_start)
+if completed_start < 0 or completed_end <= completed_start:
+    raise SystemExit("FAIL: could not isolate collect_completed()")
+collect = core[completed_start:completed_end]
+initial_alloc_failure = collect.find("char *out =")
+initial_alloc_failure = collect.find("if (!out)", initial_alloc_failure)
+cleanup = collect.find("CompletedTask *remaining = head", initial_alloc_failure)
+require(initial_alloc_failure >= 0 and cleanup > initial_alloc_failure
+        and "free(remaining->command);" in collect[cleanup:]
+        and "free(remaining->output);" in collect[cleanup:]
+        and "free(remaining);" in collect[cleanup:]
+        and "return NULL;" in collect[cleanup:],
+        "completed task records are freed if the initial collection buffer allocation fails")
+
 print("Task/subprocess I/O interruption smoke test passed.")

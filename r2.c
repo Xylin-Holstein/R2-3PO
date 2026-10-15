@@ -6381,8 +6381,19 @@ static char *collect_completed(void)
     char *out =
         malloc(1);
 
-    if (!out)
+    if (!out) {
+        /* The queue was detached above, so an allocation failure here must
+           still release every result node or they become unreachable leaks. */
+        CompletedTask *remaining = head;
+        while (remaining) {
+            CompletedTask *next = remaining->next;
+            free(remaining->command);
+            free(remaining->output);
+            free(remaining);
+            remaining = next;
+        }
         return NULL;
+    }
 
     out[0] = '\0';
 
