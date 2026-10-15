@@ -56,7 +56,7 @@ require(
     and 'r2_ollama_chat_url(ollama_url, sizeof(ollama_url))' in core
     and 'curl_easy_setopt(curl, CURLOPT_URL, ollama_url);' in core
     and 'r2_ollama_chat_url(ollama_url, sizeof(ollama_url))' in visual
-    and 'curl_easy_setopt(curl, CURLOPT_URL, ollama_url);' in visual
+    and "R2_VISION_SETOPT(CURLOPT_URL, ollama_url)" in visual
     and '#define OLLAMA_URL "http://127.0.0.1:11434/api/chat"' not in core
     and '#define R2_VISION_URL "http://127.0.0.1:11434/api/chat"' not in visual,
     "text and vision share one validated configurable localhost endpoint",
