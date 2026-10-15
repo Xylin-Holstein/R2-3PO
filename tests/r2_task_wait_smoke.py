@@ -32,7 +32,7 @@ require("while (waitpid(pid, NULL, 0) < 0 && errno == EINTR) {}" in task,
         "allocation-failure cleanup does not abandon a child on interrupted wait")
 
 start_background = core.find("static char *start_background_task(")
-end_background = core.find("/* ============================================================\\n   COMPLETED TASKS", start_background)
+end_background = core.find("/* ============================================================\n   COMPLETED TASKS", start_background)
 if start_background < 0 or end_background <= start_background:
     raise SystemExit("FAIL: could not isolate start_background_task()")
 background = core[start_background:end_background]
@@ -42,6 +42,6 @@ require("if (!t->command || !id)" in background
 require("if (dup2(pipefd[1], STDOUT_FILENO) < 0" in task
         and "_exit(126)" in task,
         "child output redirection failures terminate with a nonzero status")
-require("output_read_failed = 1;\\n            kill(pid, SIGTERM);" in task,
+require("output_read_failed = 1;\n            kill(pid, SIGTERM);" in task,
         "output-buffer allocation failure cannot be reported as a successful task")
 print("Task I/O interruption smoke test passed.")
