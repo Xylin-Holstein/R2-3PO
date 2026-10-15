@@ -127,8 +127,10 @@ require(
 )
 require(
     '"[R2_INTERNAL_TOOL_RESULT]\\n"' in core
-    and 'message_add_pair_locked(\n                    "assistant", reply, "user", tagged_tool_result)' in core,
-    "action results are explicitly tagged when stored for the follow-up model turn",
+    and '"[R2_INTERNAL_TOOL_REQUEST]\\n"' in core
+    and 'message_add_pair_locked(\n                    "assistant", tool_request_context, "user", tagged_tool_result)' in core
+    and "raw [WORLD]/[RUN]/etc. commands into later model context" in core,
+    "follow-up history preserves a tagged result without replaying executed control syntax",
 )
 require(
     "static int r2_is_internal_tool_result(const Message *message)" in core
