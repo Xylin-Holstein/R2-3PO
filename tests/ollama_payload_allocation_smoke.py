@@ -36,7 +36,7 @@ require("if (role_value) json_object_put(role_value);" in helper
 call = source.find("if (ollama_json_append_message(arr, role, content, limits[i]) != 0)")
 if call < 0:
     raise SystemExit("FAIL: serializer loop does not use checked message helper")
-loop_end = source.find("\\n        }\\n    }\\n    free(message_order);", call)
+loop_end = source.find("\n        }\n    }\n    free(message_order);", call)
 if loop_end < 0:
     raise SystemExit("FAIL: could not isolate the complete message serialization loop")
 loop = source[call:loop_end]
