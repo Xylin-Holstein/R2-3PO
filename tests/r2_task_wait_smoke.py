@@ -87,7 +87,7 @@ require("int read_failed = 0;" in capture
         "shell does not accept partial Game Boy event JSON after a read error")
 
 completed_start = core.find("static char *collect_completed(void)")
-completed_end = core.find("/* ============================================================\\n   MARKER EXTRACTION", completed_start)
+completed_end = core.find("MARKER EXTRACTION", completed_start)
 if completed_start < 0 or completed_end <= completed_start:
     raise SystemExit("FAIL: could not isolate collect_completed()")
 collect = core[completed_start:completed_end]
