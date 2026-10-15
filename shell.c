@@ -2546,7 +2546,7 @@ int r2_shell_run(void)
     }
 
     /* Fixed-size input prevents a pasted or redirected line from forcing
-       getline() to allocate an unbounded buffer before we can reject it. */
+       dynamic line allocation before we can reject it. */
     char line[SHELL_INPUT_MAX + 1];
     sigset_t service_signals, original_mask, wait_mask;
     int service_signals_blocked = 0;
