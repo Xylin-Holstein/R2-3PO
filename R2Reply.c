@@ -329,6 +329,10 @@ char *r2_reply_sanitize(const char *reply)
                                                     fence_char, fence_length);
             else if (inline_ticks != 0 && inline_close_pos != (size_t)-1)
                 code_limit = start + inline_close_pos;
+            if (inside_code && code_limit && after_open > code_limit) {
+                clean[dst++] = start[src++];
+                continue;
+            }
             const char *close = find_hidden_close_balanced_until(
                 after_open, block, inside_code ? code_limit : NULL);
             if (!close) {
