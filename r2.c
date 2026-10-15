@@ -5140,6 +5140,109 @@ char *r2_recent_conversation_context(const char *exclude_latest, size_t max_char
     return out;
 }
 
+/* Append complete Life Log event records once per durable event ID.
+ * Keyword searches overlap heavily, so duplicates waste bounded context. */
+static int r2_history_has_event_id(
+    const char *history,
+    const char *record,
+    size_t record_length)
+{
+    if (!history || !record)
+        return 0;
+
+    size_t start = 0;
+    while (start < record_length &&
+           (record[start] == '\n' || record[start] == '\r'))
+        ++start;
+    if (start >= record_length || record[start] != '[')
+        return 0;
+
+    size_t close = start + 1;
+    while (close < record_length &&
+           isdigit((unsigned char)record[close]))
+        ++close;
+    if (close == start + 1 || close >= record_length ||
+        record[close] != ']')
+        return 0;
+
+    size_t token_length = close - start + 1;
+    const char *cursor = history;
+    while ((cursor = strchr(cursor, '[')) != NULL) {
+        if ((cursor == history ||
+             (cursor - history >= 2 && cursor[-1] == '\n' &&
+              cursor[-2] == '\n')) &&
+            strlen(cursor) > token_length &&
+            strncmp(cursor, record + start, token_length) == 0 &&
+            cursor[token_length] == ' ')
+            return 1;
+        ++cursor;
+    }
+    return 0;
+}
+
+static int r2_history_append_unique_records(
+    char **history,
+    size_t *history_length,
+    size_t max_chars,
+    const char *found,
+    size_t found_length)
+{
+    if (!history || !*history || !history_length || !found)
+        return -1;
+
+    size_t position = 0;
+    while (position < found_length) {
+        while (position < found_length &&
+               (found[position] == '\n' || found[position] == '\r'))
+            ++position;
+        if (position >= found_length)
+            break;
+
+        size_t start = position;
+        size_t separator = found_length;
+        for (size_t i = position; i + 1 < found_length; ++i) {
+            if (found[i] == '\n' && found[i + 1] == '\n') {
+                separator = i;
+                break;
+            }
+        }
+
+        /* Keep the record's final newline but not the blank separator. */
+        size_t record_end = separator < found_length
+            ? separator + 1 : found_length;
+        size_t record_length = record_end - start;
+        position = separator < found_length
+            ? separator + 2 : found_length;
+        if (record_length == 0)
+            continue;
+
+        if (r2_history_has_event_id(
+                *history, found + start, record_length))
+            continue;
+
+        size_t separator_length = *history_length ? 1 : 0;
+        if (*history_length > max_chars ||
+            separator_length > max_chars - *history_length ||
+            record_length > max_chars - *history_length - separator_length)
+            continue;
+
+        size_t new_length = *history_length +
+                            separator_length + record_length;
+        if (new_length == SIZE_MAX)
+            return -1;
+        char *grown = realloc(*history, new_length + 1);
+        if (!grown)
+            return -1;
+        *history = grown;
+        if (separator_length)
+            (*history)[(*history_length)++] = '\n';
+        memcpy(*history + *history_length, found + start, record_length);
+        *history_length += record_length;
+        (*history)[*history_length] = '\0';
+    }
+    return 0;
+}
+
 static char *chat_with_relevant_memories(
     const char *query)
 {
@@ -5223,28 +5326,25 @@ static char *chat_with_relevant_memories(
             size_t found_length = strlen(found);
             size_t found_limit = explicit_recall ? 3500 : 1800;
             if (found_length > found_limit) {
-                found_length = found_limit;
-                while (found_length > 0 && found[found_length - 1] != '\n')
-                    --found_length;
-                if (found_length == 0)
-                    found_length = found_limit;
+                /* Keep complete event records when bounding each search result. */
+                size_t cut = found_limit;
+                while (cut > 1 &&
+                       !(found[cut - 1] == '\n' && found[cut - 2] == '\n'))
+                    --cut;
+                if (cut <= 1) {
+                    free(found);
+                    continue;
+                }
+                found_length = cut;
             }
-            if (history_length + found_length + 2 > history_char_limit) {
-                free(found);
-                break;
-            }
-            char *grown = realloc(history, history_length + found_length + 2);
-            if (!grown) {
+            if (r2_history_append_unique_records(
+                    &history, &history_length, history_char_limit,
+                    found, found_length) != 0) {
                 free(found);
                 free(history);
                 history = NULL;
                 break;
             }
-            history = grown;
-            if (history_length) history[history_length++] = '\n';
-            memcpy(history + history_length, found, found_length);
-            history_length += found_length;
-            history[history_length] = '\0';
             free(found);
         }
 
