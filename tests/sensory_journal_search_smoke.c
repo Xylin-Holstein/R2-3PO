@@ -37,6 +37,31 @@ static int insert_event(sqlite3 *db, const char *summary, const char *details)
     return rc == SQLITE_DONE ? 0 : -1;
 }
 
+static int64_t insert_diary_event(sqlite3 *db)
+{
+    sqlite3_stmt *st = NULL;
+    const char *entry = "A fresh reflective entry.";
+    if (sqlite3_prepare_v2(db,
+            "INSERT INTO diary_entries(id,entry) VALUES(100,?);",
+            -1, &st, NULL) != SQLITE_OK)
+        return -1;
+    sqlite3_bind_text(st, 1, entry, -1, SQLITE_TRANSIENT);
+    int rc = sqlite3_step(st);
+    sqlite3_finalize(st);
+    if (rc != SQLITE_DONE) return -1;
+
+    const char *sql =
+        "INSERT INTO r2_log_events(utc_time,local_time,category,event_type,summary,details,source) "
+        "VALUES(datetime('now'),datetime('now'),'thinking','diary_entry_written',?,?, 'diary');";
+    if (sqlite3_prepare_v2(db, sql, -1, &st, NULL) != SQLITE_OK)
+        return -1;
+    sqlite3_bind_text(st, 1, "Diary entry written", -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 2, entry, -1, SQLITE_TRANSIENT);
+    rc = sqlite3_step(st);
+    sqlite3_finalize(st);
+    return rc == SQLITE_DONE ? sqlite3_last_insert_rowid(db) : -1;
+}
+
 /* SensoryJournal.c calls the real Life Log for explicit notes. This isolated
    query test deliberately does not exercise note-writing. */
 int64_t r2_log_thinking(const char *thought_kind, const char *summary,
@@ -96,6 +121,30 @@ int main(void)
 
     found = r2_sj_search("not-present", 20);
     assert(found && strstr(found, "No Sensory Journal entries matched."));
+    free(found);
+
+    /* New diary-writing events must be indexed and linked immediately, not
+       only discovered during the next journal initialization. */
+    assert(sqlite3_open(R2_DIARY_DATABASE, &db) == SQLITE_OK);
+    int64_t diary_event_id = insert_diary_event(db);
+    assert(diary_event_id > 0);
+    sqlite3_close(db);
+    r2_sj_index_event(diary_event_id, "thinking", "diary_entry_written", "diary");
+    assert(r2_sj_count() == 6);
+    r2_sj_index_event(diary_event_id, "thinking", "diary_entry_written", "diary");
+    assert(r2_sj_count() == 6);
+
+    found = r2_sj_search("fresh reflective", 20);
+    assert(found && strstr(found, "thinking/diary_entry_written"));
+    assert(strstr(found, "Diary link: 100"));
+    free(found);
+
+    /* Restart/reconciliation is idempotent and retains the original diary link. */
+    r2_sj_shutdown();
+    assert(r2_sj_init() == 0);
+    assert(r2_sj_count() == 6);
+    found = r2_sj_search("fresh reflective", 20);
+    assert(found && strstr(found, "Diary link: 100"));
     free(found);
 
     r2_sj_shutdown();
