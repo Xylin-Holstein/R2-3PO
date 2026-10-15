@@ -27,6 +27,12 @@ require('if (rc != SQLITE_OK) return -1;' in body,
 require("static int reward_apply_internal" in source
         and "return reward_apply_internal(target, source, points, reason," in source,
         "public reward APIs must share the atomic implementation")
+require('SELECT 1 FROM addiction_events WHERE target=? COLLATE NOCASE ' in
+        (Path(__file__).resolve().parents[1] / "Addiction.c").read_text(encoding="utf-8"),
+        "reinforcement choice replay must deduplicate by stable reward event details")
+require("if (voluntary_choice && prior_event.id > 0)" in body
+        and "int choice_rc = r2_addiction_record_choice" in body,
+        "retrying an already committed reward must repair its missing addiction-choice side effect")
 require("int r2_reward_reconnect_history(" in source
         and "find_existing_log_event(item->id)" in source,
         "reward history reconciliation must remain available after the refactor")
