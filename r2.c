@@ -9955,8 +9955,14 @@ int r2_conversation(void)
         char *reply = r2_talk(line);
 
         if (!reply) {
+            /* Even allocation failure in the public API must not leave the
+               interactive user with only a diagnostic on stderr. This static
+               fallback needs no allocation and keeps the conversation alive. */
             fprintf(stderr,
-                    "\nR2-3PO: Ollama request failed.\n");
+                    "[R2] Conversation API returned NULL; displaying static fallback.\n");
+            printf("\nR2-3PO: I'm sorry, Mom—I couldn't process that turn successfully. "
+                   "Please try again in a moment.\n\n");
+            fflush(stdout);
             continue;
         }
 
