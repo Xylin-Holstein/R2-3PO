@@ -48,6 +48,7 @@
 
 #include "shell.h"
 #include "r2.h"
+#include "r2_input.h"
 #include "Log.h"
 #include "Reality.h"
 #include "Addiction.h"
@@ -2538,38 +2539,32 @@ int r2_shell_run(void)
         shell_prompt();
 
         errno = 0;
-        if (!fgets(line, (int)capacity, stdin)) {
+        size_t input_bytes = 0;
+        R2InputLineStatus input_status =
+            r2_read_bounded_line(stdin, line, SHELL_INPUT_MAX, &input_bytes);
+        if (input_status == R2_INPUT_LINE_EOF) {
+            printf("\n[R2 Shell] End of input.\n");
+            break;
+        }
+        if (input_status == R2_INPUT_LINE_IO_ERROR) {
             if (errno == EINTR) {
                 clearerr(stdin);
                 continue;
             }
-            if (ferror(stdin)) {
-                fprintf(stderr, "[R2 Shell] Failed to read input.\n");
-                break;
-            }
-            /* EOF (Ctrl-D). */
-            printf("\n[R2 Shell] End of input.\n");
+            fprintf(stderr, "[R2 Shell] Failed to read input.\n");
             break;
         }
-
-        size_t input_bytes = strlen(line);
-        int has_newline = input_bytes > 0 && line[input_bytes - 1] == '\n';
-        if (has_newline)
-            line[--input_bytes] = '\0';
-
-        /*
-         * Read into a fixed-size buffer so an arbitrarily long pasted line
-         * cannot force getline() to allocate unbounded memory. If the line
-         * exceeds the limit, drain its remainder before prompting again;
-         * never dispatch a truncated prefix as a new message.
-         */
-        if (input_bytes > SHELL_INPUT_MAX) {
-            int ch;
-            while ((ch = getchar()) != '\n' && ch != EOF) {}
-            fprintf(stderr,
-                    "[R2 Shell] Input exceeds the %d-byte limit. "
-                    "Nothing from this line was sent to R2.\n",
-                    SHELL_INPUT_MAX);
+        if (input_status == R2_INPUT_LINE_TOO_LONG) {
+            printf("[R2 Shell] Input exceeds the %d-byte limit. "
+                   "Nothing from this line was sent to R2.\n",
+                   SHELL_INPUT_MAX);
+            fflush(stdout);
+            continue;
+        }
+        if (input_status == R2_INPUT_LINE_EMBEDDED_NUL) {
+            printf("[R2 Shell] Input contained an unsupported NUL byte. "
+                   "Nothing from this line was sent to R2.\n");
+            fflush(stdout);
             continue;
         }
 
