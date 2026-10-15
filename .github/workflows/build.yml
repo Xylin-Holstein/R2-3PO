@@ -146,6 +146,8 @@ jobs:
 
       - name: Guard direct conversation against stderr-only failures
         run: python3 tests/direct_conversation_failure_smoke.py
+      - name: Reject oversized direct-conversation messages without truncation
+        run: python3 tests/direct_conversation_input_limit_smoke.py
 
       - name: Guard final assembled conversation context budget
         run: python3 tests/final_context_budget_smoke.py
