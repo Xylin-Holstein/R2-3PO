@@ -1028,7 +1028,7 @@ static void shell_vision(const char *argument)
 
     if (!strcasecmp(argument, "status")) {
         int eyes_state = r2_eyes_status();
-        printf("Vision model: %s\\nEyes: %s\\nVisual observation: %s\\n",
+        printf("Vision model: %s\nEyes: %s\nVisual observation: %s\n",
                r2_vision_model_name(),
                eyes_state > 0 ? "OPEN" : (eyes_state == 0 ? "CLOSED" : "UNAVAILABLE"),
                r2_vision_watch_active() ? "ACTIVE" : "STOPPED");
