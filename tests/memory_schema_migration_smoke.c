@@ -65,6 +65,25 @@ int main(void)
     assert(updated && !strcmp(updated, "2025-10-01T12:34:56"));
     sqlite3_finalize(st);
 
+    /* An additive migration leaves legacy NOT NULL columns in place. A real
+       save must still satisfy those old constraints and keep old readers useful. */
+    assert(save_memory("New memory after legacy migration", "relationship") == 0);
+    assert(sqlite3_prepare_v2(db,
+        "SELECT memory,category,created_at,updated_at,content,source,timestamp "
+        "FROM memories WHERE memory='New memory after legacy migration'",
+        -1, &st, NULL) == SQLITE_OK);
+    assert(sqlite3_step(st) == SQLITE_ROW);
+    assert(!strcmp((const char *)sqlite3_column_text(st, 0),
+                   "New memory after legacy migration"));
+    assert(!strcmp((const char *)sqlite3_column_text(st, 1), "relationship"));
+    assert(sqlite3_column_text(st, 2) && sqlite3_column_text(st, 3));
+    assert(!strcmp((const char *)sqlite3_column_text(st, 4),
+                   "New memory after legacy migration"));
+    assert(!strcmp((const char *)sqlite3_column_text(st, 5), "relationship"));
+    assert(sqlite3_column_text(st, 6) &&
+           strlen((const char *)sqlite3_column_text(st, 6)) > 0);
+    sqlite3_finalize(st);
+
     assert(sqlite3_close(db) == SQLITE_OK);
     db = NULL;
     puts("Legacy memory schema migration preserved content, category, and timestamps.");
