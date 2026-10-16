@@ -4,6 +4,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 shell = (ROOT / "shell.c").read_text(encoding="utf-8")
+launcher = (ROOT / "R2_Launch_Code.sh").read_text(encoding="utf-8")
+service = (ROOT / "tools/r2_service_runner.sh").read_text(encoding="utf-8")
 gameboy = (ROOT / "GameBoyAdvance.py").read_text(encoding="utf-8")
 core = (ROOT / "r2.c").read_text(encoding="utf-8")
 
@@ -13,6 +15,22 @@ assert start >= 0 and end > start, "single lifecycle-aware Game Boy handler must
 handler = shell[start:end]
 assert 'getenv("R2_GAMEBOY_EXECUTABLE")' in handler
 assert '"/home/x/R2_Home/Devices/GameBoyAdvance/GameBoyAdvance"' in handler
+path_start = shell.index("static int shell_gameboy_state_database_path(")
+path_end = shell.index("/* Read authoritative device state", path_start)
+state_path = shell[path_start:path_end]
+assert 'getenv("R2_GAMEBOY_ROOT")' in state_path
+assert 'getenv("R2_GAMEBOY_DIR")' in state_path
+assert 'getenv("R2_GAMEBOY_EXECUTABLE")' in state_path
+assert '"/home/x/R2_Home/Devices/GameBoyAdvance"' in state_path
+assert '"%s%sState/console_state.db"' in state_path
+status_start = shell.index("static int shell_gameboy_read_status(")
+status_end = shell.index("static void shell_gameboy_log_session_start(", status_start)
+assert "shell_gameboy_state_database_path(database, sizeof(database))" in shell[status_start:status_end]
+for name in ("R2_GAMEBOY_EXECUTABLE", "R2_GAMEBOY_ROOT", "R2_GAMEBOY_DIR"):
+    assert name in launcher, f"interactive launcher must pass through {name}"
+    assert name in service, f"overnight service must pass through {name}"
+assert 'R2_GAMEBOY_ROOT="$R2_ROOT/Devices/GameBoyAdvance"' in launcher
+assert '"R2_GAMEBOY_ROOT=$R2_GAMEBOY_ROOT"' in service
 assert "execv(device, argv)" in handler
 assert "system(" not in handler and "popen(" not in handler, "arguments must never enter a shell"
 assert "shell_gameboy_sync_verified_events()" in handler
