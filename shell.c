@@ -2666,11 +2666,7 @@ int r2_shell_watch_is_running(void)
 
 void r2_shell_shutdown(void)
 {
-    if (r2_watch_active()) {
-        r2_watch_stop();
-
-    }
-
+    r2_watch_stop();
     shell_running = 0;
     shell_shutdown = 1;
 }
