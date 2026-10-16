@@ -3,6 +3,18 @@
 set -euo pipefail
 
 R2_ROOT="${R2_ROOT:-/home/x/R2_Home}"
+# Keep autonomous Game Boy tools and the shell status reader on one root.
+if [[ -z "${R2_GAMEBOY_ROOT:-}" ]]; then
+    if [[ -n "${R2_GAMEBOY_DIR:-}" ]]; then
+        R2_GAMEBOY_ROOT="$R2_GAMEBOY_DIR"
+    elif [[ -n "${R2_GAMEBOY_EXECUTABLE:-}" && "${R2_GAMEBOY_EXECUTABLE}" == */* ]]; then
+        R2_GAMEBOY_ROOT="$(dirname -- "$R2_GAMEBOY_EXECUTABLE")"
+    else
+        R2_GAMEBOY_ROOT="$R2_ROOT/Devices/GameBoyAdvance"
+    fi
+fi
+R2_GAMEBOY_DIR="${R2_GAMEBOY_DIR:-$R2_GAMEBOY_ROOT}"
+R2_GAMEBOY_EXECUTABLE="${R2_GAMEBOY_EXECUTABLE:-$R2_GAMEBOY_ROOT/GameBoyAdvance}"
 R2_SOURCE="${R2_SOURCE:-$R2_ROOT/R2}"
 R2_EXEC="${R2_EXEC:-$R2_ROOT/r2}"
 R2_FX_DIR="${R2_FX_DIR:-$R2_ROOT/R2_sounds/FX}"
@@ -21,6 +33,15 @@ fail() { log "ERROR: $*"; exit 1; }
 if [[ "$R2_OLLAMA_BASE_URL" != "http://127.0.0.1:11435" ]]; then
     fail "overnight R2 must use its permitted isolated Ollama endpoint 127.0.0.1:11435."
 fi
+
+# Match the interactive launcher's smaller default KV cache on the 4 GiB
+# GTX 1050 Ti. An explicit non-empty context override takes precedence.
+if [[ -z "${R2_OLLAMA_NUM_CTX:-}" ]] &&
+   command -v nvidia-smi >/dev/null 2>&1 &&
+   nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi 'GTX 1050 Ti'; then
+    export R2_OLLAMA_NUM_CTX=8192
+fi
+log "Ollama context policy: R2_OLLAMA_NUM_CTX=${R2_OLLAMA_NUM_CTX:-adaptive}"
 
 # Match the interactive launcher: prefer partial offload on the target 4 GiB
 # GTX 1050 Ti, but keep automatic placement when that card is not installed.
@@ -139,8 +160,12 @@ R2_ENV=(/usr/bin/env
     "R2_SERVICE_MODE=1"
     "R2_OLLAMA_TIMEOUT_SECONDS=${R2_OLLAMA_TIMEOUT_SECONDS:-}"
     "R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU"
+    "R2_OLLAMA_NUM_CTX=${R2_OLLAMA_NUM_CTX:-}"
     "R2_FX_DIR=$R2_FX_DIR"
     "R2_OLLAMA_BASE_URL=$R2_OLLAMA_BASE_URL"
+    "R2_GAMEBOY_EXECUTABLE=$R2_GAMEBOY_EXECUTABLE"
+    "R2_GAMEBOY_ROOT=$R2_GAMEBOY_ROOT"
+    "R2_GAMEBOY_DIR=$R2_GAMEBOY_DIR"
     "R2_VISION_MODEL=qwen3.5:9b"
     "$R2_EXEC")
 

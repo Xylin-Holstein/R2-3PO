@@ -218,6 +218,7 @@ char *r2_log_status_report(void);
  * free() the result. A NULL return indicates failure.
  */
 char *r2_log_recent(int limit);
+/* Search returns matched events plus a bounded one-hop expansion of explicit r2_log_links. */
 char *r2_log_search(const char *query, int limit);
 
 /* Return non-zero when initialized. */

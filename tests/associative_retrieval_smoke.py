@@ -24,6 +24,13 @@ require(
     "the local model interprets message meaning into paraphrase cues rather than relying on a recall trigger phrase",
 )
 require(
+    "current-user identity" in helper
+    and "linked Life Log records" in helper
+    and "Do not assume any " in helper
+    and "particular relationship" in helper,
+    "identity questions retrieve generic relationship evidence without hardcoding who the user is",
+)
+require(
     "original user text remains unchanged" in helper
     and "r2_reply_sanitize(generated)" in helper,
     "generated retrieval cues are treated as search input only and sanitized",

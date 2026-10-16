@@ -136,6 +136,7 @@ static pthread_mutex_t conversation_turn_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t vision_watch_thread;
 static pthread_mutex_t vision_watch_lock = PTHREAD_MUTEX_INITIALIZER;
 static atomic_int vision_watch_running = ATOMIC_VAR_INIT(0);
+static _Thread_local int vision_watch_worker_context = 0;
 static int vision_watch_thread_started = 0;
 static int query_requests_visual_context(const char *query);
 static char *vision_analyze_current_frame(const char *question, int open_camera);
@@ -3012,7 +3013,8 @@ int r2_ollama_vision_request_should_abort(void)
 {
     return shutting_down || atomic_load(&foreground_ollama_waiting) > 0 ||
            (atomic_load(&foreground_conversation_waiting) > 0 &&
-            !ollama_foreground_turn_mode);
+            !ollama_foreground_turn_mode) ||
+           (vision_watch_worker_context && !atomic_load(&vision_watch_running));
 }
 
 /* Estimate safe Ollama context from host and container memory headroom.
@@ -5078,7 +5080,11 @@ static char *r2_build_associative_search_query(const char *query)
         "find related past experiences in a database. Preserve named people, "
         "objects, actions, unusual concepts, and relationships. Include "
         "natural paraphrases and related concepts even when the user did not "
-        "use those exact words. Prefer one concept per line. No commentary, "
+        "use those exact words. For questions about who the current user is to "
+        "R2, whether R2 remembers them, or a personal relationship, include "
+        "generic cues for prior explicit self-identification, current-user identity, "
+        "relationship evidence, and linked Life Log records. Do not assume any "
+        "particular relationship. Prefer one concept per line. No commentary, "
         "no numbering, no JSON, and no invented claims.";
 
     Message probe;
@@ -9395,6 +9401,7 @@ char *r2_vision_search(const char *query, int limit)
 static void *vision_watch_worker(void *unused)
 {
     (void)unused;
+    vision_watch_worker_context = 1;
     char source_name[512] = "Eyes";
     pthread_mutex_lock(&visual_capture_lock);
     R2VisionEvent initial_event;
@@ -9472,16 +9479,19 @@ static void *vision_watch_worker(void *unused)
                  "R2 continuous visual observation stopped.",
                  "The observation worker exited; consult visual sensory events to determine whether the source ended or capture failed.",
                  source_name);
+    vision_watch_worker_context = 0;
     return NULL;
 }
 
 int r2_vision_watch_start(void)
 {
-    if (!core_initialized || shutting_down || !r2_visual_is_initialized())
+    if (!core_initialized || shutting_down || !r2_visual_is_initialized() ||
+        r2_eyes_status() <= 0)
         return -1;
 
     pthread_mutex_lock(&vision_watch_lock);
-    if (!core_initialized || shutting_down || !r2_visual_is_initialized()) {
+    if (!core_initialized || shutting_down || !r2_visual_is_initialized() ||
+        r2_eyes_status() <= 0) {
         pthread_mutex_unlock(&vision_watch_lock);
         return -1;
     }
@@ -9617,7 +9627,11 @@ int r2_eyes_stop(void)
 
 int r2_eyes_status(void)
 {
-    return eyes ? (r2_eyes_is_open(eyes) ? 1 : 0) : 0;
+    /* Serialize status reads with camera open/close operations. */
+    pthread_mutex_lock(&visual_capture_lock);
+    int state = eyes ? (r2_eyes_is_open(eyes) ? 1 : 0) : -1;
+    pthread_mutex_unlock(&visual_capture_lock);
+    return state;
 }
 
 /* Serialize explicit microphone capture against start/stop requests. */
@@ -9663,7 +9677,9 @@ static int r2_ears_write_wav_header(FILE *fp, uint32_t pcm_bytes)
  * R2_WHISPER_MODEL must name a readable local GGML Whisper model. No network is
  * used and the microphone is released before inference begins.
  */
-char *r2_ears_listen(unsigned seconds)
+char *r2_ears_listen_cancelable(unsigned seconds,
+                                  int (*cancelled)(void *userdata),
+                                  void *userdata)
 {
     const char *model = getenv("R2_WHISPER_MODEL");
     const char *cli = getenv("R2_WHISPER_CLI");
@@ -9679,6 +9695,7 @@ char *r2_ears_listen(unsigned seconds)
     uint32_t total_bytes;
     int capture_ok = 0;
 
+    if (cancelled && cancelled(userdata)) return NULL;
     if (seconds < 1U || seconds > 15U) {
         fprintf(stderr, "[Ears] Listen duration must be between 1 and 15 seconds.\n");
         return NULL;
@@ -9729,7 +9746,8 @@ char *r2_ears_listen(unsigned seconds)
     }
     own_mic = 1;
     uint32_t captured_bytes = 0;
-    while (captured_bytes < total_bytes && !shutting_down) {
+    while (captured_bytes < total_bytes && !shutting_down &&
+           !(cancelled && cancelled(userdata))) {
         size_t wanted = total_bytes - captured_bytes;
         if (wanted > sizeof(pcm)) wanted = sizeof(pcm);
         ssize_t got = r2_ears_read(ears, pcm, wanted);
@@ -9749,6 +9767,7 @@ char *r2_ears_listen(unsigned seconds)
     }
     pthread_mutex_unlock(&ears_capture_lock);
     if (captured_bytes == total_bytes && !shutting_down &&
+        !(cancelled && cancelled(userdata)) &&
         r2_ears_write_wav_header(wav, total_bytes) == 0 &&
         fflush(wav) == 0)
         capture_ok = 1;
@@ -9772,12 +9791,13 @@ char *r2_ears_listen(unsigned seconds)
             child = -1;
             goto cleanup;
         }
-        if (shutting_down || clock_gettime(CLOCK_MONOTONIC, &asr_now) != 0 ||
+        if (shutting_down || (cancelled && cancelled(userdata)) ||
+            clock_gettime(CLOCK_MONOTONIC, &asr_now) != 0 ||
             asr_now.tv_sec - asr_start.tv_sec >= 90) {
             (void)kill(child, SIGKILL);
             while (waitpid(child, &child_status, 0) < 0 && errno == EINTR) {}
             child = -1;
-            fprintf(stderr, "[Ears] Local speech recognition stopped during shutdown or exceeded its 90-second limit.\n");
+            fprintf(stderr, "[Ears] Local speech recognition was cancelled, stopped during shutdown, or exceeded its 90-second limit.\n");
             goto cleanup;
         }
         struct timespec remaining_time;
@@ -9812,12 +9832,17 @@ char *r2_ears_listen(unsigned seconds)
         if (start != transcript) memmove(transcript, start, strlen(start) + 1U);
         if (!*transcript) { free(transcript); transcript = NULL; }
     }
+    if (cancelled && cancelled(userdata)) {
+        free(transcript);
+        transcript = NULL;
+        goto cleanup;
+    }
     if (transcript && r2_log_is_initialized())
         r2_log_sensory("speech_transcribed",
                        "R2 Ears transcribed a short microphone utterance locally.",
                        "The transcript is passed into the normal conversation pipeline; raw audio is not persisted.",
                        "r2_ears_listen");
-    if (!transcript)
+    if (!transcript && !cancelled)
         fprintf(stderr, "[Ears] Whisper returned no usable transcript. Try speaking clearly and listening again.\n");
 
 cleanup:
@@ -9833,6 +9858,11 @@ cleanup:
     if (transcript_path[0]) unlink(transcript_path);
     rmdir(temp_dir);
     return transcript;
+}
+
+char *r2_ears_listen(unsigned seconds)
+{
+    return r2_ears_listen_cancelable(seconds, NULL, NULL);
 }
 
 int r2_ears_start(void)
@@ -9859,7 +9889,11 @@ int r2_ears_stop(void)
 
 int r2_ears_status(void)
 {
-    return ears ? (r2_ears_is_open(ears) ? 1 : 0) : 0;
+    /* Serialize status reads with microphone open/close and capture operations. */
+    pthread_mutex_lock(&ears_capture_lock);
+    int state = ears ? (r2_ears_is_open(ears) ? 1 : 0) : -1;
+    pthread_mutex_unlock(&ears_capture_lock);
+    return state;
 }
 
 int r2_watch_active(void){ return watch_running ? 1 : 0; }
@@ -9928,8 +9962,8 @@ void r2_status(void)
         MAX_RELEVANT_MEMORIES,
         r2_thinking_active() ? "ACTIVE" : "INACTIVE",
         r2_worker_count(),
-        r2_eyes_status() ? "OPEN" : "CLOSED",
-        r2_ears_status() ? "OPEN" : "CLOSED",
+        r2_eyes_status() > 0 ? "OPEN" : (r2_eyes_status() == 0 ? "CLOSED" : "UNAVAILABLE"),
+        r2_ears_status() > 0 ? "OPEN" : (r2_ears_status() == 0 ? "CLOSED" : "UNAVAILABLE"),
         r2_watch_active() ? "ACTIVE" : "STOPPED"
     );
 }
