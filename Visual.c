@@ -593,6 +593,95 @@ static int visual_migrate_schema(void)
         NULL, NULL, NULL);
 }
 
+
+/* Old visual-library schemas may retain required created_at/timestamp and
+   file_path/path columns after the canonical columns are added. Populate
+   those aliases on every insert so an upgrade remains writable for old DBs. */
+static int visual_insert_compat(const char *created, const char *source,
+                                const char *image_path, const char *model,
+                                const char *prompt, const char *description,
+                                int width, int height, sqlite3_int64 frame_number,
+                                sqlite3_int64 frame_timestamp, int64_t event_id)
+{
+    enum { VISUAL_TEXT = 1, VISUAL_INTEGER = 2, VISUAL_NULL = 3 };
+    struct visual_value {
+        const char *column;
+        int type;
+        const char *text;
+        sqlite3_int64 integer;
+    } values[20];
+    size_t count = 0;
+#define ADD_TEXT(column_name, value) do { \
+    values[count++] = (struct visual_value){(column_name), VISUAL_TEXT, (value), 0}; \
+} while (0)
+#define ADD_INTEGER(column_name, value) do { \
+    values[count++] = (struct visual_value){(column_name), VISUAL_INTEGER, NULL, (sqlite3_int64)(value)}; \
+} while (0)
+#define ADD_NULL(column_name) do { \
+    values[count++] = (struct visual_value){(column_name), VISUAL_NULL, NULL, 0}; \
+} while (0)
+
+    ADD_TEXT("created_utc", created);
+    ADD_TEXT("source", source ? source : "Eyes");
+    ADD_TEXT("image_path", image_path);
+    ADD_TEXT("model", model);
+    if (prompt && *prompt) ADD_TEXT("prompt", prompt);
+    else ADD_NULL("prompt");
+    ADD_TEXT("description", description);
+    ADD_INTEGER("width", width);
+    ADD_INTEGER("height", height);
+    ADD_INTEGER("frame_number", frame_number);
+    ADD_INTEGER("frame_timestamp", frame_timestamp);
+    if (event_id > 0) ADD_INTEGER("life_log_event_id", event_id);
+    else ADD_NULL("life_log_event_id");
+
+    if (visual_column_exists("created_at")) ADD_TEXT("created_at", created);
+    if (visual_column_exists("timestamp")) ADD_TEXT("timestamp", created);
+    if (visual_column_exists("file_path")) ADD_TEXT("file_path", image_path);
+    if (visual_column_exists("path")) ADD_TEXT("path", image_path);
+#undef ADD_TEXT
+#undef ADD_INTEGER
+#undef ADD_NULL
+
+    char sql[2048];
+    size_t used = 0;
+    int n = snprintf(sql, sizeof(sql), "INSERT INTO r2_visual_experiences (");
+    if (n < 0 || (size_t)n >= sizeof(sql)) return SQLITE_TOOBIG;
+    used = (size_t)n;
+    for (size_t i = 0; i < count; ++i) {
+        n = snprintf(sql + used, sizeof(sql) - used, "%s%s",
+                     i ? "," : "", values[i].column);
+        if (n < 0 || (size_t)n >= sizeof(sql) - used) return SQLITE_TOOBIG;
+        used += (size_t)n;
+    }
+    n = snprintf(sql + used, sizeof(sql) - used, ") VALUES(");
+    if (n < 0 || (size_t)n >= sizeof(sql) - used) return SQLITE_TOOBIG;
+    used += (size_t)n;
+    for (size_t i = 0; i < count; ++i) {
+        n = snprintf(sql + used, sizeof(sql) - used, "%s?",
+                     i ? "," : "");
+        if (n < 0 || (size_t)n >= sizeof(sql) - used) return SQLITE_TOOBIG;
+        used += (size_t)n;
+    }
+    n = snprintf(sql + used, sizeof(sql) - used, ")");
+    if (n < 0 || (size_t)n >= sizeof(sql) - used) return SQLITE_TOOBIG;
+
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(visual_db, sql, -1, &st, NULL);
+    if (rc != SQLITE_OK) return rc;
+    for (size_t i = 0; i < count && rc == SQLITE_OK; ++i) {
+        if (values[i].type == VISUAL_TEXT)
+            rc = sqlite3_bind_text(st, (int)i + 1, values[i].text, -1, SQLITE_TRANSIENT);
+        else if (values[i].type == VISUAL_INTEGER)
+            rc = sqlite3_bind_int64(st, (int)i + 1, values[i].integer);
+        else
+            rc = sqlite3_bind_null(st, (int)i + 1);
+    }
+    if (rc == SQLITE_OK) rc = sqlite3_step(st);
+    sqlite3_finalize(st);
+    return rc;
+}
+
 int r2_visual_init(const char *database_path, const char *library_directory)
 {
     if (!database_path || !*database_path || !library_directory ||
@@ -830,37 +919,14 @@ char *r2_visual_analyze_frame(const R2VisionFrame *frame,
         return NULL;
     }
 
-    sqlite3_stmt *st = NULL;
-    const char *sql =
-        "INSERT INTO r2_visual_experiences "
-        "(created_utc,source,image_path,model,prompt,description,width,height,"
-        "frame_number,frame_timestamp,life_log_event_id) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?)";
-    int rc = sqlite3_prepare_v2(visual_db, sql, -1, &st, NULL);
-    if (rc == SQLITE_OK) {
-        rc = sqlite3_bind_text(st, 1, created, -1, SQLITE_TRANSIENT);
-        if (rc == SQLITE_OK) rc = sqlite3_bind_text(st, 2, source ? source : "Eyes", -1, SQLITE_TRANSIENT);
-        if (rc == SQLITE_OK) rc = sqlite3_bind_text(st, 3, image_path, -1, SQLITE_TRANSIENT);
-        if (rc == SQLITE_OK) rc = sqlite3_bind_text(st, 4, model_snapshot, -1, SQLITE_TRANSIENT);
-        if (rc == SQLITE_OK) {
-            if (question && *question) rc = sqlite3_bind_text(st, 5, question, -1, SQLITE_TRANSIENT);
-            else rc = sqlite3_bind_null(st, 5);
-        }
-        if (rc == SQLITE_OK) rc = sqlite3_bind_text(st, 6, description, -1, SQLITE_TRANSIENT);
-        if (rc == SQLITE_OK) rc = sqlite3_bind_int(st, 7, (int)frame->format.width);
-        if (rc == SQLITE_OK) rc = sqlite3_bind_int(st, 8, (int)frame->format.height);
-        if (rc == SQLITE_OK) rc = sqlite3_bind_int64(st, 9, (sqlite3_int64)frame->frame_number);
-        if (rc == SQLITE_OK) rc = sqlite3_bind_int64(st, 10, (sqlite3_int64)frame->timestamp);
-        if (rc == SQLITE_OK) {
-            if (event_id > 0) rc = sqlite3_bind_int64(st, 11, (sqlite3_int64)event_id);
-            else rc = sqlite3_bind_null(st, 11);
-        }
-        if (rc == SQLITE_OK) rc = sqlite3_step(st);
-    }
+    int rc = visual_insert_compat(created, source, image_path, model_snapshot,
+                                  question, description, (int)frame->format.width,
+                                  (int)frame->format.height,
+                                  (sqlite3_int64)frame->frame_number,
+                                  (sqlite3_int64)frame->timestamp, event_id);
     char db_error[512] = "unknown SQLite error";
     if (rc != SQLITE_DONE)
         snprintf(db_error, sizeof(db_error), "%s", sqlite3_errmsg(visual_db));
-    sqlite3_finalize(st);
     pthread_mutex_unlock(&visual_lock);
     if (rc != SQLITE_DONE) {
         unlink(image_path);
