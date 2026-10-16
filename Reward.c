@@ -366,7 +366,7 @@ static int reward_apply_internal(const char *target, const char *source, int poi
               "UPDATE reward_once_keys SET created_at=CAST(strftime('%s','now') AS INTEGER) "
               "WHERE created_at IS NULL OR created_at=0",
               NULL, NULL, NULL) != SQLITE_OK)) {
-        fprintf(stderr, "[R2 Reward] Could not migrate reward idempotency keys: %s\\n",
+        fprintf(stderr, "[R2 Reward] Could not migrate reward idempotency keys: %s\n",
                 sqlite3_errmsg(reward_db));
         pthread_mutex_unlock(&reward_lock);
         return -1;
