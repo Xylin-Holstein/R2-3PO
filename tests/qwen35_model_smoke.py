@@ -118,8 +118,14 @@ require(
     "vision can yield to foreground conversation or shutdown",
 )
 require(
-    "if (query_requests_visual_context(query) &&" in core,
-    "a chat turn requests a fresh frame only for an explicit visual-context query",
+    "if (visual_requested && !r2_vision_watch_active())" in core
+    and 'Separate visible facts from inference and uncertainty.", 1);' in core
+    and "CURRENT LIVE VISUAL OBSERVATION: unavailable." in core,
+    "explicit visual questions open the configured camera and never substitute old memories for a missing live frame",
+)
+require(
+    "if (query_requests_visual_context(query) &&" not in core,
+    "explicit visual intent is classified once and camera access is not silently activated for ordinary chat",
 )
 require(
     'json_object_object_get_ex(msg, "content", &content)' in core,
