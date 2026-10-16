@@ -6,7 +6,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 core = (ROOT / "r2.c").read_text(encoding="utf-8")
 start = core.find("char *r2_talk(const char *message)")
-end = core.find("\\nint r2_conversation(void)", start)
+end = core.find("\nint r2_conversation(void)", start)
 if start < 0 or end < 0:
     raise SystemExit("Could not isolate public r2_talk().")
 body = core[start:end]
