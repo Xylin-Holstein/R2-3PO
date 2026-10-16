@@ -13,8 +13,9 @@ for function, subsystem in (
     start = core.index(function)
     end = core.index("\n}", start) + 2
     body = core[start:end]
-    assert f"return {subsystem} ?" in body, f"{subsystem} status must inspect subsystem availability"
+    assert f"int state = {subsystem} ?" in body, f"{subsystem} status must inspect subsystem availability"
     assert ": -1;" in body, f"missing {subsystem} object must return unavailable (-1)"
+    assert "pthread_mutex_lock" in body and "pthread_mutex_unlock" in body, f"{subsystem} status reads must synchronize with device lifecycle"
 
 # The shell's existing tri-state rendering must preserve the distinction:
 # >0 = active, 0 = inactive, <0 = unavailable.
