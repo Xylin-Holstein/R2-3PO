@@ -23,9 +23,13 @@ if shutdown_start < 0 or shutdown_end < 0:
     raise SystemExit("Could not isolate r2_shutdown()")
 shutdown = core[shutdown_start:shutdown_end]
 shell_watch = section(shell, "static void shell_watch_status(void)", "static void shell_watch(const char *argument)")
+ears_stop_start = shell.find('if (!strcasecmp(argument, "stop"))', shell.find("static void shell_ears("))
+ears_stop_end = shell.find('if (!strcasecmp(argument, "status"))', ears_stop_start)
+ears_stop = shell[ears_stop_start:ears_stop_end]
 
 checks = {
     "Watch uses cancellable utterance capture": "r2_ears_listen_utterance_cancelable(" in worker,
+    "Watch keeps its owned live microphone open between utterances": "watch_open_audio(&opened_by_watch)" in worker and "watch_close_audio(&opened_by_watch)" in worker,
     "silence-only windows never become chat turns": 'if (!*transcript)' in worker and "continue;" in worker,
     "recognized speech enters the normal public chat backend": "r2_talk(transcript)" in worker,
     "shutdown is checked before starting a new speech-driven chat turn": "if (shutting_down || !atomic_load(&watch_running))" in worker,
@@ -35,6 +39,7 @@ checks = {
     "shutdown stops background inference before joining sensory workers": "r2_stop_thinking();" in shutdown and shutdown.find("r2_stop_thinking();") < shutdown.find("r2_vision_watch_stop();") < shutdown.find("r2_watch_stop();"),
     "shell Watch status comes from the core worker": "r2_watch_active()" in shell_watch,
     "shell no longer maintains a duplicate Watch state flag": "watch_running" not in shell,
+    "ears stop joins Watch before closing the shared source": "r2_watch_stop();" in ears_stop and ears_stop.find("r2_watch_stop();") < ears_stop.find("r2_ears_stop();"),
     "shell reports the actual local ASR-to-chat behavior": "natural pause" in shell_watch and "normal conversation pipeline" in shell_watch,
 }
 for label, passed in checks.items():
