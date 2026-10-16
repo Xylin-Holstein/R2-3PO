@@ -1796,8 +1796,13 @@ static int migrate_existing_reality_schema(void)
             return -1;
     }
 
-    /* Populate added timestamps with a usable value without overwriting old
-       timestamps or any existing user-entered state. */
+    return 0;
+}
+
+static int backfill_reality_timestamps(void)
+{
+    /* This runs after CREATE TABLE statements, so fresh and upgraded tables
+       both exist. Never overwrite a non-empty timestamp or modeled state. */
     return exec_sql(
         "UPDATE r2_food_ingredient_preferences SET updated_at=CAST(strftime('%s','now') AS INTEGER) WHERE updated_at IS NULL OR updated_at=0;"
         "UPDATE r2_food_preferences SET updated_at=CAST(strftime('%s','now') AS INTEGER) WHERE updated_at IS NULL OR updated_at=0;"
@@ -1916,6 +1921,11 @@ int r2_reality_init(void)
         "INSERT OR IGNORE INTO r2_reality_objects(name,description,quantity,container,owner) "
         "VALUES('TV','CRT television with a built-in VCR and expandable external inputs.',1,'room','R2');";
     if (exec_sql(schema) != 0) {
+        sqlite3_close(reality_db); reality_db = NULL;
+        pthread_mutex_unlock(&reality_lock); return -1;
+    }
+    if (backfill_reality_timestamps() != 0) {
+        fprintf(stderr, "[R2 Reality] Could not backfill timestamps for upgraded tables.\\n");
         sqlite3_close(reality_db); reality_db = NULL;
         pthread_mutex_unlock(&reality_lock); return -1;
     }
