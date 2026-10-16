@@ -118,6 +118,11 @@ jobs:
           python3 -m py_compile V-Webcam.py tests/vwebcam_smoke.py
           python3 tests/vwebcam_smoke.py
 
+      - name: Exercise writes against a legacy visual database schema
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -O2 -ffunction-sections -fdata-sections -I. tests/visual_legacy_schema_smoke.c -o /tmp/r2-visual-legacy-schema-smoke -Wl,--gc-sections -lcurl -lsqlite3 -lpthread -ljson-c -lm
+          /tmp/r2-visual-legacy-schema-smoke
+
       - name: Check local Ollama readiness probe without network access
         run: |
           python3 -m py_compile tools/preflight_ollama_model.py tests/ollama_preflight_smoke.py
