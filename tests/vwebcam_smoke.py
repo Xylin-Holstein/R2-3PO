@@ -42,6 +42,11 @@ def main() -> None:
     assert "Return ONLY valid JSON with keys description and focus" in visual
     assert '"format", json_object_new_string("json")' in visual
     assert "extract_visual_description(model_text)" in visual
+    assert "static int visual_insert_compat(" in visual
+    assert "visual_insert_compat(created, source, image_path, model_snapshot," in visual
+    for legacy_column in ("created_at", "timestamp", "file_path", "path"):
+        assert f'visual_column_exists("{legacy_column}")' in visual
+    assert 'visual_backfill("image_path", "file_path")' in visual
     assert "publish_focus_region(focus)" in visual
     assert "const char *display = getenv(\"DISPLAY\")" in visual
     assert "if (!display || !*display)" in visual
