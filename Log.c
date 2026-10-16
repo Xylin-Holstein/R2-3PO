@@ -2145,10 +2145,12 @@ static char *query_events(const char *query, int limit)
         if (query && link_statement && linked_total < 8) {
             sqlite3_reset(link_statement);
             sqlite3_clear_bindings(link_statement);
-            rc = sqlite3_bind_int64(link_statement, 1, id);
-            if (rc == SQLITE_OK) rc = sqlite3_bind_int64(link_statement, 2, id);
-            if (rc == SQLITE_OK) rc = sqlite3_bind_int64(link_statement, 3, id);
-            if (rc != SQLITE_OK) {
+            int link_bind_rc = sqlite3_bind_int64(link_statement, 1, id);
+            if (link_bind_rc == SQLITE_OK)
+                link_bind_rc = sqlite3_bind_int64(link_statement, 2, id);
+            if (link_bind_rc == SQLITE_OK)
+                link_bind_rc = sqlite3_bind_int64(link_statement, 3, id);
+            if (link_bind_rc != SQLITE_OK) {
                 free(output);
                 output = NULL;
                 break;
