@@ -2576,19 +2576,57 @@ int r2_reality_move_item(const char *name,const char *container)
         if (r2_reality_remove_item(name) != 0) {
             pthread_mutex_lock(&fridge_lock);
             sqlite3_stmt *rollback = NULL;
-            const char *rollback_sql = prior_fridge_exists
-                ? "UPDATE r2_fridge_items SET description=?,quantity=?,fullness=?,energy=?,ingredients=?,taste=?,updated_at=CURRENT_TIMESTAMP WHERE name=? COLLATE NOCASE"
-                : "DELETE FROM r2_fridge_items WHERE name=? COLLATE NOCASE";
+            char rollback_sql[1024];
+            if (prior_fridge_exists) {
+                size_t used = 0;
+                int n = snprintf(rollback_sql, sizeof(rollback_sql),
+                    "UPDATE r2_fridge_items SET description=?,quantity=?,fullness=?,energy=?,ingredients=?,taste=?");
+                if (n < 0 || (size_t)n >= sizeof(rollback_sql)) {
+                    pthread_mutex_unlock(&fridge_lock);
+                    return -1;
+                }
+                used = (size_t)n;
+                if (fridge_column_exists("qty")) {
+                    n = snprintf(rollback_sql + used, sizeof(rollback_sql) - used, ",qty=?");
+                    if (n < 0 || (size_t)n >= sizeof(rollback_sql) - used) {
+                        pthread_mutex_unlock(&fridge_lock);
+                        return -1;
+                    }
+                    used += (size_t)n;
+                }
+                if (fridge_column_exists("amount")) {
+                    n = snprintf(rollback_sql + used, sizeof(rollback_sql) - used, ",amount=?");
+                    if (n < 0 || (size_t)n >= sizeof(rollback_sql) - used) {
+                        pthread_mutex_unlock(&fridge_lock);
+                        return -1;
+                    }
+                    used += (size_t)n;
+                }
+                n = snprintf(rollback_sql + used, sizeof(rollback_sql) - used,
+                    ",updated_at=CURRENT_TIMESTAMP WHERE name=? COLLATE NOCASE");
+                if (n < 0 || (size_t)n >= sizeof(rollback_sql) - used) {
+                    pthread_mutex_unlock(&fridge_lock);
+                    return -1;
+                }
+            } else {
+                snprintf(rollback_sql, sizeof(rollback_sql),
+                    "DELETE FROM r2_fridge_items WHERE name=? COLLATE NOCASE");
+            }
             int rollback_rc = sqlite3_prepare_v2(fridge_db, rollback_sql, -1, &rollback, NULL);
             if (rollback_rc == SQLITE_OK) {
                 if (prior_fridge_exists) {
-                    bind_text(rollback, 1, prior_fridge_description);
-                    sqlite3_bind_int(rollback, 2, prior_fridge_quantity);
-                    sqlite3_bind_double(rollback, 3, prior_fridge_fullness);
-                    sqlite3_bind_double(rollback, 4, prior_fridge_energy);
-                    bind_text(rollback, 5, prior_fridge_ingredients);
-                    bind_text(rollback, 6, prior_fridge_taste);
-                    bind_text(rollback, 7, name);
+                    int bind_index = 1;
+                    bind_text(rollback, bind_index++, prior_fridge_description);
+                    sqlite3_bind_int(rollback, bind_index++, prior_fridge_quantity);
+                    sqlite3_bind_double(rollback, bind_index++, prior_fridge_fullness);
+                    sqlite3_bind_double(rollback, bind_index++, prior_fridge_energy);
+                    bind_text(rollback, bind_index++, prior_fridge_ingredients);
+                    bind_text(rollback, bind_index++, prior_fridge_taste);
+                    if (fridge_column_exists("qty"))
+                        sqlite3_bind_int(rollback, bind_index++, prior_fridge_quantity);
+                    if (fridge_column_exists("amount"))
+                        sqlite3_bind_int(rollback, bind_index++, prior_fridge_quantity);
+                    bind_text(rollback, bind_index, name);
                 } else {
                     bind_text(rollback, 1, name);
                 }
