@@ -10078,6 +10078,10 @@ static void *watch_worker(void *unused)
             continue;
         }
 
+        if (shutting_down || !atomic_load(&watch_running)) {
+            free(transcript);
+            break;
+        }
         /* Use the exact same public conversation backend as typed chat and
            explicit ears-listen. A VAD utterance becomes one ordinary user turn. */
         char *reply = r2_talk(transcript);
