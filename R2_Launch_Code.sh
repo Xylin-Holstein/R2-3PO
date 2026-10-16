@@ -669,6 +669,7 @@ sudo -n setpriv --reuid="$R2_UID" --regid="$R2_GID" --groups="$R2_RUNTIME_GROUPS
     R2_OLLAMA_NUM_GPU="${R2_OLLAMA_NUM_GPU}" \
     R2_WHISPER_MODEL="${R2_WHISPER_MODEL:-}" \
     R2_WHISPER_CLI="${R2_WHISPER_CLI:-}" \
+    R2_EARS_VAD_THRESHOLD="${R2_EARS_VAD_THRESHOLD:-}" \
     R2_CAMERA_DEVICE="${R2_CAMERA_DEVICE:-/dev/video0}" \
     R2_VISION_MODEL="qwen3.5:9b" \
     R2_FX_DIR="$R2_FX_DIR" \
