@@ -392,7 +392,7 @@ static int r2_ears_source_exists(const char *source)
     if (!quoted_source)
         return 0;
 
-    snprintf(
+    int command_length = snprintf(
         command,
         sizeof(command),
         "pactl list short sources 2>/dev/null | "
@@ -401,6 +401,9 @@ static int r2_ears_source_exists(const char *source)
     );
 
     free(quoted_source);
+
+    if (command_length < 0 || (size_t)command_length >= sizeof(command))
+        return 0;
 
     pipe = popen(command, "r");
 

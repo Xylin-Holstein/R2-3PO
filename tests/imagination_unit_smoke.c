@@ -45,7 +45,7 @@ char *r2_log_search(const char *query, int limit)
 {
     (void)query; (void)limit; return strdup("LIFELOG_SENTINEL: an earlier real event.");
 }
-char *r2_reality_imagination_context(void)
+char *r2_reality_context(void)
 {
     return strdup("REALITY_SENTINEL: current modeled room and self-state.");
 }
