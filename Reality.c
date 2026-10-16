@@ -1804,6 +1804,8 @@ static int backfill_reality_timestamps(void)
     /* This runs after CREATE TABLE statements, so fresh and upgraded tables
        both exist. Never overwrite a non-empty timestamp or modeled state. */
     return exec_sql(
+        "UPDATE r2_reality_item_memory SET collected_at=CAST(strftime('%s','now') AS INTEGER) WHERE collected_at IS NULL OR collected_at=0;"
+        "UPDATE r2_reality_item_memory SET last_decay_at=collected_at WHERE last_decay_at IS NULL OR last_decay_at=0;"
         "UPDATE r2_food_ingredient_preferences SET updated_at=CAST(strftime('%s','now') AS INTEGER) WHERE updated_at IS NULL OR updated_at=0;"
         "UPDATE r2_food_preferences SET updated_at=CAST(strftime('%s','now') AS INTEGER) WHERE updated_at IS NULL OR updated_at=0;"
         "UPDATE r2_reality_self_facts SET updated_at=CURRENT_TIMESTAMP WHERE updated_at IS NULL OR updated_at='';"
