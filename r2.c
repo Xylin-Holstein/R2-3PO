@@ -9697,6 +9697,7 @@ static char *r2_ears_listen_internal(unsigned seconds, int stop_on_silence,
     int capture_ok = 0;
     int speech_started = 0;
     unsigned silent_frames = 0;
+    unsigned no_speech_frames = 0;
     unsigned long long vad_threshold = 600;
     const char *vad_threshold_env = getenv("R2_EARS_VAD_THRESHOLD");
     if (vad_threshold_env && *vad_threshold_env) {
@@ -9775,7 +9776,12 @@ static char *r2_ears_listen_internal(unsigned seconds, int stop_on_silence,
         if (stop_on_silence) {
             unsigned long long level = r2_ears_pcm_mean_absolute_level(pcm, (size_t)got);
             if (!speech_started) {
-                if (level >= vad_threshold) speech_started = 1;
+                if (level >= vad_threshold) {
+                    speech_started = 1;
+                    silent_frames = 0;
+                } else {
+                    ++no_speech_frames;
+                }
             } else if (level < vad_silence_threshold) {
                 ++silent_frames;
             } else {
@@ -9793,6 +9799,11 @@ static char *r2_ears_listen_internal(unsigned seconds, int stop_on_silence,
            so Whisper receives a natural utterance boundary. */
         if (stop_on_silence && speech_started && silent_frames >= 60U)
             break;
+        /* Do not spend the full utterance limit transcribing silence. After
+           two seconds without speech, return an empty/no-speech result and
+           immediately begin another cancellable listening window. */
+        if (stop_on_silence && !speech_started && no_speech_frames >= 200U)
+            break;
     }
     if (own_mic) {
         r2_ears_close(ears);
@@ -9809,7 +9820,7 @@ static char *r2_ears_listen_internal(unsigned seconds, int stop_on_silence,
         capture_ok = 1;
     if (fclose(wav) != 0) capture_ok = 0;
     wav = NULL;
-    if (stop_on_silence && !speech_started && captured_bytes == total_bytes &&
+    if (stop_on_silence && !speech_started && no_speech_frames >= 200U &&
         !shutting_down && !(cancelled && cancelled(userdata))) {
         /* Empty allocated text means no speech was detected, not an ASR error. */
         transcript = calloc(1, 1);
