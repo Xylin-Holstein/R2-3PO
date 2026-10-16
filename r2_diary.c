@@ -757,7 +757,7 @@ int r2_diary_init(void)
     }
 
     if (diary_entries_migrate_schema() != SQLITE_OK) {
-        fprintf(stderr, "[R2 DIARY] Could not migrate diary entry schema: %s\\n",
+        fprintf(stderr, "[R2 DIARY] Could not migrate diary entry schema: %s\n",
                 sqlite3_errmsg(r2_diary_db));
         return -1;
     }
