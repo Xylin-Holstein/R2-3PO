@@ -52,7 +52,7 @@ int main(void)
                     "explicit statement stored as a durable relationship link") != 0 ||
         r2_log_link(linked, other, "relationship_context",
                     "another explicit edge from the matching relationship event") != 0) {
-        fprintf(stderr, "Could not create linked identity test records.\\n");
+        fprintf(stderr, "Could not create linked identity test records.\n");
         r2_log_shutdown();
         return 1;
     }
