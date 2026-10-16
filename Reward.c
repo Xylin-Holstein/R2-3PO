@@ -349,9 +349,25 @@ static int reward_apply_internal(const char *target, const char *source, int poi
 
     if (apply_once && sqlite3_exec(reward_db,
             "CREATE TABLE IF NOT EXISTS reward_once_keys ("
-            "target TEXT NOT NULL, source TEXT NOT NULL, created_at INTEGER NOT NULL,"
+            "target TEXT NOT NULL, source TEXT NOT NULL, created_at INTEGER NOT NULL DEFAULT 0,"
             "PRIMARY KEY(target,source));",
             NULL, NULL, NULL) != SQLITE_OK) {
+        pthread_mutex_unlock(&reward_lock);
+        return -1;
+    }
+    /* Earlier idempotency-key tables had only target/source. Add the timestamp
+       in place before any INSERT assumes it exists; retain every existing key. */
+    if (apply_once &&
+        ((!reward_column_exists("reward_once_keys", "created_at") &&
+          sqlite3_exec(reward_db,
+              "ALTER TABLE reward_once_keys ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0",
+              NULL, NULL, NULL) != SQLITE_OK) ||
+         sqlite3_exec(reward_db,
+              "UPDATE reward_once_keys SET created_at=CAST(strftime('%s','now') AS INTEGER) "
+              "WHERE created_at IS NULL OR created_at=0",
+              NULL, NULL, NULL) != SQLITE_OK)) {
+        fprintf(stderr, "[R2 Reward] Could not migrate reward idempotency keys: %s\\n",
+                sqlite3_errmsg(reward_db));
         pthread_mutex_unlock(&reward_lock);
         return -1;
     }
