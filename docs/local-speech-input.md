@@ -11,9 +11,10 @@ capture alone cannot make spoken words part of a conversation. The explicit
 4. Remove the temporary WAV and transcript.
 5. Pass the recognized text to the same `r2_talk()` conversation path used by typed messages.
 
-No audio is uploaded to a remote service, and raw audio/transcript files are
-not retained after the command. R2 records that a transcription occurred, not
-the transcript itself, in the Sensory Journal/Life Log.
+No audio is uploaded to a remote service, and temporary raw audio/transcript
+files are removed after processing. The sensory event records that a
+transcription occurred; the recognized text is then handled as a normal user
+conversation turn, so it follows the existing chat history and memory path.
 
 ## Configure it
 
@@ -48,6 +49,27 @@ The capture duration is limited to 1–15 seconds. Local transcription is
 terminated if it exceeds 90 seconds or R2 begins shutting down. If the model
 or executable is missing, R2 reports that speech recognition is unavailable
 instead of pretending it understood audio.
+
+## Watch coordinator
+
+- `watch` or `watch start` starts a background coordinator after validating the
+  local Whisper model, CLI, and default microphone.
+- Watch captures non-overlapping five-second microphone chunks. A usable
+  transcript is sent through the same serialized shell chat path as typed
+  text; silence does not create a turn.
+- `watch status` reports the coordinator thread, speech input, and visual
+  observation states. `watch stop` cancels microphone capture/Whisper work and
+  joins the worker; if a user-facing chat turn has already begun, Watch waits
+  for that turn to finish rather than corrupting conversation state.
+- If Eyes is already open and the visual subsystem is available, Watch attaches
+  the periodic visual observer. Watch never opens a camera or media source by
+  itself.
+
+This is bounded chunked listening, not yet uninterrupted streaming or
+voice-activity-detected turn segmentation. While a chunk is being transcribed
+or R2 is generating its reply, subsequent speech may not be captured. That is
+a known next step for the coordinator, not something the current implementation
+claims to solve.
 
 This wiring is covered by a static CI regression check. A passing CI build
 does not prove that a particular microphone, PulseAudio/PipeWire setup, Whisper
