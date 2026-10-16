@@ -33,5 +33,5 @@ assert "r2_ears_listen_cancelable(unsigned seconds," in core
 assert "if (!transcript && !cancelled)" in core
 assert "int r2_watch_start(void);" in header and "int r2_watch_stop(void);" in header
 assert "shell_watch_stop();" in shell[shell.index("static void shell_shutdown_r2"):shell.index("static void shell_restart")]
-assert "shell_watch_stop();" in shell[shell.index("static void shell_restart"):shell.index("static void shell_clear")]
+assert "shell_watch_stop();" in shell[shell.index("static void shell_restart"):shell.index("static int shell_parse_amount")]
 print("Watch worker startup, cancellation, normal chat handoff, optional visual lifecycle, and shutdown joins passed.")
