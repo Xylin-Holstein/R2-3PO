@@ -10043,21 +10043,83 @@ static void watch_sleep_cancellable(unsigned milliseconds)
     }
 }
 
+static int watch_open_audio(int *opened_by_watch)
+{
+    if (!opened_by_watch) return -1;
+    *opened_by_watch = 0;
+    pthread_mutex_lock(&ears_capture_lock);
+    if (!ears) {
+        pthread_mutex_unlock(&ears_capture_lock);
+        return -1;
+    }
+    if (r2_ears_is_open(ears)) {
+        R2HearingEvent current_event;
+        if (r2_ears_get_event(ears, &current_event) != 0 ||
+            current_event.origin != R2_HEARING_WORLD) {
+            pthread_mutex_unlock(&ears_capture_lock);
+            return -1;
+        }
+    } else {
+        if (r2_ears_open_microphone(ears) != 0) {
+            pthread_mutex_unlock(&ears_capture_lock);
+            return -1;
+        }
+        *opened_by_watch = 1;
+    }
+    pthread_mutex_unlock(&ears_capture_lock);
+    return 0;
+}
+
+static void watch_close_audio(int *opened_by_watch)
+{
+    if (!opened_by_watch || !*opened_by_watch) return;
+    pthread_mutex_lock(&ears_capture_lock);
+    if (ears && r2_ears_is_open(ears))
+        r2_ears_close(ears);
+    pthread_mutex_unlock(&ears_capture_lock);
+    *opened_by_watch = 0;
+}
+
 static void *watch_worker(void *unused)
 {
     (void)unused;
     unsigned consecutive_errors = 0;
+    int audio_ready = 0;
+    int opened_by_watch = 0;
     r2_log_event(R2_LOG_LIFECYCLE, "watch_worker_started",
                  "R2 Watch started its cancellable local speech listener.",
                  "Audio is captured with local voice-activity detection; non-speech windows do not create chat turns.",
                  "r2_watch_start");
 
     while (!shutting_down && atomic_load(&watch_running)) {
+        if (!audio_ready) {
+            if (watch_open_audio(&opened_by_watch) != 0) {
+                ++consecutive_errors;
+                r2_log_event(R2_LOG_ERROR, "watch_audio_open_failed",
+                             "R2 Watch could not open a live audio source.",
+                             "Check the default microphone/source and input permissions.",
+                             "watch_worker");
+                if (consecutive_errors >= 5U) {
+                    atomic_store(&watch_running, 0);
+                    break;
+                }
+                watch_sleep_cancellable(1000U);
+                continue;
+            }
+            audio_ready = 1;
+            consecutive_errors = 0;
+        }
         char *transcript = r2_ears_listen_utterance_cancelable(
             15U, watch_cancel_requested, NULL);
         if (shutting_down || !atomic_load(&watch_running)) {
             free(transcript);
             break;
+        }
+        if (r2_ears_status() <= 0) {
+            /* If an external command closed Ears, do not assume ownership of
+               whatever source may be opened next; reacquire on the next loop. */
+            audio_ready = 0;
+            opened_by_watch = 0;
         }
         if (!transcript) {
             ++consecutive_errors;
@@ -10100,6 +10162,7 @@ static void *watch_worker(void *unused)
         free(transcript);
     }
 
+    watch_close_audio(&opened_by_watch);
     atomic_store(&watch_running, 0);
     r2_log_event(R2_LOG_LIFECYCLE, "watch_worker_stopped",
                  "R2 Watch's local speech listener stopped.",
