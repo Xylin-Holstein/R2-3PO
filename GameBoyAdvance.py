@@ -106,7 +106,32 @@ def connect() -> sqlite3.Connection:
             updated_at TEXT NOT NULL
         );
     """)
-    # Migrate a device database created by an earlier console build.
+    # Older releases already had the console_state table, so CREATE TABLE IF
+    # NOT EXISTS does not add fields introduced by newer runtime versions.
+    # Add only missing columns in place and preserve the existing state row.
+    state_columns = {row[1] for row in db.execute("PRAGMA table_info(console_state)")}
+    for name, declaration in (
+        ("emulator_pid", "INTEGER"),
+        ("emulator_start_ticks", "INTEGER"),
+        ("game_started_at", "TEXT"),
+        ("session_id", "TEXT"),
+    ):
+        if name not in state_columns:
+            db.execute(f"ALTER TABLE console_state ADD COLUMN {name} {declaration}")
+
+    # Older inventory tables are upgraded additively too. Neutral defaults
+    # keep existing cartridges visible without inventing a location history.
+    inventory_columns = {row[1] for row in db.execute("PRAGMA table_info(cartridge_inventory)")}
+    for name, declaration in (
+        ("title", "TEXT NOT NULL DEFAULT ''"),
+        ("location", "TEXT NOT NULL DEFAULT 'pockets'"),
+        ("discovered_at", "TEXT NOT NULL DEFAULT ''"),
+        ("updated_at", "TEXT NOT NULL DEFAULT ''"),
+    ):
+        if name not in inventory_columns:
+            db.execute(f"ALTER TABLE cartridge_inventory ADD COLUMN {name} {declaration}")
+
+    # Event provenance fields were added after the initial console event log.
     columns = {row[1] for row in db.execute("PRAGMA table_info(console_events)")}
     for name, declaration in (
         ("evidence_source", "TEXT"),
