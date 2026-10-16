@@ -44,9 +44,26 @@ static int scalar(sqlite3 *db, const char *sql)
     return value;
 }
 
+static void remove_if_present(const char *path)
+{
+    if (unlink(path) != 0 && errno != ENOENT) {
+        perror(path);
+        exit(1);
+    }
+}
+
 int main(void)
 {
-    (void)system("rm -rf /tmp/r2-reward-legacy-schema-smoke");
+    char sidecar[sizeof(REWARD_DB_PATH) + 8];
+    remove_if_present(REWARD_DB_PATH);
+    snprintf(sidecar, sizeof(sidecar), "%s-wal", REWARD_DB_PATH);
+    remove_if_present(sidecar);
+    snprintf(sidecar, sizeof(sidecar), "%s-shm", REWARD_DB_PATH);
+    remove_if_present(sidecar);
+    if (rmdir(R2_HOME) != 0 && errno != ENOENT) {
+        perror("rmdir reward test root");
+        return 1;
+    }
     assert(mkdir(R2_HOME, 0755) == 0);
 
     sqlite3 *legacy = NULL;
