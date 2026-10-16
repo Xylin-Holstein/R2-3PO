@@ -25,7 +25,20 @@ assert "O_EXCL | O_CLOEXEC, 0600" in bridge
 assert "r2_ears_close(ears)" in bridge
 assert "unlink(wav_path)" in bridge and "unlink(transcript_path)" in bridge
 assert "char *r2_ears_listen(unsigned seconds);" in header
-assert 'r2_talk(transcript)' in shell
+assert 'shell_talk(transcript)' in shell
+conversation_start = shell.index("static void shell_talk(const char *message)")
+conversation_end = shell.index("static void shell_conversation(", conversation_start)
+conversation_entry = shell[conversation_start:conversation_end]
+assert 'r2_talk(message)' in conversation_entry, (
+    "speech transcripts must enter the same shell_talk -> r2_talk path as typed messages"
+)
+assert 'static void shell_conversation(const char *message)' in shell
+conversation_start = shell.index("static void shell_conversation(const char *message)")
+conversation_end = shell.index("/*", conversation_start)
+conversation_entry = shell[conversation_start:conversation_end]
+assert 'shell_talk(message)' in conversation_entry, (
+    "typed conversation must use the same shell_talk entry point as speech transcripts"
+)
 assert 'strncasecmp(argument, "listen", 6)' in shell
 assert "ears listen [1-15 seconds]" in shell
 assert 'R2_WHISPER_MODEL="${R2_WHISPER_MODEL:-}"' in launcher
