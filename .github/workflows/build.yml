@@ -1,0 +1,471 @@
+name: R2 build
+
+on:
+  push:
+    branches:
+      - main
+      - 'fix/**'
+      - 'feature/**'
+      - 'test/**'
+      - 'integrate/**'
+      - 'audit/**'
+      - fix/text-model-network-and-sensory-continuity
+      - r2-audit-fixes-2026-10-09
+      - r2-complete-audit-2026-10-09
+      - r2-hunger-reflection-fix-2026-10-10
+      - r2-hardware-chat-pipeline-2026-10-11
+      - b2.5w2-system-prompt-budget-2026-10-11
+      - consolidate/b2-5w2-latest-audit-2026-10-11
+      - deploy/r2-hardware-ready-2026-10-11
+      - deploy/r2-model-output-network-isolation-2026-10-12
+  pull_request:
+    branches:
+      - main
+      - 'integrate/**'
+      - clean-copy-r2-audit-2026-10-09
+      - r2-hunger-reflection-fix-2026-10-10
+      - consolidate/b2-5w2-latest-audit-2026-10-11
+      - deploy/r2-hardware-ready-2026-10-11
+  workflow_dispatch:
+
+concurrency:
+  group: r2-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libcurl4-openssl-dev libsqlite3-dev libjson-c-dev libpulse-dev python3-tk
+
+      - name: Check consistent strict build configuration
+        run: |
+          python3 -m py_compile tests/build_configuration_smoke.py
+          python3 tests/build_configuration_smoke.py
+
+      - name: Check model references and implemented lifecycle documentation
+        run: |
+          python3 -m py_compile tests/model_reference_consistency_smoke.py
+          python3 tests/model_reference_consistency_smoke.py
+
+      - name: Check every shell script for syntax errors
+        run: find . -type f -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
+      - name: Check TV control socket framing and shutdown lifecycle
+        run: |
+          python3 -m py_compile tests/tv_control_lifecycle_smoke.py
+          python3 tests/tv_control_lifecycle_smoke.py
+      - name: Check bounded terminal shell input
+        run: |
+          python3 -m py_compile tests/shell_input_bound_smoke.py
+          python3 tests/shell_input_bound_smoke.py
+      - name: Check fail-closed Ollama message serialization
+        run: |
+          python3 -m py_compile tests/ollama_payload_allocation_smoke.py
+          python3 tests/ollama_payload_allocation_smoke.py
+      - name: Check fail-closed Ollama request configuration
+        run: |
+          python3 -m py_compile tests/ollama_request_config_smoke.py
+          python3 tests/ollama_request_config_smoke.py
+      - name: Keep launcher, compiled modules, model, and cleanup in sync
+        run: |
+          python3 -m py_compile tests/launcher_shell_audit_smoke.py
+          python3 tests/launcher_shell_audit_smoke.py
+
+      - name: Check launcher preflight and Makefile dependency for bounded input header
+        run: python3 tests/launcher_input_header_smoke.py
+
+      - name: Check read-only hardware deployment preflight
+        run: |
+          bash -n tools/preflight_r2_hardware.sh
+          python3 -m py_compile tests/r2_hardware_preflight_smoke.py
+          python3 tests/r2_hardware_preflight_smoke.py
+      - name: Check deployment audit utilities and read-only database behavior
+        run: |
+          python3 -m py_compile tools/audit_r2_databases.py tools/audit_r2_sound_assets.py
+          ROOT="$(mktemp -d)"
+          set +e
+          python3 tools/audit_r2_databases.py --root "$ROOT" --json > "$ROOT/report.json"
+          STATUS=$?
+          set -e
+          test "$STATUS" -eq 2
+          python3 - "$ROOT/report.json" "$ROOT" <<'PY'
+          import json, pathlib, sys
+          report = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          root = pathlib.Path(sys.argv[2])
+          assert report["read_only"] is True
+          assert len(report["summary"]["missing"]) == 5
+          assert report["summary"]["integrity_failures"] == []
+          assert not any((root / name).exists() for name in (
+              "r2_memory.db", "r2_reality.db", "r2_fridge.db",
+              "r2_rewards.db", "r2_addictions.db"
+          )), "read-only audit must not initialize missing databases"
+          print("Deployment audit utilities compile and missing-database audit is non-mutating.")
+          PY
+
+      - name: Check observer syntax and privacy allowlist
+        run: |
+          python3 -m py_compile Observer.py tests/observer_filter_smoke.py
+          python3 tests/observer_filter_smoke.py
+
+      - name: Check V-Webcam frame mirror and focus overlay
+        run: |
+          python3 -m py_compile V-Webcam.py tests/vwebcam_smoke.py
+          python3 tests/vwebcam_smoke.py
+
+      - name: Exercise writes against a legacy visual database schema
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -O2 -ffunction-sections -fdata-sections -I. tests/visual_legacy_schema_smoke.c -o /tmp/r2-visual-legacy-schema-smoke -Wl,--gc-sections -lcurl -lsqlite3 -lpthread -ljson-c -lm
+          /tmp/r2-visual-legacy-schema-smoke
+
+      - name: Exercise writes against a legacy addiction database schema
+        run: |
+          ROOT=/tmp/r2-addiction-legacy-schema-smoke
+          rm -rf "$ROOT" /tmp/r2-addiction-legacy-schema-test
+          mkdir -p "$ROOT/R2"
+          FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\"$ROOT\" -DR2_HOME=\"$ROOT/R2\""
+          cc $FLAGS tests/addiction_legacy_schema_smoke.c Addiction.c -o /tmp/r2-addiction-legacy-schema-test -lsqlite3 -lpthread
+          /tmp/r2-addiction-legacy-schema-test
+
+      - name: Exercise writes against a legacy fridge database schema
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -O2 -ffunction-sections -fdata-sections -I. tests/fridge_legacy_schema_smoke.c -o /tmp/r2-fridge-legacy-schema-smoke -Wl,--gc-sections -lcurl -lsqlite3 -lpthread -ljson-c -lm
+          /tmp/r2-fridge-legacy-schema-smoke
+
+      - name: Check local Ollama readiness probe without network access
+        run: |
+          python3 -m py_compile tools/preflight_ollama_model.py tests/ollama_preflight_smoke.py
+          python3 tests/ollama_preflight_smoke.py
+
+      - name: Check microphone speech-to-chat bridge
+        run: |
+          python3 -m py_compile tests/ears_speech_bridge_smoke.py
+          python3 tests/ears_speech_bridge_smoke.py
+
+      - name: Check Watch coordinator worker lifecycle
+        run: python3 tests/watch_coordinator_lifecycle_smoke.py
+
+      - name: Require open Eyes before starting visual observation
+        run: python3 tests/vision_watch_requires_open_eyes_smoke.py
+
+      - name: Cancel visual inference when stopping Watch
+        run: python3 tests/vision_watch_cancellation_smoke.py
+
+      - name: Check unified Qwen 3.5 conversation and vision wiring
+        run: python3 tests/qwen35_model_smoke.py
+
+      - name: Keep retrieved context separate from the active user turn
+        run: python3 tests/current_turn_context_smoke.py
+
+      - name: Preserve newest conversation turns in bounded history context
+        run: |
+          python3 -m py_compile tests/recent_context_budget_smoke.py
+          python3 tests/recent_context_budget_smoke.py
+          ROOT=/tmp/r2-recent-context-runtime
+          rm -rf "$ROOT"
+          mkdir -p "$ROOT/R2"
+          FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\"$ROOT\" -DR2_HOME=\"$ROOT/R2\" -DR2_WORKSPACE=\"$ROOT\" -DR2_DIARY_DATABASE=\"$ROOT/R2/r2_memory.db\" -DR2_DIARY_DIR=\"$ROOT/R2_Diary\""
+          cc $FLAGS tests/recent_context_budget_runtime.c shell.c r2_diary.c Log.c SensoryJournal.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c R2Sounds.c R2Reply.c Imagination.c -o /tmp/r2-recent-context-runtime-test -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
+          /tmp/r2-recent-context-runtime-test
+
+      - name: Check multi-turn recovery and conversation serialization
+        run: |
+          python3 -m py_compile tests/conversation_recovery_smoke.py
+          python3 tests/conversation_recovery_smoke.py
+
+      - name: Keep diagnostics out of the interactive conversation stream
+        run: python3 tests/console_diagnostics_isolation_smoke.py
+
+      - name: Guard direct conversation against stderr-only failures
+        run: python3 tests/direct_conversation_failure_smoke.py
+
+      - name: Reject oversized shell messages without truncation
+        run: python3 tests/shell_input_limit_smoke.py
+
+      - name: Reject oversized direct-conversation messages without truncation
+        run: python3 tests/direct_conversation_input_limit_smoke.py
+
+      - name: Exercise shared bounded input reader
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -O2 -I. tests/r2_input_smoke.c -o /tmp/r2-input-smoke
+          /tmp/r2-input-smoke
+
+      - name: Guard final assembled conversation context budget
+        run: python3 tests/final_context_budget_smoke.py
+
+      - name: Check model-assisted associative memory retrieval
+        run: python3 tests/associative_retrieval_smoke.py
+
+      - name: Deduplicate overlapping Life Log retrieval results
+        run: |
+          python3 -m py_compile tests/life_log_retrieval_dedupe_smoke.py
+          python3 tests/life_log_retrieval_dedupe_smoke.py
+
+      - name: Exercise bidirectional Life Log relationship retrieval
+        run: |
+          # The shared path constants point at R2's canonical home. GitHub's
+          # runner user cannot create /home/x directly, so create this isolated
+          # test-only path with sudo and make the database directory writable.
+          ROOT=/home/x/R2_Home/R2
+          sudo mkdir -p "$ROOT"
+          sudo chmod -R a+rwx /home/x/R2_Home
+          trap 'sudo rm -rf /home/x/R2_Home' EXIT
+          cc -std=c11 -Wall -Wextra -Werror -O2 -I. tests/log_linked_retrieval_smoke.c Log.c -o /tmp/r2-log-linked-retrieval-test -lsqlite3 -lpthread -lm
+          /tmp/r2-log-linked-retrieval-test
+
+      - name: Check bounded RAM context cache and hardware telemetry
+        run: python3 tests/context_cache_smoke.py
+
+      - name: Prevent archived dialogue from becoming an assistant instruction or answer
+        run: python3 tests/archive_prompt_smoke.py
+
+      - name: Prevent silent truncation of the complete system prompt
+        run: python3 tests/prompt_budget_smoke.py
+
+      - name: Keep GTX 1050 Ti context budget within VRAM headroom
+        run: python3 tests/gpu_context_budget_smoke.py
+
+      - name: Check Ollama mixed CPU/GPU layer placement
+        run: python3 tests/ollama_gpu_offload_smoke.py
+
+      - name: Keep the current user turn in bounded Ollama payloads
+        run: python3 tests/ollama_current_turn_smoke.py
+
+      - name: Refuse silently truncated active user turns
+        run: python3 tests/no_truncated_current_turn_smoke.py
+
+      - name: Retry obvious nonresponsive text misclassification once
+        run: python3 tests/nonresponsive_reply_retry_smoke.py
+      - name: Guard task pipe and child waits against interrupted system calls
+        run: |
+          python3 -m py_compile tests/r2_task_wait_smoke.py
+          python3 tests/r2_task_wait_smoke.py
+      - name: Cancel a silent active HAND task during shutdown
+        run: |
+          ROOT=/tmp/r2-task-shutdown-smoke
+          rm -rf "$ROOT" /tmp/r2-task-shutdown-smoke-test
+          mkdir -p "$ROOT/R2"
+          FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\"$ROOT\" -DR2_HOME=\"$ROOT/R2\" -DR2_WORKSPACE=\"$ROOT\" -DR2_DIARY_DATABASE=\"$ROOT/R2/r2_memory.db\" -DR2_DIARY_DIR=\"$ROOT/R2_Diary\""
+          cc $FLAGS tests/r2_task_shutdown_runtime.c shell.c r2_diary.c Log.c SensoryJournal.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c R2Sounds.c R2Reply.c Imagination.c -o /tmp/r2-task-shutdown-smoke-test -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
+          /tmp/r2-task-shutdown-smoke-test
+
+      - name: Exercise the production reply-misclassification guard
+        run: |
+          ROOT=/tmp/r2-reply-misclassification-smoke
+          rm -rf "$ROOT"
+          mkdir -p "$ROOT/R2"
+          FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\"$ROOT\" -DR2_HOME=\"$ROOT/R2\" -DR2_WORKSPACE=\"$ROOT\" -DR2_DIARY_DATABASE=\"$ROOT/R2/r2_memory.db\" -DR2_DIARY_DIR=\"$ROOT/R2_Diary\""
+          cc $FLAGS tests/r2_reply_misclassification_smoke.c shell.c r2_diary.c Log.c SensoryJournal.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c R2Sounds.c R2Reply.c Imagination.c -o /tmp/r2-reply-misclassification-smoke-test -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
+          /tmp/r2-reply-misclassification-smoke-test
+
+      - name: Guard against silent conversation failures
+        run: python3 tests/silent_turn_regression.py
+
+      - name: Defer autonomous reflection until R2 has been idle
+        run: |
+          python3 -m py_compile tests/autonomous_reflection_idle_smoke.py
+          python3 tests/autonomous_reflection_idle_smoke.py
+
+      - name: Check runtime headroom and backwards-compatible memory migration
+        run: python3 tests/runtime_headroom_smoke.py
+
+      - name: Exercise real legacy memory database migration
+        run: |
+          ROOT=/tmp/r2-memory-schema-smoke
+          rm -rf "$ROOT"
+          mkdir -p "$ROOT/R2"
+          FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\"$ROOT\" -DR2_HOME=\"$ROOT/R2\" -DR2_WORKSPACE=\"$ROOT\" -DR2_DIARY_DATABASE=\"$ROOT/R2/r2_memory.db\" -DR2_DIARY_DIR=\"$ROOT/R2_Diary\""
+          cc $FLAGS tests/memory_schema_migration_smoke.c shell.c r2_diary.c Log.c SensoryJournal.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c R2Sounds.c R2Reply.c Imagination.c -o /tmp/r2-memory-schema-smoke-test -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
+          /tmp/r2-memory-schema-smoke-test
+
+      - name: Exercise persistent-memory top-k ranking behavior
+        run: |
+          ROOT=/tmp/r2-memory-ranking-smoke
+          rm -rf "$ROOT"
+          mkdir -p "$ROOT/R2"
+          FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\"$ROOT\" -DR2_HOME=\"$ROOT/R2\" -DR2_WORKSPACE=\"$ROOT\" -DR2_DIARY_DATABASE=\"$ROOT/R2/r2_memory.db\" -DR2_DIARY_DIR=\"$ROOT/R2_Diary\""
+          cc $FLAGS tests/memory_ranking_behavior_smoke.c shell.c r2_diary.c Log.c SensoryJournal.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c R2Sounds.c R2Reply.c Imagination.c -o /tmp/r2-memory-ranking-smoke-test -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
+          /tmp/r2-memory-ranking-smoke-test
+
+      - name: Check R2 shell Game Boy control-plane routing
+        run: python3 tests/gameboy_shell_control_smoke.py
+
+      - name: Check Game Boy console syntax and lifecycle
+        run: |
+          python3 -m py_compile GameBoyAdvance.py tests/gameboy_console_smoke.py
+          python3 tests/gameboy_console_smoke.py
+
+      - name: Exercise Game Boy installer and desktop entry
+        run: bash tests/gameboy_install_smoke.sh
+
+      - name: Exercise CRT TV state reader and control client
+        run: |
+          python3 -m py_compile TV.py tests/tv_display_smoke.py
+          python3 tests/tv_display_smoke.py
+
+      - name: Exercise TV room-device installer
+        run: bash tests/tv_install_smoke.sh
+
+      - name: Exercise writable reward ledger migration from a legacy schema
+        run: |
+          rm -rf /tmp/r2-reward-legacy-schema-smoke /tmp/r2-reward-legacy-schema-smoke-test
+          cc -std=c11 -Wall -Wextra -Werror -O2 -I. tests/reward_legacy_schema_smoke.c -o /tmp/r2-reward-legacy-schema-smoke-test -lsqlite3 -lpthread -lm
+          /tmp/r2-reward-legacy-schema-smoke-test
+
+      - name: Exercise physical money wallet authority and restart behavior
+        run: |
+          ROOT=/tmp/r2-wallet-smoke
+          rm -rf "$ROOT" /tmp/r2-wallet-smoke-r2.o /tmp/r2-wallet-smoke-test
+          FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\"$ROOT\" -DR2_HOME=\"$ROOT/R2\" -DR2_WORKSPACE=\"$ROOT\" -DR2_DIARY_DATABASE=\"$ROOT/R2/r2_memory.db\" -DR2_DIARY_DIR=\"$ROOT/R2_Diary\""
+          cc $FLAGS -Dmain=r2_program_main -c r2.c -o /tmp/r2-wallet-smoke-r2.o
+          cc $FLAGS tests/money_wallet_smoke.c shell.c r2_diary.c Log.c SensoryJournal.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c R2Sounds.c R2Reply.c Imagination.c /tmp/r2-wallet-smoke-r2.o -o /tmp/r2-wallet-smoke-test -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
+          /tmp/r2-wallet-smoke-test
+
+      - name: Exercise shared Ollama request-gate serialization
+        run: |
+          ROOT=/tmp/r2-wallet-smoke
+          FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\"$ROOT\" -DR2_HOME=\"$ROOT/R2\" -DR2_WORKSPACE=\"$ROOT\" -DR2_DIARY_DATABASE=\"$ROOT/R2/r2_memory.db\" -DR2_DIARY_DIR=\"$ROOT/R2_Diary\""
+          cc $FLAGS tests/ollama_gate_smoke.c shell.c r2_diary.c Log.c SensoryJournal.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c R2Sounds.c R2Reply.c Imagination.c /tmp/r2-wallet-smoke-r2.o -o /tmp/r2-ollama-gate-smoke -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
+          /tmp/r2-ollama-gate-smoke
+
+      - name: Exercise Alternate-Self Lab persistence
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -O2 -I. \
+            -DR2_DIARY_DATABASE='"/tmp/r2-altself-smoke/r2_memory.db"' \
+            tests/alternate_self_smoke.c AlternateSelf.c -lsqlite3 -lpthread \
+            -o /tmp/r2-altself-smoke-test
+          /tmp/r2-altself-smoke-test
+
+      - name: Check Life Log structured declarations and schema
+        run: python3 tests/life_log_linker_regression.py
+
+      - name: Exercise linked Life Log retrieval
+        run: |
+          ROOT=/tmp/r2-log-link-smoke
+          rm -rf "$ROOT"
+          mkdir -p "$ROOT"
+          cc -std=c11 -Wall -Wextra -Werror -O2 -I. \
+            -DR2_DIARY_DATABASE='"/tmp/r2-log-link-smoke/r2_memory.db"' \
+            tests/log_linked_retrieval_smoke.c Log.c -lsqlite3 -lpthread -lm \
+            -o /tmp/r2-log-linked-retrieval-smoke
+          /tmp/r2-log-linked-retrieval-smoke
+
+
+      - name: Exercise writable Life Log migration from a legacy event schema
+        run: |
+          ROOT=/tmp/r2-log-legacy-schema-smoke
+          rm -rf "$ROOT" /tmp/r2-log-legacy-schema-smoke-test
+          mkdir -p "$ROOT"
+          FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\"$ROOT\" -DR2_HOME=\"$ROOT\" -DR2_WORKSPACE=\"$ROOT\" -DR2_DIARY_DATABASE=\"$ROOT/r2_memory.db\" -DR2_DIARY_DIR=\"$ROOT/R2_Diary\""
+          cc $FLAGS tests/life_log_legacy_schema_smoke.c Log.c -o /tmp/r2-log-legacy-schema-smoke-test -lsqlite3 -lpthread -lm
+          /tmp/r2-log-legacy-schema-smoke-test
+
+      - name: Exercise diary, Life Log, and memory reconnection
+        run: |
+          rm -rf /tmp/r2-diary-smoke
+          cc -std=c11 -Wall -Wextra -Werror -O2 -I. \
+            -DR2_ROOT='"/tmp/r2-diary-smoke"' \
+            -DR2_HOME='"/tmp/r2-diary-smoke/R2"' \
+            -DR2_WORKSPACE='"/tmp/r2-diary-smoke"' \
+            -DR2_DIARY_DATABASE='"/tmp/r2-diary-smoke/R2/r2_memory.db"' \
+            -DR2_DIARY_DIR='"/tmp/r2-diary-smoke/R2_Diary"' \
+            tests/diary_integration_smoke.c r2_diary.c Reward.c -lsqlite3 -lpthread \
+            -o /tmp/r2-diary-integration-smoke
+          /tmp/r2-diary-integration-smoke
+
+      - name: Exercise Sensory Journal literal search semantics
+        run: |
+          ROOT=/tmp/r2-sj-smoke
+          rm -rf "$ROOT"
+          cc -std=c11 -Wall -Wextra -Werror -O2 -I. \
+            -DR2_ROOT='"'"$ROOT"'"' \
+            -DR2_HOME='"'"$ROOT/R2"'"' \
+            -DR2_WORKSPACE='"'"$ROOT"'"' \
+            -DR2_DIARY_DATABASE='"'"$ROOT/R2/r2_memory.db"'"' \
+            -DR2_DIARY_DIR='"'"$ROOT/R2_Diary"'"' \
+            tests/sensory_journal_search_smoke.c SensoryJournal.c -lsqlite3 -lpthread \
+            -o /tmp/r2-sensory-journal-search-smoke
+          /tmp/r2-sensory-journal-search-smoke
+
+      - name: Exercise Reality hunger, sleepiness, and energy progression
+        run: |
+          ROOT=/tmp/r2-needs-smoke
+          rm -rf "$ROOT" /tmp/r2-needs-smoke-r2.o /tmp/r2-needs-smoke-test
+          FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\"$ROOT\" -DR2_HOME=\"$ROOT/R2\" -DR2_WORKSPACE=\"$ROOT\" -DR2_DIARY_DATABASE=\"$ROOT/R2/r2_memory.db\" -DR2_DIARY_DIR=\"$ROOT/R2_Diary\""
+          cc $FLAGS -Dmain=r2_program_main -c r2.c -o /tmp/r2-needs-smoke-r2.o
+          cc $FLAGS tests/reality_needs_smoke.c shell.c r2_diary.c Log.c SensoryJournal.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c R2Sounds.c R2Reply.c Imagination.c /tmp/r2-needs-smoke-r2.o -o /tmp/r2-needs-smoke-test -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
+          /tmp/r2-needs-smoke-test
+
+      - name: Check fridge context against real inventory semantics
+        run: python3 tests/fridge_context_smoke.py
+
+      - name: Prevent double-eating during autonomous needs checks
+        run: python3 tests/test_autonomous_needs_safeguard.py
+
+      - name: Check unified memory/reality/reward/addiction context wiring
+        run: python3 tests/context_integration_smoke.py
+      - name: Check atomic reward idempotency and crash recovery
+        run: python3 tests/reward_atomic_idempotency_smoke.py
+
+
+      - name: Test non-destructive R2 database preflight
+        run: |
+          python3 -m py_compile tools/audit_r2_databases.py tests/test_database_preflight.py
+          python3 tests/test_database_preflight.py
+
+      - name: Exercise state-aware R2 sound selection and reply markers
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -O2 -I. tests/r2_sounds_smoke.c R2Sounds.c -lpthread -o /tmp/r2-sounds-smoke
+          /tmp/r2-sounds-smoke
+          python3 -m py_compile tests/r2_sound_wiring_smoke.py
+          python3 tests/r2_sound_wiring_smoke.py
+
+      - name: Prevent private reasoning from leaking into user-facing replies
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -O2 -I. tests/r2_reply_smoke.c R2Reply.c -o /tmp/r2-reply-smoke
+          /tmp/r2-reply-smoke
+
+      - name: Audit sound asset inventory without touching audio payloads
+        run: |
+          python3 -m py_compile tools/audit_r2_sound_assets.py tests/test_sound_asset_audit.py
+          python3 tests/test_sound_asset_audit.py
+
+      - name: Check overnight service mode and supervisor wiring
+        run: |
+          python3 -m py_compile tests/r2_overnight_service_smoke.py
+          python3 tests/r2_overnight_service_smoke.py
+
+      - name: Check overnight installer permissions and write probes
+        run: bash tests/test_overnight_permission_checks.sh
+
+      - name: Check Imagination and Sensory Journal integration
+        run: |
+          python3 -m py_compile tests/subsystem_wiring_smoke.py
+          python3 tests/subsystem_wiring_smoke.py
+
+      - name: Exercise Imagination grounding and feedback contracts
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -O1 -I. tests/imagination_unit_smoke.c Imagination.c -o /tmp/r2-imagination-smoke -lpthread
+          /tmp/r2-imagination-smoke
+
+      - name: Compile R2 with the same sources and flags as the launcher
+        run: make clean all CFLAGS="-std=c11 -Wall -Wextra -Werror -O2"
+
+      - name: Validate deployment scripts and private model copier
+        run: |
+          bash -n R2_Launch_Code.sh
+          bash -n tools/r2_service_runner.sh
+          bash -n tools/r2_ollama_runner.sh
+          bash -n tools/install_r2_overnight.sh
+          bash -n tools/preflight_r2_hardware.sh
+          python3 -m py_compile tools/copy_ollama_model.py
+
+      - name: Run isolated overnight SIGTERM lifecycle integration
+        run: |
+          python3 -m py_compile tests/r2_service_signal_integration.py
+          python3 tests/r2_service_signal_integration.py

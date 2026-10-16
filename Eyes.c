@@ -5,12 +5,19 @@
 #include "Log.h"
 
 #include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <signal.h>
 #include <stdint.h>
+#include <sys/stat.h>
+#include <sys/prctl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/wait.h>
+#include <ctype.h>
 
 /*
  * R2-3PO Eyes
@@ -97,6 +104,225 @@ struct R2Eyes
     char source_name[512];
 };
 
+/* Display-only mirror for V-Webcam. It reads the same Eyes frames but never
+   feeds pixels back into perception or changes the active source. */
+#define R2_VWEBCAM_DIR "/tmp/r2-vwebcam-r2"
+#define R2_VWEBCAM_MAX_W 960U
+#define R2_VWEBCAM_MAX_H 540U
+static pid_t r2_vwebcam_pid = -1;
+static uint64_t r2_vwebcam_last_publish_ms = 0;
+static uint64_t r2_vwebcam_last_status_ms = 0;
+
+static int r2_vwebcam_prepare_dir(void)
+{
+    struct stat st;
+    if (mkdir(R2_VWEBCAM_DIR, 0700) != 0 && errno != EEXIST)
+        return -1;
+    if (lstat(R2_VWEBCAM_DIR, &st) != 0 || !S_ISDIR(st.st_mode) ||
+        st.st_uid != geteuid())
+        return -1;
+    if ((st.st_mode & 0777) != 0700 && chmod(R2_VWEBCAM_DIR, 0700) != 0)
+        return -1;
+    return 0;
+}
+
+static void r2_vwebcam_write_status(const R2Eyes *eyes, int active)
+{
+    const char *display = getenv("DISPLAY");
+    if (!display || !*display)
+        return;
+    uint64_t now_ms = eyes ? eyes->timestamp : 0;
+    if (active && eyes && eyes->frame_count == 0) {
+        r2_vwebcam_last_publish_ms = 0;
+        r2_vwebcam_last_status_ms = 0;
+    } else if (active && now_ms && r2_vwebcam_last_status_ms &&
+               now_ms >= r2_vwebcam_last_status_ms &&
+               now_ms - r2_vwebcam_last_status_ms < 500) {
+        return;
+    }
+    if (r2_vwebcam_prepare_dir() != 0)
+        return;
+    if (active && now_ms)
+        r2_vwebcam_last_status_ms = now_ms;
+    char tmp[PATH_MAX], path[PATH_MAX], source[sizeof(eyes->source_name)];
+    int tn = snprintf(tmp, sizeof(tmp), "%s/status.tmp", R2_VWEBCAM_DIR);
+    int pn = snprintf(path, sizeof(path), "%s/status.txt", R2_VWEBCAM_DIR);
+    if (tn < 0 || (size_t)tn >= sizeof(tmp) || pn < 0 || (size_t)pn >= sizeof(path))
+        return;
+
+    size_t j = 0;
+    const char *raw = eyes && eyes->source_name[0] ? eyes->source_name : "No visual source";
+    for (size_t i = 0; raw[i] && j + 1 < sizeof(source); ++i)
+        source[j++] = (raw[i] == '\n' || raw[i] == '\r') ? ' ' : raw[i];
+    source[j] = '\0';
+
+    FILE *fp = fopen(tmp, "w");
+    if (!fp)
+        return;
+    int failed = fprintf(fp, "%d\n%s\n%u\n%u\n%llu\n%llu\n",
+        active ? 1 : 0, source,
+        eyes ? eyes->format.width : 0, eyes ? eyes->format.height : 0,
+        (unsigned long long)(eyes ? eyes->frame_count : 0),
+        (unsigned long long)(eyes ? eyes->timestamp : 0)) < 0;
+    if (fclose(fp) != 0)
+        failed = 1;
+    if (!failed) {
+        (void)chmod(tmp, 0600);
+        if (rename(tmp, path) != 0)
+            failed = 1;
+    }
+    if (failed)
+        (void)unlink(tmp);
+
+    if (!active || !eyes || eyes->frame_count == 0) {
+        char focus[PATH_MAX];
+        int n = snprintf(focus, sizeof(focus), "%s/focus.json", R2_VWEBCAM_DIR);
+        if (n > 0 && (size_t)n < sizeof(focus))
+            (void)unlink(focus);
+    }
+}
+
+static void r2_vwebcam_publish_frame(const R2Eyes *eyes)
+{
+    const char *display = getenv("DISPLAY");
+    if (!display || !*display)
+        return;
+    if (eyes && eyes->timestamp && r2_vwebcam_last_publish_ms &&
+        eyes->timestamp >= r2_vwebcam_last_publish_ms &&
+        eyes->timestamp - r2_vwebcam_last_publish_ms < 100)
+        return;
+    if (!eyes || !eyes->open || !eyes->frame_buffer ||
+        !eyes->format.width || !eyes->format.height ||
+        r2_vwebcam_prepare_dir() != 0)
+        return;
+
+    size_t width = eyes->format.width, height = eyes->format.height;
+    if (height > SIZE_MAX / width || width * height > SIZE_MAX / 3U ||
+        eyes->frame_size < width * height * 3U)
+        return;
+
+    double scale = 1.0;
+    if (width > R2_VWEBCAM_MAX_W || height > R2_VWEBCAM_MAX_H) {
+        double sx = (double)R2_VWEBCAM_MAX_W / (double)width;
+        double sy = (double)R2_VWEBCAM_MAX_H / (double)height;
+        scale = sx < sy ? sx : sy;
+    }
+    unsigned int dw = (unsigned int)(width * scale);
+    unsigned int dh = (unsigned int)(height * scale);
+    if (!dw) dw = 1;
+    if (!dh) dh = 1;
+    if (dw > R2_VWEBCAM_MAX_W || dh > R2_VWEBCAM_MAX_H)
+        return;
+
+    char tmp[PATH_MAX], path[PATH_MAX];
+    int tn = snprintf(tmp, sizeof(tmp), "%s/frame.tmp.ppm", R2_VWEBCAM_DIR);
+    int pn = snprintf(path, sizeof(path), "%s/frame.ppm", R2_VWEBCAM_DIR);
+    if (tn < 0 || (size_t)tn >= sizeof(tmp) || pn < 0 || (size_t)pn >= sizeof(path))
+        return;
+    FILE *fp = fopen(tmp, "wb");
+    if (!fp)
+        return;
+    int failed = fprintf(fp, "P6\n%u %u\n255\n", dw, dh) < 0;
+    unsigned char row[R2_VWEBCAM_MAX_W * 3U];
+    for (unsigned int y = 0; !failed && y < dh; ++y) {
+        size_t sy = ((size_t)y * height) / dh;
+        const unsigned char *src = eyes->frame_buffer + sy * width * 3U;
+        for (unsigned int x = 0; x < dw; ++x) {
+            size_t sx = ((size_t)x * width) / dw;
+            row[x * 3U] = src[sx * 3U];
+            row[x * 3U + 1U] = src[sx * 3U + 1U];
+            row[x * 3U + 2U] = src[sx * 3U + 2U];
+        }
+        if (fwrite(row, 3U, dw, fp) != dw)
+            failed = 1;
+    }
+    if (fclose(fp) != 0)
+        failed = 1;
+    if (!failed) {
+        (void)chmod(tmp, 0600);
+        if (rename(tmp, path) != 0)
+            failed = 1;
+    }
+    if (failed)
+        (void)unlink(tmp);
+    else if (eyes->timestamp)
+        r2_vwebcam_last_publish_ms = eyes->timestamp;
+}
+
+static void r2_vwebcam_start_viewer(void)
+{
+    const char *display = getenv("DISPLAY");
+    if (!display || !*display || r2_vwebcam_prepare_dir() != 0)
+        return;
+    if (r2_vwebcam_pid > 0) {
+        int status = 0;
+        pid_t ended;
+        do {
+            ended = waitpid(r2_vwebcam_pid, &status, WNOHANG);
+        } while (ended < 0 && errno == EINTR);
+        if (ended == 0)
+            return;
+        if (ended == r2_vwebcam_pid || (ended < 0 && errno == ECHILD))
+            r2_vwebcam_pid = -1;
+        else
+            return;
+    }
+
+    /* Resolve all environment/path state before fork. The child of this
+       multithreaded process then uses only async-signal-safe calls until exec. */
+    const char *source_dir = getenv("R2_SOURCE");
+    if (!source_dir || !*source_dir)
+        source_dir = "/home/x/R2_Home/R2";
+    char viewer[PATH_MAX];
+    int n = snprintf(viewer, sizeof(viewer), "%s/V-Webcam.py", source_dir);
+    if (n < 0 || (size_t)n >= sizeof(viewer))
+        return;
+    char *const argv[] = {"/usr/bin/python3", viewer, NULL};
+    pid_t parent_pid = getpid();
+
+    pid_t child = fork();
+    if (child < 0)
+        return;
+    if (child == 0) {
+        /* A detached viewer must not outlive the R2 process if it crashes or
+           is terminated before the normal Eyes shutdown path can reap it. */
+        if (prctl(PR_SET_PDEATHSIG, SIGTERM) != 0 || getppid() != parent_pid)
+            _exit(126);
+        (void)setsid();
+        int fd = open("/dev/null", O_RDWR);
+        if (fd >= 0) {
+            (void)dup2(fd, STDIN_FILENO);
+            (void)dup2(fd, STDOUT_FILENO);
+            (void)dup2(fd, STDERR_FILENO);
+            if (fd > STDERR_FILENO)
+                close(fd);
+        }
+        execv(argv[0], argv);
+        _exit(127);
+    }
+    r2_vwebcam_pid = child;
+}
+
+static void r2_vwebcam_stop_viewer(void)
+{
+    if (r2_vwebcam_pid <= 0)
+        return;
+    int status = 0;
+    pid_t ended = waitpid(r2_vwebcam_pid, &status, WNOHANG);
+    if (ended == r2_vwebcam_pid || (ended < 0 && errno == ECHILD)) {
+        r2_vwebcam_pid = -1;
+        return;
+    }
+    if (ended == 0)
+        (void)kill(r2_vwebcam_pid, SIGTERM);
+    while (waitpid(r2_vwebcam_pid, &status, 0) < 0) {
+        if (errno == EINTR)
+            continue;
+        break;
+    }
+    r2_vwebcam_pid = -1;
+}
+
 static uint64_t r2_eyes_timestamp(void)
 {
     struct timespec ts;
@@ -114,6 +340,8 @@ static char *r2_eyes_shell_quote(const char *input)
         return NULL;
 
     size_t length = strlen(input);
+    if (length > (SIZE_MAX - 3) / 4)
+        return NULL;
     size_t max_size = (length * 4) + 3;
 
     char *output = malloc(max_size);
@@ -169,7 +397,7 @@ static int r2_eyes_probe_dimensions(
 
     char command[4096];
 
-    snprintf(
+    int command_length = snprintf(
         command,
         sizeof(command),
         "ffprobe "
@@ -183,30 +411,48 @@ static int r2_eyes_probe_dimensions(
 
     free(quoted_source);
 
+    if (command_length < 0 || (size_t)command_length >= sizeof(command))
+        return -1;
+
     FILE *probe = popen(command, "r");
 
     if (!probe)
         return -1;
 
-    unsigned int w = 0;
-    unsigned int h = 0;
-
-    int result =
-        fscanf(probe, "%ux%u", &w, &h);
-
+    char dimensions[128];
+    int result = fgets(dimensions, sizeof(dimensions), probe) ? 0 : -1;
     int status = pclose(probe);
-
-    if (result != 2 || status == -1)
+    if (result != 0 || status == -1 ||
+        !WIFEXITED(status) || WEXITSTATUS(status) != 0)
         return -1;
 
-    if (w == 0 || h == 0)
+    char *separator = strchr(dimensions, 'x');
+    if (!separator)
+        return -1;
+    *separator = '\0';
+
+    errno = 0;
+    char *end = NULL;
+    unsigned long w = strtoul(dimensions, &end, 10);
+    if (errno || end == dimensions)
+        return -1;
+    while (*end && isspace((unsigned char)*end)) ++end;
+    if (*end != '\0')
         return -1;
 
-    size_t required =
-        (size_t)w *
-        (size_t)h *
-        3;
+    errno = 0;
+    char *height_text = separator + 1;
+    unsigned long h = strtoul(height_text, &end, 10);
+    if (errno || end == height_text)
+        return -1;
+    while (*end && isspace((unsigned char)*end)) ++end;
+    if (*end != '\0' || w == 0 || h == 0 ||
+        w > UINT32_MAX || h > UINT32_MAX)
+        return -1;
 
+    if ((size_t)w > R2_EYES_MAX_FRAME_BYTES / 3U / (size_t)h)
+        return -1;
+    size_t required = (size_t)w * (size_t)h * 3U;
     if (required > R2_EYES_MAX_FRAME_BYTES)
         return -1;
 
@@ -224,10 +470,13 @@ static int r2_eyes_allocate_native_buffer(
     if (!eyes || width == 0 || height == 0)
         return -1;
 
+    if ((size_t)width > R2_EYES_MAX_FRAME_BYTES / 3U / (size_t)height)
+        return -1;
+
     size_t frame_size =
         (size_t)width *
         (size_t)height *
-        3;
+        3U;
 
     if (frame_size > R2_EYES_MAX_FRAME_BYTES)
         return -1;
@@ -301,8 +550,11 @@ static int r2_eyes_read_exact(
             continue;
         }
 
+        /* A pipe ending between frames is normal EOF. EOF after a partial
+           raw frame is corruption: never report a truncated frame as a clean
+           end-of-stream, because callers may otherwise keep stale pixels. */
         if (feof(stream))
-            return 0;
+            return total == 0 ? 0 : -1;
 
         if (ferror(stream))
             return -1;
@@ -386,10 +638,11 @@ static FILE *r2_eyes_start_ffmpeg(
         return NULL;
 
     char command[4096];
+    int command_length;
 
     if (live_device)
     {
-        snprintf(
+        command_length = snprintf(
             command,
             sizeof(command),
             "ffmpeg "
@@ -412,7 +665,7 @@ static FILE *r2_eyes_start_ffmpeg(
     }
     else
     {
-        snprintf(
+        command_length = snprintf(
             command,
             sizeof(command),
             "ffmpeg "
@@ -432,6 +685,9 @@ static FILE *r2_eyes_start_ffmpeg(
     }
 
     free(quoted_input);
+
+    if (command_length < 0 || (size_t)command_length >= sizeof(command))
+        return NULL;
 
     return popen(command, "r");
 }
@@ -699,6 +955,7 @@ void r2_eyes_close(R2Eyes *eyes)
     }
 
     eyes->open = 0;
+    r2_vwebcam_write_status(eyes, 0);
     eyes->source_is_live = 0;
     eyes->origin = R2_VISION_NONE;
     eyes->frame_count = 0;
@@ -736,6 +993,7 @@ void r2_eyes_shutdown(R2Eyes *eyes)
         return;
 
     r2_eyes_close(eyes);
+    r2_vwebcam_stop_viewer();
 
     free(eyes->frame_buffer);
     eyes->frame_buffer = NULL;
@@ -828,6 +1086,8 @@ static int r2_eyes_open_internal(
 
     r2_eyes_reset_event(eyes);
     r2_eyes_reset_frame(eyes);
+    r2_vwebcam_write_status(eyes, 1);
+    r2_vwebcam_start_viewer();
 
     char details[768];
     snprintf(details, sizeof(details),
@@ -863,10 +1123,10 @@ int r2_eyes_open_file(
 int r2_eyes_open_camera(
     R2Eyes *eyes)
 {
-    return r2_eyes_open_device(
-        eyes,
-        "/dev/video0"
-    );
+    const char *device = getenv("R2_CAMERA_DEVICE");
+    if (!device || !*device)
+        device = "/dev/video0";
+    return r2_eyes_open_device(eyes, device);
 }
 
 int r2_eyes_open_device(
@@ -986,22 +1246,43 @@ int r2_eyes_open_vlc(
     eyes->origin =
         R2_VISION_VLC;
 
+    /*
+     * Preserve the visible VLC window title as source metadata. This is
+     * useful for later history searches, but is not treated as proof of
+     * the actual media contents.
+     */
+    char title_command[256];
+    snprintf(title_command, sizeof(title_command),
+             "xdotool getwindowname %lu 2>/dev/null", window_id);
+    FILE *title_pipe = popen(title_command, "r");
+    char window_title[sizeof(eyes->source_name)] = "VLC";
+    if (title_pipe) {
+        if (!fgets(window_title, sizeof(window_title), title_pipe))
+            snprintf(window_title, sizeof(window_title), "VLC");
+        pclose(title_pipe);
+        size_t title_len = strlen(window_title);
+        while (title_len > 0 &&
+               (window_title[title_len - 1] == '\n' ||
+                window_title[title_len - 1] == '\r'))
+            window_title[--title_len] = '\0';
+        if (title_len == 0)
+            snprintf(window_title, sizeof(window_title), "VLC");
+    }
+    snprintf(eyes->source_name, sizeof(eyes->source_name), "%s", window_title);
+
     eyes->frame_count = 0;
     eyes->timestamp = 0;
 
-    snprintf(
-        eyes->source_name,
-        sizeof(eyes->source_name),
-        "VLC"
-    );
-
+    /* source_name was populated from the visible VLC window title above. */
     r2_eyes_reset_event(eyes);
     r2_eyes_reset_frame(eyes);
+    r2_vwebcam_write_status(eyes, 1);
+    r2_vwebcam_start_viewer();
 
     r2_log_sensory("vision_source_opened",
                    "R2 Eyes began capturing the visible VLC window.",
                    "origin=VLC; frames are raw pixels until a vision model interprets them.",
-                   "VLC");
+                   eyes->source_name);
 
     return 0;
 }
@@ -1031,9 +1312,11 @@ int r2_eyes_capture(
 
     if (result == 0)
     {
-        if (!eyes->source_is_live)
-            r2_eyes_close(eyes);
-
+        /* FFmpeg EOF means this stream is dead, including a live camera whose
+           device was unplugged or whose capture process exited. Close it in
+           every case so later calls cannot loop forever on a dead pipe or
+           expose the previous frame as though it were current. */
+        r2_eyes_close(eyes);
         return 0;
     }
 
@@ -1090,6 +1373,9 @@ int r2_eyes_capture(
 
     eyes->frame.frame_number =
         eyes->frame_count;
+
+    r2_vwebcam_publish_frame(eyes);
+    r2_vwebcam_write_status(eyes, 1);
 
     /*
      * Record a bounded-rate sensory journal heartbeat instead of
