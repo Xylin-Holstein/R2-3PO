@@ -2097,9 +2097,9 @@ static char *query_events(const char *query, int limit)
 
     while ((rc = sqlite3_step(statement)) == SQLITE_ROW) {
         int64_t id = sqlite3_column_int64(statement, 0);
-        if (query && event_id_seen(seen_ids, seen_count, id))
-            continue;
-        if (query && seen_count < sizeof(seen_ids) / sizeof(seen_ids[0]))
+        int base_already_seen = query && event_id_seen(seen_ids, seen_count, id);
+        if (query && !base_already_seen &&
+            seen_count < sizeof(seen_ids) / sizeof(seen_ids[0]))
             seen_ids[seen_count++] = id;
         const unsigned char *utc = sqlite3_column_text(statement, 1);
         const unsigned char *local = sqlite3_column_text(statement, 2);
@@ -2110,6 +2110,7 @@ static char *query_events(const char *query, int limit)
         const unsigned char *source = sqlite3_column_text(statement, 7);
         int memory_saved = sqlite3_column_int(statement, 8);
 
+        if (!base_already_seen) {
         if (append_text(&output, &length, &capacity,
                         "[%" PRId64 "] %s | %s | %s/%s\n"
                         "  Summary: %s\n"
@@ -2140,6 +2141,8 @@ static char *query_events(const char *query, int limit)
             free(output);
             output = NULL;
             break;
+        }
+
         }
 
         if (query && link_statement && linked_total < 8) {
