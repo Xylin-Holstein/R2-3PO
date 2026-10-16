@@ -207,7 +207,10 @@ static int create_legacy_reward_db(void)
         " source TEXT NOT NULL, points INTEGER NOT NULL CHECK(points BETWEEN -7 AND 5 AND points<>0),"
         " reason TEXT NOT NULL, occurred_at INTEGER NOT NULL, modifier INTEGER NOT NULL,"
         " expires_at INTEGER NOT NULL);"
-        "CREATE INDEX reward_events_target_time ON reward_events(target,occurred_at);";
+        "CREATE INDEX reward_events_target_time ON reward_events(target,occurred_at);"
+        "CREATE TABLE reward_once_keys(target TEXT NOT NULL,source TEXT NOT NULL,"
+        "PRIMARY KEY(target,source));"
+        "INSERT INTO reward_once_keys(target,source) VALUES('legacy-key-target','legacy-key-source');";
     int rc = sqlite3_exec(db, legacy_schema, NULL, NULL, NULL);
     sqlite3_close(db);
     return rc == SQLITE_OK ? 0 : -1;
@@ -280,6 +283,11 @@ int main(void)
     assert(reward_total() == 5);
     assert(reward_link_count() == 5);
     assert(reward_memory_count() == 5);
+    assert(scalar_int("SELECT COUNT(*) FROM pragma_table_info('reward_once_keys') "
+                      "WHERE name='created_at';") == 1);
+    assert(scalar_int("SELECT COUNT(*) FROM reward_once_keys "
+                      "WHERE target='legacy-key-target' AND source='legacy-key-source' "
+                      "AND created_at>0;") == 1);
     assert(r2_reward_reconnect_history(10) == 0);
     assert(scalar_int("SELECT COUNT(*) FROM r2_log_events "
                       "WHERE event_type='enjoyment_changed';") == 5);
