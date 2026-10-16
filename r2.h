@@ -1,6 +1,8 @@
 #ifndef R2_H
 #define R2_H
 
+#include <stddef.h>
+
 /*
  * ============================================================
  * R2-3PO CORE PUBLIC INTERFACE
@@ -8,7 +10,7 @@
  *
  * r2.c owns the actual implementation:
  *
- *   - Ollama / llama3
+ *   - Ollama / Qwen 3.5 multimodal conversation and vision
  *   - conversation
  *   - memory
  *   - relevant-memory retrieval
@@ -16,8 +18,8 @@
  *   - autonomous thinking
  *   - tools
  *   - diary integration
- *   - Eyes
- *   - Ears
+ *   - Eyes (frame capture; Visual.c sends frames to the unified Qwen 3.5 model)
+ *   - Ears (raw PCM capture; speech-to-text is a separate capability)
  *
  * This header is the PUBLIC bridge used by other R2 components,
  * especially shell.c.
@@ -31,6 +33,14 @@
 extern "C" {
 #endif
 
+/* Single source of truth for every local Ollama inference in R2. */
+#define R2_OLLAMA_MODEL "qwen3.5:9b"
+
+/* Shared RAM-aware context sizing for text and multimodal inference. */
+int r2_ollama_context_tokens(void);
+/* Resolve a validated loopback-only Ollama chat URL for text and vision. */
+int r2_ollama_chat_url(char *out, size_t out_cap);
+
 
 /* ============================================================
    CORE LIFECYCLE
@@ -43,8 +53,8 @@ extern "C" {
  *   0  = success
  *  -1  = failure
  *
- * This should eventually contain/use the same initialization
- * sequence currently performed by r2.c's main().
+ * The implementation uses the production initialization sequence shared
+ * with the core executable; callers must not initialize subsystems separately.
  */
 int r2_init(void);
 
@@ -62,6 +72,15 @@ void r2_shutdown(void);
  * Returns non-zero while R2 is shutting down.
  */
 int r2_is_shutting_down(void);
+
+/*
+ * Shared Ollama request gate. Vision uses this same gate as text generation
+ * so the single local model is never asked to run competing inference jobs.
+ * Vision requests are opportunistic and must yield when a foreground turn waits.
+ */
+int r2_ollama_vision_request_begin(void);
+void r2_ollama_vision_request_end(void);
+int r2_ollama_vision_request_should_abort(void);
 
 
 /* ============================================================
@@ -88,6 +107,8 @@ int r2_is_shutting_down(void);
  * by the caller with free().
  */
 char *r2_talk(const char *message);
+/* Caller frees; returns a bounded recent user/assistant transcript with tool payloads excluded. */
+char *r2_recent_conversation_context(const char *exclude_latest, size_t max_chars);
 
 
 /*
@@ -203,6 +224,11 @@ char *r2_process_tools(const char *input);
  */
 int r2_write_diary(void);
 
+/* Simulate a sleep transition and generate/store a private dream report. */
+int r2_sleep_and_dream(double hours);
+int r2_eat_and_learn(const char *food, double fullness);
+int r2_eat_fridge_and_learn(const char *food, double fullness);
+
 
 /*
  * Return whether the diary subsystem is currently available.
@@ -237,11 +263,14 @@ int r2_is_initialized(void);
  *
  * Example:
  *
- *   llama3
+ *   Qwen 3.5 9B
  *
  * The returned pointer is owned by R2 and must NOT be freed.
  */
 const char *r2_model_name(void);
+/* Run a bounded, isolated local-model request through the shared Ollama gate.
+ * Returns allocated response text or NULL; does not append to chat history. */
+char *r2_model_generate(const char *system_prompt, const char *user_prompt, int num_predict);
 
 
 /* ============================================================

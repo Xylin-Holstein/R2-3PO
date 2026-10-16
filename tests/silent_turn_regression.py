@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Regression checks for silent conversation exits on the legacy main branch."""
+"""Regression checks that failed inference never silently drops a conversation turn."""
 
 from pathlib import Path
+import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 core = (ROOT / "r2.c").read_text(encoding="utf-8")
@@ -10,7 +11,8 @@ shell = (ROOT / "shell.c").read_text(encoding="utf-8")
 
 def require(condition: bool, message: str) -> None:
     if not condition:
-        raise SystemExit(f"FAIL: {message}")
+        print(f"FAIL: {message}", file=sys.stderr)
+        raise SystemExit(1)
     print(f"PASS: {message}")
 
 
@@ -20,31 +22,40 @@ if talk_end < 0:
     talk_end = len(core)
 talk = core[talk_start:talk_end]
 
+impl_start = core.index("static char *r2_talk_impl(const char *message)")
+impl_end = core.find("\nchar *r2_talk(const char *message)", impl_start)
+if impl_end < 0:
+    raise SystemExit("Could not isolate the conversation implementation.")
+implementation = core[impl_start:impl_end]
+
 shell_start = shell.index("static void shell_talk(const char *message)")
 shell_end = shell.find("\n/*", shell_start)
 shell_talk = shell[shell_start:shell_end if shell_end >= 0 else len(shell)]
 
 require(
-    "Conversation generation failed; preserving the user turn and returning a visible response."
-    in talk
-    and "Your message is still in the conversation; please try again in a moment."
-    in talk,
-    "failed initial inference returns a visible response instead of returning NULL",
+    "char *reply = r2_talk_impl(message);" in talk
+    and "if (!reply || !*reply)" in talk
+    and "returning an explicit failure message" in talk,
+    "public conversation API detects NULL and empty replies",
 )
 require(
-    "Action follow-up generation failed; preserving the existing turn and returning a visible response."
-    in talk
-    and "couldn't generate its follow-up explanation"
-    in talk,
-    "failed post-action inference returns a visible response",
+    "The message may not have been saved to conversation history; please try again." in talk
+    and "reply = xstrdup(" in talk,
+    "failed inference produces a visible allocated fallback instead of returning NULL",
+)
+require(
+    "The action result is still in the conversation; please ask me again" in implementation
+    and "does not rerun the completed action" in implementation,
+    "failed post-action generation preserves the completed action result without replaying the action",
 )
 require(
     "if (!reply || !*reply)" in shell_talk
-    and "the shell is printing a user-facing failure message" in shell_talk
+    and "the shell is showing a fallback instead of silently dropping the turn" in shell_talk
     and "Your message reached me, but I couldn't answer it this time." in shell_talk,
-    "the shell displays a fallback for NULL and empty replies",
+    "shell talk displays a user-facing fallback if the API returns no usable text",
 )
 require(
-    "Conversation request failed." not in shell_talk,
-    "the shell no longer reports failed conversation requests only on stderr",
+    "free(reply);" in shell_talk
+    and "Conversation request failed." not in shell_talk,
+    "the fallback path safely frees an empty reply and avoids stderr-only failure reporting",
 )
