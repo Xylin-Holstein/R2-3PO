@@ -302,11 +302,6 @@ int main(void)
     assert(reward_total() == 5);
     assert(reward_link_count() == 5);
     assert(reward_memory_count() == 5);
-    assert(reward_scalar_int("SELECT COUNT(*) FROM pragma_table_info('reward_once_keys') "
-                             "WHERE name='created_at';") == 1);
-    assert(reward_scalar_int("SELECT COUNT(*) FROM reward_once_keys "
-                             "WHERE target='legacy-key-target' AND source='legacy-key-source' "
-                             "AND created_at>0;") == 1);
     assert(r2_reward_reconnect_history(10) == 0);
     assert(scalar_int("SELECT COUNT(*) FROM r2_log_events "
                       "WHERE event_type='enjoyment_changed';") == 5);
@@ -336,6 +331,21 @@ int main(void)
     assert(r2_diary_reconnect_history(10) == 0);
     assert(scalar_int("SELECT COUNT(*) FROM r2_log_events "
                       "WHERE event_type='diary_entry_linked';") == 2);
+
+    /* The old key-only table is migrated lazily when the idempotent API is
+       first used. Replaying the same reward must not increment totals twice. */
+    int before_legacy_probe = reward_total();
+    assert(r2_reward_apply_once("legacy-key-target", "legacy-key-source", 1,
+                                "Legacy idempotency migration probe", 0) == 0);
+    assert(reward_total() == before_legacy_probe + 1);
+    assert(r2_reward_apply_once("legacy-key-target", "legacy-key-source", 1,
+                                "Legacy idempotency migration probe", 0) == 1);
+    assert(reward_total() == before_legacy_probe + 1);
+    assert(reward_scalar_int("SELECT COUNT(*) FROM pragma_table_info('reward_once_keys') "
+                             "WHERE name='created_at';") == 1);
+    assert(reward_scalar_int("SELECT COUNT(*) FROM reward_once_keys "
+                             "WHERE target='legacy-key-target' AND source='legacy-key-source' "
+                             "AND created_at>0;") == 1);
 
     r2_diary_shutdown();
     puts("Diary/Life Log/memory integration smoke test passed.");
