@@ -321,7 +321,7 @@ static void verify_legacy_shared_reality_migration(void)
          "in-place legacy TV state was not preserved"},
         {"SELECT COUNT(*) FROM r2_tv_devices WHERE name='native_old_device' AND connected=1", 1,
          "in-place legacy TV device was not preserved and upgraded"},
-        {"SELECT COUNT(*) FROM r2_tv_vcr_state WHERE cassette_path='native_old_tape.mkv' AND transport='pause'", 1,
+        {"SELECT COUNT(*) FROM r2_tv_vcr_state WHERE cassette_path='legacy_tape.mkv' AND transport='pause'", 1,
          "in-place legacy VCR state was not preserved"},
         {"SELECT COUNT(*) FROM r2_reality_containers WHERE name='native_old_container' AND kind='container'", 1,
          "in-place legacy container was not preserved and upgraded"},
