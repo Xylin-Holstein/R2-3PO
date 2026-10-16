@@ -17,19 +17,21 @@ int main(void)
         "CREATE TABLE r2_fridge_items ("
         "name TEXT PRIMARY KEY COLLATE NOCASE,"
         "qty INTEGER NOT NULL,"
+        "amount INTEGER NOT NULL,"
         "description TEXT);"
-        "INSERT INTO r2_fridge_items(name,qty,description) "
-        "VALUES('legacy apples',2,'old inventory');",
+        "INSERT INTO r2_fridge_items(name,qty,amount,description) "
+        "VALUES('legacy apples',2,99,'old inventory');",
         NULL, NULL, NULL) == SQLITE_OK);
 
     assert(fridge_migrate_schema() == SQLITE_OK);
     sqlite3_stmt *st = NULL;
     assert(sqlite3_prepare_v2(fridge_db,
-        "SELECT quantity,qty FROM r2_fridge_items WHERE name='legacy apples'",
+        "SELECT quantity,qty,amount FROM r2_fridge_items WHERE name='legacy apples'",
         -1, &st, NULL) == SQLITE_OK);
     assert(sqlite3_step(st) == SQLITE_ROW);
     assert(sqlite3_column_int(st, 0) == 2);
     assert(sqlite3_column_int(st, 1) == 2);
+    assert(sqlite3_column_int(st, 2) == 2);
     sqlite3_finalize(st);
 
     assert(fridge_insert_item_compat("new apples", "fresh stock", 3,
@@ -38,11 +40,12 @@ int main(void)
         25.0, 5.0, "apple", "sweet", 1) == SQLITE_DONE);
 
     assert(sqlite3_prepare_v2(fridge_db,
-        "SELECT quantity,qty FROM r2_fridge_items WHERE name='new apples'",
+        "SELECT quantity,qty,amount FROM r2_fridge_items WHERE name='new apples'",
         -1, &st, NULL) == SQLITE_OK);
     assert(sqlite3_step(st) == SQLITE_ROW);
     assert(sqlite3_column_int(st, 0) == 5);
     assert(sqlite3_column_int(st, 1) == 5);
+    assert(sqlite3_column_int(st, 2) == 5);
     sqlite3_finalize(st);
 
     int previous_quantity = 0;
@@ -55,6 +58,7 @@ int main(void)
     assert(sqlite3_step(st) == SQLITE_ROW);
     assert(sqlite3_column_int(st, 0) == 4);
     assert(sqlite3_column_int(st, 1) == 4);
+    assert(sqlite3_column_int(st, 2) == 4);
     sqlite3_finalize(st);
 
     assert(sqlite3_close(fridge_db) == SQLITE_OK);
