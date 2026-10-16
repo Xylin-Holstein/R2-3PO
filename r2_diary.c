@@ -502,6 +502,67 @@ static int r2_workspace_path(
  * ============================================================
  */
 
+static int diary_table_column_exists(const char *table, const char *column)
+{
+    char sql[256];
+    int n = snprintf(sql, sizeof(sql), "PRAGMA table_info(%s)", table);
+    if (n < 0 || (size_t)n >= sizeof(sql)) return 0;
+    sqlite3_stmt *st = NULL;
+    int found = 0;
+    if (sqlite3_prepare_v2(r2_diary_db, sql, -1, &st, NULL) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            const unsigned char *name = sqlite3_column_text(st, 1);
+            if (name && !strcasecmp((const char *)name, column)) {
+                found = 1;
+                break;
+            }
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    return found;
+}
+
+static int diary_entry_ensure_column(const char *column, const char *definition)
+{
+    if (diary_table_column_exists("diary_entries", column)) return SQLITE_OK;
+    char sql[512];
+    int n = snprintf(sql, sizeof(sql),
+                     "ALTER TABLE diary_entries ADD COLUMN %s %s;",
+                     column, definition);
+    if (n < 0 || (size_t)n >= sizeof(sql)) return SQLITE_TOOBIG;
+    return sqlite3_exec(r2_diary_db, sql, NULL, NULL, NULL);
+}
+
+static int diary_entries_migrate_schema(void)
+{
+    /* CREATE TABLE IF NOT EXISTS does not upgrade old diary_entries tables.
+       Add the chronology field before creating its index or writing new rows. */
+    if (diary_entry_ensure_column("created_at", "TEXT NOT NULL DEFAULT ''") != SQLITE_OK)
+        return SQLITE_ERROR;
+
+    const char *legacy_time_columns[] = {
+        "timestamp", "created", "date_created", "created_utc"
+    };
+    for (size_t i = 0; i < sizeof(legacy_time_columns) / sizeof(legacy_time_columns[0]); ++i) {
+        const char *legacy = legacy_time_columns[i];
+        if (!diary_table_column_exists("diary_entries", legacy)) continue;
+        char sql[512];
+        int n = snprintf(sql, sizeof(sql),
+                         "UPDATE diary_entries SET created_at=%s "
+                         "WHERE created_at IS NULL OR created_at='';", legacy);
+        if (n < 0 || (size_t)n >= sizeof(sql) ||
+            sqlite3_exec(r2_diary_db, sql, NULL, NULL, NULL) != SQLITE_OK)
+            return SQLITE_ERROR;
+        break;
+    }
+    if (sqlite3_exec(r2_diary_db,
+            "UPDATE diary_entries SET created_at=CURRENT_TIMESTAMP "
+            "WHERE created_at IS NULL OR created_at='';",
+            NULL, NULL, NULL) != SQLITE_OK)
+        return SQLITE_ERROR;
+    return SQLITE_OK;
+}
+
 static int diary_link_column_exists(const char *column)
 {
     sqlite3_stmt *st = NULL;
@@ -692,6 +753,12 @@ int r2_diary_init(void)
             error_message
         );
 
+        return -1;
+    }
+
+    if (diary_entries_migrate_schema() != SQLITE_OK) {
+        fprintf(stderr, "[R2 DIARY] Could not migrate diary entry schema: %s\\n",
+                sqlite3_errmsg(r2_diary_db));
         return -1;
     }
 
