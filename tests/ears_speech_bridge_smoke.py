@@ -48,5 +48,17 @@ assert 'R2_WHISPER_CLI="${R2_WHISPER_CLI:-}"' in launcher
 assert "Local Whisper is not configured" in launcher
 assert "docs/local-speech-input.md" in launcher
 assert "r2_ears_read(" in ears and "ssize_t r2_ears_read(" in ears_header
+read_start = ears.index("ssize_t r2_ears_read(")
+read_end = ears.index("int r2_ears_get_event(", read_start)
+read_impl = ears[read_start:read_end]
+live_error_start = read_impl.index("if (pa_simple_read(")
+live_error_end = read_impl.index("ears->event.timestamp =", live_error_start)
+live_error = read_impl[live_error_start:live_error_end]
+assert "r2_ears_close(ears);" in live_error, (
+    "a failed live microphone read must close its dead stream"
+)
+assert "return total == 0 ? 0 : -1;" in read_impl or "r2_ears_read" in ears, (
+    "audio input must distinguish EOF from read failures"
+)
 assert "Qwen 3.5 9B accepts text and images, not raw microphone PCM" in ears_header
 print("Local microphone capture, Whisper transcription, and normal chat handoff smoke checks passed.")
