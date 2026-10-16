@@ -33,7 +33,7 @@ def main() -> None:
         "partial raw frames must be reported as read failures, not clean EOF"
     )
     capture_start = eyes.index("int r2_eyes_capture(")
-    capture_end = eyes.index("/* ============================================================\\n   FRAME ACCESS", capture_start)
+    capture_end = eyes.index("/* ============================================================\n   FRAME ACCESS", capture_start)
     capture = eyes[capture_start:capture_end]
     eof_branch = capture[capture.index("if (result == 0)"):capture.index("if (result < 0)")]
     assert "r2_eyes_close(eyes);" in eof_branch, (
