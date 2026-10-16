@@ -9742,12 +9742,26 @@ char *r2_ears_listen(unsigned seconds)
         _exit(127);
     }
     if (child < 0) goto cleanup;
+    struct timespec asr_start = {0}, asr_now = {0}, pause_time = {0, 100000000L};
+    (void)clock_gettime(CLOCK_MONOTONIC, &asr_start);
     for (;;) {
-        pid_t waited = waitpid(child, &child_status, 0);
+        pid_t waited = waitpid(child, &child_status, WNOHANG);
         if (waited == child) break;
-        if (waited < 0 && errno == EINTR) continue;
-        child = -1;
-        goto cleanup;
+        if (waited < 0 && errno != EINTR) {
+            child = -1;
+            goto cleanup;
+        }
+        if (shutting_down || clock_gettime(CLOCK_MONOTONIC, &asr_now) != 0 ||
+            asr_now.tv_sec - asr_start.tv_sec >= 90) {
+            (void)kill(child, SIGTERM);
+            while (waitpid(child, &child_status, 0) < 0 && errno == EINTR) {}
+            child = -1;
+            fprintf(stderr, "[Ears] Local speech recognition stopped during shutdown or exceeded its 90-second limit.\\n");
+            goto cleanup;
+        }
+        while (nanosleep(&pause_time, &pause_time) != 0 && errno == EINTR) {}
+        pause_time.tv_sec = 0;
+        pause_time.tv_nsec = 100000000L;
     }
     child = -1;
     if (!WIFEXITED(child_status) || WEXITSTATUS(child_status) != 0) {
