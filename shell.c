@@ -1225,16 +1225,10 @@ static void shell_ears(const char *argument)
 
 
 /* ============================================================
-   WATCH
+   WATCH CONTROLLER
    ============================================================
- *
- * Watch is deliberately NOT implemented by duplicating Eyes
- * or Ears here.
- *
- * This controller tells the Watch subsystem when to operate.
- *
- * The actual capture/detection implementation can subsequently
- * be placed behind these R2 Watch bridge functions.
+ * The shell owns commands and presentation; the core owns the actual
+ * cancellable microphone/ASR/conversation worker and its joined lifecycle.
  */
 
 static void shell_watch_status(void)
@@ -2640,10 +2634,7 @@ int r2_shell_run(void)
     /*
      * Watch must not remain active after the shell exits.
      */
-    if (r2_watch_active()) {
-        r2_watch_stop();
-
-    }
+    r2_watch_stop();
 
     tv_control_stop_server();
     if (service_signals_blocked)
