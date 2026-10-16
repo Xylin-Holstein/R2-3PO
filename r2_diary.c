@@ -1103,8 +1103,6 @@ int r2_diary_write(
     const char *entry
 )
 {
-    sqlite3_stmt *statement = NULL;
-
     char timestamp[64];
     char date[32];
 
@@ -1112,7 +1110,6 @@ int r2_diary_write(
 
     FILE *file;
 
-    int result;
     int64_t diary_entry_id = 0;
 
     if (!r2_diary_db)
