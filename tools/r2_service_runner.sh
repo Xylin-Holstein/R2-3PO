@@ -24,16 +24,27 @@ fi
 
 # Match the interactive launcher: prefer partial offload on the target 4 GiB
 # GTX 1050 Ti, but keep automatic placement when that card is not installed.
-# An explicit service environment override always takes precedence.
+# Explicit service environment overrides always take precedence.
+R2_HAS_GTX_1050_TI=0
+if command -v nvidia-smi >/dev/null 2>&1 &&
+   nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi 'GTX 1050 Ti'; then
+    R2_HAS_GTX_1050_TI=1
+fi
 if [[ -z "${R2_OLLAMA_NUM_GPU+x}" ]]; then
-    if command -v nvidia-smi >/dev/null 2>&1 &&
-       nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi 'GTX 1050 Ti'; then
+    if [[ "$R2_HAS_GTX_1050_TI" == "1" ]]; then
         export R2_OLLAMA_NUM_GPU=20
     else
         export R2_OLLAMA_NUM_GPU=0
     fi
 fi
+# Host RAM is not a sufficient context budget for this 4 GiB GPU; default to
+# 8k unless the service operator explicitly configured a context override.
+if [[ "$R2_HAS_GTX_1050_TI" == "1" && -z "${R2_OLLAMA_NUM_CTX:-}" ]]; then
+    export R2_OLLAMA_NUM_CTX=8192
+    log "Defaulting Qwen context to 8192 tokens to preserve GTX 1050 Ti VRAM headroom."
+fi
 log "Ollama GPU layer policy: R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU"
+log "Ollama context policy: R2_OLLAMA_NUM_CTX=${R2_OLLAMA_NUM_CTX:-automatic}"
 
 # Acquire the sleep inhibitor before waiting for Ollama or doing any preflight.
 # Re-enter this script under the inhibitor with real time; faketime is applied
@@ -139,6 +150,7 @@ R2_ENV=(/usr/bin/env
     "R2_SERVICE_MODE=1"
     "R2_OLLAMA_TIMEOUT_SECONDS=${R2_OLLAMA_TIMEOUT_SECONDS:-}"
     "R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU"
+    "R2_OLLAMA_NUM_CTX=${R2_OLLAMA_NUM_CTX:-}"
     "R2_FX_DIR=$R2_FX_DIR"
     "R2_OLLAMA_BASE_URL=$R2_OLLAMA_BASE_URL"
     "R2_VISION_MODEL=qwen3.5:9b"
