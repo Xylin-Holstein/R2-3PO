@@ -9753,13 +9753,15 @@ char *r2_ears_listen(unsigned seconds)
         }
         if (shutting_down || clock_gettime(CLOCK_MONOTONIC, &asr_now) != 0 ||
             asr_now.tv_sec - asr_start.tv_sec >= 90) {
-            (void)kill(child, SIGTERM);
+            (void)kill(child, SIGKILL);
             while (waitpid(child, &child_status, 0) < 0 && errno == EINTR) {}
             child = -1;
             fprintf(stderr, "[Ears] Local speech recognition stopped during shutdown or exceeded its 90-second limit.\n");
             goto cleanup;
         }
-        while (nanosleep(&pause_time, &pause_time) != 0 && errno == EINTR) {}
+        struct timespec remaining_time;
+        while (nanosleep(&pause_time, &remaining_time) != 0 && errno == EINTR)
+            pause_time = remaining_time;
         pause_time.tv_sec = 0;
         pause_time.tv_nsec = 100000000L;
     }
