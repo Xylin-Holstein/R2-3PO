@@ -11,24 +11,30 @@ launcher = (ROOT / "R2_Launch_Code.sh").read_text(encoding="utf-8")
 ears = (ROOT / "Ears.c").read_text(encoding="utf-8")
 ears_header = (ROOT / "Ears.h").read_text(encoding="utf-8")
 
-start = core.index("char *r2_ears_listen_cancelable(unsigned seconds,")
-end = core.index("int r2_ears_start(void)", start)
+start = core.index("static char *r2_ears_listen_internal(unsigned seconds, int stop_on_silence,")
+end = core.index("char *r2_ears_listen_cancelable(unsigned seconds,", start)
 bridge = core[start:end]
+wrappers_end = core.index("int r2_ears_start(void)", end)
+wrappers = core[end:wrappers_end]
 
 assert "r2_ears_read(ears, pcm, wanted)" in bridge
-assert "r2_wav_write_wav_header" not in bridge
-assert "r2_ears_write_wav_header(wav, total_bytes)" in bridge
-assert '"R2_WHISPER_MODEL"' in bridge and '"R2_WHISPER_CLI"' in bridge
+assert "r2_ears_write_wav_header(wav, captured_bytes)" in bridge
+assert 'getenv("R2_WHISPER_MODEL")' in bridge and 'getenv("R2_WHISPER_CLI")' in bridge
 assert 'execlp(cli, cli, "-m", model, "-f", wav_path' in bridge
 assert "system(" not in bridge and "popen(" not in bridge
 assert "seconds < 1U || seconds > 15U" in bridge
 assert "O_EXCL | O_CLOEXEC, 0600" in bridge
 assert "r2_ears_close(ears)" in bridge
 assert "unlink(wav_path)" in bridge and "unlink(transcript_path)" in bridge
+assert "r2_ears_pcm_mean_absolute_level" in bridge
+assert "silent_frames >= 60U" in bridge
+assert "transcript = calloc(1, 1)" in bridge
 assert "char *r2_ears_listen(unsigned seconds);" in header
 assert "char *r2_ears_listen_cancelable(unsigned seconds," in header
-assert "while (captured_bytes < total_bytes && !shutting_down &&" in bridge
+assert "char *r2_ears_listen_utterance_cancelable(unsigned max_seconds," in header
 assert "cancelled && cancelled(userdata)" in bridge
+assert "return r2_ears_listen_internal(seconds, 0, cancelled, userdata);" in wrappers
+assert "return r2_ears_listen_internal(max_seconds, 1, cancelled, userdata);" in wrappers
 assert "return r2_ears_listen_cancelable(seconds, NULL, NULL);" in core
 assert 'shell_talk(transcript)' in shell
 conversation_start = shell.index("static void shell_talk(const char *message)")
