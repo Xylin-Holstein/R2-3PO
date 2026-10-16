@@ -160,6 +160,80 @@ def main() -> int:
         state_db.close()
         assert (root / "State" / "console_state.db").is_file()
 
+        # A pre-upgrade installation may have the original power-state table,
+        # a provenance-free event log, and a minimal cartridge inventory.
+        # Opening it must preserve old rows and make current writes work.
+        legacy_root = Path(temp) / "legacy-device"
+        (legacy_root / "State").mkdir(parents=True)
+        legacy_state = sqlite3.connect(
+            legacy_root / "State" / "console_state.db"
+        )
+        legacy_state.executescript("""
+            CREATE TABLE console_state (
+                id INTEGER PRIMARY KEY CHECK (id=1),
+                power_state TEXT NOT NULL DEFAULT 'off',
+                emulator_pid INTEGER
+            );
+            INSERT INTO console_state(id,power_state,emulator_pid)
+                VALUES(1,'off',NULL);
+            CREATE TABLE console_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                context TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                details TEXT,
+                game_title TEXT,
+                session_id TEXT
+            );
+            INSERT INTO console_events(timestamp,context,event_type,summary)
+                VALUES('2020-01-01T00:00:00Z','system','legacy','keep this event');
+            CREATE TABLE cartridge_inventory (
+                filename TEXT PRIMARY KEY COLLATE NOCASE,
+                title TEXT NOT NULL
+            );
+            INSERT INTO cartridge_inventory(filename,title)
+                VALUES('Old.gba','Old Game');
+        """)
+        legacy_state.close()
+
+        result = run(legacy_root, emulator, "status")
+        assert result["power_state"] == "off"
+        os.environ["R2_GAMEBOY_ROOT"] = str(legacy_root)
+        os.environ.pop("R2_GAMEBOY_DB", None)
+        spec = importlib.util.spec_from_file_location(
+            "r2_gameboy_legacy_migration", CONSOLE
+        )
+        assert spec and spec.loader
+        legacy_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(legacy_module)
+        legacy_db = legacy_module.connect()
+        state_columns = {
+            row[1] for row in legacy_db.execute("PRAGMA table_info(console_state)")
+        }
+        assert {"emulator_start_ticks", "game_started_at", "session_id"} <= state_columns
+        event_columns = {
+            row[1] for row in legacy_db.execute("PRAGMA table_info(console_events)")
+        }
+        assert {"evidence_source", "verified", "life_log_synced"} <= event_columns
+        inventory_columns = {
+            row[1] for row in legacy_db.execute("PRAGMA table_info(cartridge_inventory)")
+        }
+        assert {"location", "discovered_at", "updated_at"} <= inventory_columns
+        assert legacy_db.execute(
+            "SELECT summary FROM console_events WHERE event_type='legacy'"
+        ).fetchone()[0] == "keep this event"
+        assert legacy_db.execute(
+            "SELECT title,location FROM cartridge_inventory WHERE filename='Old.gba'"
+        ).fetchone() == ("Old Game", "pockets")
+        legacy_module.record_event(
+            legacy_db, "system", "migration_write", "Legacy database remains writable."
+        )
+        assert legacy_db.execute(
+            "SELECT COUNT(*) FROM console_events WHERE event_type='migration_write'"
+        ).fetchone()[0] == 1
+        legacy_db.close()
+
     print("Game Boy console state-machine smoke test passed.")
     return 0
 
