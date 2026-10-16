@@ -20,6 +20,8 @@ assert "pthread_create(&shell_watch_thread, NULL, shell_watch_worker, NULL)" in 
 assert "pthread_join(shell_watch_thread, NULL)" in stop_body
 assert "atomic_store(&shell_watch_stop_requested, 1)" in stop_body
 assert "r2_ears_listen_cancelable(5, shell_watch_cancelled, NULL)" in worker
+assert "struct timespec retry_delay = {1, 0};" in worker
+assert "nanosleep(&retry_delay, &retry_delay)" in worker
 assert "shell_talk_watch(transcript)" in worker
 assert "r2_vision_watch_start()" in worker and "r2_eyes_status() > 0" in worker
 assert "r2_vision_watch_stop()" in worker
