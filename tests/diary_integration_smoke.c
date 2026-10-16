@@ -199,7 +199,7 @@ static int create_legacy_reward_db(void)
     }
     const char *legacy_schema =
         "CREATE TABLE reward_totals (id INTEGER PRIMARY KEY CHECK(id=1),"
-        " points INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL);"
+        " points INTEGER NOT NULL DEFAULT 0);"
         "CREATE TABLE reward_events ("
         " id INTEGER PRIMARY KEY AUTOINCREMENT, target TEXT NOT NULL,"
         " source TEXT NOT NULL, points INTEGER NOT NULL CHECK(points BETWEEN -7 AND 5 AND points<>0),"
