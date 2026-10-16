@@ -4,6 +4,7 @@
 #include "r2_diary.h"
 
 #include <assert.h>
+#include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -59,7 +60,6 @@ int main(void)
     assert(r2_addiction_init() == 0);
     assert(r2_addiction_record_choice("old target", "activity", 73,
                                       "legacy-smoke", "new write after migration") == 0);
-    assert(r2_addiction_shutdown, "shutdown symbol must be available");
     r2_addiction_shutdown();
 
     assert(sqlite3_open(path, &db) == SQLITE_OK);
