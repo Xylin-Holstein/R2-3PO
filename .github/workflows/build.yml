@@ -131,6 +131,12 @@ jobs:
       - name: Check Watch coordinator worker lifecycle
         run: python3 tests/watch_coordinator_lifecycle_smoke.py
 
+      - name: Require open Eyes before starting visual observation
+        run: python3 tests/vision_watch_requires_open_eyes_smoke.py
+
+      - name: Cancel visual inference when stopping Watch
+        run: python3 tests/vision_watch_cancellation_smoke.py
+
       - name: Check unified Qwen 3.5 conversation and vision wiring
         run: python3 tests/qwen35_model_smoke.py
 
