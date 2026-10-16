@@ -81,6 +81,8 @@ int main(void)
     assert(reward_column_exists("reward_events", "log_event_id"));
     assert(reward_column_exists("reward_events", "memory_indexed"));
     assert(reward_column_exists("reward_once_keys", "created_at"));
+    assert(scalar(reward_db, "SELECT updated_at>0 FROM reward_totals WHERE id=1") == 1);
+    assert(scalar(reward_db, "SELECT created_at>0 FROM reward_once_keys WHERE target='old target' AND source='old key'") == 1);
     assert(scalar(reward_db, "SELECT COUNT(*) FROM reward_once_keys WHERE target='old target' AND source='old key'") == 1);
     assert(scalar(reward_db, "SELECT COUNT(*) FROM reward_once_keys WHERE target='once target' AND source='once source'") == 1);
 
