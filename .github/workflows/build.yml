@@ -338,6 +338,18 @@ jobs:
       - name: Check Life Log structured declarations and schema
         run: python3 tests/life_log_linker_regression.py
 
+      - name: Exercise linked Life Log retrieval
+        run: |
+          ROOT=/tmp/r2-log-link-smoke
+          rm -rf "$ROOT"
+          mkdir -p "$ROOT"
+          cc -std=c11 -Wall -Wextra -Werror -O2 -I. \
+            -DR2_DIARY_DATABASE='"/tmp/r2-log-link-smoke/r2_memory.db"' \
+            tests/log_linked_retrieval_smoke.c Log.c -lsqlite3 -lpthread -lm \
+            -o /tmp/r2-log-linked-retrieval-smoke
+          /tmp/r2-log-linked-retrieval-smoke
+
+
       - name: Exercise diary, Life Log, and memory reconnection
         run: |
           rm -rf /tmp/r2-diary-smoke
