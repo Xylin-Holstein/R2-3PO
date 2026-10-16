@@ -137,6 +137,14 @@ jobs:
       - name: Cancel visual inference when stopping Watch
         run: python3 tests/vision_watch_cancellation_smoke.py
 
+      - name: Distinguish unavailable Eyes and Ears from inactive devices
+        run: |
+          python3 -m py_compile tests/sensory_unavailable_status_smoke.py
+          python3 tests/sensory_unavailable_status_smoke.py
+
+      - name: Distinguish unavailable Eyes and Ears in core status output
+        run: python3 tests/core_sensory_status_render_smoke.py
+
       - name: Check unified Qwen 3.5 conversation and vision wiring
         run: python3 tests/qwen35_model_smoke.py
 
@@ -198,6 +206,9 @@ jobs:
 
       - name: Check Ollama mixed CPU/GPU layer placement
         run: python3 tests/ollama_gpu_offload_smoke.py
+
+      - name: Check GTX 1050 Ti context budget against limited VRAM
+        run: python3 tests/gpu_context_budget_smoke.py
 
       - name: Keep the current user turn in bounded Ollama payloads
         run: python3 tests/ollama_current_turn_smoke.py
@@ -303,6 +314,17 @@ jobs:
 
       - name: Check Life Log structured declarations and schema
         run: python3 tests/life_log_linker_regression.py
+
+      - name: Exercise linked Life Log retrieval
+        run: |
+          ROOT=/tmp/r2-log-link-smoke
+          rm -rf "$ROOT"
+          mkdir -p "$ROOT"
+          cc -std=c11 -Wall -Wextra -Werror -O2 -I. \
+            -DR2_DIARY_DATABASE='"/tmp/r2-log-link-smoke/r2_memory.db"' \
+            tests/log_linked_retrieval_smoke.c Log.c -lsqlite3 -lpthread -lm \
+            -o /tmp/r2-log-linked-retrieval-smoke
+          /tmp/r2-log-linked-retrieval-smoke
 
       - name: Exercise diary, Life Log, and memory reconnection
         run: |
