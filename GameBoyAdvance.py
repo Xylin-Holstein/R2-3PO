@@ -141,19 +141,22 @@ def record_verified_game_event(db: sqlite3.Connection, event_type: str,
     This API is intentionally not exposed as an R2 [WORLD] action. A model
     statement alone is not evidence that a character performed an action.
     """
-    row = reconcile(db)
-    if row["power_state"] != "on" or not row["emulator_pid"]:
-        raise ValueError("No active game session; virtual events cannot be recorded.")
-    if event_type not in VERIFIED_GAME_EVENT_TYPES:
-        raise ValueError("Unsupported verified game event type.")
-    if not summary or len(summary) > 1000 or len(details or "") > 3000:
-        raise ValueError("Event summary/details are empty or too long.")
-    if not evidence_source or not evidence_source.startswith("adapter:"):
-        raise ValueError("A game adapter evidence source is required.")
-    record_event(db, "virtual", event_type, summary, details,
-                 row["cartridge_title"], row["session_id"],
-                 evidence_source=evidence_source, verified=True)
-    return int(db.execute("SELECT last_insert_rowid()").fetchone()[0])
+    ensure_dirs()
+    with (STATE / ".console.lock").open("a+") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        row = reconcile(db)
+        if row["power_state"] != "on" or not row["emulator_pid"]:
+            raise ValueError("No active game session; virtual events cannot be recorded.")
+        if event_type not in VERIFIED_GAME_EVENT_TYPES:
+            raise ValueError("Unsupported verified game event type.")
+        if not summary or len(summary) > 1000 or len(details or "") > 3000:
+            raise ValueError("Event summary/details are empty or too long.")
+        if not evidence_source or not evidence_source.startswith("adapter:"):
+            raise ValueError("A game adapter evidence source is required.")
+        record_event(db, "virtual", event_type, summary, details,
+                     row["cartridge_title"], row["session_id"],
+                     evidence_source=evidence_source, verified=True)
+        return int(db.execute("SELECT last_insert_rowid()").fetchone()[0])
 
 
 def pending_verified_events(db: sqlite3.Connection) -> list[dict[str, Any]]:
