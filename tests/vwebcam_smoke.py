@@ -35,6 +35,7 @@ def main() -> None:
     assert "execlp(\"python3\"" not in eyes
     assert 'getenv("R2_CAMERA_DEVICE")' in eyes
     assert 'R2_CAMERA_DEVICE="${R2_CAMERA_DEVICE:-/dev/video0}"' in launcher
+    assert "R2_CAMERA_DEVICE" in read("docs/local-speech-input.md")
     assert "R2_VWEBCAM_MAX_W 960U" in eyes
     assert "r2_vwebcam_last_publish_ms" in eyes
     assert "if (!display || !*display)" in eyes
