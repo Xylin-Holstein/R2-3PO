@@ -52,6 +52,7 @@ assert 'strncasecmp(argument, "listen", 6)' in shell
 assert "ears listen [1-15 seconds]" in shell
 assert 'R2_WHISPER_MODEL="${R2_WHISPER_MODEL:-}"' in launcher
 assert 'R2_WHISPER_CLI="${R2_WHISPER_CLI:-}"' in launcher
+assert 'R2_EARS_VAD_THRESHOLD="${R2_EARS_VAD_THRESHOLD:-}"' in launcher
 assert "Local Whisper is not configured" in launcher
 assert "docs/local-speech-input.md" in launcher
 assert "r2_ears_read(" in ears and "ssize_t r2_ears_read(" in ears_header
