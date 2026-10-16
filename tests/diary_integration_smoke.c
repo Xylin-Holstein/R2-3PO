@@ -190,6 +190,25 @@ static int scalar_int(const char *sql)
     return value;
 }
 
+static int reward_scalar_int(const char *sql)
+{
+    sqlite3 *db = NULL;
+    sqlite3_stmt *st = NULL;
+    int value = -1;
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/r2_rewards.db", R2_HOME);
+    if (sqlite3_open(path, &db) != SQLITE_OK) {
+        if (db) sqlite3_close(db);
+        return -1;
+    }
+    if (sqlite3_prepare_v2(db, sql, -1, &st, NULL) == SQLITE_OK &&
+        sqlite3_step(st) == SQLITE_ROW)
+        value = sqlite3_column_int(st, 0);
+    if (st) sqlite3_finalize(st);
+    sqlite3_close(db);
+    return value;
+}
+
 static int create_legacy_reward_db(void)
 {
     sqlite3 *db = NULL;
@@ -283,11 +302,11 @@ int main(void)
     assert(reward_total() == 5);
     assert(reward_link_count() == 5);
     assert(reward_memory_count() == 5);
-    assert(scalar_int("SELECT COUNT(*) FROM pragma_table_info('reward_once_keys') "
-                      "WHERE name='created_at';") == 1);
-    assert(scalar_int("SELECT COUNT(*) FROM reward_once_keys "
-                      "WHERE target='legacy-key-target' AND source='legacy-key-source' "
-                      "AND created_at>0;") == 1);
+    assert(reward_scalar_int("SELECT COUNT(*) FROM pragma_table_info('reward_once_keys') "
+                             "WHERE name='created_at';") == 1);
+    assert(reward_scalar_int("SELECT COUNT(*) FROM reward_once_keys "
+                             "WHERE target='legacy-key-target' AND source='legacy-key-source' "
+                             "AND created_at>0;") == 1);
     assert(r2_reward_reconnect_history(10) == 0);
     assert(scalar_int("SELECT COUNT(*) FROM r2_log_events "
                       "WHERE event_type='enjoyment_changed';") == 5);
