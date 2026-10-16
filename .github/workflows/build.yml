@@ -356,6 +356,15 @@ jobs:
           /tmp/r2-log-linked-retrieval-smoke
 
 
+      - name: Exercise writable Life Log migration from a legacy event schema
+        run: |
+          ROOT=/tmp/r2-log-legacy-schema-smoke
+          rm -rf "$ROOT" /tmp/r2-log-legacy-schema-smoke-test
+          mkdir -p "$ROOT"
+          FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\"$ROOT\" -DR2_HOME=\"$ROOT\" -DR2_WORKSPACE=\"$ROOT\" -DR2_DIARY_DATABASE=\"$ROOT/r2_memory.db\" -DR2_DIARY_DIR=\"$ROOT/R2_Diary\""
+          cc $FLAGS tests/life_log_legacy_schema_smoke.c Log.c -o /tmp/r2-log-legacy-schema-smoke-test -lsqlite3 -lpthread -lm
+          /tmp/r2-log-legacy-schema-smoke-test
+
       - name: Exercise diary, Life Log, and memory reconnection
         run: |
           rm -rf /tmp/r2-diary-smoke
