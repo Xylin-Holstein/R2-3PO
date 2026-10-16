@@ -78,6 +78,8 @@ static atomic_int shell_shutdown = ATOMIC_VAR_INIT(0);
 
 static int shell_running = 0;
 static int watch_running = 0;
+static pthread_t shell_watch_thread;
+static int shell_watch_thread_started = 0;
 static atomic_int shell_watch_stop_requested = ATOMIC_VAR_INIT(1);
 
 /* The GUI talks to this local socket; all writes still pass through Reality APIs. */
@@ -1263,32 +1265,25 @@ static void shell_ears(const char *argument)
 static void shell_watch_status(void)
 {
     printf(
-        "\n"
-        "================ WATCH STATUS =============================\n"
-        "\n"
-        "Watch controller : %s\n"
-        "R2 Watch state   : %s\n"
-        "\n"
-        "Watch is intended to coordinate:\n"
-        "  - microphone input\n"
-        "  - desktop/system audio\n"
-        "  - VLC detection\n"
-        "  - VLC/video observation\n"
-        "\n"
-        "============================================================\n"
-        "\n",
-        watch_running
-            ? "ACTIVE"
-            : "INACTIVE",
-        r2_watch_active()
-            ? "ACTIVE"
-            : "INACTIVE"
+        "\\n"
+        "================ WATCH STATUS =============================\\n"
+        "\\n"
+        "Coordinator thread : %s\\n"
+        "Speech input       : %s\\n"
+        "Visual observation : %s\\n"
+        "Core Watch state   : %s\\n"
+        "\\n"
+        "Microphone capture uses local Whisper transcription. Visual observation\n"
+        "runs only while an Eyes source is already open; Watch never opens Eyes.\\n"
+        "============================================================\\n"
+        "\\n",
+        shell_watch_thread_started ? "RUNNING" : "STOPPED",
+        watch_running ? "ENABLED" : "DISABLED",
+        r2_vision_watch_active() ? "ACTIVE" : "INACTIVE",
+        r2_watch_active() ? "ACTIVE" : "INACTIVE"
     );
 }
 
-
-static pthread_t shell_watch_thread;
-static int shell_watch_thread_started = 0;
 
 static int shell_watch_cancelled(void *unused)
 {
