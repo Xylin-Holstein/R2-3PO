@@ -1085,11 +1085,129 @@ static int fridge_change_one(const char *food, char *description, size_t descrip
     if (ingredients && ingredients_cap) snprintf(ingredients, ingredients_cap, "%s", ing ? (const char *)ing : "");
     if (taste && taste_cap) snprintf(taste, taste_cap, "%s", flavor ? (const char *)flavor : "");
     sqlite3_finalize(st);
-    const char *sql = qty > 1
-        ? "UPDATE r2_fridge_items SET quantity=quantity-1,updated_at=CURRENT_TIMESTAMP WHERE name=? COLLATE NOCASE"
-        : "DELETE FROM r2_fridge_items WHERE name=? COLLATE NOCASE";
-    st = NULL;
-    if (sqlite3_prepare_v2(fridge_db, sql, -1, &st, NULL) != SQLITE_OK) return -1;
+/* Older fridge databases may retain required qty/amount aliases after the
+ * canonical quantity column is added. Keep those aliases populated on both
+ * insert and conflict-update paths so upgrades remain writable. */
+static int fridge_insert_item_compat(const char *name, const char *description,
+                                     int quantity, double fullness, double energy,
+                                     const char *ingredients, const char *taste,
+                                     int update_metadata)
+{
+    const int has_qty = fridge_column_exists("qty");
+    const int has_amount = fridge_column_exists("amount");
+    char sql[2048];
+    size_t used = 0;
+    int n = snprintf(sql, sizeof(sql),
+        "INSERT INTO r2_fridge_items(name,description,quantity,fullness,energy,ingredients,taste");
+    if (n < 0 || (size_t)n >= sizeof(sql)) return SQLITE_TOOBIG;
+    used = (size_t)n;
+    if (has_qty) {
+        n = snprintf(sql + used, sizeof(sql) - used, ",qty");
+        if (n < 0 || (size_t)n >= sizeof(sql) - used) return SQLITE_TOOBIG;
+        used += (size_t)n;
+    }
+    if (has_amount) {
+        n = snprintf(sql + used, sizeof(sql) - used, ",amount");
+        if (n < 0 || (size_t)n >= sizeof(sql) - used) return SQLITE_TOOBIG;
+        used += (size_t)n;
+    }
+    n = snprintf(sql + used, sizeof(sql) - used, ") VALUES(?,?,?,?,?,?,?");
+    if (n < 0 || (size_t)n >= sizeof(sql) - used) return SQLITE_TOOBIG;
+    used += (size_t)n;
+    if (has_qty) {
+        n = snprintf(sql + used, sizeof(sql) - used, ",?");
+        if (n < 0 || (size_t)n >= sizeof(sql) - used) return SQLITE_TOOBIG;
+        used += (size_t)n;
+    }
+    if (has_amount) {
+        n = snprintf(sql + used, sizeof(sql) - used, ",?");
+        if (n < 0 || (size_t)n >= sizeof(sql) - used) return SQLITE_TOOBIG;
+        used += (size_t)n;
+    }
+    n = snprintf(sql + used, sizeof(sql) - used,
+        ") ON CONFLICT(name) DO UPDATE SET quantity=r2_fridge_items.quantity+excluded.quantity,");
+    if (n < 0 || (size_t)n >= sizeof(sql) - used) return SQLITE_TOOBIG;
+    used += (size_t)n;
+    if (update_metadata) {
+        n = snprintf(sql + used, sizeof(sql) - used,
+            "description=excluded.description,fullness=excluded.fullness,energy=excluded.energy,"
+            "ingredients=excluded.ingredients,taste=excluded.taste,");
+        if (n < 0 || (size_t)n >= sizeof(sql) - used) return SQLITE_TOOBIG;
+        used += (size_t)n;
+    }
+    if (has_qty) {
+        n = snprintf(sql + used, sizeof(sql) - used, "qty=r2_fridge_items.quantity+excluded.quantity,");
+        if (n < 0 || (size_t)n >= sizeof(sql) - used) return SQLITE_TOOBIG;
+        used += (size_t)n;
+    }
+    if (has_amount) {
+        n = snprintf(sql + used, sizeof(sql) - used, "amount=r2_fridge_items.quantity+excluded.quantity,");
+        if (n < 0 || (size_t)n >= sizeof(sql) - used) return SQLITE_TOOBIG;
+        used += (size_t)n;
+    }
+    n = snprintf(sql + used, sizeof(sql) - used, "updated_at=CURRENT_TIMESTAMP");
+    if (n < 0 || (size_t)n >= sizeof(sql) - used) return SQLITE_TOOBIG;
+
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(fridge_db, sql, -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        int i = 1;
+        bind_text(st, i++, name);
+        bind_text(st, i++, description ? description : "");
+        sqlite3_bind_int(st, i++, quantity);
+        sqlite3_bind_double(st, i++, fullness);
+        sqlite3_bind_double(st, i++, energy);
+        bind_text(st, i++, ingredients ? ingredients : "");
+        bind_text(st, i++, taste ? taste : "");
+        if (has_qty) sqlite3_bind_int(st, i++, quantity);
+        if (has_amount) sqlite3_bind_int(st, i++, quantity);
+        rc = sqlite3_step(st);
+    }
+    if (st) sqlite3_finalize(st);
+    return rc;
+}
+
+static int fridge_change_one(const char *food, char *description, size_t description_cap,
+                             int *old_quantity, double *fullness, double *energy,
+                             char *ingredients, size_t ingredients_cap, char *taste, size_t taste_cap)
+{
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_prepare_v2(fridge_db, "SELECT description,quantity,fullness,energy,ingredients,taste FROM r2_fridge_items WHERE name=? COLLATE NOCASE", -1, &st, NULL) != SQLITE_OK) return -1;
+    bind_text(st, 1, food);
+    if (sqlite3_step(st) != SQLITE_ROW) { sqlite3_finalize(st); return -1; }
+    const unsigned char *d = sqlite3_column_text(st, 0);
+    if (description && description_cap) snprintf(description, description_cap, "%s", d ? (const char *)d : "");
+    int qty = sqlite3_column_int(st, 1);
+    if (old_quantity) *old_quantity = qty;
+    if (fullness) *fullness = sqlite3_column_double(st, 2);
+    if (energy) *energy = sqlite3_column_double(st, 3);
+    const unsigned char *ing = sqlite3_column_text(st, 4), *flavor = sqlite3_column_text(st, 5);
+    if (ingredients && ingredients_cap) snprintf(ingredients, ingredients_cap, "%s", ing ? (const char *)ing : "");
+    if (taste && taste_cap) snprintf(taste, taste_cap, "%s", flavor ? (const char *)flavor : "");
+    sqlite3_finalize(st);
+    if (qty <= 1) {
+        if (sqlite3_prepare_v2(fridge_db, "DELETE FROM r2_fridge_items WHERE name=? COLLATE NOCASE", -1, &st, NULL) != SQLITE_OK) return -1;
+    } else {
+        char sql[512];
+        size_t used = 0;
+        int n = snprintf(sql, sizeof(sql), "UPDATE r2_fridge_items SET quantity=quantity-1");
+        if (n < 0 || (size_t)n >= sizeof(sql)) return -1;
+        used = (size_t)n;
+        if (fridge_column_exists("qty")) {
+            n = snprintf(sql + used, sizeof(sql) - used, ",qty=quantity-1");
+            if (n < 0 || (size_t)n >= sizeof(sql) - used) return -1;
+            used += (size_t)n;
+        }
+        if (fridge_column_exists("amount")) {
+            n = snprintf(sql + used, sizeof(sql) - used, ",amount=quantity-1");
+            if (n < 0 || (size_t)n >= sizeof(sql) - used) return -1;
+            used += (size_t)n;
+        }
+        n = snprintf(sql + used, sizeof(sql) - used,
+                     ",updated_at=CURRENT_TIMESTAMP WHERE name=? COLLATE NOCASE");
+        if (n < 0 || (size_t)n >= sizeof(sql) - used) return -1;
+        if (sqlite3_prepare_v2(fridge_db, sql, -1, &st, NULL) != SQLITE_OK) return -1;
+    }
     bind_text(st, 1, food);
     int rc = sqlite3_step(st);
     sqlite3_finalize(st);
@@ -1098,18 +1216,8 @@ static int fridge_change_one(const char *food, char *description, size_t descrip
 static int fridge_restore_one(const char *food, const char *description, double fullness, double energy,
                              const char *ingredients, const char *taste)
 {
-    sqlite3_stmt *st = NULL;
-    int rc = sqlite3_prepare_v2(fridge_db,
-        "INSERT INTO r2_fridge_items(name,description,quantity,fullness,energy,ingredients,taste) VALUES(?,?,1,?,?,?,?) ON CONFLICT(name) DO UPDATE SET quantity=quantity+1,updated_at=CURRENT_TIMESTAMP",
-        -1, &st, NULL);
-    if (rc == SQLITE_OK) {
-        bind_text(st, 1, food); bind_text(st, 2, description);
-        sqlite3_bind_double(st, 3, fullness); sqlite3_bind_double(st, 4, energy);
-        bind_text(st, 5, ingredients ? ingredients : ""); bind_text(st, 6, taste ? taste : "");
-        rc = sqlite3_step(st);
-    }
-    if (st) sqlite3_finalize(st);
-    return rc == SQLITE_DONE ? 0 : -1;
+    return fridge_insert_item_compat(food, description, 1, fullness, energy,
+                                     ingredients, taste, 0) == SQLITE_DONE ? 0 : -1;
 }
 int r2_fridge_add_item(const char *name, const char *description, int quantity,
                        double fullness, double energy, const char *ingredients, const char *taste)
@@ -1138,18 +1246,10 @@ int r2_fridge_add_item(const char *name, const char *description, int quantity,
     }
     if (st) sqlite3_finalize(st);
     st = NULL;
-    if (rc == SQLITE_OK) rc = sqlite3_prepare_v2(fridge_db,
-        "INSERT INTO r2_fridge_items(name,description,quantity,fullness,energy,ingredients,taste) VALUES(?,?,?,?,?,?,?) "
-        "ON CONFLICT(name) DO UPDATE SET description=excluded.description,quantity=r2_fridge_items.quantity+excluded.quantity,"
-        "fullness=excluded.fullness,energy=excluded.energy,ingredients=excluded.ingredients,taste=excluded.taste,updated_at=CURRENT_TIMESTAMP",
-        -1, &st, NULL);
     if (rc == SQLITE_OK) {
-        bind_text(st, 1, name); bind_text(st, 2, description ? description : "");
-        sqlite3_bind_int(st, 3, quantity); sqlite3_bind_double(st, 4, fullness); sqlite3_bind_double(st, 5, energy);
-        bind_text(st, 6, ingredients ? ingredients : ""); bind_text(st, 7, taste ? taste : "");
-        rc = sqlite3_step(st);
+        rc = fridge_insert_item_compat(name, description ? description : "", quantity,
+                                       fullness, energy, ingredients, taste, 1);
     }
-    if (st) sqlite3_finalize(st);
     if (rc == SQLITE_DONE) {
         sqlite3_stmt *q = NULL;
         if (sqlite3_prepare_v2(fridge_db, "SELECT quantity FROM r2_fridge_items WHERE name=? COLLATE NOCASE", -1, &q, NULL) == SQLITE_OK) {
