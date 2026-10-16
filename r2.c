@@ -5115,7 +5115,7 @@ static char *r2_associative_query_cache_lookup(const char *query)
         plan = xstrdup(r2_associative_cached_plan);
     pthread_mutex_unlock(&r2_associative_query_cache_lock);
     if (plan)
-        fprintf(stderr, "[R2 Context] Reused this turn's associative retrieval plan.\\n");
+        fprintf(stderr, "[R2 Context] Reused this turn's associative retrieval plan.\n");
     return plan;
 }
 
