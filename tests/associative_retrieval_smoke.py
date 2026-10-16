@@ -39,8 +39,19 @@ builder_start = core.find("static char *chat_with_relevant_memories(")
 builder_end = core.find("/* ============================================================\n   STRING HELPERS", builder_start)
 builder = core[builder_start:builder_end]
 require(
-    "r2_build_associative_search_query(query ? query : \"\")" in builder,
-    "associative retrieval planning runs on every ordinary conversation turn",
+    "r2_build_associative_search_query(query ? query : \"\")" in builder
+    and "r2_associative_query_cache_lookup(query)" in helper
+    and "r2_associative_query_cache_store(query, combined)" in helper,
+    "semantic retrieval cues are reused across retries instead of repeating planner inference",
+)
+impl_start = core.find("static char *r2_talk_impl(const char *message)")
+impl_end = core.find("char *r2_talk(const char *message)", impl_start)
+turn_impl = core[impl_start:impl_end]
+require(
+    "r2_associative_query_cache_clear();" in turn_impl
+    and turn_impl.find("r2_associative_query_cache_clear();")
+        < turn_impl.find("chat_with_relevant_memories(message)"),
+    "the associative plan cache is reset at the start of each turn, while live context is still rebuilt on retries",
 )
 require(
     "get_relevant_memories(associative_query, memory_limit)" in builder
