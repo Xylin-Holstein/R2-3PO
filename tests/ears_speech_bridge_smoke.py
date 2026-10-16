@@ -11,7 +11,7 @@ launcher = (ROOT / "R2_Launch_Code.sh").read_text(encoding="utf-8")
 ears = (ROOT / "Ears.c").read_text(encoding="utf-8")
 ears_header = (ROOT / "Ears.h").read_text(encoding="utf-8")
 
-start = core.index("char *r2_ears_listen(unsigned seconds)")
+start = core.index("char *r2_ears_listen_cancelable(unsigned seconds,")
 end = core.index("int r2_ears_start(void)", start)
 bridge = core[start:end]
 
@@ -26,6 +26,10 @@ assert "O_EXCL | O_CLOEXEC, 0600" in bridge
 assert "r2_ears_close(ears)" in bridge
 assert "unlink(wav_path)" in bridge and "unlink(transcript_path)" in bridge
 assert "char *r2_ears_listen(unsigned seconds);" in header
+assert "char *r2_ears_listen_cancelable(unsigned seconds," in header
+assert "while (captured_bytes < total_bytes && !shutting_down &&" in bridge
+assert "cancelled && cancelled(userdata)" in bridge
+assert "return r2_ears_listen_cancelable(seconds, NULL, NULL);" in core
 assert 'shell_talk(transcript)' in shell
 conversation_start = shell.index("static void shell_talk(const char *message)")
 conversation_end = shell.index("static void shell_conversation(", conversation_start)
