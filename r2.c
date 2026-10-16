@@ -10699,6 +10699,24 @@ finalize_reply:
  */
 char *r2_talk(const char *message)
 {
+    /*
+     * Validate at the public API boundary, not only in the interactive
+     * reader: shell commands, speech transcripts, and other callers enter
+     * through this function too. Never silently truncate or store an invalid
+     * oversized turn in conversation history.
+     */
+    if (!message || !reply_has_visible_text(message))
+        return xstrdup("Please enter a non-empty message so I can respond.");
+
+    size_t input_chars = strnlen(message, (size_t)OLLAMA_MAX_MESSAGE_CHARS + 1U);
+    if (input_chars > OLLAMA_MAX_MESSAGE_CHARS) {
+        fprintf(stderr,
+                "[R2] Rejected oversized public conversation input (limit=%d bytes); no turn was stored.\\n",
+                OLLAMA_MAX_MESSAGE_CHARS);
+        return xstrdup(
+            "That message is too long for one R2 chat turn (maximum 12000 bytes). "
+            "Nothing was sent or truncated; please split it into smaller messages.");
+    }
     /* Reset autonomous-reflection idleness before waiting for the turn lock,
        so queued user turns also take priority over background thought. */
     uint64_t activity_ms = r2_log_elapsed_ms();
