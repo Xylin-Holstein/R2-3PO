@@ -87,6 +87,16 @@ def preflight(wait_seconds: float = 0, timeout: float = 180) -> bool:
         return False
 
     options: dict[str, Any] = {"temperature": 0, "num_predict": 128}
+    configured_context = os.environ.get("R2_OLLAMA_NUM_CTX", "").strip()
+    if configured_context:
+        try:
+            context_tokens = int(configured_context, 10)
+        except ValueError:
+            context_tokens = 0
+        # Mirror the core's accepted override range. Invalid values are ignored
+        # by both paths so preflight does not test a context R2 will not use.
+        if 2048 <= context_tokens <= 16384:
+            options["num_ctx"] = context_tokens
     if gpu_layers != 0:
         options["num_gpu"] = gpu_layers
 
