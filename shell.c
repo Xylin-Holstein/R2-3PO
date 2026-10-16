@@ -1882,15 +1882,43 @@ typedef struct {
     char session_id[160];
 } ShellGameboyStatus;
 
+static int shell_gameboy_state_database_path(char *out, size_t capacity)
+{
+    const char *root = getenv("R2_GAMEBOY_ROOT");
+    char inferred[PATH_MAX];
+    if (!root || !*root) root = getenv("R2_GAMEBOY_DIR");
+    if (!root || !*root) {
+        const char *configured = getenv("R2_GAMEBOY_EXECUTABLE");
+        if (configured && *configured) {
+            const char *slash = strrchr(configured, '/');
+            if (slash == configured) {
+                root = "/";
+            } else if (slash && (size_t)(slash - configured) < sizeof(inferred)) {
+                size_t length = (size_t)(slash - configured);
+                memcpy(inferred, configured, length);
+                inferred[length] = 0;
+                root = inferred;
+            }
+        }
+    }
+    if (!root || !*root)
+        root = "/home/x/R2_Home/Devices/GameBoyAdvance";
+    size_t root_length = strlen(root);
+    const char *separator = root_length > 0 && root[root_length - 1] == '/' ? "" : "/";
+    int n = snprintf(out, capacity, "%s%sState/console_state.db", root, separator);
+    return n >= 0 && (size_t)n < capacity;
+}
+
 /* Read authoritative device state without showing JSON to the user. */
 static int shell_gameboy_read_status(ShellGameboyStatus *out)
 {
-    const char *database = "/home/x/R2_Home/Devices/GameBoyAdvance/State/console_state.db";
+    char database[PATH_MAX];
     sqlite3 *db = NULL;
     sqlite3_stmt *statement = NULL;
     int ok = 0;
     if (!out) return 0;
     memset(out, 0, sizeof(*out));
+    if (!shell_gameboy_state_database_path(database, sizeof(database))) return 0;
     if (sqlite3_open_v2(database, &db, SQLITE_OPEN_READONLY, NULL) != SQLITE_OK) {
         if (db) sqlite3_close(db);
         return 0;
