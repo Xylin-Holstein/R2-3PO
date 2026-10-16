@@ -155,7 +155,7 @@ static void seed_legacy_reality_owned_tables(void)
     char *error = NULL;
     int rc = sqlite3_exec(db, legacy, NULL, NULL, &error);
     if (rc != SQLITE_OK) {
-        fprintf(stderr, "reality needs smoke failed: could not seed legacy Reality DB: %s\\n",
+        fprintf(stderr, "reality needs smoke failed: could not seed legacy Reality DB: %s\n",
                 error ? error : sqlite3_errmsg(db));
         sqlite3_free(error);
         sqlite3_close(db);
