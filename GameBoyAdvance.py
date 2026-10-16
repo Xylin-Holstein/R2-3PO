@@ -8,6 +8,7 @@ No emulator save-state or rewind commands are exposed by this interface.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import os
 import signal
@@ -695,35 +696,42 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     command = args.command or "power"
     state = args.state if args.command == "power" else "on"
-    db = connect()
-    try:
-        if command == "status":
-            result = status_data(db)
-        elif command == "verify":
-            result = verify_console(db)
-        elif command == "list":
-            result = list_cartridges(db)
-        elif command == "move":
-            result = move_cartridge(db, args.filename, args.location)
-        elif command == "insert":
-            result = insert_cartridge(db, args.filename)
-        elif command == "eject":
-            result = eject_cartridge(db)
-        elif command == "press":
-            result = press_button(db, args.button, args.duration_ms)
-        elif command == "events":
-            result = pending_verified_events(db)
-        elif command == "ack_event":
-            result = {"ok": acknowledge_verified_event(db, args.event_id),
-                      "message": "Verified event acknowledged."}
-        elif command == "power":
-            result = power_on(db) if state == "on" else power_off(db)
-        else:
-            result = {"ok": False, "message": f"Unsupported command: {command}"}
-        print_result(result, args.json)
-        return 0 if not isinstance(result, dict) or result.get("ok", True) else 1
-    finally:
-        db.close()
+    ensure_dirs()
+    # Serialize complete CLI operations across separate shell/Python processes.
+    # SQLite serializes individual writes, but a power-on decision spans a read,
+    # emulator launch, and state commit; without this lock two callers can launch
+    # duplicate emulator instances from the same cartridge slot.
+    with (STATE / ".console.lock").open("a+") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        db = connect()
+        try:
+            if command == "status":
+                result = status_data(db)
+            elif command == "verify":
+                result = verify_console(db)
+            elif command == "list":
+                result = list_cartridges(db)
+            elif command == "move":
+                result = move_cartridge(db, args.filename, args.location)
+            elif command == "insert":
+                result = insert_cartridge(db, args.filename)
+            elif command == "eject":
+                result = eject_cartridge(db)
+            elif command == "press":
+                result = press_button(db, args.button, args.duration_ms)
+            elif command == "events":
+                result = pending_verified_events(db)
+            elif command == "ack_event":
+                result = {"ok": acknowledge_verified_event(db, args.event_id),
+                          "message": "Verified event acknowledged."}
+            elif command == "power":
+                result = power_on(db) if state == "on" else power_off(db)
+            else:
+                result = {"ok": False, "message": f"Unsupported command: {command}"}
+            print_result(result, args.json)
+            return 0 if not isinstance(result, dict) or result.get("ok", True) else 1
+        finally:
+            db.close()
 
 
 if __name__ == "__main__":
