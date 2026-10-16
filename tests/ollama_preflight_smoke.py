@@ -45,8 +45,8 @@ class OllamaPreflightSmoke(unittest.TestCase):
             {"models": [{"name": "qwen3.5:9b", "size_vram": 123456}]},
         ]
         gpu_result = SimpleNamespace(returncode=0, stdout="Test GPU, 4096 MiB, 123 MiB", stderr="")
-        with patch.dict(probe.os.environ, {"R2_OLLAMA_NUM_CTX": "8192"}), \\
-             patch.object(probe, "_read_json", side_effect=replies) as read, \\
+        with patch.dict(probe.os.environ, {"R2_OLLAMA_NUM_CTX": "8192"}), \
+             patch.object(probe, "_read_json", side_effect=replies) as read, \
              patch.object(probe.subprocess, "run", return_value=gpu_result):
             self.assertTrue(probe.preflight(timeout=1))
         payload = read.call_args_list[1].kwargs["payload"]
@@ -54,7 +54,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
 
     def test_invalid_context_is_rejected_before_network_access(self) -> None:
         errors = io.StringIO()
-        with patch.dict(probe.os.environ, {"R2_OLLAMA_NUM_CTX": "99999"}), \\
+        with patch.dict(probe.os.environ, {"R2_OLLAMA_NUM_CTX": "99999"}), \
              patch.object(probe, "_read_json") as read:
             with contextlib.redirect_stderr(errors):
                 self.assertFalse(probe.preflight(timeout=1))
