@@ -1265,18 +1265,18 @@ static void shell_ears(const char *argument)
 static void shell_watch_status(void)
 {
     printf(
-        "\\n"
-        "================ WATCH STATUS =============================\\n"
-        "\\n"
-        "Coordinator thread : %s\\n"
-        "Speech input       : %s\\n"
-        "Visual observation : %s\\n"
-        "Core Watch state   : %s\\n"
-        "\\n"
+        "\n"
+        "================ WATCH STATUS =============================\n"
+        "\n"
+        "Coordinator thread : %s\n"
+        "Speech input       : %s\n"
+        "Visual observation : %s\n"
+        "Core Watch state   : %s\n"
+        "\n"
         "Microphone capture uses local Whisper transcription. Visual observation\n"
-        "runs only while an Eyes source is already open; Watch never opens Eyes.\\n"
-        "============================================================\\n"
-        "\\n",
+        "runs only while an Eyes source is already open; Watch never opens Eyes.\n"
+        "============================================================\n"
+        "\n",
         shell_watch_thread_started ? "RUNNING" : "STOPPED",
         watch_running ? "ENABLED" : "DISABLED",
         r2_vision_watch_active() ? "ACTIVE" : "INACTIVE",
