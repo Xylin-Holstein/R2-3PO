@@ -105,6 +105,16 @@ r2_apply_network_lock() {
 }
 
 
+# Keep the default KV cache within a safer budget on the 4 GiB GTX 1050 Ti.
+# R2's core still adapts to available system RAM on other GPUs; an explicit
+# non-empty context override always wins.
+if [[ -z "${R2_OLLAMA_NUM_CTX:-}" ]] &&
+   command -v nvidia-smi >/dev/null 2>&1 &&
+   nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi 'GTX 1050 Ti'; then
+    export R2_OLLAMA_NUM_CTX=8192
+    echo "[GPU] GTX 1050 Ti detected; limiting default Ollama context to 8192 tokens."
+fi
+
 # On this host the GTX 1050 Ti has 4 GiB VRAM. Request a partial layer
 # offload by default instead of forcing the entire model into limited VRAM.
 # An explicit environment value always wins; 0 leaves placement automatic.
@@ -236,6 +246,7 @@ if [[ ! -r "$R2_SOURCE/tools/preflight_ollama_model.py" ]]; then
 fi
 if ! sudo -n -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
     R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
+    R2_OLLAMA_NUM_CTX="${R2_OLLAMA_NUM_CTX:-}" \
     R2_OLLAMA_NUM_GPU="$R2_OLLAMA_NUM_GPU" \
     R2_OLLAMA_TIMEOUT_SECONDS="${R2_OLLAMA_TIMEOUT_SECONDS:-}" \
     python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --timeout 180; then
