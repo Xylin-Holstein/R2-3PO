@@ -38,6 +38,32 @@ class OllamaPreflightSmoke(unittest.TestCase):
         self.assertTrue(read.call_args_list[2].args[0].endswith("/api/ps"))
         self.assertEqual(gpu.call_count, 1)
 
+    def test_configured_context_is_used_for_the_real_chat_probe(self) -> None:
+        replies = [
+            {"models": [{"name": "qwen3.5:9b"}]},
+            {"message": {"content": "R2_READY"}},
+            {"models": [{"name": "qwen3.5:9b", "size_vram": 123456}]},
+        ]
+        with patch.dict(probe.os.environ, {"R2_OLLAMA_NUM_CTX": "8192"}), \
+             patch.object(probe, "_read_json", side_effect=replies) as read, \
+             patch.object(probe.subprocess, "run", return_value=SimpleNamespace(returncode=1, stdout="", stderr="")):
+            self.assertTrue(probe.preflight(timeout=1))
+        payload = read.call_args_list[1].kwargs["payload"]
+        self.assertEqual(payload["options"]["num_ctx"], 8192)
+
+    def test_invalid_context_override_is_ignored_by_preflight(self) -> None:
+        replies = [
+            {"models": [{"name": "qwen3.5:9b"}]},
+            {"message": {"content": "R2_READY"}},
+            {"models": [{"name": "qwen3.5:9b", "size_vram": 123456}]},
+        ]
+        with patch.dict(probe.os.environ, {"R2_OLLAMA_NUM_CTX": "not-a-number"}), \
+             patch.object(probe, "_read_json", side_effect=replies) as read, \
+             patch.object(probe.subprocess, "run", return_value=SimpleNamespace(returncode=1, stdout="", stderr="")):
+            self.assertTrue(probe.preflight(timeout=1))
+        payload = read.call_args_list[1].kwargs["payload"]
+        self.assertNotIn("num_ctx", payload["options"])
+
     def test_overnight_endpoint_is_used_for_tags_chat_and_process_checks(self) -> None:
         replies = [
             {"models": [{"name": "qwen3.5:9b"}]},
