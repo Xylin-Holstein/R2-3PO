@@ -13,6 +13,17 @@ assert start >= 0 and end > start, "single lifecycle-aware Game Boy handler must
 handler = shell[start:end]
 assert 'getenv("R2_GAMEBOY_EXECUTABLE")' in handler
 assert '"/home/x/R2_Home/Devices/GameBoyAdvance/GameBoyAdvance"' in handler
+path_start = shell.index("static int shell_gameboy_state_database_path(")
+path_end = shell.index("/* Read authoritative device state", path_start)
+state_path = shell[path_start:path_end]
+assert 'getenv("R2_GAMEBOY_ROOT")' in state_path
+assert 'getenv("R2_GAMEBOY_DIR")' in state_path
+assert 'getenv("R2_GAMEBOY_EXECUTABLE")' in state_path
+assert '"/home/x/R2_Home/Devices/GameBoyAdvance"' in state_path
+assert '"%s%sState/console_state.db"' in state_path
+status_start = shell.index("static int shell_gameboy_read_status(")
+status_end = shell.index("static void shell_gameboy_log_session_start(", status_start)
+assert "shell_gameboy_state_database_path(database, sizeof(database))" in shell[status_start:status_end]
 assert "execv(device, argv)" in handler
 assert "system(" not in handler and "popen(" not in handler, "arguments must never enter a shell"
 assert "shell_gameboy_sync_verified_events()" in handler
