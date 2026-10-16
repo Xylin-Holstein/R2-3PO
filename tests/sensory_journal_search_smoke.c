@@ -91,7 +91,11 @@ int main(void)
         "id INTEGER PRIMARY KEY AUTOINCREMENT, utc_time TEXT, local_time TEXT,"
         "category TEXT NOT NULL, event_type TEXT NOT NULL, summary TEXT NOT NULL,"
         "details TEXT, source TEXT);"
-        "CREATE TABLE diary_entries (id INTEGER PRIMARY KEY, entry TEXT);") == 0);
+        "CREATE TABLE diary_entries (id INTEGER PRIMARY KEY, entry TEXT);"
+        "CREATE TABLE r2_sensory_journal ("
+        "event_id INTEGER PRIMARY KEY, journal_kind TEXT NOT NULL);"
+        "CREATE TABLE r2_sensory_journal_diary_links ("
+        "event_id INTEGER PRIMARY KEY, diary_entry_id INTEGER NOT NULL);") == 0);
     assert(insert_event(db, "Saw 100% battery", "capacity was 100%") == 0);
     assert(insert_event(db, "Saw 100 percent battery", "capacity was described in words") == 0);
     assert(insert_event(db, "Saw sensor_port value", "literal underscore in sensor_port") == 0);
@@ -101,6 +105,33 @@ int main(void)
 
     assert(r2_sj_init() == 0);
     assert(r2_sj_count() == 5);
+
+    /* Legacy journal tables predate timestamp columns. Migration must add
+       them before any backfill or new event-link write is attempted. */
+    assert(sqlite3_open(R2_DIARY_DATABASE, &db) == SQLITE_OK);
+    sqlite3_stmt *schema_st = NULL;
+    assert(sqlite3_prepare_v2(db, "PRAGMA table_info(r2_sensory_journal)",
+                              -1, &schema_st, NULL) == SQLITE_OK);
+    int has_indexed_utc = 0;
+    while (sqlite3_step(schema_st) == SQLITE_ROW) {
+        const unsigned char *name = sqlite3_column_text(schema_st, 1);
+        if (name && strcmp((const char *)name, "indexed_utc") == 0)
+            has_indexed_utc = 1;
+    }
+    sqlite3_finalize(schema_st);
+    assert(has_indexed_utc);
+    assert(sqlite3_prepare_v2(db,
+            "PRAGMA table_info(r2_sensory_journal_diary_links)",
+            -1, &schema_st, NULL) == SQLITE_OK);
+    int has_linked_utc = 0;
+    while (sqlite3_step(schema_st) == SQLITE_ROW) {
+        const unsigned char *name = sqlite3_column_text(schema_st, 1);
+        if (name && strcmp((const char *)name, "linked_utc") == 0)
+            has_linked_utc = 1;
+    }
+    sqlite3_finalize(schema_st);
+    assert(has_linked_utc);
+    sqlite3_close(db);
 
     char *found = r2_sj_search("100%", 20);
     assert(found);
