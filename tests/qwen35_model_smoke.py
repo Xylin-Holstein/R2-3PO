@@ -40,6 +40,11 @@ require(
     and "Do not call her Eli" not in core,
     "conversation is direct and grounded without hardcoded relationship/name rules",
 )
+
+require(
+    "I\u0027m sorry, Mom—" not in core and "I\u0027m sorry, Mom—" not in shell,
+    "user-facing chat failure fallbacks do not hardcode the user relationship",
+)
 require(
     "You are not merely a generic AI assistant." in core
     and "answer honestly" in core
