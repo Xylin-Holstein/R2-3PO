@@ -121,6 +121,8 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertNotIn("Environment=R2_OLLAMA_NUM_GPU=", source)
         self.assertIn("GTX 1050 Ti", (ROOT / "tools/r2_service_runner.sh").read_text(encoding="utf-8"))
         self.assertIn("R2_OLLAMA_NUM_GPU=20", (ROOT / "tools/r2_service_runner.sh").read_text(encoding="utf-8"))
+        self.assertIn('export R2_OLLAMA_NUM_CTX=8192', (ROOT / "tools/r2_service_runner.sh").read_text(encoding="utf-8"))
+        self.assertIn('"R2_OLLAMA_NUM_CTX=${R2_OLLAMA_NUM_CTX:-}"', (ROOT / "tools/r2_service_runner.sh").read_text(encoding="utf-8"))
         launcher = (ROOT / "R2_Launch_Code.sh").read_text(encoding="utf-8")
         self.assertIn("Checking the local Ollama API and required model", launcher)
         self.assertIn('TEMP_EXEC="${R2_EXEC}.tmp.${BASHPID}"', launcher)
