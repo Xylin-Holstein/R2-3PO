@@ -9599,9 +9599,210 @@ int r2_eyes_status(void)
     return eyes ? (r2_eyes_is_open(eyes) ? 1 : 0) : 0;
 }
 
+/* Serialize explicit microphone capture against start/stop requests. */
+static pthread_mutex_t ears_capture_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static void r2_wav_put_u16(unsigned char *p, uint16_t value)
+{
+    p[0] = (unsigned char)(value & 0xffU);
+    p[1] = (unsigned char)((value >> 8) & 0xffU);
+}
+
+static void r2_wav_put_u32(unsigned char *p, uint32_t value)
+{
+    p[0] = (unsigned char)(value & 0xffU);
+    p[1] = (unsigned char)((value >> 8) & 0xffU);
+    p[2] = (unsigned char)((value >> 16) & 0xffU);
+    p[3] = (unsigned char)((value >> 24) & 0xffU);
+}
+
+static int r2_ears_write_wav_header(FILE *fp, uint32_t pcm_bytes)
+{
+    unsigned char header[44] = {0};
+    memcpy(header, "RIFF", 4);
+    r2_wav_put_u32(header + 4, pcm_bytes + 36U);
+    memcpy(header + 8, "WAVEfmt ", 8);
+    r2_wav_put_u32(header + 16, 16U);
+    r2_wav_put_u16(header + 20, 1U);
+    r2_wav_put_u16(header + 22, 2U);
+    r2_wav_put_u32(header + 24, 48000U);
+    r2_wav_put_u32(header + 28, 192000U);
+    r2_wav_put_u16(header + 32, 4U);
+    r2_wav_put_u16(header + 34, 16U);
+    memcpy(header + 36, "data", 4);
+    r2_wav_put_u32(header + 40, pcm_bytes);
+    return fseek(fp, 0, SEEK_SET) == 0 &&
+           fwrite(header, 1, sizeof(header), fp) == sizeof(header) ? 0 : -1;
+}
+
+/*
+ * Record a short, explicit microphone utterance and transcribe it with a
+ * locally installed whisper.cpp CLI. Qwen's chat endpoint accepts text/images,
+ * not raw PCM; the ASR stage is therefore a real bridge, not a fake audio prompt.
+ * R2_WHISPER_MODEL must name a readable local GGML Whisper model. No network is
+ * used and the microphone is released before inference begins.
+ */
+char *r2_ears_listen(unsigned seconds)
+{
+    const char *model = getenv("R2_WHISPER_MODEL");
+    const char *cli = getenv("R2_WHISPER_CLI");
+    struct stat model_stat;
+    char temp_dir[] = "/tmp/r2-ears-listen-XXXXXX";
+    char wav_path[PATH_MAX], output_base[PATH_MAX], transcript_path[PATH_MAX];
+    char *transcript = NULL;
+    int own_mic = 0, wav_fd = -1, child_status = 0;
+    FILE *wav = NULL;
+    pid_t child = -1;
+    unsigned char pcm[1920];
+    const uint32_t bytes_per_second = 48000U * 2U * 2U;
+    uint32_t total_bytes;
+    int capture_ok = 0;
+
+    if (seconds < 1U || seconds > 15U) {
+        fprintf(stderr, "[Ears] Listen duration must be between 1 and 15 seconds.\n");
+        return NULL;
+    }
+    if (!cli || !*cli) cli = "whisper-cli";
+    if (!model || !*model || stat(model, &model_stat) != 0 ||
+        !S_ISREG(model_stat.st_mode) || access(model, R_OK) != 0) {
+        fprintf(stderr,
+                "[Ears] Speech recognition is not configured. Install whisper.cpp and set "
+                "R2_WHISPER_MODEL to a readable local GGML model file.\n");
+        if (r2_log_is_initialized())
+            r2_log_event(R2_LOG_ERROR, "speech_recognition_not_configured",
+                         "R2 Ears can capture audio, but no readable local Whisper model is configured.",
+                         "Set R2_WHISPER_MODEL to a local GGML model file; raw PCM is not sent to Qwen.",
+                         "r2_ears_listen");
+        return NULL;
+    }
+
+    if (!mkdtemp(temp_dir)) {
+        fprintf(stderr, "[Ears] Could not create private temporary capture directory: %s\n",
+                strerror(errno));
+        return NULL;
+    }
+    (void)chmod(temp_dir, 0700);
+    int wn = snprintf(wav_path, sizeof(wav_path), "%s/input.wav", temp_dir);
+    int on = snprintf(output_base, sizeof(output_base), "%s/transcript", temp_dir);
+    int tn = snprintf(transcript_path, sizeof(transcript_path), "%s.txt", output_base);
+    if (wn < 0 || (size_t)wn >= sizeof(wav_path) ||
+        on < 0 || (size_t)on >= sizeof(output_base) ||
+        tn < 0 || (size_t)tn >= sizeof(transcript_path))
+        goto cleanup;
+
+    total_bytes = bytes_per_second * seconds;
+    wav_fd = open(wav_path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
+    if (wav_fd < 0) goto cleanup;
+    wav = fdopen(wav_fd, "wb");
+    if (!wav) { close(wav_fd); wav_fd = -1; goto cleanup; }
+    wav_fd = -1;
+    unsigned char empty_header[44] = {0};
+    if (fwrite(empty_header, 1, sizeof(empty_header), wav) != sizeof(empty_header))
+        goto cleanup;
+
+    pthread_mutex_lock(&ears_capture_lock);
+    if (!ears || r2_ears_open_microphone(ears) != 0) {
+        pthread_mutex_unlock(&ears_capture_lock);
+        fprintf(stderr, "[Ears] Could not open the default microphone. Check the input device and permissions.\n");
+        goto cleanup;
+    }
+    own_mic = 1;
+    uint32_t captured_bytes = 0;
+    while (captured_bytes < total_bytes && !shutting_down) {
+        size_t wanted = total_bytes - captured_bytes;
+        if (wanted > sizeof(pcm)) wanted = sizeof(pcm);
+        ssize_t got = r2_ears_read(ears, pcm, wanted);
+        if (got <= 0 || ((size_t)got % 4U) != 0U) {
+            fprintf(stderr, "[Ears] Microphone capture ended early or returned invalid PCM.\n");
+            break;
+        }
+        if (fwrite(pcm, 1, (size_t)got, wav) != (size_t)got) {
+            fprintf(stderr, "[Ears] Could not write captured audio to the temporary WAV file.\n");
+            break;
+        }
+        captured_bytes += (uint32_t)got;
+    }
+    if (own_mic) {
+        r2_ears_close(ears);
+        own_mic = 0;
+    }
+    pthread_mutex_unlock(&ears_capture_lock);
+    if (captured_bytes == total_bytes && !shutting_down &&
+        r2_ears_write_wav_header(wav, total_bytes) == 0 &&
+        fflush(wav) == 0)
+        capture_ok = 1;
+    if (fclose(wav) != 0) capture_ok = 0;
+    wav = NULL;
+    if (!capture_ok) goto cleanup;
+
+    child = fork();
+    if (child == 0) {
+        execlp(cli, cli, "-m", model, "-f", wav_path,
+               "-nt", "-np", "-otxt", "-of", output_base, (char *)NULL);
+        _exit(127);
+    }
+    if (child < 0) goto cleanup;
+    for (;;) {
+        pid_t waited = waitpid(child, &child_status, 0);
+        if (waited == child) break;
+        if (waited < 0 && errno == EINTR) continue;
+        child = -1;
+        goto cleanup;
+    }
+    child = -1;
+    if (!WIFEXITED(child_status) || WEXITSTATUS(child_status) != 0) {
+        fprintf(stderr, "[Ears] Local Whisper transcription failed (check R2_WHISPER_CLI and the model file).\n");
+        goto cleanup;
+    }
+
+    {
+        FILE *text_fp = fopen(transcript_path, "rb");
+        if (!text_fp) goto cleanup;
+        transcript = malloc(16385U);
+        if (!transcript) { fclose(text_fp); goto cleanup; }
+        size_t n = fread(transcript, 1, 16384U, text_fp);
+        int read_error = ferror(text_fp);
+        int extra = fgetc(text_fp);
+        fclose(text_fp);
+        if (read_error || extra != EOF || memchr(transcript, '\0', n) != NULL) {
+            free(transcript); transcript = NULL; goto cleanup;
+        }
+        transcript[n] = '\0';
+        char *start = transcript;
+        while (*start && isspace((unsigned char)*start)) ++start;
+        char *end = start + strlen(start);
+        while (end > start && isspace((unsigned char)end[-1])) *--end = '\0';
+        if (start != transcript) memmove(transcript, start, strlen(start) + 1U);
+        if (!*transcript) { free(transcript); transcript = NULL; }
+    }
+    if (transcript && r2_log_is_initialized())
+        r2_log_sensory("speech_transcribed",
+                       "R2 Ears transcribed a short microphone utterance locally.",
+                       "The transcript is passed into the normal conversation pipeline; raw audio is not persisted.",
+                       "r2_ears_listen");
+    if (!transcript)
+        fprintf(stderr, "[Ears] Whisper returned no usable transcript. Try speaking clearly and listening again.\n");
+
+cleanup:
+    if (child > 0) { kill(child, SIGTERM); while (waitpid(child, NULL, 0) < 0 && errno == EINTR) {} }
+    if (own_mic && ears) {
+        pthread_mutex_lock(&ears_capture_lock);
+        r2_ears_close(ears);
+        pthread_mutex_unlock(&ears_capture_lock);
+    }
+    if (wav) fclose(wav);
+    if (wav_fd >= 0) close(wav_fd);
+    unlink(wav_path);
+    unlink(transcript_path);
+    rmdir(temp_dir);
+    return transcript;
+}
+
 int r2_ears_start(void)
 {
+    pthread_mutex_lock(&ears_capture_lock);
     int rc = ears ? r2_ears_open_microphone(ears) : -1;
+    pthread_mutex_unlock(&ears_capture_lock);
     r2_log_event(R2_LOG_SENSORY, rc == 0 ? "ears_started" : "ears_start_failed",
                  rc == 0 ? "R2 Ears microphone was opened." : "R2 Ears microphone could not be opened.",
                  NULL, "r2_ears_start");
@@ -9611,7 +9812,9 @@ int r2_ears_start(void)
 int r2_ears_stop(void)
 {
     if (!ears) return -1;
+    pthread_mutex_lock(&ears_capture_lock);
     r2_ears_close(ears);
+    pthread_mutex_unlock(&ears_capture_lock);
     r2_log_event(R2_LOG_SENSORY, "ears_stopped",
                  "R2 Ears microphone was closed.", NULL, "r2_ears_stop");
     return 0;
