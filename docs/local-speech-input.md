@@ -44,14 +44,25 @@ At the R2 prompt:
 - `ears status` — inspect whether the raw Ears source is currently open.
 - `ears start` / `ears stop` — open/close raw microphone capture; these commands alone do not transcribe speech.
 
-The capture duration is limited to 1–15 seconds. Local transcription is
+The explicit capture duration is limited to 1–15 seconds. Local transcription is
 terminated if it exceeds 90 seconds or R2 begins shutting down. If the model
 or executable is missing, R2 reports that speech recognition is unavailable
 instead of pretending it understood audio.
 
-This wiring is covered by a static CI regression check. A passing CI build
-does not prove that a particular microphone, PulseAudio/PipeWire setup, Whisper
-binary, or model works on the target machine; those still need a local test.
+### Hands-free Watch
+
+At the R2 prompt:
+
+- `watch start` — start the real microphone-to-chat worker. This is the explicit action that enables ongoing microphone capture.
+- `watch status` — inspect whether the worker is actually running.
+- `watch stop` — cancel capture/transcription and join the worker.
+- `vision watch start` — separately enable periodic visual observation; Watch does not open the camera by itself.
+
+Watch uses local voice-activity detection rather than transcribing fixed five-second clips. It waits for speech energy, then ends an utterance after about 600 ms of low-energy audio or at the 15-second maximum. Silence-only windows and utterances Whisper cannot decode do not become chat turns. Every nonempty transcript is passed through the same public `r2_talk()` conversation path as typed messages. The worker checks that the local Whisper model is readable and the CLI executable is available before it starts, and stops after five consecutive capture/ASR failures instead of claiming to remain active.
+
+The VAD start threshold defaults to `600` mean absolute PCM level. If your microphone is unusually quiet or noisy, set `R2_EARS_VAD_THRESHOLD` to a value from 100 to 10000 before launching R2. The launcher passes this setting through to the dedicated `r2` account. Adjust it only after testing with your actual microphone and room noise.
+
+These paths have CI regression checks for capture bounds, cancellation, shared chat handoff, and worker lifecycle. A passing CI build does not prove that a particular microphone, PulseAudio/PipeWire setup, Whisper binary, or model works on the target machine; those still need a local test.
 
 
 ## Camera device selection
