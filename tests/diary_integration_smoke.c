@@ -4,6 +4,8 @@
 #include "Reward.h"
 
 #include <assert.h>
+#include <errno.h>
+#include <sys/stat.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -249,6 +251,8 @@ static void verify_legacy_diary_migration(void)
 int main(void)
 {
     char *context;
+    assert(mkdir(R2_ROOT, 0700) == 0 || errno == EEXIST);
+    assert(mkdir(R2_HOME, 0700) == 0 || errno == EEXIST);
     seed_legacy_diary_entries();
     assert(r2_diary_init() == 0);
     verify_legacy_diary_migration();
