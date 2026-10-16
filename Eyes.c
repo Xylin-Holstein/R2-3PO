@@ -550,8 +550,11 @@ static int r2_eyes_read_exact(
             continue;
         }
 
+        /* A pipe ending between frames is normal EOF. EOF after a partial
+           raw frame is corruption: never report a truncated frame as a clean
+           end-of-stream, because callers may otherwise keep stale pixels. */
         if (feof(stream))
-            return 0;
+            return total == 0 ? 0 : -1;
 
         if (ferror(stream))
             return -1;
@@ -1309,9 +1312,11 @@ int r2_eyes_capture(
 
     if (result == 0)
     {
-        if (!eyes->source_is_live)
-            r2_eyes_close(eyes);
-
+        /* FFmpeg EOF means this stream is dead, including a live camera whose
+           device was unplugged or whose capture process exited. Close it in
+           every case so later calls cannot loop forever on a dead pipe or
+           expose the previous frame as though it were current. */
+        r2_eyes_close(eyes);
         return 0;
     }
 
