@@ -189,11 +189,13 @@ jobs:
 
       - name: Exercise bidirectional Life Log relationship retrieval
         run: |
-          # The shared path constants in this repository point at R2's canonical
-          # home. Create it only inside this disposable GitHub Actions runner.
+          # The shared path constants point at R2's canonical home. GitHub's
+          # runner user cannot create /home/x directly, so create this isolated
+          # test-only path with sudo and make the database directory writable.
           ROOT=/home/x/R2_Home/R2
-          mkdir -p "$ROOT"
-          trap 'rm -rf /home/x/R2_Home' EXIT
+          sudo mkdir -p "$ROOT"
+          sudo chmod -R a+rwx /home/x/R2_Home
+          trap 'sudo rm -rf /home/x/R2_Home' EXIT
           cc -std=c11 -Wall -Wextra -Werror -O2 -I. tests/log_linked_retrieval_smoke.c Log.c -o /tmp/r2-log-linked-retrieval-test -lsqlite3 -lpthread -lm
           /tmp/r2-log-linked-retrieval-test
 
