@@ -5080,7 +5080,11 @@ static char *r2_build_associative_search_query(const char *query)
         "find related past experiences in a database. Preserve named people, "
         "objects, actions, unusual concepts, and relationships. Include "
         "natural paraphrases and related concepts even when the user did not "
-        "use those exact words. Prefer one concept per line. No commentary, "
+        "use those exact words. For questions about who the current user is to "
+        "R2, whether R2 remembers them, or a personal relationship, include "
+        "generic cues for prior explicit self-identification, current-user identity, "
+        "relationship evidence, and linked Life Log records. Do not assume any "
+        "particular relationship. Prefer one concept per line. No commentary, "
         "no numbering, no JSON, and no invented claims.";
 
     Message probe;
@@ -9623,7 +9627,7 @@ int r2_eyes_stop(void)
 
 int r2_eyes_status(void)
 {
-    return eyes ? (r2_eyes_is_open(eyes) ? 1 : 0) : 0;
+    return eyes ? (r2_eyes_is_open(eyes) ? 1 : 0) : -1;
 }
 
 /* Serialize explicit microphone capture against start/stop requests. */
@@ -9881,7 +9885,7 @@ int r2_ears_stop(void)
 
 int r2_ears_status(void)
 {
-    return ears ? (r2_ears_is_open(ears) ? 1 : 0) : 0;
+    return ears ? (r2_ears_is_open(ears) ? 1 : 0) : -1;
 }
 
 int r2_watch_active(void){ return watch_running ? 1 : 0; }
@@ -9950,8 +9954,8 @@ void r2_status(void)
         MAX_RELEVANT_MEMORIES,
         r2_thinking_active() ? "ACTIVE" : "INACTIVE",
         r2_worker_count(),
-        r2_eyes_status() ? "OPEN" : "CLOSED",
-        r2_ears_status() ? "OPEN" : "CLOSED",
+        r2_eyes_status() > 0 ? "OPEN" : (r2_eyes_status() == 0 ? "CLOSED" : "UNAVAILABLE"),
+        r2_ears_status() > 0 ? "OPEN" : (r2_ears_status() == 0 ? "CLOSED" : "UNAVAILABLE"),
         r2_watch_active() ? "ACTIVE" : "STOPPED"
     );
 }
