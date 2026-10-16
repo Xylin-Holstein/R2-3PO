@@ -133,6 +133,11 @@ jobs:
           python3 -m py_compile tests/sensory_unavailable_status_smoke.py
           python3 tests/sensory_unavailable_status_smoke.py
 
+      - name: Require open Eyes before starting visual observation
+        run: |
+          python3 -m py_compile tests/vision_watch_requires_open_eyes_smoke.py
+          python3 tests/vision_watch_requires_open_eyes_smoke.py
+
       - name: Check unified Qwen 3.5 conversation and vision wiring
         run: python3 tests/qwen35_model_smoke.py
 
