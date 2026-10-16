@@ -353,7 +353,7 @@ static int migrate_mirror_directory(const char *old_dir, const char *new_dir)
                potentially newer or user-relevant legacy state. The old
                directory intentionally remains if this collision persists. */
             fprintf(stderr,
-                "[R2 Reality] Preserving legacy mirror %s; destination already exists at %s.\\n",
+                "[R2 Reality] Preserving legacy mirror %s; destination already exists at %s.\n",
                 old_path, new_path);
         } else if (rename(old_path, new_path) != 0) result = -1;
     }
