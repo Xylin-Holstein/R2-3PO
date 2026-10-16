@@ -1725,7 +1725,7 @@ static int reality_ensure_existing_column(const char *table, const char *column,
                      table, column, definition);
     if (n < 0 || (size_t)n >= sizeof(sql)) return -1;
     if (exec_sql(sql) != 0) {
-        fprintf(stderr, "[R2 Reality] Could not migrate %s.%s: %s\\n",
+        fprintf(stderr, "[R2 Reality] Could not migrate %s.%s: %s\n",
                 table, column, sqlite3_errmsg(reality_db));
         return -1;
     }
@@ -1875,7 +1875,7 @@ int r2_reality_init(void)
     sqlite3_busy_timeout(reality_db, 5000);
     sqlite3_exec(reality_db, "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;", NULL, NULL, NULL);
     if (migrate_existing_reality_schema() != 0) {
-        fprintf(stderr, "[R2 Reality] Could not migrate existing Reality-owned tables before schema setup.\\n");
+        fprintf(stderr, "[R2 Reality] Could not migrate existing Reality-owned tables before schema setup.\n");
         sqlite3_close(reality_db); reality_db = NULL;
         pthread_mutex_unlock(&reality_lock); return -1;
     }
@@ -1925,7 +1925,7 @@ int r2_reality_init(void)
         pthread_mutex_unlock(&reality_lock); return -1;
     }
     if (backfill_reality_timestamps() != 0) {
-        fprintf(stderr, "[R2 Reality] Could not backfill timestamps for upgraded tables.\\n");
+        fprintf(stderr, "[R2 Reality] Could not backfill timestamps for upgraded tables.\n");
         sqlite3_close(reality_db); reality_db = NULL;
         pthread_mutex_unlock(&reality_lock); return -1;
     }
