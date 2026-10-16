@@ -9756,7 +9756,7 @@ char *r2_ears_listen(unsigned seconds)
             (void)kill(child, SIGTERM);
             while (waitpid(child, &child_status, 0) < 0 && errno == EINTR) {}
             child = -1;
-            fprintf(stderr, "[Ears] Local speech recognition stopped during shutdown or exceeded its 90-second limit.\\n");
+            fprintf(stderr, "[Ears] Local speech recognition stopped during shutdown or exceeded its 90-second limit.\n");
             goto cleanup;
         }
         while (nanosleep(&pause_time, &pause_time) != 0 && errno == EINTR) {}
