@@ -10465,7 +10465,7 @@ static char *r2_talk_impl(const char *message)
         fprintf(stderr,
                 "[R2] Conversation generation failed after one refreshed retry; returning a visible fallback and preserving the user turn.\n");
         reply = xstrdup(
-            "I'm sorry, Mom—I couldn't produce a usable reply just now. "
+            "I'm sorry—I couldn't produce a usable reply just now. "
             "Your message hasn't been discarded; please try again in a moment.");
         if (!reply) {
             fprintf(stderr,
@@ -10493,7 +10493,7 @@ static char *r2_talk_impl(const char *message)
             free(reply);
             free(stripped_reply);
             reply = xstrdup(
-                "I'm sorry, Mom—I couldn't produce a usable reply just now. "
+                "I'm sorry—I couldn't produce a usable reply just now. "
                 "Your message hasn't been discarded; please try again in a moment.");
             stripped_reply = reply ? r2_sounds_strip_markers(reply) : NULL;
             if (!reply || !reply_has_visible_text(stripped_reply)) {
@@ -10513,7 +10513,7 @@ static char *r2_talk_impl(const char *message)
         free(reply);
         free(stripped_reply);
         reply = xstrdup(
-            "I'm sorry, Mom—I couldn't finish processing that response. "
+            "I'm sorry—I couldn't finish processing that response. "
             "Your message is still here; please try again in a moment.");
         if (!reply) {
             fprintf(stderr, "[R2] Could not allocate a visible reply after tool-processing failure; preserving the user turn.\n");
@@ -10573,7 +10573,7 @@ static char *r2_talk_impl(const char *message)
         if (pair_rc != 0) {
             char fallback_text[2048];
             snprintf(fallback_text, sizeof(fallback_text),
-                     "I'm sorry, Mom—I processed the action request, but couldn't save its result into the conversation. "
+                     "I'm sorry—I processed the action request, but couldn't save its result into the conversation. "
                      "The result was: %.1200s. I won't repeat the action automatically; "
                      "please ask me again if you'd like me to verify the current state.",
                      tools ? tools : "(no tool result text was returned)");
@@ -10602,7 +10602,7 @@ static char *r2_talk_impl(const char *message)
         }
         if (!reply) {
             reply = xstrdup(
-                "I'm sorry, Mom—I completed the action, but couldn't generate the follow-up answer. "
+                "I'm sorry—I completed the action, but couldn't generate the follow-up answer. "
                 "The action result is still in the conversation; please ask me again if you'd like me to explain it.");
             if (!reply) {
                     fprintf(stderr,
@@ -10618,7 +10618,7 @@ static char *r2_talk_impl(const char *message)
             free(reply);
             free(sound_clean_reply);
             reply = xstrdup(
-                "I'm sorry, Mom—the action happened, but I couldn't prepare a usable follow-up. "
+                "I'm sorry—the action happened, but I couldn't prepare a usable follow-up. "
                 "The result remains in the conversation; please ask me again.");
             if (!reply) {
                     fprintf(stderr, "[R2] Could not allocate a visible reply after tool follow-up cleanup failed; preserving the action and user turn.\n");
@@ -10639,7 +10639,7 @@ static char *r2_talk_impl(const char *message)
             free(reply);
             free(sound_clean_reply);
             reply = xstrdup(
-                "I'm sorry, Mom—I couldn't prepare a usable reply after processing it. "
+                "I'm sorry—I couldn't prepare a usable reply after processing it. "
                 "Your message is still here; please try again.");
             if (!reply) {
                     fprintf(stderr, "[R2] Could not allocate a visible reply after sound-marker cleanup failed; preserving the user turn.\n");
@@ -10773,7 +10773,7 @@ char *r2_talk(const char *message)
                          details, "r2_talk");
         }
         reply = xstrdup(
-            "I'm sorry, Mom—I couldn't process that turn successfully. "
+            "I'm sorry—I couldn't process that turn successfully. "
             "The message may not have been saved to conversation history; please try again.");
     }
     ollama_foreground_turn_mode = previous_turn_mode;
@@ -10845,7 +10845,7 @@ int r2_conversation(void)
             fprintf(stderr,
                     "[R2] Direct conversation API returned no usable reply; displaying fallback.\n");
             free(reply);
-            printf("\nR2-3PO: I'm sorry, Mom—I couldn't process that turn successfully. "
+            printf("\nR2-3PO: I'm sorry—I couldn't process that turn successfully. "
                    "Please try again in a moment.\n\n");
             fflush(stdout);
             continue;
