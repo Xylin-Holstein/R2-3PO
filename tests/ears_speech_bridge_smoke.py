@@ -31,8 +31,8 @@ assert "while (captured_bytes < total_bytes && !shutting_down &&" in bridge
 assert "cancelled && cancelled(userdata)" in bridge
 assert "return r2_ears_listen_cancelable(seconds, NULL, NULL);" in core
 assert 'shell_talk(transcript)' in shell
-conversation_start = shell.index("static void shell_talk(const char *message)")
-conversation_end = shell.index("static void shell_conversation(", conversation_start)
+conversation_start = shell.index("static void shell_talk_inner(const char *message)")
+conversation_end = shell.index("static void shell_talk(const char *message)", conversation_start)
 conversation_entry = shell[conversation_start:conversation_end]
 assert 'r2_talk(message)' in conversation_entry, (
     "speech transcripts must enter the same shell_talk -> r2_talk path as typed messages"
