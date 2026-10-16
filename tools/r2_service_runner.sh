@@ -3,6 +3,18 @@
 set -euo pipefail
 
 R2_ROOT="${R2_ROOT:-/home/x/R2_Home}"
+# Keep autonomous Game Boy tools and the shell status reader on one root.
+if [[ -z "${R2_GAMEBOY_ROOT:-}" ]]; then
+    if [[ -n "${R2_GAMEBOY_DIR:-}" ]]; then
+        R2_GAMEBOY_ROOT="$R2_GAMEBOY_DIR"
+    elif [[ -n "${R2_GAMEBOY_EXECUTABLE:-}" && "${R2_GAMEBOY_EXECUTABLE}" == */* ]]; then
+        R2_GAMEBOY_ROOT="$(dirname -- "$R2_GAMEBOY_EXECUTABLE")"
+    else
+        R2_GAMEBOY_ROOT="$R2_ROOT/Devices/GameBoyAdvance"
+    fi
+fi
+R2_GAMEBOY_DIR="${R2_GAMEBOY_DIR:-$R2_GAMEBOY_ROOT}"
+R2_GAMEBOY_EXECUTABLE="${R2_GAMEBOY_EXECUTABLE:-$R2_GAMEBOY_ROOT/GameBoyAdvance}"
 R2_SOURCE="${R2_SOURCE:-$R2_ROOT/R2}"
 R2_EXEC="${R2_EXEC:-$R2_ROOT/r2}"
 R2_FX_DIR="${R2_FX_DIR:-$R2_ROOT/R2_sounds/FX}"
@@ -151,6 +163,9 @@ R2_ENV=(/usr/bin/env
     "R2_OLLAMA_NUM_CTX=${R2_OLLAMA_NUM_CTX:-}"
     "R2_FX_DIR=$R2_FX_DIR"
     "R2_OLLAMA_BASE_URL=$R2_OLLAMA_BASE_URL"
+    "R2_GAMEBOY_EXECUTABLE=$R2_GAMEBOY_EXECUTABLE"
+    "R2_GAMEBOY_ROOT=$R2_GAMEBOY_ROOT"
+    "R2_GAMEBOY_DIR=$R2_GAMEBOY_DIR"
     "R2_VISION_MODEL=qwen3.5:9b"
     "$R2_EXEC")
 
