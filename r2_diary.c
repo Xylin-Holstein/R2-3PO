@@ -1057,6 +1057,48 @@ int r2_diary_reconnect_history(int limit)
  * ============================================================
  */
 
+static int64_t diary_insert_entry_row(const char *entry, const char *timestamp)
+{
+    static const char *const aliases[] = {
+        "timestamp", "created", "date_created", "created_utc"
+    };
+    char sql[1024] = "INSERT INTO diary_entries(entry,created_at";
+    size_t used = strlen(sql);
+    int bind_count = 2;
+    for (size_t i = 0; i < sizeof(aliases) / sizeof(aliases[0]); ++i) {
+        if (!diary_table_column_exists("diary_entries", aliases[i])) continue;
+        int n = snprintf(sql + used, sizeof(sql) - used, ",%s", aliases[i]);
+        if (n < 0 || (size_t)n >= sizeof(sql) - used) return -1;
+        used += (size_t)n;
+        bind_count++;
+    }
+    int n = snprintf(sql + used, sizeof(sql) - used, ") VALUES(?,?");
+    if (n < 0 || (size_t)n >= sizeof(sql) - used) return -1;
+    used += (size_t)n;
+    for (int i = 2; i < bind_count; ++i) {
+        n = snprintf(sql + used, sizeof(sql) - used, ",?");
+        if (n < 0 || (size_t)n >= sizeof(sql) - used) return -1;
+        used += (size_t)n;
+    }
+    n = snprintf(sql + used, sizeof(sql) - used, ");");
+    if (n < 0 || (size_t)n >= sizeof(sql) - used) return -1;
+
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_prepare_v2(r2_diary_db, sql, -1, &st, NULL) != SQLITE_OK)
+        return -1;
+    sqlite3_bind_text(st, 1, entry, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(st, 2, timestamp, -1, SQLITE_TRANSIENT);
+    int bind_index = 3;
+    for (size_t i = 0; i < sizeof(aliases) / sizeof(aliases[0]); ++i) {
+        if (!diary_table_column_exists("diary_entries", aliases[i])) continue;
+        sqlite3_bind_text(st, bind_index++, timestamp, -1, SQLITE_TRANSIENT);
+    }
+    int rc = sqlite3_step(st);
+    int64_t id = rc == SQLITE_DONE ? sqlite3_last_insert_rowid(r2_diary_db) : -1;
+    sqlite3_finalize(st);
+    return id;
+}
+
 int r2_diary_write(
     const char *entry
 )
@@ -1119,54 +1161,9 @@ int r2_diary_write(
      * --------------------------------------------------------
      */
 
-    result = sqlite3_prepare_v2(
-        r2_diary_db,
-
-        "INSERT INTO diary_entries "
-        "(entry, created_at) "
-        "VALUES (?, ?);",
-
-        -1,
-        &statement,
-        NULL
-    );
-
-    if (result != SQLITE_OK)
-    {
+    diary_entry_id = diary_insert_entry_row(entry, timestamp);
+    if (diary_entry_id <= 0)
         return -1;
-    }
-
-    sqlite3_bind_text(
-        statement,
-        1,
-        entry,
-        -1,
-        SQLITE_TRANSIENT
-    );
-
-    sqlite3_bind_text(
-        statement,
-        2,
-        timestamp,
-        -1,
-        SQLITE_TRANSIENT
-    );
-
-    result = sqlite3_step(
-        statement
-    );
-
-    if (result == SQLITE_DONE)
-        diary_entry_id = sqlite3_last_insert_rowid(r2_diary_db);
-
-    sqlite3_finalize(
-        statement
-    );
-
-    if (result != SQLITE_DONE)
-    {
-        return -1;
-    }
 
     /* Evaluate the explicitly configured identity-correction rule after
        the authoritative row exists. Reward metadata never copies diary prose. */
