@@ -311,6 +311,12 @@ jobs:
       - name: Exercise TV room-device installer
         run: bash tests/tv_install_smoke.sh
 
+      - name: Exercise writable reward ledger migration from a legacy schema
+        run: |
+          rm -rf /tmp/r2-reward-legacy-schema-smoke /tmp/r2-reward-legacy-schema-smoke-test
+          cc -std=c11 -Wall -Wextra -Werror -O2 -I. tests/reward_legacy_schema_smoke.c -o /tmp/r2-reward-legacy-schema-smoke-test -lsqlite3 -lpthread -lm
+          /tmp/r2-reward-legacy-schema-smoke-test
+
       - name: Exercise physical money wallet authority and restart behavior
         run: |
           ROOT=/tmp/r2-wallet-smoke
