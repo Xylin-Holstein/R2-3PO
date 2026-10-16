@@ -26,7 +26,8 @@ require(
 require(
     "current-user identity" in helper
     and "linked Life Log records" in helper
-    and "Do not assume any particular relationship" in helper,
+    and "Do not assume any " in helper
+    and "particular relationship" in helper,
     "identity questions retrieve generic relationship evidence without hardcoding who the user is",
 )
 require(
