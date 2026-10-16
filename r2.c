@@ -9663,9 +9663,24 @@ static int r2_ears_write_wav_header(FILE *fp, uint32_t pcm_bytes)
  * R2_WHISPER_MODEL must name a readable local GGML Whisper model. No network is
  * used and the microphone is released before inference begins.
  */
-char *r2_ears_listen_cancelable(unsigned seconds,
-                                  int (*cancelled)(void *userdata),
-                                  void *userdata)
+static unsigned long long r2_ears_pcm_mean_absolute_level(
+    const unsigned char *pcm, size_t bytes)
+{
+    if (!pcm || bytes < sizeof(int16_t)) return 0;
+    size_t samples = bytes / sizeof(int16_t);
+    unsigned long long sum = 0;
+    for (size_t i = 0; i < samples; ++i) {
+        int16_t sample = 0;
+        memcpy(&sample, pcm + i * sizeof(sample), sizeof(sample));
+        int32_t wide = sample;
+        sum += (unsigned long long)(wide < 0 ? -wide : wide);
+    }
+    return sum / samples;
+}
+
+static char *r2_ears_listen_internal(unsigned seconds, int stop_on_silence,
+                                     int (*cancelled)(void *userdata),
+                                     void *userdata)
 {
     const char *model = getenv("R2_WHISPER_MODEL");
     const char *cli = getenv("R2_WHISPER_CLI");
@@ -9680,6 +9695,21 @@ char *r2_ears_listen_cancelable(unsigned seconds,
     const uint32_t bytes_per_second = 48000U * 2U * 2U;
     uint32_t total_bytes;
     int capture_ok = 0;
+    int speech_started = 0;
+    unsigned silent_frames = 0;
+    unsigned long long vad_threshold = 600;
+    const char *vad_threshold_env = getenv("R2_EARS_VAD_THRESHOLD");
+    if (vad_threshold_env && *vad_threshold_env) {
+        errno = 0;
+        char *vad_end = NULL;
+        unsigned long parsed = strtoul(vad_threshold_env, &vad_end, 10);
+        if (!errno && vad_end != vad_threshold_env && *vad_end == '\0' &&
+            parsed >= 100UL && parsed <= 10000UL)
+            vad_threshold = parsed;
+        else
+            fprintf(stderr, "[Ears] Ignoring invalid R2_EARS_VAD_THRESHOLD; using the default level.\\n");
+    }
+    unsigned long long vad_silence_threshold = (vad_threshold * 55ULL) / 100ULL;
 
     if (cancelled && cancelled(userdata)) return NULL;
     if (seconds < 1U || seconds > 15U) {
@@ -9738,27 +9768,53 @@ char *r2_ears_listen_cancelable(unsigned seconds,
         if (wanted > sizeof(pcm)) wanted = sizeof(pcm);
         ssize_t got = r2_ears_read(ears, pcm, wanted);
         if (got <= 0 || ((size_t)got % 4U) != 0U) {
-            fprintf(stderr, "[Ears] Microphone capture ended early or returned invalid PCM.\n");
+            fprintf(stderr, "[Ears] Microphone capture ended early or returned invalid PCM.\\n");
             break;
         }
+
+        if (stop_on_silence) {
+            unsigned long long level = r2_ears_pcm_mean_absolute_level(pcm, (size_t)got);
+            if (!speech_started) {
+                if (level >= vad_threshold) speech_started = 1;
+            } else if (level < vad_silence_threshold) {
+                ++silent_frames;
+            } else {
+                silent_frames = 0;
+            }
+        }
+
         if (fwrite(pcm, 1, (size_t)got, wav) != (size_t)got) {
-            fprintf(stderr, "[Ears] Could not write captured audio to the temporary WAV file.\n");
+            fprintf(stderr, "[Ears] Could not write captured audio to the temporary WAV file.\\n");
             break;
         }
         captured_bytes += (uint32_t)got;
+        /* Each 1920-byte stereo PCM frame is 10 ms at 48 kHz. Require 600 ms
+           of low energy after speech starts, but keep the silence in the WAV
+           so Whisper receives a natural utterance boundary. */
+        if (stop_on_silence && speech_started && silent_frames >= 60U)
+            break;
     }
     if (own_mic) {
         r2_ears_close(ears);
         own_mic = 0;
     }
     pthread_mutex_unlock(&ears_capture_lock);
-    if (captured_bytes == total_bytes && !shutting_down &&
+
+    int capture_finished = captured_bytes == total_bytes ||
+        (stop_on_silence && speech_started && silent_frames >= 60U);
+    if (capture_finished && !shutting_down &&
         !(cancelled && cancelled(userdata)) &&
-        r2_ears_write_wav_header(wav, total_bytes) == 0 &&
+        r2_ears_write_wav_header(wav, captured_bytes) == 0 &&
         fflush(wav) == 0)
         capture_ok = 1;
     if (fclose(wav) != 0) capture_ok = 0;
     wav = NULL;
+    if (stop_on_silence && !speech_started && captured_bytes == total_bytes &&
+        !shutting_down && !(cancelled && cancelled(userdata))) {
+        /* Empty allocated text means no speech was detected, not an ASR error. */
+        transcript = calloc(1, 1);
+        goto cleanup;
+    }
     if (!capture_ok) goto cleanup;
 
     child = fork();
@@ -9823,7 +9879,7 @@ char *r2_ears_listen_cancelable(unsigned seconds,
         transcript = NULL;
         goto cleanup;
     }
-    if (transcript && r2_log_is_initialized())
+    if (transcript && *transcript && r2_log_is_initialized())
         r2_log_sensory("speech_transcribed",
                        "R2 Ears transcribed a short microphone utterance locally.",
                        "The transcript is passed into the normal conversation pipeline; raw audio is not persisted.",
@@ -9844,6 +9900,20 @@ cleanup:
     if (transcript_path[0]) unlink(transcript_path);
     rmdir(temp_dir);
     return transcript;
+}
+
+char *r2_ears_listen_cancelable(unsigned seconds,
+                                  int (*cancelled)(void *userdata),
+                                  void *userdata)
+{
+    return r2_ears_listen_internal(seconds, 0, cancelled, userdata);
+}
+
+char *r2_ears_listen_utterance_cancelable(unsigned max_seconds,
+                                          int (*cancelled)(void *userdata),
+                                          void *userdata)
+{
+    return r2_ears_listen_internal(max_seconds, 1, cancelled, userdata);
 }
 
 char *r2_ears_listen(unsigned seconds)
