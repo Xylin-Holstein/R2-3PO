@@ -19,6 +19,16 @@ assert lock_at >= 0 and flock_at > lock_at and connect_at > flock_at and dispatc
     "the inter-process lock must cover database connection and complete command dispatch"
 )
 
+adapter_start = SOURCE.find("def record_verified_game_event(")
+adapter_end = SOURCE.find("\n\ndef pending_verified_events", adapter_start)
+adapter = SOURCE[adapter_start:adapter_end]
+adapter_lock = adapter.find('with (STATE / ".console.lock").open("a+") as lock_file:')
+adapter_flock = adapter.find("fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)", adapter_lock)
+adapter_state_check = adapter.find('if row["power_state"] != "on"', adapter_flock)
+assert adapter_lock >= 0 and adapter_flock > adapter_lock and adapter_state_check > adapter_flock, (
+    "trusted adapter events must serialize against power-off and other console transitions"
+)
+
 CONSOLE = ROOT / "GameBoyAdvance.py"
 
 
