@@ -10711,7 +10711,7 @@ char *r2_talk(const char *message)
     size_t input_chars = strnlen(message, (size_t)OLLAMA_MAX_MESSAGE_CHARS + 1U);
     if (input_chars > OLLAMA_MAX_MESSAGE_CHARS) {
         fprintf(stderr,
-                "[R2] Rejected oversized public conversation input (limit=%d bytes); no turn was stored.\\n",
+                "[R2] Rejected oversized public conversation input (limit=%d bytes); no turn was stored.\n",
                 OLLAMA_MAX_MESSAGE_CHARS);
         return xstrdup(
             "That message is too long for one R2 chat turn (maximum 12000 bytes). "
