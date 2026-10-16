@@ -9707,7 +9707,7 @@ static char *r2_ears_listen_internal(unsigned seconds, int stop_on_silence,
             parsed >= 100UL && parsed <= 10000UL)
             vad_threshold = parsed;
         else
-            fprintf(stderr, "[Ears] Ignoring invalid R2_EARS_VAD_THRESHOLD; using the default level.\\n");
+            fprintf(stderr, "[Ears] Ignoring invalid R2_EARS_VAD_THRESHOLD; using the default level.\n");
     }
     unsigned long long vad_silence_threshold = (vad_threshold * 55ULL) / 100ULL;
 
@@ -9768,7 +9768,7 @@ static char *r2_ears_listen_internal(unsigned seconds, int stop_on_silence,
         if (wanted > sizeof(pcm)) wanted = sizeof(pcm);
         ssize_t got = r2_ears_read(ears, pcm, wanted);
         if (got <= 0 || ((size_t)got % 4U) != 0U) {
-            fprintf(stderr, "[Ears] Microphone capture ended early or returned invalid PCM.\\n");
+            fprintf(stderr, "[Ears] Microphone capture ended early or returned invalid PCM.\n");
             break;
         }
 
@@ -9784,7 +9784,7 @@ static char *r2_ears_listen_internal(unsigned seconds, int stop_on_silence,
         }
 
         if (fwrite(pcm, 1, (size_t)got, wav) != (size_t)got) {
-            fprintf(stderr, "[Ears] Could not write captured audio to the temporary WAV file.\\n");
+            fprintf(stderr, "[Ears] Could not write captured audio to the temporary WAV file.\n");
             break;
         }
         captured_bytes += (uint32_t)got;
