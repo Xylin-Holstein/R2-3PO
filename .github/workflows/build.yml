@@ -302,7 +302,7 @@ jobs:
           mkdir -p "$ROOT"
           cc -std=c11 -Wall -Wextra -Werror -O2 -I. \
             -DR2_DIARY_DATABASE='"/tmp/r2-log-link-smoke/r2_memory.db"' \
-            tests/log_linked_retrieval_smoke.c Log.c -lsqlite3 -lpthread \
+            tests/log_linked_retrieval_smoke.c Log.c -lsqlite3 -lpthread -lm \
             -o /tmp/r2-log-linked-retrieval-smoke
           /tmp/r2-log-linked-retrieval-smoke
 
