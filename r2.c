@@ -1203,6 +1203,77 @@ static int migrate_memory_schema(void)
                    "ON memories(category,updated_at);");
 }
 
+/* Insert into both canonical columns and any known legacy aliases that remain
+   NOT NULL in an older memories table. ALTER TABLE is additive, so those
+   legacy constraints still apply to new rows after migration. */
+static int db_insert_memory_compat(const char *memory, const char *category,
+                                   const char *timestamp)
+{
+    static const char *const memory_aliases[] =
+        {"content", "memory_text", "text", "description", "value"};
+    static const char *const category_aliases[] = {"type", "source", "kind"};
+    static const char *const created_aliases[] =
+        {"timestamp", "created", "date_created", "created_utc"};
+    static const char *const updated_aliases[] =
+        {"updated", "modified", "last_updated", "updated_utc"};
+    const char *columns[32];
+    const char *values[32];
+    size_t count = 0;
+
+    columns[count] = "memory"; values[count++] = memory;
+    columns[count] = "category"; values[count++] = category;
+    columns[count] = "created_at"; values[count++] = timestamp;
+    columns[count] = "updated_at"; values[count++] = timestamp;
+
+#define ADD_LEGACY_COLUMNS(names, value) do { \
+    for (size_t alias_i = 0; alias_i < sizeof(names) / sizeof((names)[0]); ++alias_i) { \
+        if (db_column_exists("memories", (names)[alias_i])) { \
+            if (count >= sizeof(columns) / sizeof(columns[0])) return SQLITE_TOOBIG; \
+            columns[count] = (names)[alias_i]; \
+            values[count++] = (value); \
+        } \
+    } \
+} while (0)
+
+    ADD_LEGACY_COLUMNS(memory_aliases, memory);
+    ADD_LEGACY_COLUMNS(category_aliases, category);
+    ADD_LEGACY_COLUMNS(created_aliases, timestamp);
+    ADD_LEGACY_COLUMNS(updated_aliases, timestamp);
+#undef ADD_LEGACY_COLUMNS
+
+    char sql[2048];
+    size_t used = 0;
+    int n = snprintf(sql, sizeof(sql), "INSERT INTO memories(");
+    if (n < 0 || (size_t)n >= sizeof(sql)) return SQLITE_TOOBIG;
+    used = (size_t)n;
+    for (size_t i = 0; i < count; ++i) {
+        n = snprintf(sql + used, sizeof(sql) - used, "%s%s",
+                     i ? "," : "", columns[i]);
+        if (n < 0 || (size_t)n >= sizeof(sql) - used) return SQLITE_TOOBIG;
+        used += (size_t)n;
+    }
+    n = snprintf(sql + used, sizeof(sql) - used, ") VALUES(");
+    if (n < 0 || (size_t)n >= sizeof(sql) - used) return SQLITE_TOOBIG;
+    used += (size_t)n;
+    for (size_t i = 0; i < count; ++i) {
+        n = snprintf(sql + used, sizeof(sql) - used, "%s?",
+                     i ? "," : "");
+        if (n < 0 || (size_t)n >= sizeof(sql) - used) return SQLITE_TOOBIG;
+        used += (size_t)n;
+    }
+    n = snprintf(sql + used, sizeof(sql) - used, ")");
+    if (n < 0 || (size_t)n >= sizeof(sql) - used) return SQLITE_TOOBIG;
+
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(db, sql, -1, &st, NULL);
+    if (rc != SQLITE_OK) return rc;
+    for (size_t i = 0; i < count && rc == SQLITE_OK; ++i)
+        rc = sqlite3_bind_text(st, (int)i + 1, values[i], -1, SQLITE_TRANSIENT);
+    if (rc == SQLITE_OK) rc = sqlite3_step(st);
+    sqlite3_finalize(st);
+    return rc;
+}
+
 static int init_db(void)
 {
     /* Open the canonical persistent database. Existing tables may come from
@@ -1344,58 +1415,7 @@ static int save_memory(
 
     if (changed == 0) {
 
-        const char *insert_sql =
-            "INSERT INTO memories("
-            "memory,category,created_at,updated_at"
-            ") VALUES(?,?,?,?)";
-
-        rc =
-            sqlite3_prepare_v2(
-                db,
-                insert_sql,
-                -1,
-                &st,
-                NULL
-            );
-
-        if (rc == SQLITE_OK) {
-
-            sqlite3_bind_text(
-                st,
-                1,
-                memory,
-                -1,
-                SQLITE_TRANSIENT
-            );
-
-            sqlite3_bind_text(
-                st,
-                2,
-                category,
-                -1,
-                SQLITE_TRANSIENT
-            );
-
-            sqlite3_bind_text(
-                st,
-                3,
-                now,
-                -1,
-                SQLITE_TRANSIENT
-            );
-
-            sqlite3_bind_text(
-                st,
-                4,
-                now,
-                -1,
-                SQLITE_TRANSIENT
-            );
-
-            rc = sqlite3_step(st);
-        }
-
-        sqlite3_finalize(st);
+        rc = db_insert_memory_compat(memory, category, now);
     }
 
     pthread_mutex_unlock(&db_lock);
