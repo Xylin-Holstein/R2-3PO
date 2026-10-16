@@ -1698,6 +1698,121 @@ static int reality_column_exists(const char *table, const char *column)
     return found;
 }
 
+static int reality_table_exists(const char *table)
+{
+    sqlite3_stmt *st = NULL;
+    int exists = 0;
+    if (sqlite3_prepare_v2(reality_db,
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            -1, &st, NULL) == SQLITE_OK) {
+        sqlite3_bind_text(st, 1, table, -1, SQLITE_TRANSIENT);
+        exists = sqlite3_step(st) == SQLITE_ROW;
+    }
+    if (st) sqlite3_finalize(st);
+    return exists;
+}
+
+static int reality_ensure_existing_column(const char *table, const char *column,
+                                          const char *definition)
+{
+    /* Only alter tables that already exist. Fresh tables are created by the
+       canonical schema below; this pass must run before its indexes/inserts. */
+    if (!reality_table_exists(table) || reality_column_exists(table, column))
+        return 0;
+    char sql[512];
+    int n = snprintf(sql, sizeof(sql),
+                     "ALTER TABLE %s ADD COLUMN %s %s;",
+                     table, column, definition);
+    if (n < 0 || (size_t)n >= sizeof(sql)) return -1;
+    if (exec_sql(sql) != 0) {
+        fprintf(stderr, "[R2 Reality] Could not migrate %s.%s: %s\\n",
+                table, column, sqlite3_errmsg(reality_db));
+        return -1;
+    }
+    return 0;
+}
+
+static int migrate_existing_reality_schema(void)
+{
+    static const char *const columns[][3] = {
+        {"r2_reality_item_memory","description","TEXT"},
+        {"r2_reality_item_memory","exact_quantity","INTEGER"},
+        {"r2_reality_item_memory","approximate_quantity","INTEGER"},
+        {"r2_reality_item_memory","precision","TEXT NOT NULL DEFAULT 'exact'"},
+        {"r2_reality_item_memory","collected_at","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_reality_item_memory","last_decay_at","INTEGER NOT NULL DEFAULT 0"},
+
+        {"r2_food_experiences","ingredients","TEXT"},
+        {"r2_food_experiences","fullness","REAL NOT NULL DEFAULT 0"},
+        {"r2_food_experiences","energy_bonus","REAL NOT NULL DEFAULT 0"},
+        {"r2_food_experiences","satisfaction","INTEGER"},
+        {"r2_food_experiences","notes","TEXT"},
+        {"r2_food_experiences","eaten_at","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_food_experiences","rated_at","INTEGER"},
+
+        {"r2_food_ingredient_preferences","satisfaction_sum","REAL NOT NULL DEFAULT 0"},
+        {"r2_food_ingredient_preferences","rating_count","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_food_ingredient_preferences","updated_at","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_food_preferences","satisfaction_sum","REAL NOT NULL DEFAULT 0"},
+        {"r2_food_preferences","rating_count","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_food_preferences","updated_at","INTEGER NOT NULL DEFAULT 0"},
+
+        {"r2_reality_self_facts","evidence","TEXT"},
+        {"r2_reality_self_facts","updated_at","TEXT NOT NULL DEFAULT ''"},
+        {"r2_money_account","cash_cents","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_money_account","bank_cents","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_money_account","updated_at","TEXT NOT NULL DEFAULT ''"},
+
+        {"r2_tv_state","power","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_tv_state","source_kind","TEXT NOT NULL DEFAULT 'input'"},
+        {"r2_tv_state","source_value","INTEGER NOT NULL DEFAULT 1"},
+        {"r2_tv_state","updated_at","TEXT NOT NULL DEFAULT ''"},
+        {"r2_tv_devices","connection_kind","TEXT NOT NULL DEFAULT 'input'"},
+        {"r2_tv_devices","port","INTEGER NOT NULL DEFAULT 2"},
+        {"r2_tv_devices","connected","INTEGER NOT NULL DEFAULT 1"},
+        {"r2_tv_devices","updated_at","TEXT NOT NULL DEFAULT ''"},
+        {"r2_tv_vcr_tapes","position_seconds","REAL NOT NULL DEFAULT 0"},
+        {"r2_tv_vcr_tapes","updated_at","TEXT NOT NULL DEFAULT ''"},
+        {"r2_tv_vcr_state","cassette_path","TEXT"},
+        {"r2_tv_vcr_state","transport","TEXT NOT NULL DEFAULT 'stop'"},
+        {"r2_tv_vcr_state","updated_at","TEXT NOT NULL DEFAULT ''"},
+
+        {"r2_reality_containers","kind","TEXT NOT NULL DEFAULT 'container'"},
+        {"r2_reality_containers","description","TEXT"},
+        {"r2_reality_containers","parent","TEXT"},
+        {"r2_reality_containers","created_at","TEXT NOT NULL DEFAULT ''"},
+        {"r2_reality_objects","description","TEXT"},
+        {"r2_reality_objects","quantity","INTEGER NOT NULL DEFAULT 1"},
+        {"r2_reality_objects","container","TEXT NOT NULL DEFAULT 'room'"},
+        {"r2_reality_objects","owner","TEXT NOT NULL DEFAULT 'R2'"},
+        {"r2_reality_objects","created_at","TEXT NOT NULL DEFAULT ''"},
+        {"r2_reality_objects","updated_at","TEXT NOT NULL DEFAULT ''"},
+        {"r2_reality_ticks","elapsed_seconds","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_reality_ticks","created_at","TEXT NOT NULL DEFAULT ''"}
+    };
+    for (size_t i = 0; i < sizeof(columns) / sizeof(columns[0]); ++i) {
+        if (reality_ensure_existing_column(columns[i][0], columns[i][1],
+                                           columns[i][2]) != 0)
+            return -1;
+    }
+
+    /* Populate added timestamps with a usable value without overwriting old
+       timestamps or any existing user-entered state. */
+    return exec_sql(
+        "UPDATE r2_food_ingredient_preferences SET updated_at=CAST(strftime('%s','now') AS INTEGER) WHERE updated_at IS NULL OR updated_at=0;"
+        "UPDATE r2_food_preferences SET updated_at=CAST(strftime('%s','now') AS INTEGER) WHERE updated_at IS NULL OR updated_at=0;"
+        "UPDATE r2_reality_self_facts SET updated_at=CURRENT_TIMESTAMP WHERE updated_at IS NULL OR updated_at='';"
+        "UPDATE r2_money_account SET updated_at=CURRENT_TIMESTAMP WHERE updated_at IS NULL OR updated_at='';"
+        "UPDATE r2_tv_state SET updated_at=CURRENT_TIMESTAMP WHERE updated_at IS NULL OR updated_at='';"
+        "UPDATE r2_tv_devices SET updated_at=CURRENT_TIMESTAMP WHERE updated_at IS NULL OR updated_at='';"
+        "UPDATE r2_tv_vcr_tapes SET updated_at=CURRENT_TIMESTAMP WHERE updated_at IS NULL OR updated_at='';"
+        "UPDATE r2_tv_vcr_state SET updated_at=CURRENT_TIMESTAMP WHERE updated_at IS NULL OR updated_at='';"
+        "UPDATE r2_reality_containers SET created_at=CURRENT_TIMESTAMP WHERE created_at IS NULL OR created_at='';"
+        "UPDATE r2_reality_objects SET created_at=CURRENT_TIMESTAMP WHERE created_at IS NULL OR created_at='';"
+        "UPDATE r2_reality_objects SET updated_at=CURRENT_TIMESTAMP WHERE updated_at IS NULL OR updated_at='';"
+        "UPDATE r2_reality_ticks SET created_at=CURRENT_TIMESTAMP WHERE created_at IS NULL OR created_at='';");
+}
+
 static int reality_ensure_self_column(const char *column, const char *definition)
 {
     if (reality_column_exists("r2_reality_self", column)) return 0;
@@ -1754,6 +1869,11 @@ int r2_reality_init(void)
     }
     sqlite3_busy_timeout(reality_db, 5000);
     sqlite3_exec(reality_db, "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;", NULL, NULL, NULL);
+    if (migrate_existing_reality_schema() != 0) {
+        fprintf(stderr, "[R2 Reality] Could not migrate existing Reality-owned tables before schema setup.\\n");
+        sqlite3_close(reality_db); reality_db = NULL;
+        pthread_mutex_unlock(&reality_lock); return -1;
+    }
     const char *schema =
         "CREATE TABLE IF NOT EXISTS r2_reality_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);"
         "INSERT OR IGNORE INTO r2_reality_meta(key,value) VALUES('world_elapsed_seconds','0');"
