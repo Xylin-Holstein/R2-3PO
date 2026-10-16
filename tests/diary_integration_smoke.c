@@ -263,6 +263,8 @@ int main(void)
        intact and be linked later rather than being dropped or rewritten. */
     assert(r2_diary_write("Legacy diary entry about learning.") == 0);
     assert(scalar_int("SELECT COUNT(*) FROM diary_entries;") == 1);
+    assert(scalar_int("SELECT COUNT(*) FROM diary_entries "
+                      "WHERE timestamp=created_at AND timestamp<>'';") == 1);
 
     log_ready = 1;
     assert(r2_diary_reconnect_history(10) >= 1);
