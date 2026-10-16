@@ -17,7 +17,17 @@ import sys
 from pathlib import Path
 from typing import Any
 
-DATABASES = ("r2_reality.db", "r2_fridge.db", "r2_memory.db", "r2_rewards.db", "r2_addictions.db")
+DATABASES = (
+    "r2_reality.db", "r2_fridge.db", "r2_memory.db",
+    "r2_rewards.db", "r2_addictions.db",
+)
+# Device databases are optional because some installations do not deploy those
+# peripherals. If present, they are audited and snapshotted too.
+OPTIONAL_DATABASES = (
+    "Devices/GameBoyAdvance/gameboy.db",
+    "Devices/GameBoyAdvance/State/console_state.db",
+)
+ALL_DATABASES = DATABASES + OPTIONAL_DATABASES
 LEGACY_PHANTOM_DESCRIPTION = (
     "Guaranteed filling burger generated because the fridge was empty"
 )
@@ -62,30 +72,39 @@ def snapshot_database(source: Path, destination: Path) -> None:
             target_db.close()
 
 
+def _path_has_symlink_component(root: Path, relative: str) -> bool:
+    current = root
+    for part in Path(relative).parts:
+        current = current / part
+        if current.is_symlink():
+            return True
+    return False
+
+
 def create_snapshot_set(root: Path, snapshot_dir: Path) -> list[Path]:
-    """Create a snapshot set, refusing all pre-existing target names up front."""
+    """Create snapshots for required and present optional DBs, never overwriting."""
     snapshot_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-    targets = [snapshot_dir / name for name in DATABASES]
+    targets = [snapshot_dir / name for name in ALL_DATABASES]
     conflicts = [path for path in targets if path.exists() or path.is_symlink()]
     if conflicts:
-        joined = ", ".join(path.name for path in conflicts)
+        joined = ", ".join(str(path.relative_to(snapshot_dir)) for path in conflicts)
         raise FileExistsError(f"refusing to mix with existing snapshot file(s): {joined}")
 
-    # A database symlink can point outside R2's data directory. Do not follow
-    # it into another database, especially when creating a portable snapshot.
-    linked_sources = [root / name for name in DATABASES
-                      if (root / name).is_symlink()]
+    # Refuse a database or parent-directory symlink before reading/copying it.
+    linked_sources = [name for name in ALL_DATABASES
+                      if _path_has_symlink_component(root, name)]
     if linked_sources:
-        joined = ", ".join(path.name for path in linked_sources)
-        raise OSError(f"refusing symlink database source(s): {joined}")
+        joined = ", ".join(linked_sources)
+        raise OSError(f"refusing symlink database path(s): {joined}")
 
     created: list[Path] = []
     try:
-        for name in DATABASES:
+        for name in ALL_DATABASES:
             source = root / name
             if not source.is_file():
                 continue
             destination = snapshot_dir / name
+            destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             snapshot_database(source, destination)
             created.append(destination)
     except Exception:
@@ -152,15 +171,33 @@ def audit_database(path: Path) -> dict[str, Any]:
 
 
 def audit_root(root: Path) -> dict[str, Any]:
-    reports = {name: audit_database(root / name) for name in DATABASES}
-    existing = [item for item in reports.values() if item["exists"]]
+    reports: dict[str, dict[str, Any]] = {}
+    for name in ALL_DATABASES:
+        path = root / name
+        if _path_has_symlink_component(root, name):
+            reports[name] = {
+                "path": str(path),
+                "exists": path.exists() or path.is_symlink(),
+                "integrity": None,
+                "tables": {},
+                "legacy_phantom_food_records": [],
+                "error": "database path traverses a symlink; refusing to follow it",
+            }
+        else:
+            reports[name] = audit_database(path)
+
+    required = {name: reports[name] for name in DATABASES}
+    optional = {name: reports[name] for name in OPTIONAL_DATABASES}
+    required_existing = [item for item in required.values() if item["exists"]]
+    optional_existing = [item for item in optional.values() if item["exists"]]
     failures = [
         name for name, item in reports.items()
         if item["exists"] and (
             item["error"] is not None or item["integrity"] != ["ok"]
         )
     ]
-    missing = [name for name, item in reports.items() if not item["exists"]]
+    missing = [name for name, item in required.items() if not item["exists"]]
+    optional_missing = [name for name, item in optional.items() if not item["exists"]]
     legacy = [
         {"database": name, **record}
         for name, item in reports.items()
@@ -171,9 +208,12 @@ def audit_root(root: Path) -> dict[str, Any]:
         "read_only": True,
         "databases": reports,
         "summary": {
-            "found": len(existing),
+            "found": len(required_existing),
             "expected": len(DATABASES),
             "missing": missing,
+            "optional_found": len(optional_existing),
+            "optional_expected": len(OPTIONAL_DATABASES),
+            "optional_missing": optional_missing,
             "integrity_failures": failures,
             "legacy_phantom_food_records": legacy,
         },
@@ -219,7 +259,8 @@ def main() -> int:
             print(f"Source: {args.root.resolve()}")
         for name, item in report["databases"].items():
             if not item["exists"]:
-                print(f"  MISSING  {name}")
+                label = "OPTIONAL MISSING" if name in OPTIONAL_DATABASES else "MISSING"
+                print(f"  {label}  {name}")
                 continue
             integrity = ", ".join(item["integrity"] or []) or "unavailable"
             print(f"  {'ERROR' if item['error'] or integrity != 'ok' else 'OK'}  "
@@ -234,7 +275,8 @@ def main() -> int:
         for error in snapshot_errors:
             print(f"SNAPSHOT ERROR: {error}")
         summary = report["summary"]
-        print(f"Summary: {summary['found']}/{summary['expected']} database files found; "
+        print(f"Summary: {summary['found']}/{summary['expected']} required database files found; "
+              f"{summary['optional_found']}/{summary['optional_expected']} optional device database files found; "
               f"{len(summary['integrity_failures'])} integrity failure(s); "
               f"{len(summary['legacy_phantom_food_records'])} legacy phantom-food "
               "record group(s).")
