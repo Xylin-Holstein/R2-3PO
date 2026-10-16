@@ -9663,7 +9663,9 @@ static int r2_ears_write_wav_header(FILE *fp, uint32_t pcm_bytes)
  * R2_WHISPER_MODEL must name a readable local GGML Whisper model. No network is
  * used and the microphone is released before inference begins.
  */
-char *r2_ears_listen(unsigned seconds)
+char *r2_ears_listen_cancelable(unsigned seconds,
+                                  int (*cancelled)(void *userdata),
+                                  void *userdata)
 {
     const char *model = getenv("R2_WHISPER_MODEL");
     const char *cli = getenv("R2_WHISPER_CLI");
@@ -9679,6 +9681,7 @@ char *r2_ears_listen(unsigned seconds)
     uint32_t total_bytes;
     int capture_ok = 0;
 
+    if (cancelled && cancelled(userdata)) return NULL;
     if (seconds < 1U || seconds > 15U) {
         fprintf(stderr, "[Ears] Listen duration must be between 1 and 15 seconds.\n");
         return NULL;
@@ -9729,7 +9732,8 @@ char *r2_ears_listen(unsigned seconds)
     }
     own_mic = 1;
     uint32_t captured_bytes = 0;
-    while (captured_bytes < total_bytes && !shutting_down) {
+    while (captured_bytes < total_bytes && !shutting_down &&
+           !(cancelled && cancelled(userdata))) {
         size_t wanted = total_bytes - captured_bytes;
         if (wanted > sizeof(pcm)) wanted = sizeof(pcm);
         ssize_t got = r2_ears_read(ears, pcm, wanted);
@@ -9749,6 +9753,7 @@ char *r2_ears_listen(unsigned seconds)
     }
     pthread_mutex_unlock(&ears_capture_lock);
     if (captured_bytes == total_bytes && !shutting_down &&
+        !(cancelled && cancelled(userdata)) &&
         r2_ears_write_wav_header(wav, total_bytes) == 0 &&
         fflush(wav) == 0)
         capture_ok = 1;
@@ -9772,12 +9777,13 @@ char *r2_ears_listen(unsigned seconds)
             child = -1;
             goto cleanup;
         }
-        if (shutting_down || clock_gettime(CLOCK_MONOTONIC, &asr_now) != 0 ||
+        if (shutting_down || (cancelled && cancelled(userdata)) ||
+            clock_gettime(CLOCK_MONOTONIC, &asr_now) != 0 ||
             asr_now.tv_sec - asr_start.tv_sec >= 90) {
             (void)kill(child, SIGKILL);
             while (waitpid(child, &child_status, 0) < 0 && errno == EINTR) {}
             child = -1;
-            fprintf(stderr, "[Ears] Local speech recognition stopped during shutdown or exceeded its 90-second limit.\n");
+            fprintf(stderr, "[Ears] Local speech recognition was cancelled, stopped during shutdown, or exceeded its 90-second limit.\n");
             goto cleanup;
         }
         struct timespec remaining_time;
@@ -9812,12 +9818,17 @@ char *r2_ears_listen(unsigned seconds)
         if (start != transcript) memmove(transcript, start, strlen(start) + 1U);
         if (!*transcript) { free(transcript); transcript = NULL; }
     }
+    if (cancelled && cancelled(userdata)) {
+        free(transcript);
+        transcript = NULL;
+        goto cleanup;
+    }
     if (transcript && r2_log_is_initialized())
         r2_log_sensory("speech_transcribed",
                        "R2 Ears transcribed a short microphone utterance locally.",
                        "The transcript is passed into the normal conversation pipeline; raw audio is not persisted.",
                        "r2_ears_listen");
-    if (!transcript)
+    if (!transcript && !cancelled)
         fprintf(stderr, "[Ears] Whisper returned no usable transcript. Try speaking clearly and listening again.\n");
 
 cleanup:
@@ -9833,6 +9844,11 @@ cleanup:
     if (transcript_path[0]) unlink(transcript_path);
     rmdir(temp_dir);
     return transcript;
+}
+
+char *r2_ears_listen(unsigned seconds)
+{
+    return r2_ears_listen_cancelable(seconds, NULL, NULL);
 }
 
 int r2_ears_start(void)
