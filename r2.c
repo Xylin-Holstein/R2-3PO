@@ -9617,8 +9617,11 @@ int r2_eyes_stop(void)
 
 int r2_eyes_status(void)
 {
-    /* Distinguish a missing subsystem from an initialized, closed camera. */
-    return eyes ? (r2_eyes_is_open(eyes) ? 1 : 0) : -1;
+    /* Serialize status reads with camera open/close operations. */
+    pthread_mutex_lock(&visual_capture_lock);
+    int state = eyes ? (r2_eyes_is_open(eyes) ? 1 : 0) : -1;
+    pthread_mutex_unlock(&visual_capture_lock);
+    return state;
 }
 
 /* Serialize explicit microphone capture against start/stop requests. */
@@ -9860,8 +9863,11 @@ int r2_ears_stop(void)
 
 int r2_ears_status(void)
 {
-    /* Distinguish a missing subsystem from an initialized, closed microphone. */
-    return ears ? (r2_ears_is_open(ears) ? 1 : 0) : -1;
+    /* Serialize status reads with microphone open/close and capture operations. */
+    pthread_mutex_lock(&ears_capture_lock);
+    int state = ears ? (r2_ears_is_open(ears) ? 1 : 0) : -1;
+    pthread_mutex_unlock(&ears_capture_lock);
+    return state;
 }
 
 int r2_watch_active(void){ return watch_running ? 1 : 0; }
