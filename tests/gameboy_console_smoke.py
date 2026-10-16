@@ -165,6 +165,16 @@ def main() -> int:
         # Opening it must preserve old rows and make current writes work.
         legacy_root = Path(temp) / "legacy-device"
         (legacy_root / "State").mkdir(parents=True)
+        legacy_cartridge = sqlite3.connect(legacy_root / "gameboy.db")
+        legacy_cartridge.executescript("""
+            CREATE TABLE cartridge_slot (
+                id INTEGER PRIMARY KEY CHECK (id=1),
+                rom_path TEXT,
+                rom_title TEXT
+            );
+            INSERT INTO cartridge_slot(id,rom_path,rom_title) VALUES(1,NULL,NULL);
+        """)
+        legacy_cartridge.close()
         legacy_state = sqlite3.connect(
             legacy_root / "State" / "console_state.db"
         )
@@ -208,6 +218,12 @@ def main() -> int:
         legacy_module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(legacy_module)
         legacy_db = legacy_module.connect()
+        slot_columns = {
+            row[1] for row in legacy_db.execute(
+                "PRAGMA cartridge.table_info(cartridge_slot)"
+            )
+        }
+        assert {"rom_path", "rom_title", "inserted_at"} <= slot_columns
         state_columns = {
             row[1] for row in legacy_db.execute("PRAGMA table_info(console_state)")
         }
