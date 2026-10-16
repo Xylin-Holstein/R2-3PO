@@ -9480,11 +9480,11 @@ static void *vision_watch_worker(void *unused)
 
 int r2_vision_watch_start(void)
 {
-    if (!core_initialized || shutting_down || !r2_visual_is_initialized())
+    if (!core_initialized || shutting_down || !r2_visual_is_initialized() || r2_eyes_status() <= 0)
         return -1;
 
     pthread_mutex_lock(&vision_watch_lock);
-    if (!core_initialized || shutting_down || !r2_visual_is_initialized()) {
+    if (!core_initialized || shutting_down || !r2_visual_is_initialized() || r2_eyes_status() <= 0) {
         pthread_mutex_unlock(&vision_watch_lock);
         return -1;
     }
@@ -9620,7 +9620,10 @@ int r2_eyes_stop(void)
 
 int r2_eyes_status(void)
 {
-    return eyes ? (r2_eyes_is_open(eyes) ? 1 : 0) : 0;
+    pthread_mutex_lock(&visual_capture_lock);
+    int state = eyes ? (r2_eyes_is_open(eyes) ? 1 : 0) : -1;
+    pthread_mutex_unlock(&visual_capture_lock);
+    return state;
 }
 
 /* Serialize explicit microphone capture against start/stop requests. */
@@ -9981,7 +9984,10 @@ int r2_ears_stop(void)
 
 int r2_ears_status(void)
 {
-    return ears ? (r2_ears_is_open(ears) ? 1 : 0) : 0;
+    pthread_mutex_lock(&ears_capture_lock);
+    int state = ears ? (r2_ears_is_open(ears) ? 1 : 0) : -1;
+    pthread_mutex_unlock(&ears_capture_lock);
+    return state;
 }
 
 static int watch_cancel_requested(void *userdata)
@@ -10203,8 +10209,8 @@ void r2_status(void)
         MAX_RELEVANT_MEMORIES,
         r2_thinking_active() ? "ACTIVE" : "INACTIVE",
         r2_worker_count(),
-        r2_eyes_status() ? "OPEN" : "CLOSED",
-        r2_ears_status() ? "OPEN" : "CLOSED",
+        r2_eyes_status() > 0 ? "OPEN" : (r2_eyes_status() == 0 ? "CLOSED" : "UNAVAILABLE"),
+        r2_ears_status() > 0 ? "OPEN" : (r2_ears_status() == 0 ? "CLOSED" : "UNAVAILABLE"),
         r2_watch_active() ? "ACTIVE" : "STOPPED"
     );
 }
