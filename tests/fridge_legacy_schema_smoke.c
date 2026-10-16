@@ -53,7 +53,7 @@ int main(void)
         NULL, NULL, NULL, 0, NULL, 0) == 0);
     assert(previous_quantity == 5);
     assert(sqlite3_prepare_v2(fridge_db,
-        "SELECT quantity,qty FROM r2_fridge_items WHERE name='new apples'",
+        "SELECT quantity,qty,amount FROM r2_fridge_items WHERE name='new apples'",
         -1, &st, NULL) == SQLITE_OK);
     assert(sqlite3_step(st) == SQLITE_ROW);
     assert(sqlite3_column_int(st, 0) == 4);
