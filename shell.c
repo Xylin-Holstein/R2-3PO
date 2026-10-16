@@ -1334,7 +1334,14 @@ static void *shell_watch_worker(void *unused)
             free(transcript);
             break;
         }
-        if (!transcript) continue; /* Silence/no usable speech is not a conversation turn. */
+        if (!transcript) {
+            /* Back off if capture/ASR fails immediately; silence is not a turn. */
+            struct timespec retry_delay = {1, 0};
+            while (nanosleep(&retry_delay, &retry_delay) != 0 && errno == EINTR) {
+                if (shell_watch_cancelled(NULL)) break;
+            }
+            continue;
+        }
         shell_talk_watch(transcript);
         free(transcript);
     }
