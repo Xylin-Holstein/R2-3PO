@@ -128,7 +128,8 @@ static void seed_legacy_reality_owned_tables(void)
         "CREATE TABLE r2_tv_state(id INTEGER PRIMARY KEY,power INTEGER,source_kind TEXT,source_value INTEGER);"
         "INSERT INTO r2_tv_state(id,power,source_kind,source_value) VALUES(1,1,'input',2);"
         "CREATE TABLE r2_tv_devices(name TEXT PRIMARY KEY,connection_kind TEXT,port INTEGER);"
-        "INSERT INTO r2_tv_devices(name,connection_kind,port) VALUES('native_old_device','input',3);"
+        "INSERT INTO r2_tv_devices(name,connection_kind,port) VALUES"
+        "('native_old_device','input',3),('native_duplicate_device','input',3);"
         "CREATE TABLE r2_tv_vcr_tapes(media_path TEXT PRIMARY KEY);"
         "INSERT INTO r2_tv_vcr_tapes(media_path) VALUES('native_old_tape.mkv');"
         "CREATE TABLE r2_tv_vcr_state(id INTEGER PRIMARY KEY,cassette_path TEXT,transport TEXT);"
@@ -321,6 +322,8 @@ static void verify_legacy_shared_reality_migration(void)
          "in-place legacy TV state was not preserved"},
         {"SELECT COUNT(*) FROM r2_tv_devices WHERE name='native_old_device' AND connected=1", 1,
          "in-place legacy TV device was not preserved and upgraded"},
+        {"SELECT COUNT(*) FROM r2_tv_devices WHERE name='native_duplicate_device' AND connected=0", 1,
+         "legacy TV port collision should preserve the row but deactivate the conflicting connection"},
         {"SELECT COUNT(*) FROM r2_tv_vcr_state WHERE cassette_path='legacy_tape.mkv' AND transport='pause'", 1,
          "in-place legacy VCR state was not preserved"},
         {"SELECT COUNT(*) FROM r2_reality_containers WHERE name='native_old_container' AND kind='container'", 1,
