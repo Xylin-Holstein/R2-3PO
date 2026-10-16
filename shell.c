@@ -1375,6 +1375,18 @@ static void shell_watch_start(void)
         return;
     }
 
+    /* Prove the default microphone can open before reporting Watch as active. */
+    int restore_ears_open = r2_ears_status() > 0;
+    if (r2_ears_start() != 0) {
+        printf("[Watch] Cannot start: R2 could not open the default microphone.\n");
+        return;
+    }
+    (void)r2_ears_stop();
+    if (restore_ears_open && r2_ears_start() != 0) {
+        printf("[Watch] Cannot start: the previously open Ears source could not be restored.\n");
+        return;
+    }
+
     atomic_store(&shell_watch_stop_requested, 0);
     if (r2_watch_start() != 0) {
         atomic_store(&shell_watch_stop_requested, 1);
