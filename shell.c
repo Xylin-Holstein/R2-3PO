@@ -77,7 +77,6 @@
 static atomic_int shell_shutdown = ATOMIC_VAR_INIT(0);
 
 static int shell_running = 0;
-static int watch_running = 0;
 
 /* The GUI talks to this local socket; all writes still pass through Reality APIs. */
 static pthread_t tv_control_thread;
@@ -650,7 +649,7 @@ static void shell_status(void)
 
     printf(
         "Watch             : %s\n",
-        watch_running
+        r2_watch_active()
             ? "ACTIVE"
             : "INACTIVE"
     );
@@ -1244,88 +1243,47 @@ static void shell_watch_status(void)
         "\n"
         "================ WATCH STATUS =============================\n"
         "\n"
-        "Watch controller : %s\n"
-        "R2 Watch state   : %s\n"
+        "Coordinator worker: %s\n"
+        "Local ASR -> chat : %s\n"
+        "Visual observation: independently controlled\n"
         "\n"
-        "Watch is intended to coordinate:\n"
-        "  - microphone input\n"
-        "  - desktop/system audio\n"
-        "  - VLC detection\n"
-        "  - VLC/video observation\n"
+        "Watch listens for speech, waits for a natural pause, and sends\n"
+        "each transcript through R2's normal conversation pipeline.\n"
+        "Use 'vision watch start' separately when Eyes has an open source.\n"
         "\n"
         "============================================================\n"
         "\n",
-        watch_running
-            ? "ACTIVE"
-            : "INACTIVE",
-        r2_watch_active()
-            ? "ACTIVE"
-            : "INACTIVE"
+        r2_watch_active() ? "RUNNING" : "STOPPED",
+        r2_watch_active() ? "READY" : "INACTIVE"
     );
 }
-
 
 static void shell_watch_start(void)
 {
-    if (watch_running) {
-        printf(
-            "[Watch] Already running.\n"
-        );
+    if (r2_watch_active()) {
+        printf("[Watch] Already running.\n");
         return;
     }
-
-    printf(
-        "[Watch] Starting...\n"
-    );
-
-    int result =
-        r2_watch_start();
-
+    printf("[Watch] Starting local microphone-to-chat listener...\n");
+    int result = r2_watch_start();
     if (result != 0) {
-        printf(
-            "[Watch] Failed to start.\n"
-        );
+        printf("[Watch] Failed to start. Check R2_WHISPER_MODEL, whisper-cli, and microphone permissions.\n");
         return;
     }
-
-    watch_running = 1;
-
-    printf(
-        "[Watch] ACTIVE.\n"
-    );
+    printf("[Watch] ACTIVE.\n");
 }
-
 
 static void shell_watch_stop(void)
 {
-    if (!watch_running) {
-        printf(
-            "[Watch] Already stopped.\n"
-        );
-        return;
-    }
-
-    printf(
-        "[Watch] Stopping...\n"
-    );
-
-    int result =
-        r2_watch_stop();
-
+    int was_active = r2_watch_active();
+    printf(was_active ? "[Watch] Stopping...\n" : "[Watch] Reaping any stopped listener...\n");
+    int result = r2_watch_stop();
     if (result != 0) {
-        printf(
-            "[Watch] Failed to stop.\n"
-        );
+        printf("[Watch] Failed to stop cleanly.\n");
         return;
     }
-
-    watch_running = 0;
-
-    printf(
-        "[Watch] STOPPED.\n"
-    );
+    printf(was_active ? "[Watch] STOPPED.\n" : "[Watch] Already stopped.\n");
 }
-
 
 static void shell_watch(const char *argument)
 {
@@ -1386,7 +1344,6 @@ static void shell_shutdown_r2(void)
         "[R2] Shutdown requested.\n"
     );
 
-    watch_running = 0;
     shell_running = 0;
 
     r2_request_shutdown();
@@ -1400,7 +1357,6 @@ static void shell_restart(void)
         "[R2] Restart requested.\n"
     );
 
-    watch_running = 0;
     shell_running = 0;
 
     if (r2_request_restart() != 0) {
@@ -2684,9 +2640,9 @@ int r2_shell_run(void)
     /*
      * Watch must not remain active after the shell exits.
      */
-    if (watch_running) {
+    if (r2_watch_active()) {
         r2_watch_stop();
-        watch_running = 0;
+
     }
 
     tv_control_stop_server();
@@ -2709,7 +2665,7 @@ int r2_shell_is_running(void)
 
 int r2_shell_watch_is_running(void)
 {
-    return watch_running;
+    return r2_watch_active();
 }
 
 
@@ -2719,9 +2675,9 @@ int r2_shell_watch_is_running(void)
 
 void r2_shell_shutdown(void)
 {
-    if (watch_running) {
+    if (r2_watch_active()) {
         r2_watch_stop();
-        watch_running = 0;
+
     }
 
     shell_running = 0;
