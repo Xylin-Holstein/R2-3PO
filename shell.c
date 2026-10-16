@@ -553,6 +553,10 @@ static void shell_help(void)
         "  ears start\n"
         "      Start the existing Ears subsystem.\n"
         "\n"
+        "  ears listen [seconds]\n"
+        "      Record a short utterance, transcribe locally, and send it to R2's normal chat.\n"
+        "      Requires R2_WHISPER_MODEL to point to a local whisper.cpp GGML model.\n"
+        "\n"
         "  ears stop\n"
         "      Stop the existing Ears subsystem.\n"
         "\n"
@@ -1146,6 +1150,41 @@ static void shell_ears(const char *argument)
         else
             printf("[Ears] Failed to start.\n");
 
+        return;
+    }
+
+    if (!strncasecmp(argument, "listen", 6) &&
+        (argument[6] == '\\0' || isspace((unsigned char)argument[6]))) {
+        unsigned seconds = 5U;
+        const char *duration = argument + 6;
+        while (*duration && isspace((unsigned char)*duration)) ++duration;
+        if (*duration) {
+            char *end = NULL;
+            errno = 0;
+            unsigned long parsed = strtoul(duration, &end, 10);
+            while (end && *end && isspace((unsigned char)*end)) ++end;
+            if (errno || !end || end == duration || *end || parsed < 1UL || parsed > 15UL) {
+                printf("Usage: ears listen [1-15 seconds]\\n");
+                return;
+            }
+            seconds = (unsigned)parsed;
+        }
+        printf("[Ears] Listening for %u seconds. Speak after the capture begins...\\n", seconds);
+        fflush(stdout);
+        char *transcript = r2_ears_listen(seconds);
+        if (!transcript) {
+            printf("[Ears] No transcript produced. Check the microphone, whisper-cli, and R2_WHISPER_MODEL.\\n");
+            return;
+        }
+        printf("[Ears] Heard: %s\\n", transcript);
+        char *reply = r2_talk(transcript);
+        if (reply && *reply)
+            printf("\\nR2-3PO: %s\\n\\n", reply);
+        else
+            printf("[R2] The recognized words could not be sent through conversation.\\n");
+        free(reply);
+        free(transcript);
+        fflush(stdout);
         return;
     }
 
