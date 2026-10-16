@@ -667,7 +667,7 @@ static void shell_status(void)
    TALK
    ============================================================ */
 
-static void shell_talk(const char *message)
+static void shell_talk_inner(const char *message)
 {
     if (message)
         fprintf(stderr, "[R2 Input Audit] shell_message_chars=%zu\n", strlen(message));
@@ -700,6 +700,27 @@ static void shell_talk(const char *message)
     );
 
     free(reply);
+}
+
+
+static pthread_mutex_t shell_conversation_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static void shell_talk(const char *message)
+{
+    pthread_mutex_lock(&shell_conversation_lock);
+    shell_talk_inner(message);
+    pthread_mutex_unlock(&shell_conversation_lock);
+}
+
+static void shell_talk_watch(const char *message)
+{
+    pthread_mutex_lock(&shell_conversation_lock);
+    if (!atomic_load(&shell_watch_stop_requested) && !r2_is_shutting_down()) {
+        printf("\n[Watch] Heard: %s\n", message ? message : "");
+        fflush(stdout);
+        shell_talk_inner(message);
+    }
+    pthread_mutex_unlock(&shell_conversation_lock);
 }
 
 
@@ -1265,65 +1286,128 @@ static void shell_watch_status(void)
 }
 
 
+static pthread_t shell_watch_thread;
+static int shell_watch_thread_started = 0;
+static atomic_int shell_watch_stop_requested = ATOMIC_VAR_INIT(1);
+
+static int shell_watch_cancelled(void *unused)
+{
+    (void)unused;
+    return atomic_load(&shell_watch_stop_requested) || r2_is_shutting_down();
+}
+
+static int shell_command_available(const char *command)
+{
+    if (!command || !*command) return 0;
+    if (strchr(command, '/')) return access(command, X_OK) == 0;
+    const char *path = getenv("PATH");
+    if (!path) return 0;
+    const char *part = path;
+    while (1) {
+        const char *end = strchr(part, ':');
+        size_t length = end ? (size_t)(end - part) : strlen(part);
+        if (length > 0 && length < PATH_MAX - 2) {
+            char candidate[PATH_MAX];
+            int n = snprintf(candidate, sizeof(candidate), "%.*s/%s",
+                             (int)length, part, command);
+            struct stat st;
+            if (n > 0 && (size_t)n < sizeof(candidate) &&
+                access(candidate, X_OK) == 0 && stat(candidate, &st) == 0 &&
+                S_ISREG(st.st_mode)) return 1;
+        }
+        if (!end) break;
+        part = end + 1;
+    }
+    return 0;
+}
+
+static void *shell_watch_worker(void *unused)
+{
+    (void)unused;
+    int restore_ears_open = r2_ears_status() > 0;
+    int visual_started = 0;
+
+    /* Never open Eyes on Watch's behalf. Only attach to an already-open source. */
+    if (r2_eyes_status() > 0 && r2_vision_available() &&
+        r2_vision_watch_start() == 0) {
+        visual_started = 1;
+        fprintf(stderr, "[Watch] Visual observation attached to the already-open Eyes source.\n");
+    }
+
+    while (!shell_watch_cancelled(NULL)) {
+        /* Bounded non-overlapping chunks: one transcript can create at most one chat turn. */
+        char *transcript = r2_ears_listen_cancelable(5, shell_watch_cancelled, NULL);
+        if (shell_watch_cancelled(NULL)) {
+            free(transcript);
+            break;
+        }
+        if (!transcript) continue; /* Silence/no usable speech is not a conversation turn. */
+        shell_talk_watch(transcript);
+        free(transcript);
+    }
+
+    if (visual_started)
+        (void)r2_vision_watch_stop();
+    /* Restore a microphone state that predated Watch; otherwise leave it closed. */
+    if (restore_ears_open && !r2_is_shutting_down())
+        (void)r2_ears_start();
+    return NULL;
+}
+
 static void shell_watch_start(void)
 {
     if (watch_running) {
-        printf(
-            "[Watch] Already running.\n"
-        );
+        printf("[Watch] Already running.\n");
         return;
     }
 
-    printf(
-        "[Watch] Starting...\n"
-    );
-
-    int result =
-        r2_watch_start();
-
-    if (result != 0) {
-        printf(
-            "[Watch] Failed to start.\n"
-        );
+    const char *model = getenv("R2_WHISPER_MODEL");
+    struct stat model_stat;
+    if (!model || !*model || stat(model, &model_stat) != 0 ||
+        !S_ISREG(model_stat.st_mode) || access(model, R_OK) != 0) {
+        printf("[Watch] Cannot start: set R2_WHISPER_MODEL to a readable local Whisper GGML model.\n");
+        return;
+    }
+    const char *cli = getenv("R2_WHISPER_CLI");
+    if (!cli || !*cli) cli = "whisper-cli";
+    if (!shell_command_available(cli)) {
+        printf("[Watch] Cannot start: local Whisper CLI '%s' is not executable or not in PATH.\n", cli);
         return;
     }
 
+    atomic_store(&shell_watch_stop_requested, 0);
+    if (r2_watch_start() != 0) {
+        atomic_store(&shell_watch_stop_requested, 1);
+        printf("[Watch] Core refused to start Watch mode.\n");
+        return;
+    }
+    if (pthread_create(&shell_watch_thread, NULL, shell_watch_worker, NULL) != 0) {
+        atomic_store(&shell_watch_stop_requested, 1);
+        (void)r2_watch_stop();
+        printf("[Watch] Could not create the sensory coordinator thread.\n");
+        return;
+    }
+    shell_watch_thread_started = 1;
     watch_running = 1;
-
-    printf(
-        "[Watch] ACTIVE.\n"
-    );
+    printf("[Watch] ACTIVE. Local microphone transcription is enabled; Eyes is observed only if already open.\n");
 }
 
 
 static void shell_watch_stop(void)
 {
-    if (!watch_running) {
-        printf(
-            "[Watch] Already stopped.\n"
-        );
+    if (!watch_running && !shell_watch_thread_started) {
+        printf("[Watch] Already stopped.\n");
         return;
     }
-
-    printf(
-        "[Watch] Stopping...\n"
-    );
-
-    int result =
-        r2_watch_stop();
-
-    if (result != 0) {
-        printf(
-            "[Watch] Failed to stop.\n"
-        );
-        return;
+    printf("[Watch] Stopping; cancelling capture/transcription and waiting for active work...\n");
+    atomic_store(&shell_watch_stop_requested, 1);
+    (void)r2_watch_stop();
+    if (shell_watch_thread_started) {
+        pthread_join(shell_watch_thread, NULL);
+        shell_watch_thread_started = 0;
     }
-
     watch_running = 0;
-
-    printf(
-        "[Watch] STOPPED.\n"
-    );
+    printf("[Watch] STOPPED.\n");
 }
 
 
@@ -1386,7 +1470,8 @@ static void shell_shutdown_r2(void)
         "[R2] Shutdown requested.\n"
     );
 
-    watch_running = 0;
+    if (watch_running || shell_watch_thread_started)
+        shell_watch_stop();
     shell_running = 0;
 
     r2_request_shutdown();
@@ -1400,7 +1485,8 @@ static void shell_restart(void)
         "[R2] Restart requested.\n"
     );
 
-    watch_running = 0;
+    if (watch_running || shell_watch_thread_started)
+        shell_watch_stop();
     shell_running = 0;
 
     if (r2_request_restart() != 0) {
@@ -2684,10 +2770,8 @@ int r2_shell_run(void)
     /*
      * Watch must not remain active after the shell exits.
      */
-    if (watch_running) {
-        r2_watch_stop();
-        watch_running = 0;
-    }
+    if (watch_running || shell_watch_thread_started)
+        shell_watch_stop();
 
     tv_control_stop_server();
     if (service_signals_blocked)
@@ -2719,10 +2803,8 @@ int r2_shell_watch_is_running(void)
 
 void r2_shell_shutdown(void)
 {
-    if (watch_running) {
-        r2_watch_stop();
-        watch_running = 0;
-    }
+    if (watch_running || shell_watch_thread_started)
+        shell_watch_stop();
 
     shell_running = 0;
     shell_shutdown = 1;
