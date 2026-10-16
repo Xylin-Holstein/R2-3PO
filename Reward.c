@@ -30,6 +30,26 @@ static int valid_text(const char *s, size_t max)
     return s && *s && strlen(s) <= max;
 }
 
+static int reward_column_exists(const char *table, const char *column)
+{
+    char sql[256];
+    int n = snprintf(sql, sizeof(sql), "PRAGMA table_info(%s)", table);
+    if (n < 0 || (size_t)n >= sizeof(sql)) return 0;
+    sqlite3_stmt *st = NULL;
+    int found = 0;
+    if (sqlite3_prepare_v2(reward_db, sql, -1, &st, NULL) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            const unsigned char *name = sqlite3_column_text(st, 1);
+            if (name && strcmp((const char *)name, column) == 0) {
+                found = 1;
+                break;
+            }
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    return found;
+}
+
 static int ensure_db_locked(void)
 {
     if (reward_db) return 0;
@@ -48,7 +68,6 @@ static int ensure_db_locked(void)
         "CREATE TABLE IF NOT EXISTS reward_totals ("
         " id INTEGER PRIMARY KEY CHECK(id=1), points INTEGER NOT NULL DEFAULT 0,"
         " updated_at INTEGER NOT NULL);"
-        "INSERT OR IGNORE INTO reward_totals(id,points,updated_at) VALUES(1,0,CAST(strftime('%s','now') AS INTEGER));"
         "CREATE TABLE IF NOT EXISTS reward_events ("
         " id INTEGER PRIMARY KEY AUTOINCREMENT, target TEXT NOT NULL,"
         " source TEXT NOT NULL, points INTEGER NOT NULL CHECK(points BETWEEN -7 AND 5 AND points<>0),"
@@ -57,6 +76,41 @@ static int ensure_db_locked(void)
         "CREATE INDEX IF NOT EXISTS reward_events_target_time ON reward_events(target,occurred_at);",
         NULL, NULL, NULL) != SQLITE_OK) {
         fprintf(stderr, "[R2 Reward] Schema error: %s\n", sqlite3_errmsg(reward_db));
+        sqlite3_close(reward_db);
+        reward_db = NULL;
+        return -1;
+    }
+
+    /* Upgrade the totals row before any statement assumes updated_at exists.
+       CREATE TABLE IF NOT EXISTS does not add columns to an older ledger. */
+    if (!reward_column_exists("reward_totals", "points") &&
+        sqlite3_exec(reward_db,
+            "ALTER TABLE reward_totals ADD COLUMN points INTEGER NOT NULL DEFAULT 0",
+            NULL, NULL, NULL) != SQLITE_OK) {
+        fprintf(stderr, "[R2 Reward] Could not migrate reward totals points: %s\n",
+                sqlite3_errmsg(reward_db));
+        sqlite3_close(reward_db);
+        reward_db = NULL;
+        return -1;
+    }
+    if (!reward_column_exists("reward_totals", "updated_at") &&
+        sqlite3_exec(reward_db,
+            "ALTER TABLE reward_totals ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0",
+            NULL, NULL, NULL) != SQLITE_OK) {
+        fprintf(stderr, "[R2 Reward] Could not migrate reward totals timestamp: %s\n",
+                sqlite3_errmsg(reward_db));
+        sqlite3_close(reward_db);
+        reward_db = NULL;
+        return -1;
+    }
+    if (sqlite3_exec(reward_db,
+        "UPDATE reward_totals SET updated_at=CAST(strftime('%s','now') AS INTEGER) "
+        "WHERE updated_at IS NULL OR updated_at=0;"
+        "INSERT OR IGNORE INTO reward_totals(id,points,updated_at) "
+        "VALUES(1,0,CAST(strftime('%s','now') AS INTEGER));",
+        NULL, NULL, NULL) != SQLITE_OK) {
+        fprintf(stderr, "[R2 Reward] Could not initialize reward totals: %s\n",
+                sqlite3_errmsg(reward_db));
         sqlite3_close(reward_db);
         reward_db = NULL;
         return -1;
