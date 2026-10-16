@@ -29,6 +29,19 @@ def main() -> None:
     assert '#define R2_VWEBCAM_DIR "/tmp/r2-vwebcam-r2"' in visual
     assert "r2_vwebcam_publish_frame(eyes)" in eyes
     assert "r2_vwebcam_start_viewer()" in eyes and "r2_vwebcam_stop_viewer()" in eyes
+    assert "return total == 0 ? 0 : -1;" in eyes, (
+        "partial raw frames must be reported as read failures, not clean EOF"
+    )
+    capture_start = eyes.index("int r2_eyes_capture(")
+    capture_end = eyes.index("/* ============================================================\\n   FRAME ACCESS", capture_start)
+    capture = eyes[capture_start:capture_end]
+    eof_branch = capture[capture.index("if (result == 0)"):capture.index("if (result < 0)")]
+    assert "r2_eyes_close(eyes);" in eof_branch, (
+        "EOF from a live camera or file must close the dead FFmpeg stream"
+    )
+    assert "if (!eyes->source_is_live)" not in eof_branch, (
+        "a dead live-camera pipe must not remain marked open"
+    )
     assert 'char *const argv[] = {"/usr/bin/python3", viewer, NULL};' in eyes
     assert "execv(argv[0], argv)" in eyes
     assert "PR_SET_PDEATHSIG" in eyes and "getppid() != parent_pid" in eyes
