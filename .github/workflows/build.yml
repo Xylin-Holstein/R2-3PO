@@ -128,6 +128,9 @@ jobs:
           python3 -m py_compile tests/ears_speech_bridge_smoke.py
           python3 tests/ears_speech_bridge_smoke.py
 
+      - name: Check Watch coordinator worker lifecycle
+        run: python3 tests/watch_coordinator_lifecycle_smoke.py
+
       - name: Check unified Qwen 3.5 conversation and vision wiring
         run: python3 tests/qwen35_model_smoke.py
 
