@@ -118,8 +118,14 @@ require(
     "vision can yield to foreground conversation or shutdown",
 )
 require(
-    "if (query_requests_visual_context(query) &&" in core,
-    "a chat turn requests a fresh frame only for an explicit visual-context query",
+    "if (visual_requested && !r2_vision_watch_active())" in core
+    and 'Separate visible facts from inference and uncertainty.", 1);' in core
+    and "CURRENT LIVE VISUAL OBSERVATION: unavailable." in core,
+    "explicit visual questions open the configured camera and never substitute old memories for a missing live frame",
+)
+require(
+    "if (query_requests_visual_context(query) &&" not in core,
+    "explicit visual intent is classified once and camera access is not silently activated for ordinary chat",
 )
 require(
     'json_object_object_get_ex(msg, "content", &content)' in core,
@@ -142,7 +148,7 @@ require(
     'int allow_reasoning = ollama_audit_stage &&' in core
     and '"conversation-answer"' in core
     and '"conversation-retry"' in core
-    and 'json_object_object_add(root, "think", json_object_new_boolean(allow_reasoning))' in core
+    and 'ollama_json_object_add_checked(root, "think",' in core
     and "message.thinking is measured for diagnostics but never displayed" in core,
     "foreground answer and corrective retry can reason while only final content is user-facing",
 )
@@ -174,6 +180,14 @@ require(
     and "copy[context_index].content = context_content;" in core
     and "Insert after any leading system context, before dialogue begins." in core,
     "retrieved history stays separate and is placed before dialogue without modifying the current user message",
+)
+
+require(
+    "size_t identity_minimum = system_budget / 5;" in core
+    and "system_budget - reality_reserve - identity_minimum" in core
+    and "Prefer a complete sentence boundary when the cap falls inside the" in core
+    and "override_budget = system_budget / 4;" not in core,
+    "adaptive context budgeting preserves more of the conversation contract without dropping identity or live Reality",
 )
 require(
     "Return ONLY valid JSON with keys description and focus" in visual
@@ -321,13 +335,19 @@ require(
 
 require(
     "static int message_add_pair_locked(" in core
-    and 'message_add_pair_locked("assistant", reply, "user", tools)' in core
+    and '"[R2_INTERNAL_TOOL_RESULT]\\n"' in core
+    and '"[R2_INTERNAL_TOOL_REQUEST]\\n"' in core
+    and "int internal_tool_result;" in core
+    and 'message_add_pair_locked(\n                    "assistant", tool_request_context, "user", tagged_tool_result)' in core
+    and "messages.items[messages.count - 1].internal_tool_result = 1;" in core
     and "Append the internal assistant tool-call and its tool-result as one logical" in core
-    and "Cannot fit complete assistant/tool history pair without evicting pinned context." in core,
-    "tool-call and tool-result history is appended atomically, preventing half-written turns",
+    and "Cannot fit complete assistant/tool history pair without evicting pinned context." in core
+    and "raw [WORLD]/[RUN]/etc. commands into later model context" in core
+    and "do not repeat it unless the user asks again" in core,
+    "tool-result history stays atomic and trusted while executed control syntax is not replayed as dialogue",
 )
 
-tool_pair_start = core.find('message_add_pair_locked("assistant", reply, "user", tools)')
+tool_pair_start = core.find('const char tool_result_prefix[] = "[R2_INTERNAL_TOOL_RESULT]\\n"')
 tool_pair_end = core.find("reply = chat_with_relevant_memories(message);", tool_pair_start)
 require(
     tool_pair_start >= 0 and tool_pair_end > tool_pair_start

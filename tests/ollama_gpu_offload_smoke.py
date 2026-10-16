@@ -13,7 +13,7 @@ preflight = (ROOT / "tools/preflight_ollama_model.py").read_text(encoding="utf-8
 
 required = (
     'getenv("R2_OLLAMA_NUM_GPU")',
-    'json_object_object_add(options, "num_gpu"',
+    'R2_OLLAMA_ADD_OPTION("num_gpu"',
     "gpu_layers >= -1 && gpu_layers <= 999",
     "if (gpu_layers != 0)",
 )

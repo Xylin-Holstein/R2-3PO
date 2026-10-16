@@ -102,6 +102,26 @@ int main(void)
     assert(strstr(clean, "Hello!") && strstr(clean, "I found the right effect."));
     free(clean);
 
+    /* Marker syntax quoted as code is documentation, not a hidden action. */
+    clean = r2_sounds_process_reply(
+        "The literal syntax is `[R2_SOUND:beep:curious]`.");
+    assert(clean && strstr(clean, "`[R2_SOUND:beep:curious]`"));
+    free(clean);
+
+    clean = r2_sounds_process_reply(
+        "Example:\n```text\n[R2_SOUND:whistle:happy]\n```\nNo sound was requested.");
+    assert(clean && strstr(clean, "[R2_SOUND:whistle:happy]") &&
+           strstr(clean, "No sound was requested."));
+    free(clean);
+
+    /* Active markers still disappear even when an earlier example is quoted. */
+    clean = r2_sounds_process_reply(
+        "Example `[R2_SOUND:beep:curious]`; hello [R2_SOUND:whistle:happy]");
+    assert(clean && strstr(clean, "`[R2_SOUND:beep:curious]`") &&
+           !strstr(clean, "[R2_SOUND:whistle:happy]") &&
+           strstr(clean, "hello "));
+    free(clean);
+
     /* Model output casing can vary; control syntax must never leak as prose. */
     clean = r2_sounds_process_reply("Before [r2_sound:beep:curious] after");
     assert(clean && !strcasestr(clean, "[r2_sound:") &&

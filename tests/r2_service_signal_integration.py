@@ -81,8 +81,25 @@ def main() -> int:
                         + startup_log[-12000:]
                     )
 
-                # Exercise the real Unix-socket -> C shell -> Life Log media bridge.
+                # ONLINE is emitted before every optional device endpoint is
+                # necessarily ready. Wait for the actual control socket instead
+                # of racing initialization on a fast CI runner.
                 socket_path = home / "tv-control.sock"
+                socket_deadline = time.monotonic() + 10
+                while (not socket_path.exists()
+                       and process.poll() is None
+                       and time.monotonic() < socket_deadline):
+                    time.sleep(0.05)
+                if not socket_path.exists():
+                    current_log = log_path.read_text(
+                        encoding="utf-8", errors="replace"
+                    )
+                    raise AssertionError(
+                        "TV control socket did not become ready after ONLINE.\\n"
+                        + current_log[-12000:]
+                    )
+
+                # Exercise the real Unix-socket -> C shell -> Life Log media bridge.
                 with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
                     client.settimeout(3.0)
                     client.connect(str(socket_path))

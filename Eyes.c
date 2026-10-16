@@ -1120,10 +1120,10 @@ int r2_eyes_open_file(
 int r2_eyes_open_camera(
     R2Eyes *eyes)
 {
-    return r2_eyes_open_device(
-        eyes,
-        "/dev/video0"
-    );
+    const char *device = getenv("R2_CAMERA_DEVICE");
+    if (!device || !*device)
+        device = "/dev/video0";
+    return r2_eyes_open_device(eyes, device);
 }
 
 int r2_eyes_open_device(
