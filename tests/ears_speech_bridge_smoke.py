@@ -30,6 +30,8 @@ assert 'strncasecmp(argument, "listen", 6)' in shell
 assert "ears listen [1-15 seconds]" in shell
 assert 'R2_WHISPER_MODEL="${R2_WHISPER_MODEL:-}"' in launcher
 assert 'R2_WHISPER_CLI="${R2_WHISPER_CLI:-}"' in launcher
+assert "Local Whisper is not configured" in launcher
+assert "docs/local-speech-input.md" in launcher
 assert "r2_ears_read(" in ears and "ssize_t r2_ears_read(" in ears_header
 assert "Qwen 3.5 9B accepts text and images, not raw microphone PCM" in ears_header
 print("Local microphone capture, Whisper transcription, and normal chat handoff smoke checks passed.")
