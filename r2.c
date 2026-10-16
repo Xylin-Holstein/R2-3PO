@@ -9936,8 +9936,8 @@ void r2_status(void)
         MAX_RELEVANT_MEMORIES,
         r2_thinking_active() ? "ACTIVE" : "INACTIVE",
         r2_worker_count(),
-        r2_eyes_status() ? "OPEN" : "CLOSED",
-        r2_ears_status() ? "OPEN" : "CLOSED",
+        r2_eyes_status() > 0 ? "OPEN" : (r2_eyes_status() == 0 ? "CLOSED" : "UNAVAILABLE"),
+        r2_ears_status() > 0 ? "OPEN" : (r2_ears_status() == 0 ? "CLOSED" : "UNAVAILABLE"),
         r2_watch_active() ? "ACTIVE" : "STOPPED"
     );
 }
