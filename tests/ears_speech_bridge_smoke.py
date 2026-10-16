@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Regression checks for the explicit local microphone-to-chat path."""
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 core = (ROOT / "r2.c").read_text(encoding="utf-8")
@@ -32,12 +33,10 @@ conversation_entry = shell[conversation_start:conversation_end]
 assert 'r2_talk(message)' in conversation_entry, (
     "speech transcripts must enter the same shell_talk -> r2_talk path as typed messages"
 )
-assert (
-    'static void shell_conversation(const char *message)\\n{\\n'
-    '    if (!message || !*message)\\n'
-    '        return;\\n\\n'
-    '    shell_talk(message);\\n}'
-) in shell, "typed conversation must use the same shell_talk entry point as speech transcripts"
+assert re.search(
+    r"static void shell_conversation\(const char \*message\)\s*\{[^}]*shell_talk\(message\);",
+    shell, re.S
+), "typed conversation must use the same shell_talk entry point as speech transcripts"
 assert 'strncasecmp(argument, "listen", 6)' in shell
 assert "ears listen [1-15 seconds]" in shell
 assert 'R2_WHISPER_MODEL="${R2_WHISPER_MODEL:-}"' in launcher
