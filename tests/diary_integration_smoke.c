@@ -211,10 +211,47 @@ static int create_legacy_reward_db(void)
     return rc == SQLITE_OK ? 0 : -1;
 }
 
+static void seed_legacy_diary_entries(void)
+{
+    sqlite3 *db = NULL;
+    assert(sqlite3_open(R2_DIARY_DATABASE, &db) == SQLITE_OK);
+    assert(sqlite3_exec(db,
+        "CREATE TABLE diary_entries ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "entry TEXT NOT NULL,"
+        "timestamp TEXT NOT NULL);"
+        "INSERT INTO diary_entries(entry,timestamp) "
+        "VALUES('legacy schema migration fixture','2001-02-03 04:05:06');",
+        NULL, NULL, NULL) == SQLITE_OK);
+    sqlite3_close(db);
+}
+
+static void verify_legacy_diary_migration(void)
+{
+    sqlite3 *db = NULL;
+    sqlite3_stmt *st = NULL;
+    assert(sqlite3_open(R2_DIARY_DATABASE, &db) == SQLITE_OK);
+    assert(sqlite3_prepare_v2(db,
+        "SELECT entry,created_at FROM diary_entries WHERE entry='legacy schema migration fixture'",
+        -1, &st, NULL) == SQLITE_OK);
+    assert(sqlite3_step(st) == SQLITE_ROW);
+    const unsigned char *entry = sqlite3_column_text(st, 0);
+    const unsigned char *created = sqlite3_column_text(st, 1);
+    assert(entry && strcmp((const char *)entry, "legacy schema migration fixture") == 0);
+    assert(created && strcmp((const char *)created, "2001-02-03 04:05:06") == 0);
+    sqlite3_finalize(st);
+    assert(sqlite3_exec(db,
+        "DELETE FROM diary_entries WHERE entry='legacy schema migration fixture'",
+        NULL, NULL, NULL) == SQLITE_OK);
+    sqlite3_close(db);
+}
+
 int main(void)
 {
     char *context;
+    seed_legacy_diary_entries();
     assert(r2_diary_init() == 0);
+    verify_legacy_diary_migration();
     /* Simulate a ledger created before reward-to-Life-Log columns existed. */
     assert(create_legacy_reward_db() == 0);
 
