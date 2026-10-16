@@ -9862,29 +9862,40 @@ int r2_ears_status(void)
     return ears ? (r2_ears_is_open(ears) ? 1 : 0) : 0;
 }
 
-int r2_watch_active(void){ return watch_running ? 1 : 0; }
+int r2_watch_active(void)
+{
+    /* Watch is not active until it owns a real sensory-worker lifecycle. */
+    return 0;
+}
 
 int r2_watch_start(void)
 {
     if (!core_initialized || shutting_down) return -1;
-    watch_running = 1;
-    r2_log_event(R2_LOG_SENSORY, "watch_started",
-                 "R2 Watch mode was activated.", NULL, "r2_watch_start");
-    return 0;
+
+    /*
+     * Do not report a flag-only placeholder as an active feature. Watch needs
+     * a joined lifecycle coordinating Ears/ASR and optional visual observation;
+     * opening devices here without that worker would misrepresent its behavior.
+     */
+    watch_running = 0;
+    r2_log_event(R2_LOG_SENSORY, "watch_unavailable",
+                 "Watch could not start: sensory-worker coordination is not implemented yet.",
+                 NULL, "r2_watch_start");
+    return -1;
 }
 
 int r2_watch_stop(void)
 {
     watch_running = 0;
     r2_log_event(R2_LOG_SENSORY, "watch_stopped",
-                 "R2 Watch mode was stopped.", NULL, "r2_watch_stop");
+                 "R2 Watch remains stopped; no Watch worker is currently implemented.",
+                 NULL, "r2_watch_stop");
     return 0;
 }
 
 void r2_watch_status(void)
 {
-    printf("[R2 Watch] %s\n",
-           watch_running ? "ACTIVE" : "STOPPED");
+    printf("[R2 Watch] NOT IMPLEMENTED (no sensory coordinator worker)\\n");
 }
 
 void r2_request_shutdown(void)
