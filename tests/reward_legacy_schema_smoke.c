@@ -74,9 +74,6 @@ int main(void)
     assert(r2_reward_apply_once("once target", "once source", 2,
                                 "legacy idempotency schema", 0) == 1);
 
-    assert(sqlite3_prepare_v2(reward_db,
-        "SELECT points,updated_at FROM reward_totals WHERE id=1",
-        -1, &(sqlite3_stmt *){0}, NULL) != SQLITE_OK || 1);
     assert(scalar(reward_db, "SELECT points FROM reward_totals WHERE id=1") == 7);
     assert(scalar(reward_db, "SELECT COUNT(*) FROM reward_events WHERE target='old target' AND reason='preserve this row'") == 1);
     assert(scalar(reward_db, "SELECT COUNT(*) FROM reward_events") == 3);
