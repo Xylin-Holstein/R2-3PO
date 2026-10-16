@@ -223,9 +223,9 @@ def main() -> int:
         assert legacy_db.execute(
             "SELECT summary FROM console_events WHERE event_type='legacy'"
         ).fetchone()[0] == "keep this event"
-        assert legacy_db.execute(
+        assert tuple(legacy_db.execute(
             "SELECT title,location FROM cartridge_inventory WHERE filename='Old.gba'"
-        ).fetchone() == ("Old Game", "pockets")
+        ).fetchone()) == ("Old Game", "pockets")
         legacy_module.record_event(
             legacy_db, "system", "migration_write", "Legacy database remains writable."
         )
