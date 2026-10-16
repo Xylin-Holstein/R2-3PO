@@ -118,6 +118,9 @@ jobs:
           python3 -m py_compile V-Webcam.py tests/vwebcam_smoke.py
           python3 tests/vwebcam_smoke.py
 
+      - name: Preserve GTX 1050 Ti Ollama context headroom
+        run: python3 tests/gtx1050ti_context_headroom_smoke.py
+
       - name: Check local Ollama readiness probe without network access
         run: |
           python3 -m py_compile tools/preflight_ollama_model.py tests/ollama_preflight_smoke.py
