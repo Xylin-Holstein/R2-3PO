@@ -77,7 +77,6 @@
 static atomic_int shell_shutdown = ATOMIC_VAR_INIT(0);
 
 static int shell_running = 0;
-static int watch_running = 0;
 
 /* The GUI talks to this local socket; all writes still pass through Reality APIs. */
 static pthread_t tv_control_thread;
@@ -560,14 +559,10 @@ static void shell_help(void)
         "  ears stop\n"
         "      Stop the existing Ears subsystem.\n"
         "\n"
-        "  watch\n"
-        "      Start R2 Watch mode.\n"
-        "\n"
-        "  watch status\n"
-        "      Show Watch status.\n"
-        "\n"
-        "  watch stop\n"
-        "      Stop Watch mode.\n"
+        "  watch [start|stop|status]\n"
+        "      Listen for speech, transcribe locally, and route utterances through chat.\n"
+        "      Requires R2_WHISPER_MODEL and a local whisper-cli executable.\n"
+        "      Visual observation is separately controlled by 'vision watch'.\n"
         "\n"
         "  clear\n"
         "      Clear the terminal.\n"
@@ -650,7 +645,7 @@ static void shell_status(void)
 
     printf(
         "Watch             : %s\n",
-        watch_running
+        r2_watch_active()
             ? "ACTIVE"
             : "INACTIVE"
     );
@@ -1028,10 +1023,10 @@ static void shell_vision(const char *argument)
     }
 
     if (!strcasecmp(argument, "status")) {
-        printf("Vision library: %s\n", r2_vision_available() ? "READY" : "UNAVAILABLE");
-        printf("Vision model: %s\n", r2_vision_model_name());
-        printf("Eyes input: %s\n", r2_eyes_status() > 0 ? "OPEN" : "CLOSED");
-        printf("Continuous observation: %s\n",
+        int eyes_state = r2_eyes_status();
+        printf("Vision model: %s\nEyes: %s\nVisual observation: %s\n",
+               r2_vision_model_name(),
+               eyes_state > 0 ? "OPEN" : (eyes_state == 0 ? "CLOSED" : "UNAVAILABLE"),
                r2_vision_watch_active() ? "ACTIVE" : "STOPPED");
         return;
     }
@@ -1177,18 +1172,23 @@ static void shell_ears(const char *argument)
             return;
         }
         printf("[Ears] Heard: %s\n", transcript);
-        char *reply = r2_talk(transcript);
-        if (reply && *reply)
-            printf("\nR2-3PO: %s\n\n", reply);
-        else
-            printf("[R2] The recognized words could not be sent through conversation.\n");
-        free(reply);
+        /*
+         * Treat the transcript exactly like a typed shell message. Using the
+         * shared shell_talk() entry point keeps speech on the same user-turn,
+         * conversation, persistence, error-reporting, and reply-display path.
+         * Do not add a speech-specific conversation or database route here.
+         */
+        shell_talk(transcript);
         free(transcript);
         fflush(stdout);
         return;
     }
 
     if (!strcasecmp(argument, "stop")) {
+
+        /* Watch may be using this live source continuously. Join it before
+           closing Ears so its capture lock and microphone ownership settle. */
+        r2_watch_stop();
 
         int result =
             r2_ears_stop();
@@ -1225,16 +1225,10 @@ static void shell_ears(const char *argument)
 
 
 /* ============================================================
-   WATCH
+   WATCH CONTROLLER
    ============================================================
- *
- * Watch is deliberately NOT implemented by duplicating Eyes
- * or Ears here.
- *
- * This controller tells the Watch subsystem when to operate.
- *
- * The actual capture/detection implementation can subsequently
- * be placed behind these R2 Watch bridge functions.
+ * The shell owns commands and presentation; the core owns the actual
+ * cancellable microphone/ASR/conversation worker and its joined lifecycle.
  */
 
 static void shell_watch_status(void)
@@ -1243,88 +1237,47 @@ static void shell_watch_status(void)
         "\n"
         "================ WATCH STATUS =============================\n"
         "\n"
-        "Watch controller : %s\n"
-        "R2 Watch state   : %s\n"
+        "Coordinator worker: %s\n"
+        "Local ASR -> chat : %s\n"
+        "Visual observation: independently controlled\n"
         "\n"
-        "Watch is intended to coordinate:\n"
-        "  - microphone input\n"
-        "  - desktop/system audio\n"
-        "  - VLC detection\n"
-        "  - VLC/video observation\n"
+        "Watch listens for speech, waits for a natural pause, and sends\n"
+        "each transcript through R2's normal conversation pipeline.\n"
+        "Use 'vision watch start' separately when Eyes has an open source.\n"
         "\n"
         "============================================================\n"
         "\n",
-        watch_running
-            ? "ACTIVE"
-            : "INACTIVE",
-        r2_watch_active()
-            ? "ACTIVE"
-            : "INACTIVE"
+        r2_watch_active() ? "RUNNING" : "STOPPED",
+        r2_watch_active() ? "READY" : "INACTIVE"
     );
 }
-
 
 static void shell_watch_start(void)
 {
-    if (watch_running) {
-        printf(
-            "[Watch] Already running.\n"
-        );
+    if (r2_watch_active()) {
+        printf("[Watch] Already running.\n");
         return;
     }
-
-    printf(
-        "[Watch] Starting...\n"
-    );
-
-    int result =
-        r2_watch_start();
-
+    printf("[Watch] Starting local microphone-to-chat listener...\n");
+    int result = r2_watch_start();
     if (result != 0) {
-        printf(
-            "[Watch] Failed to start.\n"
-        );
+        printf("[Watch] Failed to start. Check R2_WHISPER_MODEL, whisper-cli, and microphone permissions.\n");
         return;
     }
-
-    watch_running = 1;
-
-    printf(
-        "[Watch] ACTIVE.\n"
-    );
+    printf("[Watch] ACTIVE.\n");
 }
-
 
 static void shell_watch_stop(void)
 {
-    if (!watch_running) {
-        printf(
-            "[Watch] Already stopped.\n"
-        );
-        return;
-    }
-
-    printf(
-        "[Watch] Stopping...\n"
-    );
-
-    int result =
-        r2_watch_stop();
-
+    int was_active = r2_watch_active();
+    printf(was_active ? "[Watch] Stopping...\n" : "[Watch] Reaping any stopped listener...\n");
+    int result = r2_watch_stop();
     if (result != 0) {
-        printf(
-            "[Watch] Failed to stop.\n"
-        );
+        printf("[Watch] Failed to stop cleanly.\n");
         return;
     }
-
-    watch_running = 0;
-
-    printf(
-        "[Watch] STOPPED.\n"
-    );
+    printf(was_active ? "[Watch] STOPPED.\n" : "[Watch] Already stopped.\n");
 }
-
 
 static void shell_watch(const char *argument)
 {
@@ -1385,7 +1338,6 @@ static void shell_shutdown_r2(void)
         "[R2] Shutdown requested.\n"
     );
 
-    watch_running = 0;
     shell_running = 0;
 
     r2_request_shutdown();
@@ -1399,7 +1351,6 @@ static void shell_restart(void)
         "[R2] Restart requested.\n"
     );
 
-    watch_running = 0;
     shell_running = 0;
 
     if (r2_request_restart() != 0) {
@@ -2683,10 +2634,7 @@ int r2_shell_run(void)
     /*
      * Watch must not remain active after the shell exits.
      */
-    if (watch_running) {
-        r2_watch_stop();
-        watch_running = 0;
-    }
+    r2_watch_stop();
 
     tv_control_stop_server();
     if (service_signals_blocked)
@@ -2708,7 +2656,7 @@ int r2_shell_is_running(void)
 
 int r2_shell_watch_is_running(void)
 {
-    return watch_running;
+    return r2_watch_active();
 }
 
 
@@ -2718,11 +2666,7 @@ int r2_shell_watch_is_running(void)
 
 void r2_shell_shutdown(void)
 {
-    if (watch_running) {
-        r2_watch_stop();
-        watch_running = 0;
-    }
-
+    r2_watch_stop();
     shell_running = 0;
     shell_shutdown = 1;
 }

@@ -314,7 +314,10 @@ static int hands_thread_started = 0;
 static atomic_int diary_thread_started = ATOMIC_VAR_INIT(0);
 static int core_initialized = 0;
 static int startup_memory_loaded = 0;
-static int watch_running = 0;
+static atomic_int watch_running = ATOMIC_VAR_INIT(0);
+static pthread_t watch_thread;
+static pthread_mutex_t watch_lock = PTHREAD_MUTEX_INITIALIZER;
+static int watch_thread_started = 0;
 static int diary_initialized = 0;
 
 static void log_structured_self_report(const char *reply, int64_t parent_event_id);
@@ -9477,11 +9480,11 @@ static void *vision_watch_worker(void *unused)
 
 int r2_vision_watch_start(void)
 {
-    if (!core_initialized || shutting_down || !r2_visual_is_initialized())
+    if (!core_initialized || shutting_down || !r2_visual_is_initialized() || r2_eyes_status() <= 0)
         return -1;
 
     pthread_mutex_lock(&vision_watch_lock);
-    if (!core_initialized || shutting_down || !r2_visual_is_initialized()) {
+    if (!core_initialized || shutting_down || !r2_visual_is_initialized() || r2_eyes_status() <= 0) {
         pthread_mutex_unlock(&vision_watch_lock);
         return -1;
     }
@@ -9617,7 +9620,10 @@ int r2_eyes_stop(void)
 
 int r2_eyes_status(void)
 {
-    return eyes ? (r2_eyes_is_open(eyes) ? 1 : 0) : 0;
+    pthread_mutex_lock(&visual_capture_lock);
+    int state = eyes ? (r2_eyes_is_open(eyes) ? 1 : 0) : -1;
+    pthread_mutex_unlock(&visual_capture_lock);
+    return state;
 }
 
 /* Serialize explicit microphone capture against start/stop requests. */
@@ -9663,7 +9669,24 @@ static int r2_ears_write_wav_header(FILE *fp, uint32_t pcm_bytes)
  * R2_WHISPER_MODEL must name a readable local GGML Whisper model. No network is
  * used and the microphone is released before inference begins.
  */
-char *r2_ears_listen(unsigned seconds)
+static unsigned long long r2_ears_pcm_mean_absolute_level(
+    const unsigned char *pcm, size_t bytes)
+{
+    if (!pcm || bytes < sizeof(int16_t)) return 0;
+    size_t samples = bytes / sizeof(int16_t);
+    unsigned long long sum = 0;
+    for (size_t i = 0; i < samples; ++i) {
+        int16_t sample = 0;
+        memcpy(&sample, pcm + i * sizeof(sample), sizeof(sample));
+        int32_t wide = sample;
+        sum += (unsigned long long)(wide < 0 ? -wide : wide);
+    }
+    return sum / samples;
+}
+
+static char *r2_ears_listen_internal(unsigned seconds, int stop_on_silence,
+                                     int (*cancelled)(void *userdata),
+                                     void *userdata)
 {
     const char *model = getenv("R2_WHISPER_MODEL");
     const char *cli = getenv("R2_WHISPER_CLI");
@@ -9678,7 +9701,24 @@ char *r2_ears_listen(unsigned seconds)
     const uint32_t bytes_per_second = 48000U * 2U * 2U;
     uint32_t total_bytes;
     int capture_ok = 0;
+    int speech_started = 0;
+    unsigned silent_frames = 0;
+    unsigned no_speech_frames = 0;
+    unsigned long long vad_threshold = 600;
+    const char *vad_threshold_env = getenv("R2_EARS_VAD_THRESHOLD");
+    if (vad_threshold_env && *vad_threshold_env) {
+        errno = 0;
+        char *vad_end = NULL;
+        unsigned long parsed = strtoul(vad_threshold_env, &vad_end, 10);
+        if (!errno && vad_end != vad_threshold_env && *vad_end == '\0' &&
+            parsed >= 100UL && parsed <= 10000UL)
+            vad_threshold = parsed;
+        else
+            fprintf(stderr, "[Ears] Ignoring invalid R2_EARS_VAD_THRESHOLD; using the default level.\n");
+    }
+    unsigned long long vad_silence_threshold = (vad_threshold * 55ULL) / 100ULL;
 
+    if (cancelled && cancelled(userdata)) return NULL;
     if (seconds < 1U || seconds > 15U) {
         fprintf(stderr, "[Ears] Listen duration must be between 1 and 15 seconds.\n");
         return NULL;
@@ -9722,14 +9762,31 @@ char *r2_ears_listen(unsigned seconds)
         goto cleanup;
 
     pthread_mutex_lock(&ears_capture_lock);
-    if (!ears || r2_ears_open_microphone(ears) != 0) {
+    if (!ears) {
         pthread_mutex_unlock(&ears_capture_lock);
-        fprintf(stderr, "[Ears] Could not open the default microphone. Check the input device and permissions.\n");
+        fprintf(stderr, "[Ears] Audio input is unavailable because the Ears object is missing.\n");
         goto cleanup;
     }
-    own_mic = 1;
+    if (r2_ears_is_open(ears)) {
+        R2HearingEvent current_event;
+        if (r2_ears_get_event(ears, &current_event) != 0 ||
+            current_event.origin != R2_HEARING_WORLD) {
+            pthread_mutex_unlock(&ears_capture_lock);
+            fprintf(stderr, "[Ears] The current source is not a live world microphone; close it before speech capture.\n");
+            goto cleanup;
+        }
+        /* Preserve a microphone opened explicitly with ears start. */
+    } else {
+        if (r2_ears_open_microphone(ears) != 0) {
+            pthread_mutex_unlock(&ears_capture_lock);
+            fprintf(stderr, "[Ears] Could not open the default microphone. Check the input device and permissions.\n");
+            goto cleanup;
+        }
+        own_mic = 1;
+    }
     uint32_t captured_bytes = 0;
-    while (captured_bytes < total_bytes && !shutting_down) {
+    while (captured_bytes < total_bytes && !shutting_down &&
+           !(cancelled && cancelled(userdata))) {
         size_t wanted = total_bytes - captured_bytes;
         if (wanted > sizeof(pcm)) wanted = sizeof(pcm);
         ssize_t got = r2_ears_read(ears, pcm, wanted);
@@ -9737,23 +9794,60 @@ char *r2_ears_listen(unsigned seconds)
             fprintf(stderr, "[Ears] Microphone capture ended early or returned invalid PCM.\n");
             break;
         }
+
+        if (stop_on_silence) {
+            unsigned long long level = r2_ears_pcm_mean_absolute_level(pcm, (size_t)got);
+            if (!speech_started) {
+                if (level >= vad_threshold) {
+                    speech_started = 1;
+                    silent_frames = 0;
+                } else {
+                    ++no_speech_frames;
+                }
+            } else if (level < vad_silence_threshold) {
+                ++silent_frames;
+            } else {
+                silent_frames = 0;
+            }
+        }
+
         if (fwrite(pcm, 1, (size_t)got, wav) != (size_t)got) {
             fprintf(stderr, "[Ears] Could not write captured audio to the temporary WAV file.\n");
             break;
         }
         captured_bytes += (uint32_t)got;
+        /* Each 1920-byte stereo PCM frame is 10 ms at 48 kHz. Require 600 ms
+           of low energy after speech starts, but keep the silence in the WAV
+           so Whisper receives a natural utterance boundary. */
+        if (stop_on_silence && speech_started && silent_frames >= 60U)
+            break;
+        /* Do not spend the full utterance limit transcribing silence. After
+           two seconds without speech, return an empty/no-speech result and
+           immediately begin another cancellable listening window. */
+        if (stop_on_silence && !speech_started && no_speech_frames >= 200U)
+            break;
     }
     if (own_mic) {
         r2_ears_close(ears);
         own_mic = 0;
     }
     pthread_mutex_unlock(&ears_capture_lock);
-    if (captured_bytes == total_bytes && !shutting_down &&
-        r2_ears_write_wav_header(wav, total_bytes) == 0 &&
+
+    int capture_finished = captured_bytes == total_bytes ||
+        (stop_on_silence && speech_started && silent_frames >= 60U);
+    if (capture_finished && !shutting_down &&
+        !(cancelled && cancelled(userdata)) &&
+        r2_ears_write_wav_header(wav, captured_bytes) == 0 &&
         fflush(wav) == 0)
         capture_ok = 1;
     if (fclose(wav) != 0) capture_ok = 0;
     wav = NULL;
+    if (stop_on_silence && !speech_started && no_speech_frames >= 200U &&
+        !shutting_down && !(cancelled && cancelled(userdata))) {
+        /* Empty allocated text means no speech was detected, not an ASR error. */
+        transcript = calloc(1, 1);
+        goto cleanup;
+    }
     if (!capture_ok) goto cleanup;
 
     child = fork();
@@ -9772,12 +9866,13 @@ char *r2_ears_listen(unsigned seconds)
             child = -1;
             goto cleanup;
         }
-        if (shutting_down || clock_gettime(CLOCK_MONOTONIC, &asr_now) != 0 ||
+        if (shutting_down || (cancelled && cancelled(userdata)) ||
+            clock_gettime(CLOCK_MONOTONIC, &asr_now) != 0 ||
             asr_now.tv_sec - asr_start.tv_sec >= 90) {
             (void)kill(child, SIGKILL);
             while (waitpid(child, &child_status, 0) < 0 && errno == EINTR) {}
             child = -1;
-            fprintf(stderr, "[Ears] Local speech recognition stopped during shutdown or exceeded its 90-second limit.\n");
+            fprintf(stderr, "[Ears] Local speech recognition was cancelled, stopped during shutdown, or exceeded its 90-second limit.\n");
             goto cleanup;
         }
         struct timespec remaining_time;
@@ -9810,9 +9905,20 @@ char *r2_ears_listen(unsigned seconds)
         char *end = start + strlen(start);
         while (end > start && isspace((unsigned char)end[-1])) *--end = '\0';
         if (start != transcript) memmove(transcript, start, strlen(start) + 1U);
-        if (!*transcript) { free(transcript); transcript = NULL; }
+        if (!*transcript) {
+            free(transcript);
+            /* In Watch mode, an energy-positive utterance that Whisper cannot
+               decode is still not a user turn and should not count as a device
+               failure. Preserve the explicit one-shot listen contract. */
+            transcript = stop_on_silence ? calloc(1, 1) : NULL;
+        }
     }
-    if (transcript && r2_log_is_initialized())
+    if (cancelled && cancelled(userdata)) {
+        free(transcript);
+        transcript = NULL;
+        goto cleanup;
+    }
+    if (transcript && *transcript && r2_log_is_initialized())
         r2_log_sensory("speech_transcribed",
                        "R2 Ears transcribed a short microphone utterance locally.",
                        "The transcript is passed into the normal conversation pipeline; raw audio is not persisted.",
@@ -9833,6 +9939,25 @@ cleanup:
     if (transcript_path[0]) unlink(transcript_path);
     rmdir(temp_dir);
     return transcript;
+}
+
+char *r2_ears_listen_cancelable(unsigned seconds,
+                                  int (*cancelled)(void *userdata),
+                                  void *userdata)
+{
+    return r2_ears_listen_internal(seconds, 0, cancelled, userdata);
+}
+
+char *r2_ears_listen_utterance_cancelable(unsigned max_seconds,
+                                          int (*cancelled)(void *userdata),
+                                          void *userdata)
+{
+    return r2_ears_listen_internal(max_seconds, 1, cancelled, userdata);
+}
+
+char *r2_ears_listen(unsigned seconds)
+{
+    return r2_ears_listen_cancelable(seconds, NULL, NULL);
 }
 
 int r2_ears_start(void)
@@ -9859,32 +9984,258 @@ int r2_ears_stop(void)
 
 int r2_ears_status(void)
 {
-    return ears ? (r2_ears_is_open(ears) ? 1 : 0) : 0;
+    pthread_mutex_lock(&ears_capture_lock);
+    int state = ears ? (r2_ears_is_open(ears) ? 1 : 0) : -1;
+    pthread_mutex_unlock(&ears_capture_lock);
+    return state;
 }
 
-int r2_watch_active(void){ return watch_running ? 1 : 0; }
+static int watch_cancel_requested(void *userdata)
+{
+    (void)userdata;
+    return shutting_down || !atomic_load(&watch_running);
+}
+
+static int watch_executable_available(const char *program)
+{
+    if (!program || !*program) return 0;
+    if (strchr(program, '/')) return access(program, X_OK) == 0;
+    const char *path_env = getenv("PATH");
+    if (!path_env || !*path_env) return 0;
+    char *path_copy = strdup(path_env);
+    if (!path_copy) return 0;
+    int found = 0;
+    char *save = NULL;
+    for (char *directory = strtok_r(path_copy, ":", &save);
+         directory && !found; directory = strtok_r(NULL, ":", &save)) {
+        char candidate[PATH_MAX];
+        const char *dir = *directory ? directory : ".";
+        int n = snprintf(candidate, sizeof(candidate), "%s/%s", dir, program);
+        if (n > 0 && (size_t)n < sizeof(candidate) &&
+            access(candidate, X_OK) == 0)
+            found = 1;
+    }
+    free(path_copy);
+    return found;
+}
+
+static int watch_asr_configured(void)
+{
+    const char *model = getenv("R2_WHISPER_MODEL");
+    const char *cli = getenv("R2_WHISPER_CLI");
+    struct stat model_stat;
+    if (!model || !*model || stat(model, &model_stat) != 0 ||
+        !S_ISREG(model_stat.st_mode) || access(model, R_OK) != 0)
+        return 0;
+    if (!cli || !*cli) cli = "whisper-cli";
+    return watch_executable_available(cli);
+}
+
+static void watch_sleep_cancellable(unsigned milliseconds)
+{
+    for (unsigned elapsed = 0; elapsed < milliseconds &&
+         !shutting_down && atomic_load(&watch_running); elapsed += 100U) {
+        struct timespec delay = {0, 100000000L}, remaining;
+        while (nanosleep(&delay, &remaining) != 0 && errno == EINTR) {
+            if (shutting_down || !atomic_load(&watch_running)) return;
+            delay = remaining;
+        }
+    }
+}
+
+static int watch_open_audio(int *opened_by_watch)
+{
+    if (!opened_by_watch) return -1;
+    *opened_by_watch = 0;
+    pthread_mutex_lock(&ears_capture_lock);
+    if (!ears) {
+        pthread_mutex_unlock(&ears_capture_lock);
+        return -1;
+    }
+    if (r2_ears_is_open(ears)) {
+        R2HearingEvent current_event;
+        if (r2_ears_get_event(ears, &current_event) != 0 ||
+            current_event.origin != R2_HEARING_WORLD) {
+            pthread_mutex_unlock(&ears_capture_lock);
+            return -1;
+        }
+    } else {
+        if (r2_ears_open_microphone(ears) != 0) {
+            pthread_mutex_unlock(&ears_capture_lock);
+            return -1;
+        }
+        *opened_by_watch = 1;
+    }
+    pthread_mutex_unlock(&ears_capture_lock);
+    return 0;
+}
+
+static void watch_close_audio(int *opened_by_watch)
+{
+    if (!opened_by_watch || !*opened_by_watch) return;
+    pthread_mutex_lock(&ears_capture_lock);
+    if (ears && r2_ears_is_open(ears))
+        r2_ears_close(ears);
+    pthread_mutex_unlock(&ears_capture_lock);
+    *opened_by_watch = 0;
+}
+
+static void *watch_worker(void *unused)
+{
+    (void)unused;
+    unsigned consecutive_errors = 0;
+    int audio_ready = 0;
+    int opened_by_watch = 0;
+    r2_log_event(R2_LOG_LIFECYCLE, "watch_worker_started",
+                 "R2 Watch started its cancellable local speech listener.",
+                 "Audio is captured with local voice-activity detection; non-speech windows do not create chat turns.",
+                 "r2_watch_start");
+
+    while (!shutting_down && atomic_load(&watch_running)) {
+        if (!audio_ready) {
+            if (watch_open_audio(&opened_by_watch) != 0) {
+                ++consecutive_errors;
+                r2_log_event(R2_LOG_ERROR, "watch_audio_open_failed",
+                             "R2 Watch could not open a live audio source.",
+                             "Check the default microphone/source and input permissions.",
+                             "watch_worker");
+                if (consecutive_errors >= 5U) {
+                    atomic_store(&watch_running, 0);
+                    break;
+                }
+                watch_sleep_cancellable(1000U);
+                continue;
+            }
+            audio_ready = 1;
+            consecutive_errors = 0;
+        }
+        char *transcript = r2_ears_listen_utterance_cancelable(
+            15U, watch_cancel_requested, NULL);
+        if (shutting_down || !atomic_load(&watch_running)) {
+            free(transcript);
+            break;
+        }
+        if (r2_ears_status() <= 0) {
+            /* If an external command closed Ears, do not assume ownership of
+               whatever source may be opened next; reacquire on the next loop. */
+            audio_ready = 0;
+            opened_by_watch = 0;
+        }
+        if (!transcript) {
+            ++consecutive_errors;
+            r2_log_event(R2_LOG_ERROR, "watch_listen_failed",
+                         "R2 Watch could not complete a microphone/ASR capture.",
+                         "The listener will retry briefly; five consecutive failures stop Watch rather than leaving a false active state.",
+                         "watch_worker");
+            if (consecutive_errors >= 5U) {
+                atomic_store(&watch_running, 0);
+                break;
+            }
+            watch_sleep_cancellable(1000U);
+            continue;
+        }
+        consecutive_errors = 0;
+        if (!*transcript) {
+            free(transcript);
+            continue;
+        }
+
+        if (shutting_down || !atomic_load(&watch_running)) {
+            free(transcript);
+            break;
+        }
+        /* Use the exact same public conversation backend as typed chat and
+           explicit ears-listen. A VAD utterance becomes one ordinary user turn. */
+        char *reply = r2_talk(transcript);
+        if (reply && *reply) {
+            flockfile(stdout);
+            printf("\n[Watch] R2-3PO: %s\n\n", reply);
+            fflush(stdout);
+            funlockfile(stdout);
+        } else {
+            flockfile(stdout);
+            printf("\n[Watch] R2 could not produce a visible reply to that utterance.\n\n");
+            fflush(stdout);
+            funlockfile(stdout);
+        }
+        free(reply);
+        free(transcript);
+    }
+
+    watch_close_audio(&opened_by_watch);
+    atomic_store(&watch_running, 0);
+    r2_log_event(R2_LOG_LIFECYCLE, "watch_worker_stopped",
+                 "R2 Watch's local speech listener stopped.",
+                 NULL, "watch_worker");
+    return NULL;
+}
+
+int r2_watch_active(void)
+{
+    return atomic_load(&watch_running) ? 1 : 0;
+}
 
 int r2_watch_start(void)
 {
-    if (!core_initialized || shutting_down) return -1;
-    watch_running = 1;
+    if (!core_initialized || shutting_down || !ears) return -1;
+    if (!watch_asr_configured()) {
+        r2_log_event(R2_LOG_ERROR, "watch_asr_unavailable",
+                     "Watch cannot start because local Whisper ASR is not configured.",
+                     "Set R2_WHISPER_MODEL to a readable local GGML model and ensure R2_WHISPER_CLI or whisper-cli names an executable.",
+                     "r2_watch_start");
+        return -1;
+    }
+
+    pthread_mutex_lock(&watch_lock);
+    if (watch_thread_started) {
+        if (atomic_load(&watch_running)) {
+            pthread_mutex_unlock(&watch_lock);
+            return 0;
+        }
+        pthread_join(watch_thread, NULL);
+        watch_thread_started = 0;
+    }
+
+    atomic_store(&watch_running, 1);
+    if (pthread_create(&watch_thread, NULL, watch_worker, NULL) != 0) {
+        atomic_store(&watch_running, 0);
+        pthread_mutex_unlock(&watch_lock);
+        r2_log_event(R2_LOG_ERROR, "watch_start_failed",
+                     "Could not create R2 Watch's sensory coordinator thread.",
+                     NULL, "r2_watch_start");
+        return -1;
+    }
+    watch_thread_started = 1;
+    pthread_mutex_unlock(&watch_lock);
     r2_log_event(R2_LOG_SENSORY, "watch_started",
-                 "R2 Watch mode was activated.", NULL, "r2_watch_start");
+                 "R2 Watch activated its local microphone-to-chat coordinator.",
+                 "Visual observation remains independently controlled by Eyes/vision watch and shares the same Ollama request gate.",
+                 "r2_watch_start");
     return 0;
 }
 
 int r2_watch_stop(void)
 {
-    watch_running = 0;
-    r2_log_event(R2_LOG_SENSORY, "watch_stopped",
-                 "R2 Watch mode was stopped.", NULL, "r2_watch_stop");
+    pthread_mutex_lock(&watch_lock);
+    int had_worker = watch_thread_started || atomic_load(&watch_running);
+    atomic_store(&watch_running, 0);
+    if (watch_thread_started) {
+        pthread_join(watch_thread, NULL);
+        watch_thread_started = 0;
+    }
+    pthread_mutex_unlock(&watch_lock);
+    if (had_worker) {
+        r2_log_event(R2_LOG_SENSORY, "watch_stopped",
+                     "R2 Watch's microphone-to-chat coordinator stopped and its capture/ASR work was joined.",
+                     NULL, "r2_watch_stop");
+    }
     return 0;
 }
 
 void r2_watch_status(void)
 {
     printf("[R2 Watch] %s\n",
-           watch_running ? "ACTIVE" : "STOPPED");
+           atomic_load(&watch_running) ? "ACTIVE" : "STOPPED");
 }
 
 void r2_request_shutdown(void)
@@ -9928,8 +10279,8 @@ void r2_status(void)
         MAX_RELEVANT_MEMORIES,
         r2_thinking_active() ? "ACTIVE" : "INACTIVE",
         r2_worker_count(),
-        r2_eyes_status() ? "OPEN" : "CLOSED",
-        r2_ears_status() ? "OPEN" : "CLOSED",
+        r2_eyes_status() > 0 ? "OPEN" : (r2_eyes_status() == 0 ? "CLOSED" : "UNAVAILABLE"),
+        r2_ears_status() > 0 ? "OPEN" : (r2_ears_status() == 0 ? "CLOSED" : "UNAVAILABLE"),
         r2_watch_active() ? "ACTIVE" : "STOPPED"
     );
 }
@@ -11376,16 +11727,17 @@ void r2_shutdown(void)
     pthread_mutex_unlock(&task_queue_lock);
 
     atomic_store(&diary_running, 0);
-    watch_running = 0;
+    /* Yield/stop background inference before joining Watch, because both
+       Watch replies and visual observation share the same Ollama request gate. */
+    r2_stop_thinking();
     r2_vision_watch_stop();
+    r2_watch_stop();
 
     if (r2_log_is_initialized()) {
         r2_log_system_snapshot("shutdown_begin");
         r2_log_event(R2_LOG_LIFECYCLE, "shutdown_begin",
                      "R2 shutdown requested.", NULL, "r2_shutdown");
     }
-
-    r2_stop_thinking();
 
     if (hands_thread_started) {
         pthread_join(hands_thread, NULL);

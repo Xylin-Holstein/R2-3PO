@@ -325,6 +325,15 @@ int r2_ears_status(void);
 /* Capture a short utterance and return a malloc-owned local ASR transcript.
    Requires R2_WHISPER_MODEL; seconds must be between 1 and 15. */
 char *r2_ears_listen(unsigned seconds);
+/* Cancelable variant for long-running sensory workers; callback returns nonzero to stop capture/ASR. */
+char *r2_ears_listen_cancelable(unsigned seconds,
+                                int (*cancelled)(void *userdata),
+                                void *userdata);
+/* Capture one speech utterance, ending after 600 ms of low-energy audio.
+ * Returns allocated empty text when no speech was detected; NULL means failure/cancel. */
+char *r2_ears_listen_utterance_cancelable(unsigned max_seconds,
+                                          int (*cancelled)(void *userdata),
+                                          void *userdata);
 
 
 /* ============================================================

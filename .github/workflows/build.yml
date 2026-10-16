@@ -128,6 +128,18 @@ jobs:
           python3 -m py_compile tests/ears_speech_bridge_smoke.py
           python3 tests/ears_speech_bridge_smoke.py
 
+      - name: Check Watch coordinator lifecycle and normal chat handoff
+        run: python3 tests/watch_coordinator_smoke.py
+
+      - name: Distinguish unavailable Eyes and Ears in core status output
+        run: python3 tests/core_sensory_status_render_smoke.py
+
+      - name: Distinguish unavailable Eyes and Ears from inactive devices
+        run: python3 tests/sensory_unavailable_status_smoke.py
+
+      - name: Require open Eyes before starting visual observation
+        run: python3 tests/vision_watch_requires_open_eyes_smoke.py
+
       - name: Check unified Qwen 3.5 conversation and vision wiring
         run: python3 tests/qwen35_model_smoke.py
 
