@@ -17,7 +17,11 @@ def section(source: str, start_marker: str, end_marker: str) -> str:
 worker = section(core, "static void *watch_worker(void *unused)", "int r2_watch_active(void)")
 start = section(core, "int r2_watch_start(void)", "int r2_watch_stop(void)")
 stop = section(core, "int r2_watch_stop(void)", "void r2_watch_status(void)")
-shutdown = section(core, "void r2_shutdown(void)", "void r2_request_shutdown(void)")
+shutdown_start = core.find("void r2_shutdown(void)")
+shutdown_end = core.find("/* ============================================================\\n   PROGRAM ENTRY", shutdown_start)
+if shutdown_start < 0 or shutdown_end < 0:
+    raise SystemExit("Could not isolate r2_shutdown()")
+shutdown = core[shutdown_start:shutdown_end]
 shell_watch = section(shell, "static void shell_watch_status(void)", "static void shell_watch(const char *argument)")
 
 checks = {
