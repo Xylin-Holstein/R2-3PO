@@ -10154,15 +10154,18 @@ int r2_watch_start(void)
 int r2_watch_stop(void)
 {
     pthread_mutex_lock(&watch_lock);
+    int had_worker = watch_thread_started || atomic_load(&watch_running);
     atomic_store(&watch_running, 0);
     if (watch_thread_started) {
         pthread_join(watch_thread, NULL);
         watch_thread_started = 0;
     }
     pthread_mutex_unlock(&watch_lock);
-    r2_log_event(R2_LOG_SENSORY, "watch_stopped",
-                 "R2 Watch's microphone-to-chat coordinator stopped and its capture/ASR work was joined.",
-                 NULL, "r2_watch_stop");
+    if (had_worker) {
+        r2_log_event(R2_LOG_SENSORY, "watch_stopped",
+                     "R2 Watch's microphone-to-chat coordinator stopped and its capture/ASR work was joined.",
+                     NULL, "r2_watch_stop");
+    }
     return 0;
 }
 
