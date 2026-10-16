@@ -78,6 +78,7 @@ static atomic_int shell_shutdown = ATOMIC_VAR_INIT(0);
 
 static int shell_running = 0;
 static int watch_running = 0;
+static atomic_int shell_watch_stop_requested = ATOMIC_VAR_INIT(1);
 
 /* The GUI talks to this local socket; all writes still pass through Reality APIs. */
 static pthread_t tv_control_thread;
@@ -1288,7 +1289,6 @@ static void shell_watch_status(void)
 
 static pthread_t shell_watch_thread;
 static int shell_watch_thread_started = 0;
-static atomic_int shell_watch_stop_requested = ATOMIC_VAR_INIT(1);
 
 static int shell_watch_cancelled(void *unused)
 {
