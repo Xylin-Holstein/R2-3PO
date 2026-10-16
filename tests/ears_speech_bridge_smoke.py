@@ -28,6 +28,7 @@ assert "r2_ears_close(ears)" in bridge
 assert "unlink(wav_path)" in bridge and "unlink(transcript_path)" in bridge
 assert "r2_ears_pcm_mean_absolute_level" in bridge
 assert "silent_frames >= 60U" in bridge
+assert "no_speech_frames >= 200U" in bridge
 assert "transcript = calloc(1, 1)" in bridge
 assert "char *r2_ears_listen(unsigned seconds);" in header
 assert "char *r2_ears_listen_cancelable(unsigned seconds," in header
