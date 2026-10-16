@@ -108,9 +108,13 @@ r2_apply_network_lock() {
 # On this host the GTX 1050 Ti has 4 GiB VRAM. Request a partial layer
 # offload by default instead of forcing the entire model into limited VRAM.
 # An explicit environment value always wins; 0 leaves placement automatic.
+R2_HAS_GTX_1050_TI=0
+if command -v nvidia-smi >/dev/null 2>&1 &&
+   nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi 'GTX 1050 Ti'; then
+    R2_HAS_GTX_1050_TI=1
+fi
 if [[ -z "${R2_OLLAMA_NUM_GPU+x}" ]]; then
-    if command -v nvidia-smi >/dev/null 2>&1 &&
-       nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi 'GTX 1050 Ti'; then
+    if [[ "$R2_HAS_GTX_1050_TI" == "1" ]]; then
         export R2_OLLAMA_NUM_GPU=20
         echo "[GPU] NVIDIA GeForce GTX 1050 Ti detected; requesting 20 model layers on GPU."
     else
@@ -120,6 +124,14 @@ if [[ -z "${R2_OLLAMA_NUM_GPU+x}" ]]; then
 else
     export R2_OLLAMA_NUM_GPU
     echo "[GPU] Using configured R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU."
+fi
+
+# Host RAM alone is not a sufficient context budget for a 4 GiB GPU: the KV
+# cache and multimodal buffers can exhaust VRAM even when system RAM is free.
+# Start at 8k on the GTX 1050 Ti unless the operator explicitly chose a context.
+if [[ "$R2_HAS_GTX_1050_TI" == "1" && -z "${R2_OLLAMA_NUM_CTX:-}" ]]; then
+    export R2_OLLAMA_NUM_CTX=8192
+    echo "[GPU] Defaulting Qwen context to 8192 tokens to preserve GTX 1050 Ti VRAM headroom; set R2_OLLAMA_NUM_CTX to override."
 fi
 
 # The interactive launcher and the overnight service share persistent databases.

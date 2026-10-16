@@ -54,6 +54,18 @@ def preflight(wait_seconds: float = 0, timeout: float = 180) -> bool:
         print(f"ERROR: Local Ollama/model preflight failed: {exc}", file=sys.stderr)
         return False
 
+    context_raw = os.environ.get("R2_OLLAMA_NUM_CTX", "").strip()
+    configured_context: int | None = None
+    if context_raw:
+        try:
+            configured_context = int(context_raw)
+        except ValueError:
+            print(f"ERROR: Invalid R2_OLLAMA_NUM_CTX={context_raw!r}; use 2048–16384.", file=sys.stderr)
+            return False
+        if configured_context < 2048 or configured_context > 16384:
+            print("ERROR: R2_OLLAMA_NUM_CTX must be between 2048 and 16384.", file=sys.stderr)
+            return False
+
     deadline = time.monotonic() + max(0, wait_seconds)
     last_error: Exception | None = None
     while True:
@@ -87,6 +99,8 @@ def preflight(wait_seconds: float = 0, timeout: float = 180) -> bool:
         return False
 
     options: dict[str, Any] = {"temperature": 0, "num_predict": 128}
+    if configured_context is not None:
+        options["num_ctx"] = configured_context
     if gpu_layers != 0:
         options["num_gpu"] = gpu_layers
 

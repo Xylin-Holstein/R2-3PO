@@ -38,6 +38,29 @@ class OllamaPreflightSmoke(unittest.TestCase):
         self.assertTrue(read.call_args_list[2].args[0].endswith("/api/ps"))
         self.assertEqual(gpu.call_count, 1)
 
+    def test_configured_context_is_used_by_real_chat_preflight(self) -> None:
+        replies = [
+            {"models": [{"name": "qwen3.5:9b"}]},
+            {"message": {"content": "R2_READY"}},
+            {"models": [{"name": "qwen3.5:9b", "size_vram": 123456}]},
+        ]
+        gpu_result = SimpleNamespace(returncode=0, stdout="Test GPU, 4096 MiB, 123 MiB", stderr="")
+        with patch.dict(probe.os.environ, {"R2_OLLAMA_NUM_CTX": "8192"}), \
+             patch.object(probe, "_read_json", side_effect=replies) as read, \
+             patch.object(probe.subprocess, "run", return_value=gpu_result):
+            self.assertTrue(probe.preflight(timeout=1))
+        payload = read.call_args_list[1].kwargs["payload"]
+        self.assertEqual(payload["options"]["num_ctx"], 8192)
+
+    def test_invalid_context_is_rejected_before_network_access(self) -> None:
+        errors = io.StringIO()
+        with patch.dict(probe.os.environ, {"R2_OLLAMA_NUM_CTX": "99999"}), \
+             patch.object(probe, "_read_json") as read:
+            with contextlib.redirect_stderr(errors):
+                self.assertFalse(probe.preflight(timeout=1))
+        read.assert_not_called()
+        self.assertIn("R2_OLLAMA_NUM_CTX must be between 2048 and 16384", errors.getvalue())
+
     def test_overnight_endpoint_is_used_for_tags_chat_and_process_checks(self) -> None:
         replies = [
             {"models": [{"name": "qwen3.5:9b"}]},
