@@ -958,6 +958,15 @@ static int fridge_migrate_schema(void)
                 return SQLITE_ERROR;
         }
     }
+    /* Canonical quantity wins once it exists. Keep any retained legacy aliases
+       synchronized so older readers and required NOT NULL constraints remain
+       compatible after every future stock change. */
+    if (fridge_column_exists("qty") && sqlite3_exec(fridge_db,
+        "UPDATE r2_fridge_items SET qty=quantity", NULL, NULL, NULL) != SQLITE_OK)
+        return SQLITE_ERROR;
+    if (fridge_column_exists("amount") && sqlite3_exec(fridge_db,
+        "UPDATE r2_fridge_items SET amount=quantity", NULL, NULL, NULL) != SQLITE_OK)
+        return SQLITE_ERROR;
     if (sqlite3_exec(fridge_db,
         "UPDATE r2_fridge_items SET updated_at=CURRENT_TIMESTAMP "
         "WHERE updated_at IS NULL OR updated_at='';",
