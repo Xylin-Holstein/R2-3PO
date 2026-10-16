@@ -322,6 +322,9 @@ int r2_vision_close(void);
 int r2_ears_start(void);
 int r2_ears_stop(void);
 int r2_ears_status(void);
+/* Capture a short utterance and return a malloc-owned local ASR transcript.
+   Requires R2_WHISPER_MODEL; seconds must be between 1 and 15. */
+char *r2_ears_listen(unsigned seconds);
 
 
 /* ============================================================
