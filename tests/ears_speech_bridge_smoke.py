@@ -57,8 +57,10 @@ live_error = read_impl[live_error_start:live_error_end]
 assert "r2_ears_close(ears);" in live_error, (
     "a failed live microphone read must close its dead stream"
 )
-assert "return total == 0 ? 0 : -1;" in read_impl or "r2_ears_read" in ears, (
-    "audio input must distinguish EOF from read failures"
-)
+assert "if (feof(ears->file_stream))" in read_impl
+assert "r2_ears_close(ears);" in read_impl[
+    read_impl.index("if (feof(ears->file_stream))"):
+    read_impl.index("if (ferror(ears->file_stream))")
+], "decoded audio EOF must close the finished stream"
 assert "Qwen 3.5 9B accepts text and images, not raw microphone PCM" in ears_header
 print("Local microphone capture, Whisper transcription, and normal chat handoff smoke checks passed.")
