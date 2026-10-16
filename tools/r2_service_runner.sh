@@ -22,6 +22,15 @@ if [[ "$R2_OLLAMA_BASE_URL" != "http://127.0.0.1:11435" ]]; then
     fail "overnight R2 must use its permitted isolated Ollama endpoint 127.0.0.1:11435."
 fi
 
+# Match the interactive launcher's smaller default KV cache on the 4 GiB
+# GTX 1050 Ti. An explicit non-empty context override takes precedence.
+if [[ -z "${R2_OLLAMA_NUM_CTX:-}" ]] &&
+   command -v nvidia-smi >/dev/null 2>&1 &&
+   nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi 'GTX 1050 Ti'; then
+    export R2_OLLAMA_NUM_CTX=8192
+fi
+log "Ollama context policy: R2_OLLAMA_NUM_CTX=${R2_OLLAMA_NUM_CTX:-adaptive}"
+
 # Match the interactive launcher: prefer partial offload on the target 4 GiB
 # GTX 1050 Ti, but keep automatic placement when that card is not installed.
 # An explicit service environment override always takes precedence.
@@ -139,6 +148,7 @@ R2_ENV=(/usr/bin/env
     "R2_SERVICE_MODE=1"
     "R2_OLLAMA_TIMEOUT_SECONDS=${R2_OLLAMA_TIMEOUT_SECONDS:-}"
     "R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU"
+    "R2_OLLAMA_NUM_CTX=${R2_OLLAMA_NUM_CTX:-}"
     "R2_FX_DIR=$R2_FX_DIR"
     "R2_OLLAMA_BASE_URL=$R2_OLLAMA_BASE_URL"
     "R2_VISION_MODEL=qwen3.5:9b"
