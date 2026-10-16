@@ -5078,7 +5078,11 @@ static char *r2_build_associative_search_query(const char *query)
         "find related past experiences in a database. Preserve named people, "
         "objects, actions, unusual concepts, and relationships. Include "
         "natural paraphrases and related concepts even when the user did not "
-        "use those exact words. Prefer one concept per line. No commentary, "
+        "use those exact words. For questions about who the current user is to "
+        "R2, whether R2 remembers them, or a personal relationship, include "
+        "generic cues for prior explicit self-identification, current-user identity, "
+        "relationship evidence, and linked Life Log records. Do not assume any "
+        "particular relationship. Prefer one concept per line. No commentary, "
         "no numbering, no JSON, and no invented claims.";
 
     Message probe;
