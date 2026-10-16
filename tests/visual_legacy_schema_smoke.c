@@ -6,6 +6,25 @@
 #include <stdio.h>
 #include <unistd.h>
 
+/* These inference/logging dependencies are not exercised by this database
+   migration test; keep the test local and independent of an Ollama server. */
+int r2_ollama_context_tokens(void) { return 8192; }
+int r2_ollama_chat_url(char *out, size_t out_cap)
+{
+    if (!out || out_cap < sizeof("http://127.0.0.1:11434")) return -1;
+    snprintf(out, out_cap, "%s", "http://127.0.0.1:11434");
+    return 0;
+}
+int r2_ollama_vision_request_begin(void) { return 1; }
+void r2_ollama_vision_request_end(void) {}
+int r2_ollama_vision_request_should_abort(void) { return 0; }
+int64_t r2_log_sensory(const char *sense, const char *observation,
+                       const char *details, const char *source)
+{
+    (void)sense; (void)observation; (void)details; (void)source;
+    return 1;
+}
+
 int main(void)
 {
     char path[] = "/tmp/r2-visual-legacy-smoke-XXXXXX";
