@@ -9756,12 +9756,28 @@ static char *r2_ears_listen_internal(unsigned seconds, int stop_on_silence,
         goto cleanup;
 
     pthread_mutex_lock(&ears_capture_lock);
-    if (!ears || r2_ears_open_microphone(ears) != 0) {
+    if (!ears) {
         pthread_mutex_unlock(&ears_capture_lock);
-        fprintf(stderr, "[Ears] Could not open the default microphone. Check the input device and permissions.\n");
+        fprintf(stderr, "[Ears] Audio input is unavailable because the Ears object is missing.\n");
         goto cleanup;
     }
-    own_mic = 1;
+    if (r2_ears_is_open(ears)) {
+        R2HearingEvent current_event;
+        if (r2_ears_get_event(ears, &current_event) != 0 ||
+            current_event.origin != R2_HEARING_WORLD) {
+            pthread_mutex_unlock(&ears_capture_lock);
+            fprintf(stderr, "[Ears] The current source is not a live world microphone; close it before speech capture.\n");
+            goto cleanup;
+        }
+        /* Preserve a microphone opened explicitly with ears start. */
+    } else {
+        if (r2_ears_open_microphone(ears) != 0) {
+            pthread_mutex_unlock(&ears_capture_lock);
+            fprintf(stderr, "[Ears] Could not open the default microphone. Check the input device and permissions.\n");
+            goto cleanup;
+        }
+        own_mic = 1;
+    }
     uint32_t captured_bytes = 0;
     while (captured_bytes < total_bytes && !shutting_down &&
            !(cancelled && cancelled(userdata))) {
