@@ -23,6 +23,8 @@ assert "r2_ears_listen_cancelable(5, shell_watch_cancelled, NULL)" in worker
 assert "shell_talk_watch(transcript)" in worker
 assert "r2_vision_watch_start()" in worker and "r2_eyes_status() > 0" in worker
 assert "r2_vision_watch_stop()" in worker
+assert "Coordinator thread : %s" in shell and "Visual observation : %s" in shell
+assert "Watch is intended to coordinate" not in shell
 assert "R2_WHISPER_MODEL" in start_body and "R2_WHISPER_CLI" in start_body
 assert "r2_ears_start()" in start_body and "r2_ears_stop()" in start_body
 assert "pthread_mutex_lock(&shell_conversation_lock)" in shell[shell.index("static void shell_talk_watch"):shell.index("static void shell_watch_worker")]
