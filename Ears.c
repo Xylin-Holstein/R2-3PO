@@ -1074,6 +1074,9 @@ ssize_t r2_ears_read(
             r2_log_sensory("audio_read_failed",
                            "R2 Ears encountered a live audio capture error.",
                            pa_strerror(error), ears->event.source_name);
+            /* A failed Pulse/PipeWire read invalidates this stream. Close it
+               now so callers cannot accidentally keep treating it as usable. */
+            r2_ears_close(ears);
             return -1;
         }
 
