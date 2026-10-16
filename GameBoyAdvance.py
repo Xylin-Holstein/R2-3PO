@@ -106,6 +106,21 @@ def connect() -> sqlite3.Connection:
             updated_at TEXT NOT NULL
         );
     """)
+    # The separate cartridge database can also outlive the code version
+    # that created it. Add the slot's current metadata fields in place.
+    slot_columns = {row[1] for row in db.execute(
+        "PRAGMA cartridge.table_info(cartridge_slot)"
+    )}
+    for name, declaration in (
+        ("rom_path", "TEXT"),
+        ("rom_title", "TEXT"),
+        ("inserted_at", "TEXT"),
+    ):
+        if name not in slot_columns:
+            db.execute(
+                f"ALTER TABLE cartridge.cartridge_slot ADD COLUMN {name} {declaration}"
+            )
+
     # Older releases already had the console_state table, so CREATE TABLE IF
     # NOT EXISTS does not add fields introduced by newer runtime versions.
     # Add only missing columns in place and preserve the existing state row.
