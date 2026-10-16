@@ -28,7 +28,7 @@ if impl_end < 0:
     raise SystemExit("Could not isolate the conversation implementation.")
 implementation = core[impl_start:impl_end]
 
-shell_start = shell.index("static void shell_talk(const char *message)")
+shell_start = shell.index("static void shell_talk_inner(const char *message)")
 shell_end = shell.find("\n/*", shell_start)
 shell_talk = shell[shell_start:shell_end if shell_end >= 0 else len(shell)]
 
