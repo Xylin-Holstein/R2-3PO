@@ -136,6 +136,7 @@ static pthread_mutex_t conversation_turn_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t vision_watch_thread;
 static pthread_mutex_t vision_watch_lock = PTHREAD_MUTEX_INITIALIZER;
 static atomic_int vision_watch_running = ATOMIC_VAR_INIT(0);
+static _Thread_local int vision_watch_worker_context = 0;
 static int vision_watch_thread_started = 0;
 static int query_requests_visual_context(const char *query);
 static char *vision_analyze_current_frame(const char *question, int open_camera);
@@ -3012,7 +3013,8 @@ int r2_ollama_vision_request_should_abort(void)
 {
     return shutting_down || atomic_load(&foreground_ollama_waiting) > 0 ||
            (atomic_load(&foreground_conversation_waiting) > 0 &&
-            !ollama_foreground_turn_mode);
+            !ollama_foreground_turn_mode) ||
+           (vision_watch_worker_context && !atomic_load(&vision_watch_running));
 }
 
 /* Estimate safe Ollama context from host and container memory headroom.
@@ -9395,6 +9397,7 @@ char *r2_vision_search(const char *query, int limit)
 static void *vision_watch_worker(void *unused)
 {
     (void)unused;
+    vision_watch_worker_context = 1;
     char source_name[512] = "Eyes";
     pthread_mutex_lock(&visual_capture_lock);
     R2VisionEvent initial_event;
@@ -9472,16 +9475,19 @@ static void *vision_watch_worker(void *unused)
                  "R2 continuous visual observation stopped.",
                  "The observation worker exited; consult visual sensory events to determine whether the source ended or capture failed.",
                  source_name);
+    vision_watch_worker_context = 0;
     return NULL;
 }
 
 int r2_vision_watch_start(void)
 {
-    if (!core_initialized || shutting_down || !r2_visual_is_initialized())
+    if (!core_initialized || shutting_down || !r2_visual_is_initialized() ||
+        r2_eyes_status() <= 0)
         return -1;
 
     pthread_mutex_lock(&vision_watch_lock);
-    if (!core_initialized || shutting_down || !r2_visual_is_initialized()) {
+    if (!core_initialized || shutting_down || !r2_visual_is_initialized() ||
+        r2_eyes_status() <= 0) {
         pthread_mutex_unlock(&vision_watch_lock);
         return -1;
     }
