@@ -348,7 +348,13 @@ static int migrate_mirror_directory(const char *old_dir, const char *new_dir)
             result = -1; continue;
         }
         if (access(new_path, F_OK) == 0) {
-            if (unlink(old_path) != 0 && errno != ENOENT) result = -1;
+            /* A same-name destination is not proof that the old file is a
+               duplicate. Preserve both copies rather than silently deleting
+               potentially newer or user-relevant legacy state. The old
+               directory intentionally remains if this collision persists. */
+            fprintf(stderr,
+                "[R2 Reality] Preserving legacy mirror %s; destination already exists at %s.\\n",
+                old_path, new_path);
         } else if (rename(old_path, new_path) != 0) result = -1;
     }
     closedir(dir);
