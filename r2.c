@@ -11657,16 +11657,17 @@ void r2_shutdown(void)
     pthread_mutex_unlock(&task_queue_lock);
 
     atomic_store(&diary_running, 0);
-    r2_watch_stop();
+    /* Yield/stop background inference before joining Watch, because both
+       Watch replies and visual observation share the same Ollama request gate. */
+    r2_stop_thinking();
     r2_vision_watch_stop();
+    r2_watch_stop();
 
     if (r2_log_is_initialized()) {
         r2_log_system_snapshot("shutdown_begin");
         r2_log_event(R2_LOG_LIFECYCLE, "shutdown_begin",
                      "R2 shutdown requested.", NULL, "r2_shutdown");
     }
-
-    r2_stop_thinking();
 
     if (hands_thread_started) {
         pthread_join(hands_thread, NULL);
