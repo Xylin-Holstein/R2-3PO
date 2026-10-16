@@ -5087,10 +5087,64 @@ static void r2_append_association_section(
     *context = joined;
 }
 
+static pthread_mutex_t r2_associative_query_cache_lock = PTHREAD_MUTEX_INITIALIZER;
+static char *r2_associative_cached_input = NULL;
+static char *r2_associative_cached_plan = NULL;
+
+/* The semantic plan depends only on the exact user text. Keep one bounded
+   entry, scoped to the active conversation turn, so a retry can refresh
+   memory/Reality evidence without spending another Ollama request planning
+   the same query. */
+static void r2_associative_query_cache_clear(void)
+{
+    pthread_mutex_lock(&r2_associative_query_cache_lock);
+    free(r2_associative_cached_input);
+    free(r2_associative_cached_plan);
+    r2_associative_cached_input = NULL;
+    r2_associative_cached_plan = NULL;
+    pthread_mutex_unlock(&r2_associative_query_cache_lock);
+}
+
+static char *r2_associative_query_cache_lookup(const char *query)
+{
+    if (!query) return NULL;
+    pthread_mutex_lock(&r2_associative_query_cache_lock);
+    char *plan = NULL;
+    if (r2_associative_cached_input && r2_associative_cached_plan &&
+        strcmp(r2_associative_cached_input, query) == 0)
+        plan = xstrdup(r2_associative_cached_plan);
+    pthread_mutex_unlock(&r2_associative_query_cache_lock);
+    if (plan)
+        fprintf(stderr, "[R2 Context] Reused this turn's associative retrieval plan.\n");
+    return plan;
+}
+
+static void r2_associative_query_cache_store(const char *query, const char *plan)
+{
+    if (!query || !plan) return;
+    char *input_copy = xstrdup(query);
+    char *plan_copy = xstrdup(plan);
+    if (!input_copy || !plan_copy) {
+        free(input_copy);
+        free(plan_copy);
+        return;
+    }
+    pthread_mutex_lock(&r2_associative_query_cache_lock);
+    free(r2_associative_cached_input);
+    free(r2_associative_cached_plan);
+    r2_associative_cached_input = input_copy;
+    r2_associative_cached_plan = plan_copy;
+    pthread_mutex_unlock(&r2_associative_query_cache_lock);
+}
+
 static char *r2_build_associative_search_query(const char *query)
 {
     if (!query || !*query)
         return xstrdup(query ? query : "");
+
+    char *cached_plan = r2_associative_query_cache_lookup(query);
+    if (cached_plan)
+        return cached_plan;
 
     static const char retrieval_prompt[] =
         "You are R2's internal associative-memory retrieval planner. "
@@ -5124,14 +5178,20 @@ static char *r2_build_associative_search_query(const char *query)
 
     if (!generated || !*generated) {
         free(generated);
-        return xstrdup(query);
+        char *fallback = xstrdup(query);
+        if (fallback)
+            r2_associative_query_cache_store(query, fallback);
+        return fallback;
     }
 
     char *clean = r2_reply_sanitize(generated);
     free(generated);
     if (!clean || !*clean) {
         free(clean);
-        return xstrdup(query);
+        char *fallback = xstrdup(query);
+        if (fallback)
+            r2_associative_query_cache_store(query, fallback);
+        return fallback;
     }
 
     size_t query_length = strlen(query);
@@ -5141,7 +5201,10 @@ static char *r2_build_associative_search_query(const char *query)
     char *combined = malloc(total);
     if (!combined) {
         free(clean);
-        return xstrdup(query);
+        char *fallback = xstrdup(query);
+        if (fallback)
+            r2_associative_query_cache_store(query, fallback);
+        return fallback;
     }
 
     snprintf(combined, total, "%s%s%s", clean, heading, query);
@@ -5149,6 +5212,7 @@ static char *r2_build_associative_search_query(const char *query)
             "[R2 Association] Generated associative retrieval cues (%zu chars); original user text remains unchanged.\n",
             concepts_length);
     free(clean);
+    r2_associative_query_cache_store(query, combined);
     return combined;
 }
 
@@ -10430,6 +10494,9 @@ static char *r2_talk_impl(const char *message)
 {
     if (!core_initialized || shutting_down || !message)
         return NULL;
+
+    /* Retries within this turn reuse semantic cues but rebuild live context. */
+    r2_associative_query_cache_clear();
 
     fprintf(stderr, "[R2 Input Audit] r2_talk_received_chars=%zu\n", strlen(message));
     handle_completed_messages();
