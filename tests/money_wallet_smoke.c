@@ -144,6 +144,12 @@ int main(void) {
     snprintf(wallet,sizeof(wallet),"%s/Pockets/Wallet",R2_ROOT);
     snprintf(bank,sizeof(bank),"%s/room/piggybank",R2_ROOT);
     assert(mkdir(R2_ROOT,0755)==0);
+    char canonical_pockets[1400], collision_old[1600], collision_new[1600];
+    snprintf(canonical_pockets,sizeof(canonical_pockets),"%s/Pockets",R2_ROOT);
+    assert(mkdir(canonical_pockets,0755)==0);
+    snprintf(collision_new,sizeof(collision_new),"%s/collision.r2item",canonical_pockets);
+    FILE *collision_fp=fopen(collision_new,"w"); assert(collision_fp);
+    fputs("canonical mirror contents\\n",collision_fp); fclose(collision_fp);
     char room_root[1200]; snprintf(room_root,sizeof(room_root),"%s/room",R2_ROOT);
     assert(mkdir(room_root,0755)==0);
     /* Upgrade old lowercase and room-local mirror folders without losing portable items. */
@@ -160,6 +166,9 @@ int main(void) {
     snprintf(legacy_wallet,sizeof(legacy_wallet),"%s/wallet",legacy);
     assert(mkdir(legacy,0755)==0);
     assert(mkdir(legacy_wallet,0755)==0);
+    snprintf(collision_old,sizeof(collision_old),"%s/collision.r2item",legacy);
+    collision_fp=fopen(collision_old,"w"); assert(collision_fp);
+    fputs("legacy mirror contents\\n",collision_fp); fclose(collision_fp);
     snprintf(migrated,sizeof(migrated),"%s/legacy_item.r2item",legacy);
     lf=fopen(migrated,"w"); assert(lf); fputs("legacy pocket item\n",lf); fclose(lf);
     snprintf(migrated,sizeof(migrated),"%s/legacy_wallet_item.r2item",legacy_wallet);
@@ -188,7 +197,14 @@ int main(void) {
     free(tv_state);
     assert(r2_reality_tv_power(0)==0);
     assert(access(migrated,F_OK)!=0); /* The old cash.txt was only a stale derived summary. */
-    assert(access(legacy,F_OK)!=0); /* Empty duplicate lowercase pocket folders are removed. */
+    /* Conflicting legacy and canonical mirrors are both preserved, not silently overwritten/deleted. */
+    assert(access(legacy,F_OK)==0);
+    FILE *collision_fp_check=fopen(collision_old,"r"); assert(collision_fp_check);
+    char collision_text[128]={0}; assert(fgets(collision_text,sizeof(collision_text),collision_fp_check));
+    fclose(collision_fp_check); assert(strcmp(collision_text,"legacy mirror contents\\n")==0);
+    collision_fp_check=fopen(collision_new,"r"); assert(collision_fp_check);
+    memset(collision_text,0,sizeof(collision_text)); assert(fgets(collision_text,sizeof(collision_text),collision_fp_check));
+    fclose(collision_fp_check); assert(strcmp(collision_text,"canonical mirror contents\\n")==0);
     snprintf(migrated,sizeof(migrated),"%s/Pockets/legacy_item.r2item",R2_ROOT);
     assert(access(migrated,F_OK)==0);
     snprintf(migrated,sizeof(migrated),"%s/Pockets/Wallet/legacy_wallet_item.r2item",R2_ROOT);
