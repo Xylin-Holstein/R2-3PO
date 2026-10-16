@@ -189,11 +189,12 @@ jobs:
 
       - name: Exercise bidirectional Life Log relationship retrieval
         run: |
-          ROOT=/tmp/r2-log-linked-retrieval
-          rm -rf "$ROOT"
-          mkdir -p "$ROOT/R2"
-          FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\\"$ROOT\\" -DR2_HOME=\\"$ROOT/R2\\" -DR2_WORKSPACE=\\"$ROOT\\" -DR2_DIARY_DATABASE=\\"$ROOT/R2/r2_memory.db\\" -DR2_DIARY_DIR=\\"$ROOT/R2_Diary\\""
-          cc $FLAGS tests/log_linked_retrieval_smoke.c Log.c -o /tmp/r2-log-linked-retrieval-test -lsqlite3 -lpthread -lm
+          # The shared path constants in this repository point at R2's canonical
+          # home. Create it only inside this disposable GitHub Actions runner.
+          ROOT=/home/x/R2_Home/R2
+          mkdir -p "$ROOT"
+          trap 'rm -rf /home/x/R2_Home' EXIT
+          cc -std=c11 -Wall -Wextra -Werror -O2 -I. tests/log_linked_retrieval_smoke.c Log.c -o /tmp/r2-log-linked-retrieval-test -lsqlite3 -lpthread -lm
           /tmp/r2-log-linked-retrieval-test
 
       - name: Check bounded RAM context cache and hardware telemetry
