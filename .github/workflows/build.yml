@@ -128,7 +128,7 @@ jobs:
           python3 -m py_compile tests/ears_speech_bridge_smoke.py
           python3 tests/ears_speech_bridge_smoke.py
 
-      - name: Distinguish unavailable Eyes and Ears from inactive devices
+      - name: Distinguish unavailable Eyes and Ears in core status output\n        run: python3 tests/core_sensory_status_render_smoke.py\n\n      - name: Distinguish unavailable Eyes and Ears from inactive devices
         run: |
           python3 -m py_compile tests/sensory_unavailable_status_smoke.py
           python3 tests/sensory_unavailable_status_smoke.py
