@@ -52,3 +52,19 @@ instead of pretending it understood audio.
 This wiring is covered by a static CI regression check. A passing CI build
 does not prove that a particular microphone, PulseAudio/PipeWire setup, Whisper
 binary, or model works on the target machine; those still need a local test.
+
+
+## Camera device selection
+
+Eyes defaults to `/dev/video0`. If the intended camera or capture device has a
+different node, set `R2_CAMERA_DEVICE` before launching R2, for example:
+
+```sh
+export R2_CAMERA_DEVICE=/dev/video2
+/home/x/R2_Home/R2_Launch_Code.sh
+```
+
+The selected V4L2 device must support the current capture mode (640×480 at
+approximately 10 frames per second) and be readable/writable by the `r2`
+runtime user. Use the hardware preflight to enumerate available devices, then
+test `vision see` and a visual question in chat on the actual machine.
