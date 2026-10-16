@@ -35,30 +35,39 @@ int main(void)
         return 1;
     }
 
-    int64_t seed = r2_log_event(R2_LOG_MEMORY, "identity_seed",
-                                "unique identity retrieval seed",
-                                "the user identity is linked from this event",
-                                "link-smoke");
+    int64_t other = r2_log_event(R2_LOG_MEMORY, "related_experience",
+                                 "related prior experience",
+                                 "context reachable through explicit relationship links",
+                                 "link-smoke");
     int64_t linked = r2_log_event(R2_LOG_MEMORY, "identity_relation",
-                                  "explicit current-user relationship",
+                                  "explicit current-user identity relationship",
                                   "subject=current_user; relation=mother_of; object=R2",
                                   "link-smoke");
-    if (seed <= 0 || linked <= 0 ||
+    int64_t seed = r2_log_event(R2_LOG_MEMORY, "identity_seed",
+                                "unique identity seed event",
+                                "the user identity is linked from this event",
+                                "link-smoke");
+    if (seed <= 0 || linked <= 0 || other <= 0 ||
         r2_log_link(seed, linked, "identity_evidence",
-                    "explicit statement stored as a durable relationship link") != 0) {
-        fprintf(stderr, "Could not create linked identity test records.\n");
+                    "explicit statement stored as a durable relationship link") != 0 ||
+        r2_log_link(linked, other, "relationship_context",
+                    "another explicit edge from the matching relationship event") != 0) {
+        fprintf(stderr, "Could not create linked identity test records.\\n");
         r2_log_shutdown();
         return 1;
     }
 
-    char *from_seed = r2_log_search("unique identity retrieval seed", 10);
-    char *from_relation = r2_log_search("explicit current-user relationship", 10);
+    char *from_seed = r2_log_search("identity", 10);
+    char *from_relation = r2_log_search("explicit current-user identity relationship", 10);
     int ok = from_seed && from_relation &&
-             strstr(from_seed, "explicit current-user relationship") &&
+             strstr(from_seed, "explicit current-user identity relationship") &&
              strstr(from_seed, "identity_evidence") &&
              strstr(from_seed, "subject=current_user; relation=mother_of; object=R2") &&
-             strstr(from_relation, "unique identity retrieval seed") &&
-             strstr(from_relation, "identity_evidence");
+             strstr(from_seed, "related prior experience") &&
+             strstr(from_seed, "relationship_context") &&
+             strstr(from_relation, "unique identity seed event") &&
+             strstr(from_relation, "identity_evidence") &&
+             strstr(from_relation, "related prior experience");
     if (!ok) {
         fprintf(stderr, "Life Log search did not traverse explicit links in both directions.\n");
         if (from_seed) fprintf(stderr, "Seed search:\n%s\n", from_seed);
