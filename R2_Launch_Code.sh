@@ -655,6 +655,8 @@ sudo -n setpriv --reuid="$R2_UID" --regid="$R2_GID" --groups="$R2_RUNTIME_GROUPS
     R2_OLLAMA_NUM_CTX="${R2_OLLAMA_NUM_CTX:-}" \
     R2_OLLAMA_TIMEOUT_SECONDS="${R2_OLLAMA_TIMEOUT_SECONDS:-}" \
     R2_OLLAMA_NUM_GPU="${R2_OLLAMA_NUM_GPU}" \
+    R2_WHISPER_MODEL="${R2_WHISPER_MODEL:-}" \
+    R2_WHISPER_CLI="${R2_WHISPER_CLI:-}" \
     R2_VISION_MODEL="qwen3.5:9b" \
     R2_FX_DIR="$R2_FX_DIR" \
     sh -c 'exec "$1" 2>>"$2"' _ "$R2_EXEC" "$R2_ROOT/R2_Log/Debug.txt"
