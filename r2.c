@@ -5505,10 +5505,11 @@ static char *chat_with_relevant_memories(
      * observing a source, provide a fresh sensory description as evidence.
      * Never activate a camera silently from an ordinary conversation turn.
      */
+    int visual_requested = query_requests_visual_context(query);
+    int visual_observation_added = 0;
     char *visual_context = NULL;
     if (r2_visual_is_initialized() &&
-        (query_requests_visual_context(query) ||
-         (eyes && r2_eyes_is_open(eyes)))) {
+        (visual_requested || (eyes && r2_eyes_is_open(eyes)))) {
         char *prior_visual = r2_visual_recent(3);
         if (prior_visual && *prior_visual) {
             size_t old_n = strlen(memory_context);
@@ -5529,11 +5530,12 @@ static char *chat_with_relevant_memories(
          * records frames. Do not launch a second vision request for every
          * chat turn; that can contend for local resources and stall text chat.
          */
-        if (query_requests_visual_context(query) &&
-            eyes && r2_eyes_is_open(eyes) && !r2_vision_watch_active()) {
+        if (visual_requested && !r2_vision_watch_active()) {
+            /* This is an explicit request to look, not silent camera activation
+               during ordinary chat. Open the configured camera if necessary. */
             visual_context = vision_analyze_current_frame(
                 "Describe the current frame for R2's active conversation. "
-                "Separate visible facts from inference and uncertainty.", 0);
+                "Separate visible facts from inference and uncertainty.", 1);
         }
     }
 
@@ -5548,8 +5550,27 @@ static char *chat_with_relevant_memories(
                      memory_context, old_n ? "\n\n" : "", visual_context);
             free(memory_context);
             memory_context = joined;
+            visual_observation_added = 1;
         }
         free(visual_context);
+    }
+
+    if (visual_requested && !visual_observation_added) {
+        /* Never let historical visual memories masquerade as a live view.
+           This explicit evidence also prevents a generic model from pretending
+           that a failed camera/model request succeeded. */
+        const char *unavailable =
+            "CURRENT LIVE VISUAL OBSERVATION: unavailable. No fresh frame was "
+            "obtained for this turn; do not infer the current scene from historical visual memories.";
+        size_t old_n = strlen(memory_context);
+        size_t note_n = strlen(unavailable);
+        char *joined = malloc(old_n + note_n + 4U);
+        if (joined) {
+            snprintf(joined, old_n + note_n + 4U, "%s%s%s",
+                     memory_context, old_n ? "\n\n" : "", unavailable);
+            free(memory_context);
+            memory_context = joined;
+        }
     }
 
     /*
