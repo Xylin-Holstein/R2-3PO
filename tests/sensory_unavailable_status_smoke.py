@@ -28,4 +28,12 @@ for function in ("static void shell_eyes", "static void shell_ears"):
     assert 'state == 0' in body
     assert '"UNAVAILABLE"' in body
 
+# Vision status must not collapse a missing Eyes object into a merely closed input.
+vision_start = shell.index('if (!strcasecmp(argument, "status"))', shell.index("static void shell_vision"))
+vision_end = shell.index("\n    }", vision_start) + 6
+vision_status = shell[vision_start:vision_end]
+assert "int eyes_state = r2_eyes_status();" in vision_status
+assert '"UNAVAILABLE"' in vision_status
+assert 'eyes_state == 0 ? "CLOSED"' in vision_status
+
 print("Sensory status smoke check passed: absent Eyes/Ears are unavailable, not inactive.")
