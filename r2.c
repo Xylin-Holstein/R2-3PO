@@ -9828,7 +9828,7 @@ char *r2_ears_listen_cancelable(unsigned seconds,
                        "R2 Ears transcribed a short microphone utterance locally.",
                        "The transcript is passed into the normal conversation pipeline; raw audio is not persisted.",
                        "r2_ears_listen");
-    if (!transcript)
+    if (!transcript && !cancelled)
         fprintf(stderr, "[Ears] Whisper returned no usable transcript. Try speaking clearly and listening again.\n");
 
 cleanup:
