@@ -9783,7 +9783,7 @@ char *r2_ears_listen_cancelable(unsigned seconds,
             (void)kill(child, SIGKILL);
             while (waitpid(child, &child_status, 0) < 0 && errno == EINTR) {}
             child = -1;
-            fprintf(stderr, "[Ears] Local speech recognition stopped during shutdown or exceeded its 90-second limit.\n");
+            fprintf(stderr, "[Ears] Local speech recognition was cancelled, stopped during shutdown, or exceeded its 90-second limit.\n");
             goto cleanup;
         }
         struct timespec remaining_time;
