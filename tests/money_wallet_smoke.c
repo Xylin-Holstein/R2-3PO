@@ -149,7 +149,7 @@ int main(void) {
     assert(mkdir(canonical_pockets,0755)==0);
     snprintf(collision_new,sizeof(collision_new),"%s/collision.r2item",canonical_pockets);
     FILE *collision_fp=fopen(collision_new,"w"); assert(collision_fp);
-    fputs("canonical mirror contents\\n",collision_fp); fclose(collision_fp);
+    fputs("canonical mirror contents\n",collision_fp); fclose(collision_fp);
     char room_root[1200]; snprintf(room_root,sizeof(room_root),"%s/room",R2_ROOT);
     assert(mkdir(room_root,0755)==0);
     /* Upgrade old lowercase and room-local mirror folders without losing portable items. */
@@ -168,7 +168,7 @@ int main(void) {
     assert(mkdir(legacy_wallet,0755)==0);
     snprintf(collision_old,sizeof(collision_old),"%s/collision.r2item",legacy);
     collision_fp=fopen(collision_old,"w"); assert(collision_fp);
-    fputs("legacy mirror contents\\n",collision_fp); fclose(collision_fp);
+    fputs("legacy mirror contents\n",collision_fp); fclose(collision_fp);
     snprintf(migrated,sizeof(migrated),"%s/legacy_item.r2item",legacy);
     lf=fopen(migrated,"w"); assert(lf); fputs("legacy pocket item\n",lf); fclose(lf);
     snprintf(migrated,sizeof(migrated),"%s/legacy_wallet_item.r2item",legacy_wallet);
@@ -201,10 +201,10 @@ int main(void) {
     assert(access(legacy,F_OK)==0);
     FILE *collision_fp_check=fopen(collision_old,"r"); assert(collision_fp_check);
     char collision_text[128]={0}; assert(fgets(collision_text,sizeof(collision_text),collision_fp_check));
-    fclose(collision_fp_check); assert(strcmp(collision_text,"legacy mirror contents\\n")==0);
+    fclose(collision_fp_check); assert(strcmp(collision_text,"legacy mirror contents\n")==0);
     collision_fp_check=fopen(collision_new,"r"); assert(collision_fp_check);
     memset(collision_text,0,sizeof(collision_text)); assert(fgets(collision_text,sizeof(collision_text),collision_fp_check));
-    fclose(collision_fp_check); assert(strcmp(collision_text,"canonical mirror contents\\n")==0);
+    fclose(collision_fp_check); assert(strcmp(collision_text,"canonical mirror contents\n")==0);
     snprintf(migrated,sizeof(migrated),"%s/Pockets/legacy_item.r2item",R2_ROOT);
     assert(access(migrated,F_OK)==0);
     snprintf(migrated,sizeof(migrated),"%s/Pockets/Wallet/legacy_wallet_item.r2item",R2_ROOT);
