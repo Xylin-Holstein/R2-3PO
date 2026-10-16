@@ -1968,12 +1968,23 @@ static int normalize_limit(int limit)
     return limit;
 }
 
+static int event_id_seen(const int64_t *ids, size_t count, int64_t id)
+{
+    for (size_t i = 0; i < count; ++i)
+        if (ids[i] == id) return 1;
+    return 0;
+}
+
 static char *query_events(const char *query, int limit)
 {
     sqlite3_stmt *statement = NULL;
+    sqlite3_stmt *link_statement = NULL;
     char *output = NULL;
     size_t length = 0;
     size_t capacity = 0;
+    int64_t seen_ids[512];
+    size_t seen_count = 0;
+    int linked_total = 0;
     int rc;
 
     limit = normalize_limit(limit);
@@ -2056,9 +2067,27 @@ static char *query_events(const char *query, int limit)
         }
     }
 
+    if (query) {
+        const char *sql_links =
+            "SELECT l.relationship, l.notes, e.id, e.category, e.event_type, "
+            "e.summary, e.details, e.source "
+            "FROM r2_log_links l JOIN r2_log_events e ON e.id = "
+            "CASE WHEN l.from_event_id = ? THEN l.to_event_id ELSE l.from_event_id END "
+            "WHERE l.from_event_id = ? OR l.to_event_id = ? "
+            "ORDER BY l.id DESC LIMIT 4;";
+        rc = sqlite3_prepare_v2(log_db, sql_links, -1, &link_statement, NULL);
+        if (rc != SQLITE_OK) {
+            sqlite3_finalize(statement);
+            sqlite3_finalize(link_statement);
+            pthread_mutex_unlock(&log_lock);
+            return NULL;
+        }
+    }
+
     output = malloc(4096);
     if (!output) {
         sqlite3_finalize(statement);
+        sqlite3_finalize(link_statement);
         pthread_mutex_unlock(&log_lock);
         return NULL;
     }
@@ -2068,6 +2097,10 @@ static char *query_events(const char *query, int limit)
 
     while ((rc = sqlite3_step(statement)) == SQLITE_ROW) {
         int64_t id = sqlite3_column_int64(statement, 0);
+        if (query && event_id_seen(seen_ids, seen_count, id))
+            continue;
+        if (query && seen_count < sizeof(seen_ids) / sizeof(seen_ids[0]))
+            seen_ids[seen_count++] = id;
         const unsigned char *utc = sqlite3_column_text(statement, 1);
         const unsigned char *local = sqlite3_column_text(statement, 2);
         const unsigned char *category = sqlite3_column_text(statement, 3);
@@ -2108,6 +2141,90 @@ static char *query_events(const char *query, int limit)
             output = NULL;
             break;
         }
+
+        if (query && link_statement && linked_total < 8) {
+            sqlite3_reset(link_statement);
+            sqlite3_clear_bindings(link_statement);
+            rc = sqlite3_bind_int64(link_statement, 1, id);
+            if (rc == SQLITE_OK) rc = sqlite3_bind_int64(link_statement, 2, id);
+            if (rc == SQLITE_OK) rc = sqlite3_bind_int64(link_statement, 3, id);
+            if (rc != SQLITE_OK) {
+                free(output);
+                output = NULL;
+                break;
+            }
+
+            int link_rc = SQLITE_OK;
+            int links_for_event = 0;
+            while ((link_rc = sqlite3_step(link_statement)) == SQLITE_ROW) {
+                int64_t linked_id = sqlite3_column_int64(link_statement, 2);
+                if (linked_id == id || event_id_seen(seen_ids, seen_count, linked_id))
+                    continue;
+                if (linked_total >= 8 || links_for_event >= 2)
+                    continue;
+                if (seen_count < sizeof(seen_ids) / sizeof(seen_ids[0]))
+                    seen_ids[seen_count++] = linked_id;
+
+                const unsigned char *relationship = sqlite3_column_text(link_statement, 0);
+                const unsigned char *notes = sqlite3_column_text(link_statement, 1);
+                const unsigned char *linked_category = sqlite3_column_text(link_statement, 3);
+                const unsigned char *linked_type = sqlite3_column_text(link_statement, 4);
+                const unsigned char *linked_summary = sqlite3_column_text(link_statement, 5);
+                const unsigned char *linked_details = sqlite3_column_text(link_statement, 6);
+                const unsigned char *linked_source = sqlite3_column_text(link_statement, 7);
+                int notes_length = sqlite3_column_bytes(link_statement, 1);
+                int summary_length = sqlite3_column_bytes(link_statement, 5);
+                int details_length = sqlite3_column_bytes(link_statement, 6);
+                if (notes_length > 400) notes_length = 400;
+                if (summary_length > 400) summary_length = 400;
+                if (details_length > 600) details_length = 600;
+
+                if (append_text(&output, &length, &capacity,
+                                "  Linked event [%" PRId64 "] via %s | %s/%s\n"
+                                "    Summary: %.*s\n"
+                                "    Source: %s\n",
+                                linked_id,
+                                relationship ? (const char *)relationship : "related",
+                                linked_category ? (const char *)linked_category : "unknown",
+                                linked_type ? (const char *)linked_type : "unknown",
+                                summary_length,
+                                linked_summary ? (const char *)linked_summary : "",
+                                linked_source ? (const char *)linked_source : "unspecified") != 0) {
+                    free(output);
+                    output = NULL;
+                    break;
+                }
+                if (notes && notes_length > 0 &&
+                    append_text(&output, &length, &capacity,
+                                "    Link notes: %.*s\n", notes_length,
+                                (const char *)notes) != 0) {
+                    free(output);
+                    output = NULL;
+                    break;
+                }
+                if (linked_details && details_length > 0 &&
+                    append_text(&output, &length, &capacity,
+                                "    Details: %.*s\n", details_length,
+                                (const char *)linked_details) != 0) {
+                    free(output);
+                    output = NULL;
+                    break;
+                }
+                if (append_text(&output, &length, &capacity, "\n") != 0) {
+                    free(output);
+                    output = NULL;
+                    break;
+                }
+                ++linked_total;
+                ++links_for_event;
+            }
+            if (!output) break;
+            if (link_rc != SQLITE_DONE) {
+                free(output);
+                output = NULL;
+                break;
+            }
+        }
     }
 
     if (rc != SQLITE_DONE) {
@@ -2122,6 +2239,7 @@ static char *query_events(const char *query, int limit)
         snprintf(output, capacity, "%s", empty);
     }
     sqlite3_finalize(statement);
+    sqlite3_finalize(link_statement);
     pthread_mutex_unlock(&log_lock);
     return output;
 }
