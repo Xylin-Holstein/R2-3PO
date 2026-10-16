@@ -17,4 +17,6 @@ assert "watch_unavailable" in start_fn
 assert "watch_running = 1;" not in start_fn
 assert "NOT IMPLEMENTED (no sensory coordinator worker)" in watch
 assert "r2_watch_start()" in shell
+assert "Coordinator worker: NOT IMPLEMENTED" in shell
+assert "Watch is intended to coordinate:" not in shell
 print("Watch lifecycle smoke check passed: unavailable Watch cannot report ACTIVE.")
