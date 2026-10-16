@@ -160,6 +160,31 @@ class DatabasePreflightTests(unittest.TestCase):
             report = audit.audit_root(snapshots)
             self.assertEqual(report["summary"]["missing"], [])
 
+    def test_optional_gameboy_databases_are_audited_and_snapshotted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "source"
+            snapshots = Path(directory) / "snapshots"
+            device_state = root / "Devices" / "GameBoyAdvance" / "State"
+            device_state.mkdir(parents=True)
+            device_root = device_state.parent
+            sqlite3.connect(device_root / "gameboy.db").close()
+            sqlite3.connect(device_state / "console_state.db").close()
+
+            report = audit.audit_root(root)
+            self.assertEqual(report["summary"]["optional_found"], 2)
+            self.assertEqual(report["summary"]["optional_missing"], [])
+            for name in audit.OPTIONAL_DATABASES:
+                self.assertEqual(report["databases"][name]["integrity"], ["ok"])
+
+            created = audit.create_snapshot_set(root, snapshots)
+            self.assertEqual(
+                {str(path.relative_to(snapshots)) for path in created},
+                set(audit.OPTIONAL_DATABASES),
+            )
+            snapshot_report = audit.audit_root(snapshots)
+            self.assertEqual(snapshot_report["summary"]["optional_found"], 2)
+            self.assertEqual(snapshot_report["summary"]["integrity_failures"], [])
+
     def test_cli_fails_preflight_when_expected_databases_are_missing(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
