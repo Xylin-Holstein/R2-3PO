@@ -123,6 +123,15 @@ jobs:
           cc -std=c11 -Wall -Wextra -Werror -O2 -ffunction-sections -fdata-sections -I. tests/visual_legacy_schema_smoke.c -o /tmp/r2-visual-legacy-schema-smoke -Wl,--gc-sections -lcurl -lsqlite3 -lpthread -ljson-c -lm
           /tmp/r2-visual-legacy-schema-smoke
 
+      - name: Exercise writes against a legacy addiction database schema
+        run: |
+          ROOT=/tmp/r2-addiction-legacy-schema-smoke
+          rm -rf "$ROOT" /tmp/r2-addiction-legacy-schema-test
+          mkdir -p "$ROOT/R2"
+          FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\"$ROOT\" -DR2_HOME=\"$ROOT/R2\""
+          cc $FLAGS tests/addiction_legacy_schema_smoke.c Addiction.c -o /tmp/r2-addiction-legacy-schema-test -lsqlite3 -lpthread
+          /tmp/r2-addiction-legacy-schema-test
+
       - name: Exercise writes against a legacy fridge database schema
         run: |
           cc -std=c11 -Wall -Wextra -Werror -O2 -ffunction-sections -fdata-sections -I. tests/fridge_legacy_schema_smoke.c -o /tmp/r2-fridge-legacy-schema-smoke -Wl,--gc-sections -lcurl -lsqlite3 -lpthread -ljson-c -lm
