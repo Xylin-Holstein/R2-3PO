@@ -9648,7 +9648,7 @@ char *r2_ears_listen(unsigned seconds)
     const char *cli = getenv("R2_WHISPER_CLI");
     struct stat model_stat;
     char temp_dir[] = "/tmp/r2-ears-listen-XXXXXX";
-    char wav_path[PATH_MAX], output_base[PATH_MAX], transcript_path[PATH_MAX];
+    char wav_path[PATH_MAX] = {0}, output_base[PATH_MAX] = {0}, transcript_path[PATH_MAX] = {0};
     char *transcript = NULL;
     int own_mic = 0, wav_fd = -1, child_status = 0;
     FILE *wav = NULL;
@@ -9792,8 +9792,8 @@ cleanup:
     }
     if (wav) fclose(wav);
     if (wav_fd >= 0) close(wav_fd);
-    unlink(wav_path);
-    unlink(transcript_path);
+    if (wav_path[0]) unlink(wav_path);
+    if (transcript_path[0]) unlink(transcript_path);
     rmdir(temp_dir);
     return transcript;
 }
