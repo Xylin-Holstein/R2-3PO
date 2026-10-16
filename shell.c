@@ -1177,12 +1177,13 @@ static void shell_ears(const char *argument)
             return;
         }
         printf("[Ears] Heard: %s\n", transcript);
-        char *reply = r2_talk(transcript);
-        if (reply && *reply)
-            printf("\nR2-3PO: %s\n\n", reply);
-        else
-            printf("[R2] The recognized words could not be sent through conversation.\n");
-        free(reply);
+        /*
+         * Treat the transcript exactly like a typed shell message. Using the
+         * shared shell_talk() entry point keeps speech on the same user-turn,
+         * conversation, persistence, error-reporting, and reply-display path.
+         * Do not add a speech-specific conversation or database route here.
+         */
+        shell_talk(transcript);
         free(transcript);
         fflush(stdout);
         return;
