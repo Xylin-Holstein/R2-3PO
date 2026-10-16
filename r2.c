@@ -9902,7 +9902,13 @@ static char *r2_ears_listen_internal(unsigned seconds, int stop_on_silence,
         char *end = start + strlen(start);
         while (end > start && isspace((unsigned char)end[-1])) *--end = '\0';
         if (start != transcript) memmove(transcript, start, strlen(start) + 1U);
-        if (!*transcript) { free(transcript); transcript = NULL; }
+        if (!*transcript) {
+            free(transcript);
+            /* In Watch mode, an energy-positive utterance that Whisper cannot
+               decode is still not a user turn and should not count as a device
+               failure. Preserve the explicit one-shot listen contract. */
+            transcript = stop_on_silence ? calloc(1, 1) : NULL;
+        }
     }
     if (cancelled && cancelled(userdata)) {
         free(transcript);
