@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Regression checks for the explicit local microphone-to-chat path."""
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parents[1]
 core = (ROOT / "r2.c").read_text(encoding="utf-8")
@@ -10,7 +11,7 @@ launcher = (ROOT / "R2_Launch_Code.sh").read_text(encoding="utf-8")
 ears = (ROOT / "Ears.c").read_text(encoding="utf-8")
 ears_header = (ROOT / "Ears.h").read_text(encoding="utf-8")
 
-start = core.index("char *r2_ears_listen(unsigned seconds)")
+start = core.index("char *r2_ears_listen_cancelable(unsigned seconds,")
 end = core.index("int r2_ears_start(void)", start)
 bridge = core[start:end]
 
@@ -25,7 +26,21 @@ assert "O_EXCL | O_CLOEXEC, 0600" in bridge
 assert "r2_ears_close(ears)" in bridge
 assert "unlink(wav_path)" in bridge and "unlink(transcript_path)" in bridge
 assert "char *r2_ears_listen(unsigned seconds);" in header
-assert 'r2_talk(transcript)' in shell
+assert "char *r2_ears_listen_cancelable(unsigned seconds," in header
+assert "while (captured_bytes < total_bytes && !shutting_down &&" in bridge
+assert "cancelled && cancelled(userdata)" in bridge
+assert "return r2_ears_listen_cancelable(seconds, NULL, NULL);" in core
+assert 'shell_talk(transcript)' in shell
+conversation_start = shell.index("static void shell_talk(const char *message)")
+conversation_end = shell.index("static void shell_conversation(", conversation_start)
+conversation_entry = shell[conversation_start:conversation_end]
+assert 'r2_talk(message)' in conversation_entry, (
+    "speech transcripts must enter the same shell_talk -> r2_talk path as typed messages"
+)
+assert re.search(
+    r"static void shell_conversation\(const char \*message\)\s*\{[^}]*shell_talk\(message\);",
+    shell, re.S
+), "typed conversation must use the same shell_talk entry point as speech transcripts"
 assert 'strncasecmp(argument, "listen", 6)' in shell
 assert "ears listen [1-15 seconds]" in shell
 assert 'R2_WHISPER_MODEL="${R2_WHISPER_MODEL:-}"' in launcher
