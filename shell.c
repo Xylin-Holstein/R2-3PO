@@ -1186,6 +1186,10 @@ static void shell_ears(const char *argument)
 
     if (!strcasecmp(argument, "stop")) {
 
+        /* Watch may be using this live source continuously. Join it before
+           closing Ears so its capture lock and microphone ownership settle. */
+        r2_watch_stop();
+
         int result =
             r2_ears_stop();
 
