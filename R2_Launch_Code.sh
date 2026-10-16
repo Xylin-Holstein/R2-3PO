@@ -105,6 +105,15 @@ r2_apply_network_lock() {
 }
 
 
+# Host RAM alone cannot account for the GTX 1050 Ti's 4 GiB VRAM.
+# Use a smaller default Qwen KV cache on this card; explicit context values win.
+if [[ -z "${R2_OLLAMA_NUM_CTX:-}" ]] &&
+   command -v nvidia-smi >/dev/null 2>&1 &&
+   nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi 'GTX 1050 Ti'; then
+    export R2_OLLAMA_NUM_CTX=8192
+    echo "[GPU] GTX 1050 Ti detected; defaulting R2_OLLAMA_NUM_CTX=8192 to reduce KV-cache VRAM pressure."
+fi
+
 # On this host the GTX 1050 Ti has 4 GiB VRAM. Request a partial layer
 # offload by default instead of forcing the entire model into limited VRAM.
 # An explicit environment value always wins; 0 leaves placement automatic.
