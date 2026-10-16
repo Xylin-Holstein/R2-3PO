@@ -17,12 +17,13 @@ def require(ok: bool, message: str) -> None:
         raise SystemExit(1)
     print(f"PASS: {message}")
 
-validation = body.find("if (!message || !reply_has_visible_text(message))")
+validation = body.find("if (!message)")
+empty_check = body.find("if (!reply_has_visible_text(message))")
 size_check = body.find("strnlen(message, (size_t)OLLAMA_MAX_MESSAGE_CHARS + 1U)")
 turn_activity = body.find("atomic_store(&last_conversation_activity_ms")
 turn_lock = body.find("pthread_mutex_lock(&conversation_turn_lock)")
-require(validation >= 0 and size_check > validation,
-        "null, empty, and whitespace-only public messages are rejected")
+require(validation >= 0 and size_check > validation and empty_check > size_check,
+        "null messages are rejected first; bounded length validation precedes the whitespace scan")
 require(size_check >= 0 and "input_chars > OLLAMA_MAX_MESSAGE_CHARS" in body,
         "public API rejects oversized messages without truncation")
 require("Nothing was sent or truncated" in body and "no turn was stored" in body,
