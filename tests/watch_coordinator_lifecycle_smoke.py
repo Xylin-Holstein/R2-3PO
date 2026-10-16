@@ -27,7 +27,7 @@ assert "Coordinator thread : %s" in shell and "Visual observation : %s" in shell
 assert "Watch is intended to coordinate" not in shell
 assert "R2_WHISPER_MODEL" in start_body and "R2_WHISPER_CLI" in start_body
 assert "r2_ears_start()" in start_body and "r2_ears_stop()" in start_body
-assert "pthread_mutex_lock(&shell_conversation_lock)" in shell[shell.index("static void shell_talk_watch"):shell.index("static void shell_watch_worker")]
+assert "pthread_mutex_lock(&shell_conversation_lock)" in shell[shell.index("static void shell_talk_watch"):shell.index("static void *shell_watch_worker")]
 assert "r2_talk(message)" in shell[shell.index("static void shell_talk_inner"):shell.index("static void shell_talk(const char *message)")]
 assert "r2_ears_listen_cancelable(unsigned seconds," in core
 assert "if (!transcript && !cancelled)" in core
