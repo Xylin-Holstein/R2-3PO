@@ -10023,9 +10023,10 @@ static void watch_sleep_cancellable(unsigned milliseconds)
 {
     for (unsigned elapsed = 0; elapsed < milliseconds &&
          !shutting_down && atomic_load(&watch_running); elapsed += 100U) {
-        struct timespec delay = {0, 100000000L};
-        while (nanosleep(&delay, &delay) != 0 && errno == EINTR) {
+        struct timespec delay = {0, 100000000L}, remaining;
+        while (nanosleep(&delay, &remaining) != 0 && errno == EINTR) {
             if (shutting_down || !atomic_load(&watch_running)) return;
+            delay = remaining;
         }
     }
 }
@@ -10151,7 +10152,7 @@ int r2_watch_stop(void)
 
 void r2_watch_status(void)
 {
-    printf("[R2 Watch] %s\\n",
+    printf("[R2 Watch] %s\n",
            atomic_load(&watch_running) ? "ACTIVE" : "STOPPED");
 }
 
