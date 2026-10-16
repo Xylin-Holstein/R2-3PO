@@ -249,6 +249,18 @@ if ! sudo -n -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
 fi
 echo
 
+# Voice transcription is optional for typed chat, but must be configured for spoken input.
+if [[ -z "${R2_WHISPER_MODEL:-}" ]]; then
+    echo "[speech] Local Whisper is not configured; typed chat and vision can still run."
+    echo "[speech] To enable voice-to-chat, see: $R2_SOURCE/docs/local-speech-input.md"
+elif ! sudo -n -u r2 -- test -r "$R2_WHISPER_MODEL"; then
+    echo "[speech] WARNING: R2 cannot read R2_WHISPER_MODEL=$R2_WHISPER_MODEL"
+    echo "[speech] Voice-to-chat will be unavailable until the model path and permissions are corrected."
+else
+    echo "[speech] Local Whisper model is readable by r2; verify whisper-cli is installed or set R2_WHISPER_CLI."
+fi
+echo
+
 # TV.py and install_tv.sh should be copied into R2/ with the other downloaded
 # source files. Install if missing, or refresh the installed GUI if the source
 # has changed. The installer creates room/TV/ and VCR_Tapes/ at their canonical paths.
