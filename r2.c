@@ -9477,11 +9477,18 @@ static void *vision_watch_worker(void *unused)
 
 int r2_vision_watch_start(void)
 {
-    if (!core_initialized || shutting_down || !r2_visual_is_initialized())
+    /*
+     * A visual observer must have a live Eyes source to sample. Starting the
+     * worker with Eyes closed previously returned success, then failed on its
+     * first capture and stopped almost immediately.
+     */
+    if (!core_initialized || shutting_down || !r2_visual_is_initialized() ||
+        r2_eyes_status() <= 0)
         return -1;
 
     pthread_mutex_lock(&vision_watch_lock);
-    if (!core_initialized || shutting_down || !r2_visual_is_initialized()) {
+    if (!core_initialized || shutting_down || !r2_visual_is_initialized() ||
+        r2_eyes_status() <= 0) {
         pthread_mutex_unlock(&vision_watch_lock);
         return -1;
     }
