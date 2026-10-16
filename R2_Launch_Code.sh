@@ -1,6 +1,18 @@
 #!/bin/bash
 
 R2_ROOT="/home/x/R2_Home"
+# Keep the Game Boy CLI and the shell's state reader on the same configured root.
+if [[ -z "${R2_GAMEBOY_ROOT:-}" ]]; then
+    if [[ -n "${R2_GAMEBOY_DIR:-}" ]]; then
+        R2_GAMEBOY_ROOT="$R2_GAMEBOY_DIR"
+    elif [[ -n "${R2_GAMEBOY_EXECUTABLE:-}" && "${R2_GAMEBOY_EXECUTABLE}" == */* ]]; then
+        R2_GAMEBOY_ROOT="$(dirname -- "$R2_GAMEBOY_EXECUTABLE")"
+    else
+        R2_GAMEBOY_ROOT="$R2_ROOT/Devices/GameBoyAdvance"
+    fi
+fi
+R2_GAMEBOY_DIR="${R2_GAMEBOY_DIR:-$R2_GAMEBOY_ROOT}"
+R2_GAMEBOY_EXECUTABLE="${R2_GAMEBOY_EXECUTABLE:-$R2_GAMEBOY_ROOT/GameBoyAdvance}"
 R2_SOURCE="$R2_ROOT/R2"
 R2_EXEC="$R2_ROOT/r2"
 R2_FX_DIR="${R2_FX_DIR:-$R2_ROOT/R2_sounds/FX}"
@@ -104,6 +116,15 @@ r2_apply_network_lock() {
     echo "[Network] Linux user r2 may access only local Ollama at 127.0.0.1:11434."
 }
 
+
+# Host RAM alone cannot account for the GTX 1050 Ti's 4 GiB VRAM.
+# Use a smaller default Qwen KV cache on this card; explicit context values win.
+if [[ -z "${R2_OLLAMA_NUM_CTX:-}" ]] &&
+   command -v nvidia-smi >/dev/null 2>&1 &&
+   nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi 'GTX 1050 Ti'; then
+    export R2_OLLAMA_NUM_CTX=8192
+    echo "[GPU] GTX 1050 Ti detected; defaulting R2_OLLAMA_NUM_CTX=8192 to reduce KV-cache VRAM pressure."
+fi
 
 # On this host the GTX 1050 Ti has 4 GiB VRAM. Request a partial layer
 # offload by default instead of forcing the entire model into limited VRAM.
@@ -237,6 +258,7 @@ fi
 if ! sudo -n -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
     R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
     R2_OLLAMA_NUM_GPU="$R2_OLLAMA_NUM_GPU" \
+    R2_OLLAMA_NUM_CTX="${R2_OLLAMA_NUM_CTX:-}" \
     R2_OLLAMA_TIMEOUT_SECONDS="${R2_OLLAMA_TIMEOUT_SECONDS:-}" \
     python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --timeout 180; then
     echo
@@ -669,6 +691,9 @@ sudo -n setpriv --reuid="$R2_UID" --regid="$R2_GID" --groups="$R2_RUNTIME_GROUPS
     R2_OLLAMA_NUM_GPU="${R2_OLLAMA_NUM_GPU}" \
     R2_WHISPER_MODEL="${R2_WHISPER_MODEL:-}" \
     R2_WHISPER_CLI="${R2_WHISPER_CLI:-}" \
+    R2_GAMEBOY_EXECUTABLE="$R2_GAMEBOY_EXECUTABLE" \
+    R2_GAMEBOY_ROOT="$R2_GAMEBOY_ROOT" \
+    R2_GAMEBOY_DIR="$R2_GAMEBOY_DIR" \
     R2_CAMERA_DEVICE="${R2_CAMERA_DEVICE:-/dev/video0}" \
     R2_VISION_MODEL="qwen3.5:9b" \
     R2_FX_DIR="$R2_FX_DIR" \
