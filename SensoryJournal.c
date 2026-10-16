@@ -30,6 +30,38 @@ static int sj_exec(const char *sql)
     return 0;
 }
 
+static int sj_column_exists(const char *table, const char *column)
+{
+    char sql[256];
+    int n = snprintf(sql, sizeof(sql), "PRAGMA table_info(%s)", table);
+    if (n < 0 || (size_t)n >= sizeof(sql)) return 0;
+    sqlite3_stmt *st = NULL;
+    int found = 0;
+    if (sqlite3_prepare_v2(sj_db, sql, -1, &st, NULL) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            const unsigned char *name = sqlite3_column_text(st, 1);
+            if (name && !strcmp((const char *)name, column)) {
+                found = 1;
+                break;
+            }
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    return found;
+}
+
+static int sj_ensure_column(const char *table, const char *column,
+                            const char *declaration)
+{
+    if (sj_column_exists(table, column)) return SQLITE_OK;
+    char sql[512];
+    int n = snprintf(sql, sizeof(sql),
+                     "ALTER TABLE %s ADD COLUMN %s %s;",
+                     table, column, declaration);
+    if (n < 0 || (size_t)n >= sizeof(sql)) return SQLITE_TOOBIG;
+    return sqlite3_exec(sj_db, sql, NULL, NULL, NULL);
+}
+
 int r2_sj_init(void)
 {
     pthread_mutex_lock(&sj_lock);
@@ -66,16 +98,25 @@ int r2_sj_init(void)
         " FOREIGN KEY(diary_entry_id) REFERENCES diary_entries(id)"
         ");"
         "CREATE INDEX IF NOT EXISTS r2_sensory_journal_diary_entry_idx "
-        "ON r2_sensory_journal_diary_links(diary_entry_id);"
-        "INSERT OR IGNORE INTO r2_sensory_journal_diary_links(event_id,diary_entry_id) "
-        "SELECT e.id,d.id FROM r2_log_events e "
-        "JOIN diary_entries d ON d.entry=e.details "
-        "WHERE e.category='thinking' "
-        "AND e.event_type IN ('diary_entry_written','reflection_completed');"
-        "INSERT OR IGNORE INTO r2_sensory_journal(event_id,journal_kind) "
-        "SELECT id,category FROM r2_log_events "
-        "WHERE category IN ('sensory','thinking','conversation');";
-    if (sj_exec(schema) != 0) {
+        "ON r2_sensory_journal_diary_links(diary_entry_id);";
+    if (sj_exec(schema) != 0 ||
+        sj_ensure_column("r2_sensory_journal", "indexed_utc",
+                         "TEXT NOT NULL DEFAULT ''") != SQLITE_OK ||
+        sj_ensure_column("r2_sensory_journal_diary_links", "linked_utc",
+                         "TEXT NOT NULL DEFAULT ''") != SQLITE_OK ||
+        sj_exec(
+            "UPDATE r2_sensory_journal SET indexed_utc=CURRENT_TIMESTAMP "
+            "WHERE indexed_utc IS NULL OR indexed_utc='';"
+            "UPDATE r2_sensory_journal_diary_links SET linked_utc=CURRENT_TIMESTAMP "
+            "WHERE linked_utc IS NULL OR linked_utc='';"
+            "INSERT OR IGNORE INTO r2_sensory_journal_diary_links(event_id,diary_entry_id) "
+            "SELECT e.id,d.id FROM r2_log_events e "
+            "JOIN diary_entries d ON d.entry=e.details "
+            "WHERE e.category='thinking' "
+            "AND e.event_type IN ('diary_entry_written','reflection_completed');"
+            "INSERT OR IGNORE INTO r2_sensory_journal(event_id,journal_kind) "
+            "SELECT id,category FROM r2_log_events "
+            "WHERE category IN ('sensory','thinking','conversation');") != 0) {
         sqlite3_close(sj_db);
         sj_db = NULL;
         pthread_mutex_unlock(&sj_lock);
