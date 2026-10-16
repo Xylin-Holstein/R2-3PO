@@ -1067,24 +1067,6 @@ char *r2_fridge_context(void)
     free(items);
     return out;
 }
-static int fridge_change_one(const char *food, char *description, size_t description_cap,
-                             int *old_quantity, double *fullness, double *energy,
-                             char *ingredients, size_t ingredients_cap, char *taste, size_t taste_cap)
-{
-    sqlite3_stmt *st = NULL;
-    if (sqlite3_prepare_v2(fridge_db, "SELECT description,quantity,fullness,energy,ingredients,taste FROM r2_fridge_items WHERE name=? COLLATE NOCASE", -1, &st, NULL) != SQLITE_OK) return -1;
-    bind_text(st, 1, food);
-    if (sqlite3_step(st) != SQLITE_ROW) { sqlite3_finalize(st); return -1; }
-    const unsigned char *d = sqlite3_column_text(st, 0);
-    if (description && description_cap) snprintf(description, description_cap, "%s", d ? (const char *)d : "");
-    int qty = sqlite3_column_int(st, 1);
-    if (old_quantity) *old_quantity = qty;
-    if (fullness) *fullness = sqlite3_column_double(st, 2);
-    if (energy) *energy = sqlite3_column_double(st, 3);
-    const unsigned char *ing = sqlite3_column_text(st, 4), *flavor = sqlite3_column_text(st, 5);
-    if (ingredients && ingredients_cap) snprintf(ingredients, ingredients_cap, "%s", ing ? (const char *)ing : "");
-    if (taste && taste_cap) snprintf(taste, taste_cap, "%s", flavor ? (const char *)flavor : "");
-    sqlite3_finalize(st);
 /* Older fridge databases may retain required qty/amount aliases after the
  * canonical quantity column is added. Keep those aliases populated on both
  * insert and conflict-update paths so upgrades remain writable. */
