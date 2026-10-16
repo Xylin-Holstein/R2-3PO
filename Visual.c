@@ -3,6 +3,7 @@
 
 #include "Visual.h"
 #include "Log.h"
+#include "r2.h"
 
 #include <curl/curl.h>
 #include <json-c/json.h>
@@ -15,14 +16,15 @@
 #include <unistd.h>
 #include <errno.h>
 #include <limits.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <time.h>
 
-#define R2_VISION_URL "http://127.0.0.1:11434/api/chat"
-#define R2_VISION_DEFAULT_MODEL "qwen2.5vl:3b"
+#define R2_VISION_DEFAULT_MODEL R2_OLLAMA_MODEL
 #define R2_VISION_MAX_IMAGE_BYTES (20U * 1024U * 1024U)
 #define R2_VISION_MAX_RESPONSE (1024U * 1024U)
 
@@ -31,6 +33,143 @@ static pthread_mutex_t visual_lock = PTHREAD_MUTEX_INITIALIZER;
 static int visual_initialized = 0;
 static char visual_directory[PATH_MAX];
 static char visual_model[256];
+
+#define R2_VWEBCAM_DIR "/tmp/r2-vwebcam-r2"
+
+static int visual_vwebcam_prepare_dir(void)
+{
+    struct stat st;
+    if (mkdir(R2_VWEBCAM_DIR, 0700) != 0 && errno != EEXIST)
+        return -1;
+    if (lstat(R2_VWEBCAM_DIR, &st) != 0 || !S_ISDIR(st.st_mode) ||
+        st.st_uid != geteuid())
+        return -1;
+    if ((st.st_mode & 0777) != 0700 && chmod(R2_VWEBCAM_DIR, 0700) != 0)
+        return -1;
+    return 0;
+}
+
+static void publish_focus_region(json_object *focus)
+{
+    char path[PATH_MAX], tmp[PATH_MAX];
+    const char *display = getenv("DISPLAY");
+    if (!display || !*display)
+        return;
+    int pn = snprintf(path, sizeof(path), "%s/focus.json", R2_VWEBCAM_DIR);
+    int tn = snprintf(tmp, sizeof(tmp), "%s/focus.tmp", R2_VWEBCAM_DIR);
+    if (pn < 0 || (size_t)pn >= sizeof(path) ||
+        tn < 0 || (size_t)tn >= sizeof(tmp))
+        return;
+    if (!focus || json_object_is_type(focus, json_type_null) ||
+        !json_object_is_type(focus, json_type_object)) {
+        (void)unlink(path);
+        return;
+    }
+
+    json_object *xv = NULL, *yv = NULL, *wv = NULL, *hv = NULL, *lv = NULL;
+    if (!json_object_object_get_ex(focus, "x", &xv) ||
+        !json_object_object_get_ex(focus, "y", &yv) ||
+        !json_object_object_get_ex(focus, "width", &wv) ||
+        !json_object_object_get_ex(focus, "height", &hv)) {
+        (void)unlink(path);
+        return;
+    }
+    if ((!json_object_is_type(xv, json_type_double) && !json_object_is_type(xv, json_type_int)) ||
+        (!json_object_is_type(yv, json_type_double) && !json_object_is_type(yv, json_type_int)) ||
+        (!json_object_is_type(wv, json_type_double) && !json_object_is_type(wv, json_type_int)) ||
+        (!json_object_is_type(hv, json_type_double) && !json_object_is_type(hv, json_type_int))) {
+        (void)unlink(path);
+        return;
+    }
+    double x = json_object_get_double(xv), y = json_object_get_double(yv);
+    double w = json_object_get_double(wv), h = json_object_get_double(hv);
+    if (!isfinite(x) || !isfinite(y) || !isfinite(w) || !isfinite(h) ||
+        x < 0.0 || y < 0.0 || w <= 0.0 || h <= 0.0 ||
+        x > 1.0 || y > 1.0 || w > 1.0 || h > 1.0 ||
+        x + w > 1.001 || y + h > 1.001 ||
+        visual_vwebcam_prepare_dir() != 0) {
+        (void)unlink(path);
+        return;
+    }
+    (void)json_object_object_get_ex(focus, "label", &lv);
+    const char *raw_label = lv && json_object_is_type(lv, json_type_string)
+        ? json_object_get_string(lv) : "Selected region";
+    char label[129];
+    snprintf(label, sizeof(label), "%s", raw_label && *raw_label
+        ? raw_label : "Selected region");
+
+    json_object *root = json_object_new_object();
+    if (!root) {
+        (void)unlink(path);
+        return;
+    }
+    json_object_object_add(root, "x", json_object_new_double(x));
+    json_object_object_add(root, "y", json_object_new_double(y));
+    json_object_object_add(root, "width", json_object_new_double(w));
+    json_object_object_add(root, "height", json_object_new_double(h));
+    json_object_object_add(root, "label", json_object_new_string(label));
+    const char *encoded = json_object_to_json_string_ext(root, JSON_C_TO_STRING_PLAIN);
+    FILE *fp = encoded ? fopen(tmp, "w") : NULL;
+    int failed = !fp;
+    if (fp) {
+        if (fputs(encoded, fp) < 0 || fputc('\n', fp) == EOF)
+            failed = 1;
+        if (fclose(fp) != 0)
+            failed = 1;
+    }
+    json_object_put(root);
+    if (!failed) {
+        (void)chmod(tmp, 0600);
+        if (rename(tmp, path) != 0)
+            failed = 1;
+    }
+    if (failed) {
+        (void)unlink(tmp);
+        (void)unlink(path);
+    }
+}
+
+/* Return the natural-language description for R2 while publishing the
+   optional focus region separately for the display-only V-Webcam overlay. */
+static char *extract_visual_description(char *text)
+{
+    if (!text)
+        return NULL;
+    while (*text == ' ' || *text == '\n' || *text == '\r' || *text == '\t')
+        ++text;
+    if (!strncmp(text, "```", 3)) {
+        char *nl = strchr(text, '\n');
+        if (nl) {
+            text = nl + 1;
+            char *end = strstr(text, "```");
+            if (end)
+                *end = '\0';
+        }
+    }
+    json_object *root = json_tokener_parse(text);
+    if (!root || !json_object_is_type(root, json_type_object)) {
+        if (root)
+            json_object_put(root);
+        publish_focus_region(NULL);
+        return strdup(text);
+    }
+    json_object *description = NULL, *focus = NULL;
+    char *out = NULL;
+    if (json_object_object_get_ex(root, "description", &description) &&
+        json_object_is_type(description, json_type_string)) {
+        const char *value = json_object_get_string(description);
+        if (value && *value)
+            out = strdup(value);
+    }
+    if (json_object_object_get_ex(root, "focus", &focus))
+        publish_focus_region(focus);
+    else
+        publish_focus_region(NULL);
+    json_object_put(root);
+    if (!out)
+        out = strdup(text);
+    return out;
+}
 
 struct response_buffer {
     char *data;
@@ -142,8 +281,11 @@ static unsigned char *encode_jpeg(const R2VisionFrame *frame, size_t *jpeg_lengt
         frame->format.pixel_format != R2_PIXEL_RGB24)
         return NULL;
 
-    uint64_t expected = (uint64_t)frame->format.width *
-                        (uint64_t)frame->format.height * 3U;
+    uint64_t width = (uint64_t)frame->format.width;
+    uint64_t height = (uint64_t)frame->format.height;
+    if (height == 0 || width > UINT64_MAX / height / 3U)
+        return NULL;
+    uint64_t expected = width * height * 3U;
     if (expected != frame->size || expected > 100U * 1024U * 1024U)
         return NULL;
 
@@ -153,9 +295,14 @@ static unsigned char *encode_jpeg(const R2VisionFrame *frame, size_t *jpeg_lengt
     if (ppm_fd < 0) return NULL;
     int jpg_fd = mkstemps(jpg_template, 4);
     if (jpg_fd < 0) { close(ppm_fd); unlink(ppm_template); return NULL; }
-    close(jpg_fd);
-    unlink(jpg_template);
-
+    if (close(jpg_fd) != 0) {
+        close(ppm_fd);
+        unlink(ppm_template);
+        unlink(jpg_template);
+        return NULL;
+    }
+    /* Keep the unique file created by mkstemps; ffmpeg's -y overwrites it. */
+    
     char header[128];
     int header_len = snprintf(header, sizeof(header), "P6\n%u %u\n255\n",
                               frame->format.width, frame->format.height);
@@ -190,9 +337,24 @@ static unsigned char *encode_jpeg(const R2VisionFrame *frame, size_t *jpeg_lengt
     return jpeg;
 }
 
-static char *call_vision_model(const char *image_base64, const char *question)
+static int vision_progress(void *userdata,
+                            curl_off_t download_total,
+                            curl_off_t download_now,
+                            curl_off_t upload_total,
+                            curl_off_t upload_now)
 {
-    if (!image_base64) return NULL;
+    (void)userdata;
+    (void)download_total;
+    (void)download_now;
+    (void)upload_total;
+    (void)upload_now;
+    return r2_ollama_vision_request_should_abort() ? 1 : 0;
+}
+
+static char *call_vision_model(const char *image_base64, const char *question,
+                               const char *model)
+{
+    if (!image_base64 || !model || !*model) return NULL;
     const char *asked = question && *question ? question :
         "Describe what is visibly present. Separate direct observations from uncertain interpretations. "
         "Read visible text when possible, identify objects and spatial relationships, and avoid guessing "
@@ -203,25 +365,69 @@ static char *call_vision_model(const char *image_base64, const char *question)
         "Analyze only the supplied image. Be concrete and evidence-based. "
         "Distinguish what is directly visible from inference and uncertainty. "
         "Do not claim motion or events from a single frame. Do not identify private people. "
-        "Return a useful description for another conversational model to reason about."
+        "Return ONLY valid JSON with keys description and focus. description is a concise natural-language " 
+        "observation for R2's conversation to use as sensory evidence, not as a user-facing answer. focus is " 
+        "null or an object with label, x, y, width, and height. Coordinates are normalized 0..1 fractions " 
+        "of the full image; x/y are the top-left corner and width/height are the region size. Select one " 
+        "visible region worth inspecting. Never invent a region; use null if no clear target exists. Do not " 
+        "wrap JSON in markdown."
     );
     json_object *root = json_object_new_object();
     json_object *messages = json_object_new_array();
     json_object *sys = json_object_new_object();
     json_object *user = json_object_new_object();
     json_object *images = json_object_new_array();
-    if (!root || !messages || !sys || !user || !images || !system_prompt) {
+    json_object *options = json_object_new_object();
+    if (!root || !messages || !sys || !user || !images || !options || !system_prompt) {
         if (root) json_object_put(root);
         if (messages) json_object_put(messages);
         if (sys) json_object_put(sys);
         if (user) json_object_put(user);
         if (images) json_object_put(images);
+        if (options) json_object_put(options);
         free(system_prompt);
         return NULL;
     }
-    json_object_object_add(root, "model", json_object_new_string(visual_model));
+    json_object_object_add(root, "model", json_object_new_string(model));
     json_object_object_add(root, "stream", json_object_new_boolean(0));
+    json_object_object_add(root, "think", json_object_new_boolean(0));
+    json_object_object_add(root, "format", json_object_new_string("json"));
     json_object_object_add(root, "keep_alive", json_object_new_string("10m"));
+
+    /*
+     * Share the RAM-aware context ceiling with chat. Vision only needs a concise
+     * observation, so cap generated output rather than letting the model's
+     * default context/output settings compete unpredictably with conversation.
+     */
+    int num_ctx = r2_ollama_context_tokens();
+    int num_predict = num_ctx >= 8192 ? 512 : 256;
+    json_object_object_add(options, "num_ctx", json_object_new_int(num_ctx));
+    json_object_object_add(options, "num_predict", json_object_new_int(num_predict));
+
+    /* Qwen3.5's official non-thinking/VL sampler settings. */
+    json_object_object_add(options, "temperature", json_object_new_double(0.7));
+    json_object_object_add(options, "top_p", json_object_new_double(0.8));
+    json_object_object_add(options, "top_k", json_object_new_int(20));
+    json_object_object_add(options, "min_p", json_object_new_double(0.0));
+    json_object_object_add(options, "presence_penalty", json_object_new_double(1.5));
+    json_object_object_add(options, "repeat_penalty", json_object_new_double(1.0));
+
+    /* Keep vision inference on the same requested GPU/CPU layer policy as chat. */
+    const char *gpu_layers_env = getenv("R2_OLLAMA_NUM_GPU");
+    if (gpu_layers_env && *gpu_layers_env) {
+        errno = 0;
+        char *gpu_end = NULL;
+        long gpu_layers = strtol(gpu_layers_env, &gpu_end, 10);
+        if (!errno && gpu_end != gpu_layers_env && *gpu_end == '\0' &&
+            gpu_layers >= -1 && gpu_layers <= 999 && gpu_layers != 0) {
+            json_object_object_add(options, "num_gpu",
+                                   json_object_new_int((int)gpu_layers));
+        } else if (errno || gpu_end == gpu_layers_env || *gpu_end != '\0' ||
+                   gpu_layers < -1 || gpu_layers > 999) {
+            fprintf(stderr, "[R2 Vision] Ignoring invalid R2_OLLAMA_NUM_GPU value.\n");
+        }
+    }
+    json_object_object_add(root, "options", options);
     json_object_object_add(sys, "role", json_object_new_string("system"));
     json_object_object_add(sys, "content", json_object_new_string(system_prompt));
     json_object_object_add(user, "role", json_object_new_string("user"));
@@ -234,13 +440,18 @@ static char *call_vision_model(const char *image_base64, const char *question)
     free(system_prompt);
 
     const char *payload = json_object_to_json_string_ext(root, JSON_C_TO_STRING_PLAIN);
+    char ollama_url[128];
+    if (!payload || r2_ollama_chat_url(ollama_url, sizeof(ollama_url)) != 0) {
+        json_object_put(root);
+        return NULL;
+    }
     CURL *curl = curl_easy_init();
     struct response_buffer response = {0};
     struct curl_slist *headers = NULL;
     char *answer = NULL;
     if (curl) {
         headers = curl_slist_append(headers, "Content-Type: application/json");
-        curl_easy_setopt(curl, CURLOPT_URL, R2_VISION_URL);
+        curl_easy_setopt(curl, CURLOPT_URL, ollama_url);
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
         curl_easy_setopt(curl, CURLOPT_POST, 1L);
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload);
@@ -250,7 +461,24 @@ static char *call_vision_model(const char *image_base64, const char *question)
         curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L);
         curl_easy_setopt(curl, CURLOPT_TIMEOUT, 180L);
         curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+        curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, vision_progress);
+        if (!r2_ollama_vision_request_begin()) {
+            r2_log_sensory("vision_request_deferred",
+                           "R2 deferred visual inference because the shared Ollama model is busy or a foreground turn is waiting.",
+                           "The captured frame remains unreported rather than blocking ordinary conversation.",
+                           model);
+            curl_slist_free_all(headers);
+            curl_easy_cleanup(curl);
+            free(response.data);
+            json_object_put(root);
+            return NULL;
+        }
         CURLcode cc = curl_easy_perform(curl);
+        int yielded_to_foreground =
+            cc == CURLE_ABORTED_BY_CALLBACK &&
+            r2_ollama_vision_request_should_abort();
+        r2_ollama_vision_request_end();
         long http_status = 0;
         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_status);
         if (cc == CURLE_OK && http_status >= 200 && http_status < 300 &&
@@ -264,11 +492,20 @@ static char *call_vision_model(const char *image_base64, const char *question)
                 if (text && *text) answer = strdup(text);
             }
             if (parsed) json_object_put(parsed);
+        } else if (yielded_to_foreground) {
+            r2_log_sensory("vision_request_yielded",
+                           "R2's visual inference yielded to an ordinary conversation request.",
+                           "The incomplete visual result was discarded and will not be used as an answer.",
+                           model);
         } else {
+            char failure[1200];
+            snprintf(failure, sizeof(failure),
+                     "curl=%s; HTTP=%ld; response_bytes=%zu; model=%s",
+                     curl_easy_strerror(cc), http_status, response.length, model);
             r2_log_sensory("vision_model_request_failed",
                            "R2's vision model request failed.",
-                           response.data ? response.data : curl_easy_strerror(cc),
-                           visual_model);
+                           response.data ? response.data : failure,
+                           model);
         }
         curl_slist_free_all(headers);
         curl_easy_cleanup(curl);
@@ -278,16 +515,189 @@ static char *call_vision_model(const char *image_base64, const char *question)
     return answer;
 }
 
+static int visual_column_exists(const char *column)
+{
+    sqlite3_stmt *st = NULL;
+    int found = 0;
+    if (sqlite3_prepare_v2(visual_db, "PRAGMA table_info(r2_visual_experiences)",
+                           -1, &st, NULL) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            const unsigned char *name = sqlite3_column_text(st, 1);
+            if (name && !strcasecmp((const char *)name, column)) {
+                found = 1;
+                break;
+            }
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    return found;
+}
+
+static int visual_ensure_column(const char *column, const char *definition)
+{
+    if (visual_column_exists(column)) return SQLITE_OK;
+    char sql[512];
+    int n = snprintf(sql, sizeof(sql),
+                     "ALTER TABLE r2_visual_experiences ADD COLUMN %s %s;",
+                     column, definition);
+    if (n < 0 || (size_t)n >= sizeof(sql)) return SQLITE_TOOBIG;
+    return sqlite3_exec(visual_db, sql, NULL, NULL, NULL);
+}
+
+static int visual_backfill(const char *target, const char *source)
+{
+    if (!visual_column_exists(source)) return SQLITE_OK;
+    char sql[512];
+    int n = snprintf(sql, sizeof(sql),
+        "UPDATE r2_visual_experiences SET %s=%s WHERE %s IS NULL OR %s='';",
+        target, source, target, target);
+    if (n < 0 || (size_t)n >= sizeof(sql)) return SQLITE_TOOBIG;
+    return sqlite3_exec(visual_db, sql, NULL, NULL, NULL);
+}
+
+static int visual_migrate_schema(void)
+{
+    const char *columns[][2] = {
+        {"created_utc", "TEXT NOT NULL DEFAULT ''"},
+        {"source", "TEXT NOT NULL DEFAULT 'unknown'"},
+        {"image_path", "TEXT NOT NULL DEFAULT ''"},
+        {"model", "TEXT NOT NULL DEFAULT 'unknown'"},
+        {"prompt", "TEXT"},
+        {"description", "TEXT NOT NULL DEFAULT ''"},
+        {"width", "INTEGER NOT NULL DEFAULT 0"},
+        {"height", "INTEGER NOT NULL DEFAULT 0"},
+        {"frame_number", "INTEGER NOT NULL DEFAULT 0"},
+        {"frame_timestamp", "INTEGER NOT NULL DEFAULT 0"},
+        {"life_log_event_id", "INTEGER"}
+    };
+    for (size_t i = 0; i < sizeof(columns) / sizeof(columns[0]); ++i) {
+        if (visual_ensure_column(columns[i][0], columns[i][1]) != SQLITE_OK)
+            return SQLITE_ERROR;
+    }
+
+    /* Copy older names into canonical fields only when the new field is empty. */
+    if (visual_backfill("created_utc", "created_at") != SQLITE_OK ||
+        visual_backfill("created_utc", "timestamp") != SQLITE_OK ||
+        visual_backfill("image_path", "file_path") != SQLITE_OK ||
+        visual_backfill("image_path", "path") != SQLITE_OK)
+        return SQLITE_ERROR;
+
+    if (sqlite3_exec(visual_db,
+        "UPDATE r2_visual_experiences SET created_utc=CURRENT_TIMESTAMP "
+        "WHERE created_utc IS NULL OR created_utc='';",
+        NULL, NULL, NULL) != SQLITE_OK)
+        return SQLITE_ERROR;
+    return sqlite3_exec(visual_db,
+        "CREATE INDEX IF NOT EXISTS r2_visual_experiences_created_idx "
+        "ON r2_visual_experiences(created_utc);",
+        NULL, NULL, NULL);
+}
+
+
+/* Old visual-library schemas may retain required created_at/timestamp and
+   file_path/path columns after the canonical columns are added. Populate
+   those aliases on every insert so an upgrade remains writable for old DBs. */
+static int visual_insert_compat(const char *created, const char *source,
+                                const char *image_path, const char *model,
+                                const char *prompt, const char *description,
+                                int width, int height, sqlite3_int64 frame_number,
+                                sqlite3_int64 frame_timestamp, int64_t event_id)
+{
+    enum { VISUAL_TEXT = 1, VISUAL_INTEGER = 2, VISUAL_NULL = 3 };
+    struct visual_value {
+        const char *column;
+        int type;
+        const char *text;
+        sqlite3_int64 integer;
+    } values[20];
+    size_t count = 0;
+#define ADD_TEXT(column_name, value) do { \
+    values[count++] = (struct visual_value){(column_name), VISUAL_TEXT, (value), 0}; \
+} while (0)
+#define ADD_INTEGER(column_name, value) do { \
+    values[count++] = (struct visual_value){(column_name), VISUAL_INTEGER, NULL, (sqlite3_int64)(value)}; \
+} while (0)
+#define ADD_NULL(column_name) do { \
+    values[count++] = (struct visual_value){(column_name), VISUAL_NULL, NULL, 0}; \
+} while (0)
+
+    ADD_TEXT("created_utc", created);
+    ADD_TEXT("source", source ? source : "Eyes");
+    ADD_TEXT("image_path", image_path);
+    ADD_TEXT("model", model);
+    if (prompt && *prompt) ADD_TEXT("prompt", prompt);
+    else ADD_NULL("prompt");
+    ADD_TEXT("description", description);
+    ADD_INTEGER("width", width);
+    ADD_INTEGER("height", height);
+    ADD_INTEGER("frame_number", frame_number);
+    ADD_INTEGER("frame_timestamp", frame_timestamp);
+    if (event_id > 0) ADD_INTEGER("life_log_event_id", event_id);
+    else ADD_NULL("life_log_event_id");
+
+    if (visual_column_exists("created_at")) ADD_TEXT("created_at", created);
+    if (visual_column_exists("timestamp")) ADD_TEXT("timestamp", created);
+    if (visual_column_exists("file_path")) ADD_TEXT("file_path", image_path);
+    if (visual_column_exists("path")) ADD_TEXT("path", image_path);
+#undef ADD_TEXT
+#undef ADD_INTEGER
+#undef ADD_NULL
+
+    char sql[2048];
+    size_t used = 0;
+    int n = snprintf(sql, sizeof(sql), "INSERT INTO r2_visual_experiences (");
+    if (n < 0 || (size_t)n >= sizeof(sql)) return SQLITE_TOOBIG;
+    used = (size_t)n;
+    for (size_t i = 0; i < count; ++i) {
+        n = snprintf(sql + used, sizeof(sql) - used, "%s%s",
+                     i ? "," : "", values[i].column);
+        if (n < 0 || (size_t)n >= sizeof(sql) - used) return SQLITE_TOOBIG;
+        used += (size_t)n;
+    }
+    n = snprintf(sql + used, sizeof(sql) - used, ") VALUES(");
+    if (n < 0 || (size_t)n >= sizeof(sql) - used) return SQLITE_TOOBIG;
+    used += (size_t)n;
+    for (size_t i = 0; i < count; ++i) {
+        n = snprintf(sql + used, sizeof(sql) - used, "%s?",
+                     i ? "," : "");
+        if (n < 0 || (size_t)n >= sizeof(sql) - used) return SQLITE_TOOBIG;
+        used += (size_t)n;
+    }
+    n = snprintf(sql + used, sizeof(sql) - used, ")");
+    if (n < 0 || (size_t)n >= sizeof(sql) - used) return SQLITE_TOOBIG;
+
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(visual_db, sql, -1, &st, NULL);
+    if (rc != SQLITE_OK) return rc;
+    for (size_t i = 0; i < count && rc == SQLITE_OK; ++i) {
+        if (values[i].type == VISUAL_TEXT)
+            rc = sqlite3_bind_text(st, (int)i + 1, values[i].text, -1, SQLITE_TRANSIENT);
+        else if (values[i].type == VISUAL_INTEGER)
+            rc = sqlite3_bind_int64(st, (int)i + 1, values[i].integer);
+        else
+            rc = sqlite3_bind_null(st, (int)i + 1);
+    }
+    if (rc == SQLITE_OK) rc = sqlite3_step(st);
+    sqlite3_finalize(st);
+    return rc;
+}
+
 int r2_visual_init(const char *database_path, const char *library_directory)
 {
-    if (!database_path || !*database_path || !library_directory || !*library_directory)
+    if (!database_path || !*database_path || !library_directory ||
+        !*library_directory || strlen(library_directory) >= sizeof(visual_directory))
         return -1;
     pthread_mutex_lock(&visual_lock);
     if (visual_initialized) { pthread_mutex_unlock(&visual_lock); return 0; }
     snprintf(visual_directory, sizeof(visual_directory), "%s", library_directory);
     const char *configured = getenv("R2_VISION_MODEL");
-    snprintf(visual_model, sizeof(visual_model), "%s",
-             configured && *configured ? configured : R2_VISION_DEFAULT_MODEL);
+    if (configured && *configured &&
+        strcmp(configured, R2_VISION_DEFAULT_MODEL) != 0) {
+        fprintf(stderr,
+                "[R2 Vision] Ignoring R2_VISION_MODEL=%s; this build uses the unified model %s.\n",
+                configured, R2_VISION_DEFAULT_MODEL);
+    }
+    snprintf(visual_model, sizeof(visual_model), "%s", R2_VISION_DEFAULT_MODEL);
     if (mkdir_one(visual_directory) != 0) {
         pthread_mutex_unlock(&visual_lock);
         return -1;
@@ -313,12 +723,18 @@ int r2_visual_init(const char *database_path, const char *library_directory)
         "frame_number INTEGER NOT NULL,"
         "frame_timestamp INTEGER NOT NULL,"
         "life_log_event_id INTEGER,"
-        "UNIQUE(image_path));"
-        "CREATE INDEX IF NOT EXISTS r2_visual_experiences_created_idx "
-        "ON r2_visual_experiences(created_utc);";
+        "UNIQUE(image_path));";
     char *err = NULL;
     if (sqlite3_exec(visual_db, schema, NULL, NULL, &err) != SQLITE_OK) {
         sqlite3_free(err);
+        sqlite3_close(visual_db);
+        visual_db = NULL;
+        pthread_mutex_unlock(&visual_lock);
+        return -1;
+    }
+    if (visual_migrate_schema() != SQLITE_OK) {
+        fprintf(stderr, "[R2 Visual] Could not migrate legacy visual database schema: %s\n",
+                sqlite3_errmsg(visual_db));
         sqlite3_close(visual_db);
         visual_db = NULL;
         pthread_mutex_unlock(&visual_lock);
@@ -351,8 +767,14 @@ int r2_visual_set_model(const char *model)
                *p == '-' || *p == '.' || *p == '/'))
             return -1;
     }
+    if (strcmp(model, R2_VISION_DEFAULT_MODEL) != 0) {
+        fprintf(stderr,
+                "[R2 Vision] Rejected model %s; conversation and vision must share %s.\n",
+                model, R2_VISION_DEFAULT_MODEL);
+        return -1;
+    }
     pthread_mutex_lock(&visual_lock);
-    snprintf(visual_model, sizeof(visual_model), "%s", model);
+    snprintf(visual_model, sizeof(visual_model), "%s", R2_VISION_DEFAULT_MODEL);
     pthread_mutex_unlock(&visual_lock);
     r2_log_sensory("vision_model_selected",
                    "R2's visual perception model was selected.",
@@ -370,14 +792,31 @@ int r2_visual_is_initialized(void)
 
 const char *r2_visual_model_name(void)
 {
-    return visual_model[0] ? visual_model : R2_VISION_DEFAULT_MODEL;
+    static _Thread_local char model_snapshot[sizeof(visual_model)];
+    pthread_mutex_lock(&visual_lock);
+    snprintf(model_snapshot, sizeof(model_snapshot), "%s",
+             visual_model[0] ? visual_model : R2_VISION_DEFAULT_MODEL);
+    pthread_mutex_unlock(&visual_lock);
+    return model_snapshot;
 }
 
 char *r2_visual_analyze_frame(const R2VisionFrame *frame,
                               const char *source,
                               const char *question)
 {
-    if (!frame || !frame->data || !r2_visual_is_initialized()) return NULL;
+    if (!frame || !frame->data) return NULL;
+
+    char model_snapshot[sizeof(visual_model)];
+    char directory_snapshot[sizeof(visual_directory)];
+    pthread_mutex_lock(&visual_lock);
+    if (!visual_initialized || !visual_db) {
+        pthread_mutex_unlock(&visual_lock);
+        return NULL;
+    }
+    snprintf(model_snapshot, sizeof(model_snapshot), "%s", visual_model);
+    snprintf(directory_snapshot, sizeof(directory_snapshot), "%s", visual_directory);
+    pthread_mutex_unlock(&visual_lock);
+
     size_t jpeg_length = 0;
     unsigned char *jpeg = encode_jpeg(frame, &jpeg_length);
     if (!jpeg) {
@@ -388,45 +827,74 @@ char *r2_visual_analyze_frame(const R2VisionFrame *frame,
     }
     char *base64 = base64_encode(jpeg, jpeg_length);
     if (!base64) { free(jpeg); return NULL; }
-    char *description = call_vision_model(base64, question);
+    char *model_text = call_vision_model(base64, question, model_snapshot);
     free(base64);
+    if (!model_text) {
+        publish_focus_region(NULL);
+        free(jpeg);
+        return NULL;
+    }
+    char *description = extract_visual_description(model_text);
+    free(model_text);
     if (!description) { free(jpeg); return NULL; }
 
     char image_path[PATH_MAX];
-    char image_name[64];
-    int name_length = snprintf(image_name, sizeof(image_name),
-                               "visual_%llu_%llu.jpg",
-                               (unsigned long long)frame->timestamp,
-                               (unsigned long long)frame->frame_number);
-    size_t directory_length = strnlen(visual_directory, sizeof(visual_directory));
-    if (name_length < 0 || (size_t)name_length >= sizeof(image_name) ||
-        directory_length == 0 || directory_length >= sizeof(image_path) ||
-        directory_length + 1 + (size_t)name_length >= sizeof(image_path)) {
-        errno = ENAMETOOLONG;
+    char filename[128];
+    int filename_length = snprintf(filename, sizeof(filename),
+             "visual_%llu_%llu.jpg",
+             (unsigned long long)frame->timestamp,
+             (unsigned long long)frame->frame_number);
+    size_t directory_length = strlen(directory_snapshot);
+    size_t separator_length =
+        directory_length > 0 && directory_snapshot[directory_length - 1] == '/' ? 0 : 1;
+    if (filename_length < 0 || (size_t)filename_length >= sizeof(filename) ||
+        directory_length + separator_length + (size_t)filename_length + 1 >
+            sizeof(image_path)) {
         r2_log_sensory("visual_image_archive_failed",
-                       "R2 analyzed an image but could not preserve its JPEG.",
-                       "The visual archive path exceeds the supported path length.",
-                       visual_directory);
+                       "R2 analyzed a frame but its archive path was too long.",
+                       directory_snapshot, source ? source : "Eyes");
+        free(jpeg);
+        free(description);
+        errno = ENAMETOOLONG;
+        return NULL;
+    }
+    memcpy(image_path, directory_snapshot, directory_length);
+    size_t path_offset = directory_length;
+    if (separator_length)
+        image_path[path_offset++] = '/';
+    memcpy(image_path + path_offset, filename, (size_t)filename_length + 1);
+
+    int image_fd = open(image_path, O_WRONLY | O_CREAT | O_EXCL, 0640);
+    if (image_fd < 0) {
+        int saved_errno = errno;
+        r2_log_sensory("visual_image_archive_failed",
+                       "R2 analyzed an image but could not create its JPEG archive.",
+                       strerror(saved_errno), image_path);
+        free(jpeg);
+        free(description);
+        return NULL; /* Never unlink a path that this call did not create. */
+    }
+    if (write_all(image_fd, jpeg, jpeg_length) != 0) {
+        int saved_errno = errno;
+        close(image_fd);
+        unlink(image_path); /* This call created the file. */
+        r2_log_sensory("visual_image_archive_failed",
+                       "R2 analyzed an image but could not write its JPEG archive.",
+                       strerror(saved_errno), image_path);
         free(jpeg);
         free(description);
         return NULL;
     }
-    memcpy(image_path, visual_directory, directory_length);
-    image_path[directory_length] = '/';
-    memcpy(image_path + directory_length + 1, image_name,
-           (size_t)name_length + 1);
-    int image_fd = open(image_path, O_WRONLY | O_CREAT | O_EXCL, 0640);
-    if (image_fd < 0 || write_all(image_fd, jpeg, jpeg_length) != 0) {
-        if (image_fd >= 0) close(image_fd);
+    if (close(image_fd) != 0) {
+        int saved_errno = errno;
         unlink(image_path);
         r2_log_sensory("visual_image_archive_failed",
-                       "R2 analyzed an image but could not preserve its JPEG.",
-                       strerror(errno), image_path);
+                       "R2 analyzed an image but could not close its JPEG archive cleanly.",
+                       strerror(saved_errno), image_path);
         free(jpeg);
         free(description);
         return NULL;
     }
-    close(image_fd);
     free(jpeg);
 
     time_t now = time(NULL);
@@ -440,35 +908,31 @@ char *r2_visual_analyze_frame(const R2VisionFrame *frame,
         "R2's vision model interpreted a real captured frame.",
         description, source ? source : "Eyes");
     pthread_mutex_lock(&visual_lock);
-    sqlite3_stmt *st = NULL;
-    const char *sql =
-        "INSERT INTO r2_visual_experiences "
-        "(created_utc,source,image_path,model,prompt,description,width,height,"
-        "frame_number,frame_timestamp,life_log_event_id) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?)";
-    int rc = sqlite3_prepare_v2(visual_db, sql, -1, &st, NULL);
-    if (rc == SQLITE_OK) {
-        sqlite3_bind_text(st, 1, created, -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(st, 2, source ? source : "Eyes", -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(st, 3, image_path, -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(st, 4, visual_model, -1, SQLITE_TRANSIENT);
-        if (question && *question) sqlite3_bind_text(st, 5, question, -1, SQLITE_TRANSIENT);
-        else sqlite3_bind_null(st, 5);
-        sqlite3_bind_text(st, 6, description, -1, SQLITE_TRANSIENT);
-        sqlite3_bind_int(st, 7, (int)frame->format.width);
-        sqlite3_bind_int(st, 8, (int)frame->format.height);
-        sqlite3_bind_int64(st, 9, (sqlite3_int64)frame->frame_number);
-        sqlite3_bind_int64(st, 10, (sqlite3_int64)frame->timestamp);
-        if (event_id > 0) sqlite3_bind_int64(st, 11, (sqlite3_int64)event_id);
-        else sqlite3_bind_null(st, 11);
-        rc = sqlite3_step(st);
+    if (!visual_initialized || !visual_db) {
+        pthread_mutex_unlock(&visual_lock);
+        unlink(image_path);
+        r2_log_sensory("visual_experience_store_failed",
+                       "R2 analyzed a frame, but the visual library shut down before it could be indexed.",
+                       "The JPEG archive was removed because no matching database record could be written.",
+                       image_path);
+        free(description);
+        return NULL;
     }
-    sqlite3_finalize(st);
+
+    int rc = visual_insert_compat(created, source, image_path, model_snapshot,
+                                  question, description, (int)frame->format.width,
+                                  (int)frame->format.height,
+                                  (sqlite3_int64)frame->frame_number,
+                                  (sqlite3_int64)frame->timestamp, event_id);
+    char db_error[512] = "unknown SQLite error";
+    if (rc != SQLITE_DONE)
+        snprintf(db_error, sizeof(db_error), "%s", sqlite3_errmsg(visual_db));
     pthread_mutex_unlock(&visual_lock);
     if (rc != SQLITE_DONE) {
+        unlink(image_path);
         r2_log_sensory("visual_experience_store_failed",
                        "R2 analyzed a frame but failed to save the library record.",
-                       sqlite3_errmsg(visual_db), image_path);
+                       db_error, image_path);
         free(description);
         return NULL;
     }
@@ -479,56 +943,87 @@ static char *visual_query(const char *sql, const char *query, int limit)
 {
     if (limit < 1) limit = 1;
     if (limit > 100) limit = 100;
+
     struct response_buffer b = {0};
+    int failed = 0;
     pthread_mutex_lock(&visual_lock);
     if (!visual_initialized || !visual_db) {
         pthread_mutex_unlock(&visual_lock);
         return NULL;
     }
+
     sqlite3_stmt *st = NULL;
     int rc = sqlite3_prepare_v2(visual_db, sql, -1, &st, NULL);
-    if (rc == SQLITE_OK) {
-        if (query) {
-            char pattern[2048];
-            snprintf(pattern, sizeof(pattern), "%%%s%%", query);
-            sqlite3_bind_text(st, 1, pattern, -1, SQLITE_TRANSIENT);
-            if (strstr(sql, "source LIKE ?")) {
-                sqlite3_bind_text(st, 2, pattern, -1, SQLITE_TRANSIENT);
-                sqlite3_bind_int(st, 3, limit);
-            } else {
-                sqlite3_bind_int(st, 2, limit);
-            }
-        } else {
-            sqlite3_bind_int(st, 1, limit);
-        }
-        while ((rc = sqlite3_step(st)) == SQLITE_ROW) {
-            const unsigned char *created = sqlite3_column_text(st, 0);
-            const unsigned char *source = sqlite3_column_text(st, 1);
-            const unsigned char *model = sqlite3_column_text(st, 2);
-            const unsigned char *desc = sqlite3_column_text(st, 3);
-            const unsigned char *path = sqlite3_column_text(st, 4);
-            char line[8192];
-            int n = snprintf(line, sizeof(line), "[%s] source=%s model=%s image=%s\n%s\n\n",
-                created ? (const char *)created : "?",
-                source ? (const char *)source : "?",
-                model ? (const char *)model : "?",
-                path ? (const char *)path : "?",
-                desc ? (const char *)desc : "(no description)");
-            if (n > 0) {
-                size_t add = (size_t)n;
-                if (add >= sizeof(line)) add = sizeof(line) - 1;
-                char *next = realloc(b.data, b.length + add + 1);
-                if (!next) break;
-                b.data = next;
-                memcpy(b.data + b.length, line, add);
-                b.length += add;
-                b.data[b.length] = '\0';
-            }
-        }
+    if (rc != SQLITE_OK) {
+        sqlite3_finalize(st);
+        pthread_mutex_unlock(&visual_lock);
+        return NULL;
     }
+
+    if (query) {
+        rc = sqlite3_bind_text(st, 1, query, -1, SQLITE_TRANSIENT);
+        if (rc == SQLITE_OK && strstr(sql, "lower(source)") != NULL) {
+            rc = sqlite3_bind_text(st, 2, query, -1, SQLITE_TRANSIENT);
+            if (rc == SQLITE_OK) rc = sqlite3_bind_int(st, 3, limit);
+        } else if (rc == SQLITE_OK) {
+            rc = sqlite3_bind_int(st, 2, limit);
+        }
+    } else {
+        rc = sqlite3_bind_int(st, 1, limit);
+    }
+
+    if (rc != SQLITE_OK) {
+        sqlite3_finalize(st);
+        pthread_mutex_unlock(&visual_lock);
+        return NULL;
+    }
+
+    while ((rc = sqlite3_step(st)) == SQLITE_ROW) {
+        const unsigned char *created = sqlite3_column_text(st, 0);
+        const unsigned char *source = sqlite3_column_text(st, 1);
+        const unsigned char *model = sqlite3_column_text(st, 2);
+        const unsigned char *desc = sqlite3_column_text(st, 3);
+        const unsigned char *path = sqlite3_column_text(st, 4);
+        char line[8192];
+        int n = snprintf(line, sizeof(line), "[%s] source=%s model=%s image=%s\n%s\n\n",
+            created ? (const char *)created : "?",
+            source ? (const char *)source : "?",
+            model ? (const char *)model : "?",
+            path ? (const char *)path : "?",
+            desc ? (const char *)desc : "(no description)");
+        if (n < 0) {
+            failed = 1;
+            break;
+        }
+
+        size_t add = (size_t)n;
+        if (add >= sizeof(line)) add = sizeof(line) - 1;
+        if (add > SIZE_MAX - b.length - 1) {
+            failed = 1;
+            break;
+        }
+        char *next = realloc(b.data, b.length + add + 1);
+        if (!next) {
+            failed = 1;
+            break;
+        }
+        b.data = next;
+        memcpy(b.data + b.length, line, add);
+        b.length += add;
+        b.data[b.length] = '\0';
+    }
+
+    if (rc != SQLITE_DONE)
+        failed = 1;
     sqlite3_finalize(st);
     pthread_mutex_unlock(&visual_lock);
-    if (!b.data) b.data = strdup("(No visual experiences found.)\n");
+
+    if (failed) {
+        free(b.data);
+        return NULL;
+    }
+    if (!b.data)
+        b.data = strdup("(No visual experiences found.)\n");
     return b.data;
 }
 
@@ -545,7 +1040,7 @@ char *r2_visual_search(const char *query, int limit)
     if (!query || !*query) return r2_visual_recent(limit);
     return visual_query(
         "SELECT created_utc,source,model,description,image_path "
-        "FROM r2_visual_experiences WHERE description LIKE ? COLLATE NOCASE "
-        "OR source LIKE ? COLLATE NOCASE ORDER BY id DESC LIMIT ?",
+        "FROM r2_visual_experiences WHERE instr(lower(description),lower(?))>0 "
+        "OR instr(lower(source),lower(?))>0 ORDER BY id DESC LIMIT ?",
         query, limit);
 }

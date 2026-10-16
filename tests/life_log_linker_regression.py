@@ -38,4 +38,11 @@ if missing:
     print("\n".join(missing), file=sys.stderr)
     raise SystemExit(1)
 
+query_start = source.index("static char *query_events(")
+query_end = source.index("char *r2_log_recent(", query_start)
+query_impl = source[query_start:query_end]
+for required_text in ("FROM r2_log_links l JOIN r2_log_events", "l.relationship", "l.notes", "Linked event", "event_id_seen"):
+    if required_text not in query_impl:
+        missing.append(f"link-aware search missing: {required_text}")
+
 print("Life Log structured API regression checks passed.")
