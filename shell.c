@@ -1250,16 +1250,14 @@ static void shell_ears(const char *argument)
 
 
 /* ============================================================
-   WATCH
+   WATCH COORDINATOR
    ============================================================
  *
- * Watch is deliberately NOT implemented by duplicating Eyes
- * or Ears here.
- *
- * This controller tells the Watch subsystem when to operate.
- *
- * The actual capture/detection implementation can subsequently
- * be placed behind these R2 Watch bridge functions.
+ * Watch coordinates bounded microphone capture and local Whisper
+ * transcription, then sends each usable transcript through the shared
+ * shell conversation path. It may attach to visual observation only when
+ * Eyes is already open. Audio capture and visual perception remain owned
+ * by their existing subsystems.
  */
 
 static void shell_watch_status(void)
