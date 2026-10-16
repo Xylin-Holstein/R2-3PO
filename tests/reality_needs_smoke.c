@@ -102,6 +102,68 @@ static void seed_eight_day_gap(const char *path)
     sqlite3_close(db);
 }
 
+static void seed_legacy_reality_owned_tables(void)
+{
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/r2_reality.db", R2_HOME);
+    sqlite3 *db = NULL;
+    if (sqlite3_open(path, &db) != SQLITE_OK)
+        fail("could not create legacy Reality-owned database fixture");
+    const char *legacy =
+        "CREATE TABLE r2_reality_item_memory("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT,item_name TEXT NOT NULL,"
+        "description TEXT,exact_quantity INTEGER,approximate_quantity INTEGER);"
+        "INSERT INTO r2_reality_item_memory(item_name,description,exact_quantity)"
+        " VALUES('native_old_item','Preserve this in-place Reality row',4);"
+        "CREATE TABLE r2_food_experiences("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT,food_name TEXT NOT NULL,"
+        "ingredients TEXT,fullness REAL NOT NULL,satisfaction INTEGER,notes TEXT,"
+        "eaten_at INTEGER NOT NULL,rated_at INTEGER);"
+        "INSERT INTO r2_food_experiences(food_name,fullness,eaten_at)"
+        " VALUES('native_old_meal',22,123456);"
+        "CREATE TABLE r2_reality_self_facts(key TEXT PRIMARY KEY,value TEXT NOT NULL);"
+        "INSERT INTO r2_reality_self_facts(key,value) VALUES('native_fact','keep this fact');"
+        "CREATE TABLE r2_money_account(id INTEGER PRIMARY KEY,cash_cents INTEGER,bank_cents INTEGER);"
+        "INSERT INTO r2_money_account(id,cash_cents,bank_cents) VALUES(1,4321,8765);"
+        "CREATE TABLE r2_tv_state(id INTEGER PRIMARY KEY,power INTEGER,source_kind TEXT,source_value INTEGER);"
+        "INSERT INTO r2_tv_state(id,power,source_kind,source_value) VALUES(1,1,'input',3);"
+        "CREATE TABLE r2_tv_devices(name TEXT PRIMARY KEY,connection_kind TEXT,port INTEGER);"
+        "INSERT INTO r2_tv_devices(name,connection_kind,port) VALUES('native_old_device','input',3);"
+        "CREATE TABLE r2_tv_vcr_tapes(media_path TEXT PRIMARY KEY);"
+        "INSERT INTO r2_tv_vcr_tapes(media_path) VALUES('native_old_tape.mkv');"
+        "CREATE TABLE r2_tv_vcr_state(id INTEGER PRIMARY KEY,cassette_path TEXT,transport TEXT);"
+        "INSERT INTO r2_tv_vcr_state(id,cassette_path,transport) VALUES(1,'native_old_tape.mkv','pause');"
+        "CREATE TABLE r2_reality_containers(name TEXT PRIMARY KEY,description TEXT,parent TEXT);"
+        "INSERT INTO r2_reality_containers(name,description,parent)"
+        " VALUES('native_old_container','Old in-place container','room');"
+        "CREATE TABLE r2_reality_objects("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL UNIQUE,"
+        "description TEXT,quantity INTEGER,container TEXT);"
+        "INSERT INTO r2_reality_objects(name,description,quantity,container)"
+        " VALUES('native_old_object','Old in-place object',3,'native_old_container');"
+        "CREATE TABLE r2_reality_ticks("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT,previous_tick INTEGER,current_tick INTEGER);"
+        "INSERT INTO r2_reality_ticks(previous_tick,current_tick) VALUES(7,12);"
+        "CREATE TABLE r2_food_preferences("
+        "food_name TEXT PRIMARY KEY,satisfaction_sum REAL,rating_count INTEGER);"
+        "INSERT INTO r2_food_preferences(food_name,satisfaction_sum,rating_count)"
+        " VALUES('native_old_meal',2.5,1);"
+        "CREATE TABLE r2_food_ingredient_preferences("
+        "ingredient TEXT PRIMARY KEY,satisfaction_sum REAL,rating_count INTEGER);"
+        "INSERT INTO r2_food_ingredient_preferences(ingredient,satisfaction_sum,rating_count)"
+        " VALUES('native_old_ingredient',1.5,1);";
+    char *error = NULL;
+    int rc = sqlite3_exec(db, legacy, NULL, NULL, &error);
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "reality needs smoke failed: could not seed legacy Reality DB: %s\\n",
+                error ? error : sqlite3_errmsg(db));
+        sqlite3_free(error);
+        sqlite3_close(db);
+        exit(1);
+    }
+    sqlite3_close(db);
+}
+
 static void seed_legacy_fridge_schema(void)
 {
     if (mkdir(R2_ROOT, 0700) != 0 && errno != EEXIST) {
@@ -370,6 +432,7 @@ static void verify_legacy_shared_reality_migration(void)
 int main(void)
 {
     seed_legacy_fridge_schema();
+    seed_legacy_reality_owned_tables();
     seed_legacy_shared_reality_tables();
     if (r2_reality_init() != 0) fail("Reality initialization failed");
     verify_legacy_fridge_migration();
