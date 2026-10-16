@@ -1796,6 +1796,17 @@ static int migrate_existing_reality_schema(void)
             return -1;
     }
 
+    /* The current schema permits only one connected device per physical port.
+       Older DBs did not always enforce that rule. Keep every device row, but
+       mark later collisions disconnected before the new unique index is made. */
+    if (reality_table_exists("r2_tv_devices") &&
+        exec_sql(
+            "UPDATE r2_tv_devices SET connected=0 "
+            "WHERE connected=1 AND rowid NOT IN ("
+            "SELECT MIN(rowid) FROM r2_tv_devices WHERE connected=1 "
+            "GROUP BY connection_kind,port);") != 0)
+        return -1;
+
     return 0;
 }
 
