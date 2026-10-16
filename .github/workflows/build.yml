@@ -153,7 +153,10 @@ jobs:
       - name: Keep diagnostics out of the interactive conversation stream
         run: python3 tests/console_diagnostics_isolation_smoke.py
 
-      - name: Guard public chat input boundaries\n        run: python3 tests/public_chat_input_boundary_smoke.py\n\n      - name: Guard direct conversation against stderr-only failures
+      - name: Guard public chat input boundaries
+        run: python3 tests/public_chat_input_boundary_smoke.py
+
+      - name: Guard direct conversation against stderr-only failures
         run: python3 tests/direct_conversation_failure_smoke.py
 
       - name: Reject oversized shell messages without truncation
