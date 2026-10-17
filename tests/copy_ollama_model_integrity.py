@@ -97,5 +97,31 @@ class CopyOllamaModelIntegrityTests(unittest.TestCase):
             self.assertEqual(destination_blob.read_bytes(), b"weights")
 
 
+    def test_model_reference_rejects_path_traversal_and_invalid_components(self) -> None:
+        invalid = (
+            "../outside:latest",
+            "qwen3.5:../outside",
+            "qwen3.5:tag/../../outside",
+            "org/../../outside:latest",
+            "org//model:latest",
+            "model:",
+            ":latest",
+            "model:tag:extra",
+        )
+        for model in invalid:
+            with self.subTest(model=model):
+                with self.assertRaisesRegex(ValueError, "invalid Ollama model reference"):
+                    copier.model_manifest_relative(model)
+
+    def test_model_reference_accepts_normal_namespaced_and_tagged_models(self) -> None:
+        self.assertEqual(
+            copier.model_manifest_relative("qwen3.5:9b").as_posix(),
+            "manifests/registry.ollama.ai/library/qwen3.5/9b",
+        )
+        self.assertEqual(
+            copier.model_manifest_relative("my-org/model_name:latest-quantized").as_posix(),
+            "manifests/registry.ollama.ai/my-org/model_name/latest-quantized",
+        )
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
