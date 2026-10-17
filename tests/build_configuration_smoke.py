@@ -44,7 +44,7 @@ require(
     "CI compiles with the same strict compiler policy",
 )
 require(
-    re.search(r"^      - 'release/\\*\\*'$", workflow, re.MULTILINE) is not None,
+    "      - 'release/**'" in workflow,
     "release branches run the same full CI workflow instead of silently skipping validation",
 )
 source_block = re.search(r"^SOURCES\s*=\s*(.+)$", makefile, re.MULTILINE)
