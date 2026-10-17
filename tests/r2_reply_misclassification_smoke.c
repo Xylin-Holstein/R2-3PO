@@ -389,6 +389,20 @@ int main(void)
                 "block terminators inside fenced content do not truncate an action payload");
     free(block_with_quoted_end);
 
+    pthread_mutex_lock(&messages_lock);
+    int prompt_sections_rc = message_add_system_prompt_sections_locked();
+    pthread_mutex_unlock(&messages_lock);
+    ok &= check(prompt_sections_rc == 0 && messages.count == 2 &&
+                    !strncmp(messages.items[0].content,
+                             "============================================================\\nIDENTITY AND PERSISTENT MEMORY",
+                             strlen("============================================================\\nIDENTITY AND PERSISTENT MEMORY")) &&
+                    strstr(messages.items[1].content,
+                           "============================================================\\nREALITY CONTEXT: USE IT, DO NOT RECITE IT") == messages.items[1].content &&
+                    messages.items[0].pinned && messages.items[1].pinned &&
+                    strlen(messages.items[0].content) + strlen(messages.items[1].content) ==
+                        strlen(SYSTEM_PROMPT),
+                "the complete static prompt is split into pinned core-identity and capability sections");
+
     /* Background task output must never be inserted as an unmarked human turn. */
     CompletedTask *completed = calloc(1, sizeof(*completed));
     if (completed) {
