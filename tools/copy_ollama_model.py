@@ -8,6 +8,7 @@ serve the same model without sharing the user's inference process.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -69,6 +70,15 @@ def model_manifest_relative(model: str) -> Path:
     return Path("manifests") / "registry.ollama.ai" / Path(*parts) / tag
 
 
+def _sha256_file(path: Path) -> str:
+    """Hash a model blob without loading its potentially multi-gigabyte bytes into RAM."""
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def copy_model(source_root: Path, destination_root: Path, model: str, owner: str) -> None:
     rel = model_manifest_relative(model)
     source_manifest = source_root / rel
@@ -98,16 +108,30 @@ def copy_model(source_root: Path, destination_root: Path, model: str, owner: str
     for digest in sorted(set(digests)):
         if not digest.startswith("sha256:") or len(digest) != 71:
             raise ValueError(f"unsupported blob digest in manifest: {digest}")
-        filename = "sha256-" + digest.split(":", 1)[1]
+        expected_sha256 = digest.split(":", 1)[1]
+        filename = "sha256-" + expected_sha256
         src = source_root / "blobs" / filename
         dst = destination_root / "blobs" / filename
         if not src.is_file():
             raise FileNotFoundError(f"model blob is missing: {src}")
-        if not dst.is_file() or dst.stat().st_size != src.stat().st_size:
+        # Ollama blob names are content hashes. Size equality alone is not proof
+        # that a pre-existing destination is intact; verify both source and
+        # destination so a corrupt same-size blob cannot survive an upgrade.
+        if _sha256_file(src) != expected_sha256:
+            raise ValueError(f"source model blob failed SHA-256 verification: {src}")
+        if not dst.is_file() or _sha256_file(dst) != expected_sha256:
             tmp = dst.with_name(dst.name + f".tmp.{os.getpid()}")
-            shutil.copyfile(src, tmp)
-            os.chmod(tmp, 0o644)
-            os.replace(tmp, dst)
+            try:
+                shutil.copyfile(src, tmp)
+                if _sha256_file(tmp) != expected_sha256:
+                    raise ValueError(f"copied model blob failed SHA-256 verification: {tmp}")
+                os.chmod(tmp, 0o644)
+                os.replace(tmp, dst)
+            finally:
+                try:
+                    tmp.unlink()
+                except FileNotFoundError:
+                    pass
         if uid is not None:
             os.chown(dst, uid, gid)
         os.chmod(dst, 0o644)
