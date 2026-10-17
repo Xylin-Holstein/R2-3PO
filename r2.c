@@ -3595,6 +3595,33 @@ static R2SystemContextBudget r2_compute_system_context_budget(size_t system_budg
     return budget;
 }
 
+static size_t r2_safe_prompt_prefix_length(const char *content,
+                                            size_t cap,
+                                            int preserve_records)
+{
+    if (!content || cap == 0)
+        return 0;
+
+    size_t boundary = cap;
+    if (preserve_records) {
+        while (boundary > 0 && content[boundary - 1] != '\n')
+            --boundary;
+        return boundary > 0 ? boundary : cap;
+    }
+
+    size_t floor = cap * 3 / 4;
+    while (boundary > floor) {
+        char ch = content[boundary - 1];
+        if (ch == '\n')
+            return boundary;
+        if ((ch == '.' || ch == '!' || ch == '?') &&
+            (boundary == cap || isspace((unsigned char)content[boundary])))
+            return boundary;
+        --boundary;
+    }
+    return cap;
+}
+
 static char *ollama_chat_with_limit(
     Message *msgs,
     size_t count,
@@ -3944,17 +3971,17 @@ static char *ollama_chat_with_limit(
             if (length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS)
                 length = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;
             if (message_priority == 0 && length > identity_budget)
-                length = identity_budget;
+                length = r2_safe_prompt_prefix_length(content, identity_budget, 0);
             if (message_priority == 1 && length > reality_reserve)
-                length = reality_reserve;
+                length = r2_safe_prompt_prefix_length(content, reality_reserve, 1);
             if (message_priority == 2 && length > retrieval_reserve)
-                length = retrieval_reserve;
+                length = r2_safe_prompt_prefix_length(content, retrieval_reserve, 1);
             if (message_priority == 3 || message_priority == 4) {
                 size_t capability_remaining =
                     capabilities_reserve > capabilities_used
                         ? capabilities_reserve - capabilities_used : 0;
                 if (length > capability_remaining)
-                    length = capability_remaining;
+                    length = r2_safe_prompt_prefix_length(content, capability_remaining, 0);
             }
             size_t remaining = system_budget > total_chars ? system_budget - total_chars : 0;
             if (length > remaining) length = remaining;
