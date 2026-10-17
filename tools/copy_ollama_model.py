@@ -123,7 +123,11 @@ def copy_model(source_root: Path, destination_root: Path, model: str, owner: str
             f"{model} is not installed in {source_root}. Start the existing Ollama service, "
             f"pull {model} there, and rerun this installer; this tool never downloads models."
         )
-    manifest = json.loads(source_manifest.read_text(encoding="utf-8"))
+    # Keep the exact bytes whose structure/digests are validated. Reopening
+    # the source manifest after copying blobs could install a different manifest
+    # if the source changes between the validation and write phases.
+    manifest_bytes = source_manifest.read_bytes()
+    manifest = json.loads(manifest_bytes.decode("utf-8"))
     if not isinstance(manifest, dict):
         raise ValueError(f"invalid Ollama manifest object: {source_manifest}")
     config = manifest.get("config")
@@ -223,8 +227,8 @@ def copy_model(source_root: Path, destination_root: Path, model: str, owner: str
     )
     tmp_manifest = Path(manifest_tmp_name)
     try:
-        with os.fdopen(manifest_fd, "wb") as output, source_manifest.open("rb") as input_stream:
-            shutil.copyfileobj(input_stream, output, length=1024 * 1024)
+        with os.fdopen(manifest_fd, "wb") as output:
+            output.write(manifest_bytes)
             output.flush()
             os.fsync(output.fileno())
         os.chmod(tmp_manifest, 0o644)
