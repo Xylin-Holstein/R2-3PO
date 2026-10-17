@@ -9874,7 +9874,7 @@ char *r2_ears_listen_cancelable(unsigned seconds,
             if (errno == ECHILD)
                 child = -1;
             else
-                fprintf(stderr, "[Ears] Could not inspect Whisper child status: %s\\n",
+                fprintf(stderr, "[Ears] Could not inspect Whisper child status: %s\n",
                         strerror(errno));
             goto cleanup;
         }
