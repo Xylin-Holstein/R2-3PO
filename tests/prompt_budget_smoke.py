@@ -85,10 +85,10 @@ def allocation_for_context(num_ctx: int, num_predict: int, override_length: int,
     )
     system_budget = min(system_budget, system_total, input_budget)
     reality_reserve = min(system_budget // 4, 3000)
-    identity_budget = system_budget // 5
-    if identity_budget < 1000 and system_budget > reality_reserve + 2000:
-        identity_budget = 1000
-    identity_budget = min(identity_budget, system_budget - reality_reserve)
+    identity_minimum = system_budget // 5
+    if identity_minimum < 1000 and system_budget > reality_reserve + 2000:
+        identity_minimum = 1000
+    identity_budget = min(identity_minimum, system_budget - reality_reserve)
     retrieval_reserve = system_budget // 6
     reserved = reality_reserve + identity_budget + retrieval_reserve
     override_budget = (
@@ -97,7 +97,7 @@ def allocation_for_context(num_ctx: int, num_predict: int, override_length: int,
     )
     bounded_override = min(override_length, override_budget)
     return (system_budget, bounded_override, identity_budget, reality_reserve,
-            retrieval_reserve, current_user_reserve, input_budget, identity_budget)
+            retrieval_reserve, current_user_reserve, input_budget, identity_minimum)
 
 # Exercise low-memory, normal, and long-user-message paths. The allocator must
 # leave a system budget and a bounded current-turn reservation at every size.
