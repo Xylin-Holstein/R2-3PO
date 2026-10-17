@@ -1051,6 +1051,39 @@ static int message_add_pinned(
     );
 }
 
+/* Split the full static prompt at a semantic boundary. The identity/memory
+   contract is always prioritized; the action/tool subsystem guidance is a
+   separate lower-priority message so it can yield to the active turn's
+   retrieved memories without truncating the identity block halfway through. */
+static int message_add_system_prompt_sections_locked(void)
+{
+    static const char section_marker[] =
+        "============================================================\n"
+        "REALITY CONTEXT: USE IT, DO NOT RECITE IT\n"
+        "============================================================\n";
+    const char *capabilities = strstr(SYSTEM_PROMPT, section_marker);
+    if (!capabilities || capabilities == SYSTEM_PROMPT) {
+        fprintf(stderr, "[R2] Could not split the static system prompt at its capability boundary.\n");
+        return -1;
+    }
+
+    size_t identity_length = (size_t)(capabilities - SYSTEM_PROMPT);
+    char *identity_prompt = malloc(identity_length + 1);
+    if (!identity_prompt) {
+        fprintf(stderr, "[R2] Could not allocate the core identity prompt.\n");
+        return -1;
+    }
+    memcpy(identity_prompt, SYSTEM_PROMPT, identity_length);
+    identity_prompt[identity_length] = '\0';
+
+    int rc = message_add_pinned("system", identity_prompt);
+    free(identity_prompt);
+    if (rc != 0)
+        return rc;
+
+    return message_add_pinned("system", capabilities);
+}
+
 static void message_free_all(void)
 {
     for (size_t i = 0;
@@ -11249,10 +11282,7 @@ int r2_init(void)
     );
 
     if (
-        message_add_pinned(
-            "system",
-            SYSTEM_PROMPT
-        ) != 0
+        message_add_system_prompt_sections_locked() != 0
     ) {
 
         pthread_mutex_unlock(
