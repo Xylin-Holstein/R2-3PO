@@ -127,6 +127,14 @@ def copy_model(source_root: Path, destination_root: Path, model: str, owner: str
     if not digests:
         raise ValueError(f"manifest contains no model blobs: {source_manifest}")
 
+    # Validate every digest before touching the destination. Digests become
+    # filenames below, so length/prefix checks alone are insufficient: a
+    # malformed manifest could put separators and parent components in a digest.
+    for digest in digests:
+        if (not digest.startswith("sha256:") or len(digest) != 71
+                or any(char not in "0123456789abcdef" for char in digest[7:])):
+            raise ValueError(f"unsupported blob digest in manifest: {digest}")
+
     uid = gid = None
     if owner:
         account = pwd.getpwnam(owner)
@@ -141,9 +149,7 @@ def copy_model(source_root: Path, destination_root: Path, model: str, owner: str
     (destination_root / "blobs").mkdir(parents=True, exist_ok=True)
     (destination_root / rel.parent).mkdir(parents=True, exist_ok=True)
     for digest in sorted(set(digests)):
-        if not digest.startswith("sha256:") or len(digest) != 71:
-            raise ValueError(f"unsupported blob digest in manifest: {digest}")
-        expected_sha256 = digest.split(":", 1)[1]
+        expected_sha256 = digest[7:]
         filename = "sha256-" + expected_sha256
         src = source_root / "blobs" / filename
         dst = destination_root / "blobs" / filename
