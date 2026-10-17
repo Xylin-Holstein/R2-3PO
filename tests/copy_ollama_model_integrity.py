@@ -48,6 +48,23 @@ class CopyOllamaModelIntegrityTests(unittest.TestCase):
             copier.copy_model(source, destination, "qwen3.5:9b", "")
             self.assertEqual(copied.read_bytes(), b"weights")
 
+    def test_symlinked_destination_blob_is_replaced_not_followed(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="r2-model-copy-test-") as temporary:
+            base = Path(temporary)
+            source, destination = base / "source", base / "destination"
+            self._write_model(source, "qwen3.5:9b", {b"config": "unused", b"weights": "unused"})
+            copier.copy_model(source, destination, "qwen3.5:9b", "")
+            weights_digest = hashlib.sha256(b"weights").hexdigest()
+            copied = destination / "blobs" / ("sha256-" + weights_digest)
+            outside = base / "outside-sentinel"
+            outside.write_bytes(b"weights")
+            copied.unlink()
+            copied.symlink_to(outside)
+            copier.copy_model(source, destination, "qwen3.5:9b", "")
+            self.assertFalse(copied.is_symlink(), "destination blob symlink must be replaced")
+            self.assertEqual(copied.read_bytes(), b"weights")
+            self.assertEqual(outside.read_bytes(), b"weights", "external target must remain untouched")
+
     def test_corrupt_source_blob_is_rejected_before_overwrite(self) -> None:
         with tempfile.TemporaryDirectory(prefix="r2-model-copy-test-") as temporary:
             base = Path(temporary)
