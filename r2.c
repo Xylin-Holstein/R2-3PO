@@ -4445,17 +4445,7 @@ static int query_has_phrase(const char *query, const char *phrase)
 static int conversation_reply_token_budget(const char *query)
 {
     if (!query || !*query)
-        return 768;
-
-    static const char *const code_terms[] = {
-        "write", "rewrite", "create", "implement", "code", "script",
-        "program", "file", "debug", "diagnos", "generate", "build",
-        "modify", "fix"
-    };
-    for (size_t i = 0; i < sizeof(code_terms) / sizeof(code_terms[0]); ++i) {
-        if (query_has_word_prefix(query, code_terms[i]))
-            return 8192;
-    }
+        return 1024;
 
     static const char *const concise_phrases[] = {
         "briefly", "short answer", "one sentence", "in one sentence",
@@ -4468,8 +4458,22 @@ static int conversation_reply_token_budget(const char *query)
             return 768;
     }
 
+    /* Long user messages need input room more than a huge generation ceiling.
+       The serializer reserves num_predict tokens before it knows how many the
+       model will actually use, so treating a long message as an 8k-token answer
+       can truncate the prompt or reject the complete active turn. */
     if (strlen(query) > 1200)
-        return 8192;
+        return 2048;
+
+    static const char *const code_terms[] = {
+        "write", "rewrite", "create", "implement", "code", "script",
+        "program", "file", "debug", "diagnos", "generate", "build",
+        "modify", "fix"
+    };
+    for (size_t i = 0; i < sizeof(code_terms) / sizeof(code_terms[0]); ++i) {
+        if (query_has_word_prefix(query, code_terms[i]))
+            return 4096;
+    }
 
     static const char *const detailed_terms[] = {
         "explain", "compare", "analy", "review", "step-by-step", "detailed",
@@ -4478,9 +4482,9 @@ static int conversation_reply_token_budget(const char *query)
     };
     for (size_t i = 0; i < sizeof(detailed_terms) / sizeof(detailed_terms[0]); ++i) {
         if (query_has_word_prefix(query, detailed_terms[i]))
-            return 6144;
+            return 2048;
     }
-    return 4096;
+    return 1024;
 }
 
 /*
