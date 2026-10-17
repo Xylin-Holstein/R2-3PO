@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+"""Functional tests for integrity-checking copies of content-addressed Ollama blobs."""
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tools"))
+import copy_ollama_model as copier  # noqa: E402
+
+
+class CopyOllamaModelIntegrityTests(unittest.TestCase):
+    def _write_model(self, root: Path, model: str, blobs: dict[bytes, str]) -> dict[bytes, Path]:
+        blob_paths: dict[bytes, Path] = {}
+        for payload in blobs:
+            digest = hashlib.sha256(payload).hexdigest()
+            path = root / "blobs" / ("sha256-" + digest)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(payload)
+            blob_paths[payload] = path
+        manifest_path = root / copier.model_manifest_relative(model)
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest = {
+            "schemaVersion": 2,
+            "config": {"digest": "sha256:" + hashlib.sha256(b"config").hexdigest()},
+            "layers": [{"digest": "sha256:" + hashlib.sha256(b"weights").hexdigest()}],
+        }
+        (root / "blobs" / ("sha256-" + hashlib.sha256(b"config").hexdigest())).write_bytes(b"config")
+        (root / "blobs" / ("sha256-" + hashlib.sha256(b"weights").hexdigest())).write_bytes(b"weights")
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        return blob_paths
+
+    def test_same_size_corrupt_destination_is_repaired(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="r2-model-copy-test-") as temporary:
+            base = Path(temporary)
+            source, destination = base / "source", base / "destination"
+            self._write_model(source, "qwen3.5:9b", {b"config": "unused", b"weights": "unused"})
+            copier.copy_model(source, destination, "qwen3.5:9b", "")
+            weights_digest = hashlib.sha256(b"weights").hexdigest()
+            copied = destination / "blobs" / ("sha256-" + weights_digest)
+            copied.write_bytes(b"WEIGHT")  # Same six-byte size, wrong content.
+            self.assertEqual(copied.stat().st_size, len(b"weights"))
+            copier.copy_model(source, destination, "qwen3.5:9b", "")
+            self.assertEqual(copied.read_bytes(), b"weights")
+
+    def test_corrupt_source_blob_is_rejected_before_overwrite(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="r2-model-copy-test-") as temporary:
+            base = Path(temporary)
+            source, destination = base / "source", base / "destination"
+            self._write_model(source, "qwen3.5:9b", {b"config": "unused", b"weights": "unused"})
+            copier.copy_model(source, destination, "qwen3.5:9b", "")
+            weights_digest = hashlib.sha256(b"weights").hexdigest()
+            source_blob = source / "blobs" / ("sha256-" + weights_digest)
+            destination_blob = destination / "blobs" / ("sha256-" + weights_digest)
+            source_blob.write_bytes(b"WEIGHT")
+            with self.assertRaisesRegex(ValueError, "source model blob failed SHA-256 verification"):
+                copier.copy_model(source, destination, "qwen3.5:9b", "")
+            self.assertEqual(destination_blob.read_bytes(), b"weights")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
