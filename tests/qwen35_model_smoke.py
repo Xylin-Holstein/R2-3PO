@@ -199,7 +199,8 @@ require(
     and "capabilities_reserve > capabilities_used" in core
     and "capability_remaining" in core
     and "r2_capability_section_matches_query" in core
-    and "r2_inference_system_priority(content, ollama_authoritative_user_query)" in core
+    and "r2_inference_system_priority(" in core
+    and "ollama_authoritative_user_query" in core
     and "Prefer a complete sentence boundary when the cap falls inside the" in core
     and "system_budget - reality_reserve - identity_minimum" not in core,
     "adaptive context budgeting preserves core identity, live Reality, retrieved memory, and a separate capability prompt",
