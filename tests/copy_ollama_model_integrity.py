@@ -190,6 +190,37 @@ class CopyOllamaModelIntegrityTests(unittest.TestCase):
             self.assertEqual(copied_blob.read_bytes(), b"weights")
             self.assertEqual(copied_manifest.read_bytes(), source_manifest.read_bytes())
 
+    def test_symlinked_source_manifest_is_rejected_before_destination_changes(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="r2-model-copy-test-") as temporary:
+            base = Path(temporary)
+            source, destination = base / "source", base / "destination"
+            self._write_model(source, "qwen3.5:9b", {b"config": "unused", b"weights": "unused"})
+            manifest_path = source / copier.model_manifest_relative("qwen3.5:9b")
+            external_manifest = base / "external-manifest"
+            external_manifest.write_bytes(manifest_path.read_bytes())
+            manifest_path.unlink()
+            manifest_path.symlink_to(external_manifest)
+
+            with self.assertRaisesRegex(ValueError, "refusing symlinked source manifest"):
+                copier.copy_model(source, destination, "qwen3.5:9b", "")
+            self.assertFalse(destination.exists())
+
+    def test_symlinked_source_blob_is_rejected_before_destination_changes(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="r2-model-copy-test-") as temporary:
+            base = Path(temporary)
+            source, destination = base / "source", base / "destination"
+            self._write_model(source, "qwen3.5:9b", {b"config": "unused", b"weights": "unused"})
+            weights_digest = hashlib.sha256(b"weights").hexdigest()
+            source_blob = source / "blobs" / ("sha256-" + weights_digest)
+            external_blob = base / "external-blob"
+            external_blob.write_bytes(b"weights")
+            source_blob.unlink()
+            source_blob.symlink_to(external_blob)
+
+            with self.assertRaisesRegex(ValueError, "refusing symlinked source model blob"):
+                copier.copy_model(source, destination, "qwen3.5:9b", "")
+            self.assertFalse(destination.exists())
+
     def test_model_reference_rejects_path_traversal_and_invalid_components(self) -> None:
         invalid = (
             "../outside:latest",
