@@ -3572,26 +3572,40 @@ typedef struct {
 static R2SystemContextBudget r2_compute_system_context_budget(size_t system_budget)
 {
     R2SystemContextBudget budget = {0};
-    budget.reality_reserve = system_budget / 6;
-    if (budget.reality_reserve > 3000)
-        budget.reality_reserve = 3000;
+    if (system_budget < 18000) {
+        /*
+         * Long user turns or larger output ceilings leave less prompt space.
+         * In that regime, prioritize the conversation contract and complete
+         * active turn; trim broad capability guidance before current evidence.
+         */
+        budget.reality_reserve = system_budget / 10;
+        if (budget.reality_reserve > 2000)
+            budget.reality_reserve = 2000;
+        budget.identity_budget = system_budget / 4;
+        budget.retrieval_reserve = system_budget / 8;
+        budget.capabilities_reserve = system_budget / 20;
+    } else {
+        budget.reality_reserve = system_budget / 6;
+        if (budget.reality_reserve > 3000)
+            budget.reality_reserve = 3000;
+        budget.identity_budget = system_budget / 3;
+        budget.retrieval_reserve = system_budget / 6;
+        budget.capabilities_reserve = system_budget / 12;
+    }
 
-    budget.identity_budget = system_budget / 3;
-    if (budget.identity_budget < 1000 &&
-        system_budget > budget.reality_reserve + 2000)
-        budget.identity_budget = 1000;
+    if (budget.identity_budget < 500 &&
+        system_budget > budget.reality_reserve + 1000)
+        budget.identity_budget = 500;
     if (budget.identity_budget > system_budget - budget.reality_reserve)
         budget.identity_budget = system_budget - budget.reality_reserve;
 
-    budget.retrieval_reserve = system_budget / 6;
-    budget.capabilities_reserve = system_budget / 12;
     size_t reserved = budget.reality_reserve +
                       budget.identity_budget +
                       budget.retrieval_reserve +
                       budget.capabilities_reserve;
     budget.override_budget = system_budget > reserved
         ? system_budget - reserved
-        : system_budget / 4;
+        : system_budget / 2;
     return budget;
 }
 
