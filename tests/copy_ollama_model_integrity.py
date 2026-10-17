@@ -43,7 +43,7 @@ class CopyOllamaModelIntegrityTests(unittest.TestCase):
             copier.copy_model(source, destination, "qwen3.5:9b", "")
             weights_digest = hashlib.sha256(b"weights").hexdigest()
             copied = destination / "blobs" / ("sha256-" + weights_digest)
-            copied.write_bytes(b"WEIGHT")  # Same six-byte size, wrong content.
+            copied.write_bytes(b"WEIGHT!")  # Same seven-byte size, wrong content.
             self.assertEqual(copied.stat().st_size, len(b"weights"))
             copier.copy_model(source, destination, "qwen3.5:9b", "")
             self.assertEqual(copied.read_bytes(), b"weights")
@@ -57,7 +57,7 @@ class CopyOllamaModelIntegrityTests(unittest.TestCase):
             weights_digest = hashlib.sha256(b"weights").hexdigest()
             source_blob = source / "blobs" / ("sha256-" + weights_digest)
             destination_blob = destination / "blobs" / ("sha256-" + weights_digest)
-            source_blob.write_bytes(b"WEIGHT")
+            source_blob.write_bytes(b"WEIGHT!")
             with self.assertRaisesRegex(ValueError, "source model blob failed SHA-256 verification"):
                 copier.copy_model(source, destination, "qwen3.5:9b", "")
             self.assertEqual(destination_blob.read_bytes(), b"weights")
