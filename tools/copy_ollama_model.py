@@ -17,6 +17,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 
 
 def service_model_root(model: str) -> Path | None:
@@ -155,9 +156,16 @@ def copy_model(source_root: Path, destination_root: Path, model: str, owner: str
         if _sha256_file(src) != expected_sha256:
             raise ValueError(f"source model blob failed SHA-256 verification: {src}")
         if dst.is_symlink() or not dst.is_file() or _sha256_file(dst) != expected_sha256:
-            tmp = dst.with_name(dst.name + f".tmp.{os.getpid()}")
+            # Create the temporary file exclusively in the destination directory.
+            # A predictable PID-based name could already be a symlink and redirect
+            # shutil.copyfile() outside the model store.
+            fd, tmp_name = tempfile.mkstemp(prefix=dst.name + ".tmp.", dir=dst.parent)
+            tmp = Path(tmp_name)
             try:
-                shutil.copyfile(src, tmp)
+                with os.fdopen(fd, "wb") as output, src.open("rb") as input_stream:
+                    shutil.copyfileobj(input_stream, output, length=1024 * 1024)
+                    output.flush()
+                    os.fsync(output.fileno())
                 if _sha256_file(tmp) != expected_sha256:
                     raise ValueError(f"copied model blob failed SHA-256 verification: {tmp}")
                 os.chmod(tmp, 0o644)
@@ -173,10 +181,22 @@ def copy_model(source_root: Path, destination_root: Path, model: str, owner: str
 
     target_manifest = destination_root / rel
     _reject_symlink_path_components(target_manifest.parent)
-    tmp_manifest = target_manifest.with_name(target_manifest.name + f".tmp.{os.getpid()}")
-    shutil.copyfile(source_manifest, tmp_manifest)
-    os.chmod(tmp_manifest, 0o644)
-    os.replace(tmp_manifest, target_manifest)
+    manifest_fd, manifest_tmp_name = tempfile.mkstemp(
+        prefix=target_manifest.name + ".tmp.", dir=target_manifest.parent
+    )
+    tmp_manifest = Path(manifest_tmp_name)
+    try:
+        with os.fdopen(manifest_fd, "wb") as output, source_manifest.open("rb") as input_stream:
+            shutil.copyfileobj(input_stream, output, length=1024 * 1024)
+            output.flush()
+            os.fsync(output.fileno())
+        os.chmod(tmp_manifest, 0o644)
+        os.replace(tmp_manifest, target_manifest)
+    finally:
+        try:
+            tmp_manifest.unlink()
+        except FileNotFoundError:
+            pass
     if uid is not None:
         os.chown(target_manifest, uid, gid)
     manifest_parents = []
