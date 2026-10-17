@@ -247,7 +247,8 @@ def main() -> int:
         copy_model(source, args.destination_root, args.model, args.owner)
     except (OSError, ValueError, json.JSONDecodeError, KeyError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
-        return 1    return 0
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
