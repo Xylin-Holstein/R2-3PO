@@ -59,13 +59,26 @@ def service_model_root(model: str) -> Path | None:
 
 
 def model_manifest_relative(model: str) -> Path:
+    """Map a model reference to a manifest path without accepting path syntax."""
+    if not isinstance(model, str) or not model or model.count(":") > 1:
+        raise ValueError(f"invalid Ollama model reference: {model!r}")
     if ":" in model:
         name, tag = model.rsplit(":", 1)
     else:
         name, tag = model, "latest"
-    if not name or not tag or name.startswith("/") or ".." in Path(name).parts:
-        raise ValueError(f"invalid Ollama model reference: {model}")
+
+    # Model names may be unqualified or namespace/model; tags are a single
+    # component. Reject separators, traversal, empty components, and other
+    # path syntax before constructing a path used by a privileged installer.
     parts = name.split("/")
+    valid_component = lambda value: (
+        bool(value)
+        and value not in {".", ".."}
+        and all(char.isalnum() or char in "._-" for char in value)
+    )
+    if (not parts or any(not valid_component(part) for part in parts)
+            or not valid_component(tag)):
+        raise ValueError(f"invalid Ollama model reference: {model!r}")
     if len(parts) == 1:
         parts = ["library", parts[0]]
     return Path("manifests") / "registry.ollama.ai" / Path(*parts) / tag
