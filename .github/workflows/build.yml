@@ -212,11 +212,11 @@ jobs:
           # Isolate all database and workspace paths under a disposable temp
           # root. Never chmod or recursively delete a shared /home path in CI.
           ROOT="$(mktemp -d /tmp/r2-log-linked-retrieval.XXXXXX)"
-          trap 'rm -rf "$ROOT" /tmp/r2-log-linked-retrieval-test' EXIT
+          trap 'rm -rf "$ROOT"' EXIT
           mkdir -p "$ROOT/R2" "$ROOT/R2_Diary"
           FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\"$ROOT\" -DR2_DIARY_DATABASE=\"$ROOT/R2/r2_memory.db\" -DR2_DIARY_DIR=\"$ROOT/R2_Diary\""
-          cc $FLAGS tests/log_linked_retrieval_smoke.c Log.c -o /tmp/r2-log-linked-retrieval-test -lsqlite3 -lpthread -lm
-          /tmp/r2-log-linked-retrieval-test
+          cc $FLAGS tests/log_linked_retrieval_smoke.c Log.c -o "$ROOT/log-linked-retrieval-test" -lsqlite3 -lpthread -lm
+          "$ROOT/log-linked-retrieval-test"
 
       - name: Check bounded RAM context cache and hardware telemetry
         run: python3 tests/context_cache_smoke.py
