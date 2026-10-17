@@ -3429,20 +3429,20 @@ typedef struct {
     size_t identity_budget;
     size_t reality_reserve;
     size_t retrieval_reserve;
+    size_t capabilities_reserve;
 } R2SystemContextBudget;
 
-/* Leave explicit room for active-turn retrieval. Without this reserve, the
-   identity block expands to consume the entire remainder after the override
-   and Reality snapshot, silently excluding retrieved memories on the target's
-   8k context tier even though retrieval completed successfully. */
+/* Reserve separate shares for core identity, live Reality, current-turn
+   retrieval, and the split capability prompt. The conversation contract gets
+   the remainder; broad startup memory and archive history use only spare room. */
 static R2SystemContextBudget r2_compute_system_context_budget(size_t system_budget)
 {
     R2SystemContextBudget budget = {0};
-    budget.reality_reserve = system_budget / 4;
+    budget.reality_reserve = system_budget / 6;
     if (budget.reality_reserve > 3000)
         budget.reality_reserve = 3000;
 
-    budget.identity_budget = system_budget / 5;
+    budget.identity_budget = system_budget / 3;
     if (budget.identity_budget < 1000 &&
         system_budget > budget.reality_reserve + 2000)
         budget.identity_budget = 1000;
@@ -3450,12 +3450,14 @@ static R2SystemContextBudget r2_compute_system_context_budget(size_t system_budg
         budget.identity_budget = system_budget - budget.reality_reserve;
 
     budget.retrieval_reserve = system_budget / 6;
+    budget.capabilities_reserve = system_budget / 8;
     size_t reserved = budget.reality_reserve +
                       budget.identity_budget +
-                      budget.retrieval_reserve;
+                      budget.retrieval_reserve +
+                      budget.capabilities_reserve;
     budget.override_budget = system_budget > reserved
         ? system_budget - reserved
-        : system_budget / 3;
+        : system_budget / 4;
     return budget;
 }
 
