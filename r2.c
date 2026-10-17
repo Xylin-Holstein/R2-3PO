@@ -3913,57 +3913,41 @@ static char *ollama_chat_with_limit(
      * startup memory, learning summaries, and finally archived dialogue.
      * Every category has a cap so one long block cannot crowd the others out.
      */
-    for (int priority = 0; priority < 7 &&
+    size_t capabilities_used = 0;
+    for (int priority = 0; priority < 8 &&
          total_chars < system_budget; ++priority) {
-        for (size_t i = 0; i < count &&
-             total_chars < system_budget; ++i) {
+        for (size_t i = 0; i < count && total_chars < system_budget; ++i) {
             if (!msgs[i].role || strcmp(msgs[i].role, "system") != 0)
                 continue;
             const char *content = msgs[i].content ? msgs[i].content : "";
-            int message_priority = 5;
-            if (!strncmp(content,
-                         "============================================================\nIDENTITY AND PERSISTENT MEMORY",
-                         strlen("============================================================\nIDENTITY AND PERSISTENT MEMORY")))
-                message_priority = 0;
-            else if (!strncmp(content, "PERSISTENT REALITY CONTEXT",
-                              strlen("PERSISTENT REALITY CONTEXT")))
-                message_priority = 1;
-            else if (!strncmp(content, "CURRENT TURN RETRIEVED CONTEXT",
-                              strlen("CURRENT TURN RETRIEVED CONTEXT")))
-                message_priority = 2;
-            else if (!strncmp(content,
-                               "============================================================\nREALITY CONTEXT: USE IT, DO NOT RECITE IT",
-                               strlen("============================================================\nREALITY CONTEXT: USE IT, DO NOT RECITE IT")))
-                message_priority = 3;
-            else if (strstr(content, "R2 PERSISTENT MEMORY - STARTUP CONTEXT"))
-                message_priority = 4;
-            else if (!strncmp(content, "PERSISTENT LEARNING CONTEXT",
-                              strlen("PERSISTENT LEARNING CONTEXT")))
-                message_priority = 5;
-            else if (!strncmp(content, "PAST CONVERSATION ARCHIVE — CONTEXT ONLY.",
-                              strlen("PAST CONVERSATION ARCHIVE — CONTEXT ONLY.")))
-                message_priority = 6;
+            int message_priority = r2_inference_system_priority(
+                content, ollama_authoritative_user_query);
             if (message_priority != priority) continue;
 
             size_t length = strlen(content);
             if (length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS)
                 length = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;
-            /* Keep identity instructions from consuming the reserved live-context share. */
             if (message_priority == 0 && length > identity_budget)
                 length = identity_budget;
-            /* Each evidence category is bounded to its allocated share. */
             if (message_priority == 1 && length > reality_reserve)
                 length = reality_reserve;
             if (message_priority == 2 && length > retrieval_reserve)
                 length = retrieval_reserve;
-            if (message_priority == 3 && length > capabilities_reserve)
-                length = capabilities_reserve;
+            if (message_priority == 3 || message_priority == 4) {
+                size_t capability_remaining =
+                    capabilities_reserve > capabilities_used
+                        ? capabilities_reserve - capabilities_used : 0;
+                if (length > capability_remaining)
+                    length = capability_remaining;
+            }
             size_t remaining = system_budget > total_chars ? system_budget - total_chars : 0;
             if (length > remaining) length = remaining;
             if (length == 0) continue;
             include[i] = 1;
             limits[i] = length;
             total_chars += length;
+            if (message_priority == 3 || message_priority == 4)
+                capabilities_used += length;
         }
     }
 
