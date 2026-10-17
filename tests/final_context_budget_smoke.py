@@ -36,8 +36,12 @@ if budget_start < 0 or budget_end < 0:
 budget = core[budget_start:budget_end + 3]
 require("budget.retrieval_reserve = system_budget / 6;" in budget,
         "the serializer explicitly reserves a share for current-turn retrieval")
+require("budget.capabilities_reserve = system_budget / 8;" in budget,
+        "the serializer reserves space for capability instructions after active-turn evidence")
 require("r2_compute_system_context_budget(system_budget)" in core,
         "the actual Ollama serializer uses the tested prompt-budget allocator")
+require("message_add_system_prompt_sections_locked() != 0" in core,
+        "the static identity and capability prompts are split before runtime budgeting")
 require("length > reality_reserve" in core,
         "live Reality cannot consume more than its allocated prompt share")
 require("The actual user" in body and "message is stored separately" in body,
