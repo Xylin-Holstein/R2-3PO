@@ -186,20 +186,26 @@ int main(void)
                     small_context_budget.retrieval_reserve == 1276,
                 "small adaptive contexts keep budget arithmetic bounded without consuming the full prompt for identity");
 
-    ok &= check(conversation_reply_token_budget("Show me your room") == 4096,
-                "ordinary 'show' wording does not accidentally match the 'how' detail trigger");
-    ok &= check(conversation_reply_token_budget("Can you explain how the room works?") == 6144,
-                "a genuine 'how' question retains the detailed-answer budget");
-    ok &= check(conversation_reply_token_budget("Show me your profile picture") == 4096,
+    ok &= check(conversation_reply_token_budget("Show me your room") == 1024,
+                "ordinary 'show' wording keeps the normal conversational generation ceiling");
+    ok &= check(conversation_reply_token_budget("Can you explain how the room works?") == 2048,
+                "a genuine 'how' question receives a bounded detailed-answer budget");
+    ok &= check(conversation_reply_token_budget("Show me your profile picture") == 1024,
                 "words containing 'file' do not accidentally trigger the code-generation budget");
     ok &= check(conversation_reply_token_budget("Please answer in one sentence: what is 2 plus 2?") == 768,
                 "explicit one-sentence requests receive a concise output budget");
     ok &= check(conversation_reply_token_budget("Briefly explain the result") == 768,
                 "explicit brevity takes priority over a general explanation budget");
-    ok &= check(conversation_reply_token_budget("Please write a short script") == 8192,
-                "code-writing requests retain sufficient output budget even when described as short");
+    ok &= check(conversation_reply_token_budget("Please write a short script") == 4096,
+                "short code-writing requests retain a larger output budget");
     ok &= check(conversation_reply_token_budget("Summarize in one sentence: " "a long source") == 768,
                 "explicit brevity is respected even when summarizing longer input");
+
+    char long_question[5001];
+    memset(long_question, 'Q', sizeof(long_question) - 1);
+    long_question[sizeof(long_question) - 1] = '\0';
+    ok &= check(conversation_reply_token_budget(long_question) == 2048,
+                "long user messages reserve input context instead of an oversized output ceiling");
 
     ok &= check(r2_reply_misclassifies_plain_text(
                     "Hello R2, This is your mother speaking to you. whats new with you? did you know about your pockets?",
