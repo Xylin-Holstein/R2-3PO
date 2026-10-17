@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -96,6 +97,40 @@ class CopyOllamaModelIntegrityTests(unittest.TestCase):
                 copier.copy_model(source, destination, "qwen3.5:9b", "")
             self.assertEqual(destination_blob.read_bytes(), b"weights")
 
+
+
+    def test_preplanted_predictable_temp_symlinks_are_not_followed(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="r2-model-copy-test-") as temporary:
+            base = Path(temporary)
+            source, destination = base / "source", base / "destination"
+            self._write_model(source, "qwen3.5:9b", {b"config": "unused", b"weights": "unused"})
+            copier.copy_model(source, destination, "qwen3.5:9b", "")
+            weights_digest = hashlib.sha256(b"weights").hexdigest()
+            copied_blob = destination / "blobs" / ("sha256-" + weights_digest)
+            copied_blob.write_bytes(b"WEIGHT!")  # Force the blob-repair path.
+
+            source_manifest = source / copier.model_manifest_relative("qwen3.5:9b")
+            copied_manifest = destination / copier.model_manifest_relative("qwen3.5:9b")
+            outside_blob = base / "outside-blob"
+            outside_manifest = base / "outside-manifest"
+            outside_blob.write_bytes(b"blob sentinel")
+            outside_manifest.write_bytes(b"manifest sentinel")
+
+            # Older PID-derived temp paths are attacker-predictable. Plant links
+            # at both locations and verify the copier never writes through them.
+            blob_temp = copied_blob.with_name(copied_blob.name + f".tmp.{os.getpid()}")
+            manifest_temp = copied_manifest.with_name(copied_manifest.name + f".tmp.{os.getpid()}")
+            blob_temp.symlink_to(outside_blob)
+            manifest_temp.symlink_to(outside_manifest)
+
+            copier.copy_model(source, destination, "qwen3.5:9b", "")
+
+            self.assertEqual(outside_blob.read_bytes(), b"blob sentinel")
+            self.assertEqual(outside_manifest.read_bytes(), b"manifest sentinel")
+            self.assertTrue(blob_temp.is_symlink())
+            self.assertTrue(manifest_temp.is_symlink())
+            self.assertEqual(copied_blob.read_bytes(), b"weights")
+            self.assertEqual(copied_manifest.read_bytes(), source_manifest.read_bytes())
 
     def test_model_reference_rejects_path_traversal_and_invalid_components(self) -> None:
         invalid = (
