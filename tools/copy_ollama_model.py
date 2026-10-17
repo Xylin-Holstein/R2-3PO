@@ -111,6 +111,13 @@ def _sha256_file(path: Path) -> str:
 def copy_model(source_root: Path, destination_root: Path, model: str, owner: str) -> None:
     rel = model_manifest_relative(model)
     source_manifest = source_root / rel
+    # The source model store is read by a privileged installer. Refuse symlinked
+    # path components and leaf files so a modified store cannot redirect reads
+    # outside the expected Ollama model tree.
+    _reject_symlink_path_components(source_root / "blobs")
+    _reject_symlink_path_components(source_manifest.parent)
+    if source_manifest.is_symlink():
+        raise ValueError(f"refusing symlinked source manifest: {source_manifest}")
     if not source_manifest.is_file():
         raise FileNotFoundError(
             f"{model} is not installed in {source_root}. Start the existing Ollama service, "
@@ -164,6 +171,8 @@ def copy_model(source_root: Path, destination_root: Path, model: str, owner: str
         src = source_root / "blobs" / filename
         dst = destination_root / "blobs" / filename
         _reject_symlink_path_components(dst.parent)
+        if src.is_symlink():
+            raise ValueError(f"refusing symlinked source model blob: {src}")
         if not src.is_file():
             raise FileNotFoundError(f"model blob is missing: {src}")
         # Ollama blob names are content hashes. Size equality alone is not proof
