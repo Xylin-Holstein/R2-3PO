@@ -200,11 +200,11 @@ def main() -> int:
     parser.add_argument("--destination-root", type=Path, default=Path("/home/x/R2_Home/.ollama/models"))
     parser.add_argument("--owner", default="r2")
     args = parser.parse_args()
-    source = args.source_root or service_model_root(args.model)
-    if source is None or not source.is_dir():
-        print("ERROR: could not locate the existing local Ollama model store. Use --source-root.", file=sys.stderr)
-        return 1
     try:
+        source = args.source_root or service_model_root(args.model)
+        if source is None or not source.is_dir():
+            print("ERROR: could not locate the existing local Ollama model store. Use --source-root.", file=sys.stderr)
+            return 1
         copy_model(source, args.destination_root, args.model, args.owner)
     except (OSError, ValueError, json.JSONDecodeError, KeyError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
