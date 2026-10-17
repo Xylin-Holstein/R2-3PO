@@ -3391,6 +3391,41 @@ fail:
     return -1;
 }
 
+typedef struct {
+    size_t override_budget;
+    size_t identity_budget;
+    size_t reality_reserve;
+    size_t retrieval_reserve;
+} R2SystemContextBudget;
+
+/* Leave explicit room for active-turn retrieval. Without this reserve, the
+   identity block expands to consume the entire remainder after the override
+   and Reality snapshot, silently excluding retrieved memories on the target's
+   8k context tier even though retrieval completed successfully. */
+static R2SystemContextBudget r2_compute_system_context_budget(size_t system_budget)
+{
+    R2SystemContextBudget budget = {0};
+    budget.reality_reserve = system_budget / 4;
+    if (budget.reality_reserve > 3000)
+        budget.reality_reserve = 3000;
+
+    budget.identity_budget = system_budget / 5;
+    if (budget.identity_budget < 1000 &&
+        system_budget > budget.reality_reserve + 2000)
+        budget.identity_budget = 1000;
+    if (budget.identity_budget > system_budget - budget.reality_reserve)
+        budget.identity_budget = system_budget - budget.reality_reserve;
+
+    budget.retrieval_reserve = system_budget / 6;
+    size_t reserved = budget.reality_reserve +
+                      budget.identity_budget +
+                      budget.retrieval_reserve;
+    budget.override_budget = system_budget > reserved
+        ? system_budget - reserved
+        : system_budget / 3;
+    return budget;
+}
+
 static char *ollama_chat_with_limit(
     Message *msgs,
     size_t count,
@@ -3670,22 +3705,11 @@ static char *ollama_chat_with_limit(
      * Reserve live Reality and a meaningful identity share first, then give the
      * conversation contract the remaining system budget.
      */
-    size_t reality_reserve = system_budget / 3;
-    if (reality_reserve > 3000)
-        reality_reserve = 3000;
-
-    size_t identity_minimum = system_budget / 5;
-    if (identity_minimum < 1000 &&
-        system_budget > reality_reserve + 2000)
-        identity_minimum = 1000;
-    size_t identity_capacity = system_budget - reality_reserve;
-    if (identity_minimum > identity_capacity)
-        identity_minimum = identity_capacity;
-
-    size_t override_budget =
-        system_budget > reality_reserve + identity_minimum
-            ? system_budget - reality_reserve - identity_minimum
-            : system_budget / 4;
+    R2SystemContextBudget context_budgets =
+        r2_compute_system_context_budget(system_budget);
+    size_t reality_reserve = context_budgets.reality_reserve;
+    size_t identity_budget = context_budgets.identity_budget;
+    size_t override_budget = context_budgets.override_budget;
     if (override_length > override_budget) {
         /*
          * Prefer a complete sentence boundary when the cap falls inside the
@@ -3727,9 +3751,6 @@ static char *ollama_chat_with_limit(
             }
         }
     }
-
-    size_t identity_budget = system_budget > override_length + reality_reserve
-        ? system_budget - override_length - reality_reserve : 0;
 
     size_t total_chars = override_length;
     /*
