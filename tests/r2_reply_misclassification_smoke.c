@@ -155,6 +155,18 @@ int main(void)
                     "I'm glad you're here. How are you doing?"),
                 "short ordinary conversation is not retried");
 
+    ok &= check(r2_query_is_simple_social_turn("hello") &&
+                    r2_query_is_simple_social_turn("  Hi R2!!!  ") &&
+                    r2_query_is_simple_social_turn("THANK YOU."),
+                "simple greetings and thanks bypass the extra semantic-planner inference");
+    ok &= check(!r2_query_is_simple_social_turn("Who am I?") &&
+                    !r2_query_is_simple_social_turn("Hi R2, how are you today?") &&
+                    !r2_query_is_simple_social_turn("Thanks, do you remember my room?"),
+                "short recall questions and mixed-topic social messages retain semantic retrieval");
+    ok &= check(!r2_query_is_simple_social_turn(
+                    "hello this message is deliberately much longer than the simple social-turn limit and must not be truncated"),
+                "long messages are never mistaken for simple social turns");
+
     ok &= check(conversation_reply_token_budget("Show me your room") == 4096,
                 "ordinary 'show' wording does not accidentally match the 'how' detail trigger");
     ok &= check(conversation_reply_token_budget("Can you explain how the room works?") == 6144,
