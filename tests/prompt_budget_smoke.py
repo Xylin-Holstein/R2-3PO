@@ -98,13 +98,21 @@ def allocation_for_context(num_ctx: int, num_predict: int, override_length: int,
         if input_budget > current_user_reserve + 500 else 0
     )
     system_budget = min(system_budget, system_total, input_budget)
-    reality_reserve = min(system_budget // 6, 3000)
-    identity_minimum = system_budget // 3
-    if identity_minimum < 1000 and system_budget > reality_reserve + 2000:
-        identity_minimum = 1000
+    if system_budget < 18000:
+        reality_reserve = min(system_budget // 10, 2000)
+        identity_minimum = system_budget // 4
+        if identity_minimum < 500 and system_budget > reality_reserve + 1000:
+            identity_minimum = 500
+        retrieval_reserve = system_budget // 8
+        capabilities_reserve = system_budget // 20
+    else:
+        reality_reserve = min(system_budget // 6, 3000)
+        identity_minimum = system_budget // 3
+        if identity_minimum < 1000 and system_budget > reality_reserve + 2000:
+            identity_minimum = 1000
+        retrieval_reserve = system_budget // 6
+        capabilities_reserve = system_budget // 12
     identity_budget = min(identity_minimum, system_budget - reality_reserve)
-    retrieval_reserve = system_budget // 6
-    capabilities_reserve = system_budget // 12
     reserved = (reality_reserve + identity_budget + retrieval_reserve
                 + capabilities_reserve)
     override_budget = (
