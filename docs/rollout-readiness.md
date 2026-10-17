@@ -41,6 +41,10 @@ Do not delete or replace legacy databases to make a check pass. Investigate inte
 
 Follow [the overnight service guide](overnight-service.md) for dependency preparation and the installer. The service copies the already-installed `qwen3.5:9b` model into R2's private local Ollama store and requires a real local chat completion before starting the core.
 
+The model-copy step validates the Ollama model reference and manifest structure before writing, rejects symlinked source manifests/blob files and source/destination parent components, checks every blob digest and source blob hash, verifies copied content, and uses exclusively-created temporary files for atomic replacement. It must reject malformed references/manifests and must not follow pre-planted destination or temporary-file symlinks. These checks protect the copy operation; they do not replace the target-host model-generation and GPU-placement checks below.
+
+**Outstanding installer trust-boundary blocker:** the current installer invokes the model-copy Python script with elevated privileges from `R2_SOURCE`, while that tree is required to be writable by the `r2` runtime account because persistent SQLite files live alongside the code. A compromised `r2` account could therefore alter code before a privileged installation run. The copier's path and symlink checks do not solve that broader code/data trust problem. Do not treat the privileged installer as fully hardened until persistent databases are separated into a writable data directory (with backward-compatible migration) or the privileged tool is supplied from a trusted, immutable location and the source tree can no longer replace it.
+
 **Never run the interactive launcher and the overnight systemd core simultaneously.** They share persistent databases and are designed for one active R2 core.
 
 After installing/activating the service, verify its real state and logs:

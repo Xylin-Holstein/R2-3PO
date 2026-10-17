@@ -47,6 +47,15 @@ require(
     "      - 'release/**'" in workflow,
     "release branches run the same full CI workflow instead of silently skipping validation",
 )
+pull_request_block = re.search(
+    r"^  pull_request:\n(?P<body>.*?)(?=^  [A-Za-z_][A-Za-z0-9_-]*:|\Z)",
+    workflow,
+    re.MULTILINE | re.DOTALL,
+)
+require(
+    pull_request_block is not None and "      - 'release/**'" in pull_request_block.group("body"),
+    "pull requests targeting release branches trigger the full CI workflow",
+)
 require(
     "python3 -m compileall -q ." in workflow,
     "CI syntax-checks every Python source and test module before targeted tests run",
