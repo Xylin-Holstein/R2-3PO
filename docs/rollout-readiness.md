@@ -25,10 +25,11 @@ python3 /home/x/R2_Home/R2/tools/audit_r2_databases.py \
   --root /home/x/R2_Home
 ```
 
-For non-overwriting snapshots, choose a new destination directory for each run. Stop R2 first if you need a cross-database-consistent set:
+For non-overwriting snapshots, choose a new destination directory for each run. For a cross-database-consistent set, first exit the interactive launcher cleanly if it is running. If R2 is running as the overnight service, stop that service before continuing. Do not proceed while either R2 core is active.
 
 ```sh
-sudo systemctl stop r2-3po.service 2>/dev/null || true
+# Run this line only when the overnight systemd service is the active runtime:
+sudo systemctl stop r2-3po.service
 python3 /home/x/R2_Home/R2/tools/audit_r2_databases.py \
   --root /home/x/R2_Home \
   --snapshot-dir "/home/x/R2_Home/R2_Database_Snapshots/rollout-$(date +%Y%m%d-%H%M%S)"
