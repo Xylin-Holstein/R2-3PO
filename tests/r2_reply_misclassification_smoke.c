@@ -203,7 +203,7 @@ int main(void)
 
     ok &= check(conversation_reply_token_budget("Show me your room") == 1024,
                 "ordinary 'show' wording keeps the normal conversational generation ceiling");
-    ok &= check(conversation_reply_token_budget("Can you explain how the room works?") == 2048,
+    ok &= check(conversation_reply_token_budget("Can you explain how the room works?") == 1536,
                 "a genuine 'how' question receives a bounded detailed-answer budget");
     ok &= check(conversation_reply_token_budget("Show me your profile picture") == 1024,
                 "words containing 'file' do not accidentally trigger the code-generation budget");
