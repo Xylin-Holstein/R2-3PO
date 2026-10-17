@@ -44,7 +44,7 @@ assert "if (errno == ECHILD)" in wait_error_path and "child = -1;" in wait_error
 assert "else" in wait_error_path and "goto cleanup;" in wait_error_path, (
     "unexpected waitpid errors must preserve the child PID for SIGKILL cleanup"
 )
-assert not re.search(r"else\\s+child\\s*=\\s*-1\\s*;", wait_error_path), (
+assert not re.search(r"else\s+child\s*=\s*-1\s*;", wait_error_path), (
     "do not discard the live child PID on unexpected waitpid errors"
 )
 assert "return r2_ears_listen_cancelable(seconds, NULL, NULL);" in core
