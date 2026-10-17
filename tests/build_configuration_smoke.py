@@ -43,6 +43,10 @@ require(
     'make clean all CFLAGS="-std=c11 -Wall -Wextra -Werror -O2"' in workflow,
     "CI compiles with the same strict compiler policy",
 )
+require(
+    re.search(r"^      - 'release/\\*\\*'$", workflow, re.MULTILINE) is not None,
+    "release branches run the same full CI workflow instead of silently skipping validation",
+)
 source_block = re.search(r"^SOURCES\s*=\s*(.+)$", makefile, re.MULTILINE)
 require(source_block is not None, "Makefile declares its production source list")
 for source in required_sources:
