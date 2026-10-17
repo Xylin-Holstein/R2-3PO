@@ -463,7 +463,8 @@ jobs:
           bash -n tools/r2_ollama_runner.sh
           bash -n tools/install_r2_overnight.sh
           bash -n tools/preflight_r2_hardware.sh
-          python3 -m py_compile tools/copy_ollama_model.py
+          python3 -m py_compile tools/copy_ollama_model.py tests/copy_ollama_model_integrity.py
+          python3 tests/copy_ollama_model_integrity.py
 
       - name: Run isolated overnight SIGTERM lifecycle integration
         run: |
