@@ -5163,7 +5163,7 @@ static int r2_query_is_simple_social_turn(const char *query)
     if (*query) return 0; /* Long input is never classified as a greeting. */
     while (used && normalized[used - 1] == ' ') --used;
     while (used && strchr(".,!?;:", normalized[used - 1])) --used;
-    normalized[used] = '\\0';
+    normalized[used] = '\0';
 
     static const char *const social_turns[] = {
         "hi", "hello", "hey", "yo",
@@ -5193,7 +5193,7 @@ static char *r2_build_associative_search_query(const char *query)
        inference just to turn "hello" or "thanks" into search synonyms. */
     if (r2_query_is_simple_social_turn(query)) {
         r2_associative_query_cache_store(query, query);
-        fprintf(stderr, "[R2 Context] Skipped semantic planning for a simple social turn.\\n");
+        fprintf(stderr, "[R2 Context] Skipped semantic planning for a simple social turn.\n");
         return xstrdup(query);
     }
 
