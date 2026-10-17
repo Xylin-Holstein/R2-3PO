@@ -3290,10 +3290,106 @@ static void ollama_trace_prompt_if_enabled(const char *payload)
  * then archived history. Preserve order within each category and keep dialogue
  * turns chronological.
  */
-static int r2_inference_system_priority(const char *content)
+static int query_has_word_prefix(const char *query, const char *prefix);
+static int query_has_phrase(const char *query, const char *phrase);
+
+static int r2_query_matches_any_term(const char *query,
+                                     const char *const *terms,
+                                     size_t term_count)
+{
+    if (!query || !*query)
+        return 0;
+    for (size_t i = 0; i < term_count; ++i) {
+        if (query_has_word_prefix(query, terms[i]))
+            return 1;
+    }
+    return 0;
+}
+
+static int r2_is_capability_section(const char *content)
+{
+    static const char *const markers[] = {
+        "============================================================\nREALITY CONTEXT: USE IT, DO NOT RECITE IT",
+        "============================================================\nGAMEPLAY IS A REAL-LIFE ACTIVITY, NOT PHYSICAL REALITY",
+        "============================================================\nCONVERSATION AND DIARY ARE DIFFERENT",
+        "============================================================\nREAL FILE TOOLS",
+        "============================================================\nREAL BACKGROUND HANDS",
+        "============================================================\nAUTONOMOUS REFLECTION",
+        "============================================================\nALTERNATE-SELF / CHOICE LAB",
+        "============================================================\nGENERAL"
+    };
+    if (!content)
+        return 0;
+    for (size_t i = 0; i < sizeof(markers) / sizeof(markers[0]); ++i) {
+        if (!strncmp(content, markers[i], strlen(markers[i])))
+            return 1;
+    }
+    return 0;
+}
+
+static int r2_capability_section_matches_query(const char *content,
+                                                const char *query)
+{
+    if (!content || !query || !*query)
+        return 0;
+
+    static const char *const gameplay_terms[] = {
+        "game", "gameboy", "game boy", "cartridge", "controller", "wii",
+        "portal", "lego dimensions", "in-game", "virtual world", "quest"
+    };
+    static const char *const diary_terms[] = {
+        "diary", "life log", "journal", "log entry", "remember", "memory",
+        "reward", "write this down", "record this"
+    };
+    static const char *const file_terms[] = {
+        "file", "workspace", "directory", "folder", "document", "source code",
+        "edit file", "read file", "write file", "code", "script", "open file",
+        "save file"
+    };
+    static const char *const hands_terms[] = {
+        "hands", "hand", "terminal", "shell", "command", "execute", "run",
+        "background task", "computer task", "process", "launch", "start program"
+    };
+    static const char *const autonomous_terms[] = {
+        "autonomous", "reflect", "reflection", "think on your own",
+        "independent thought", "900 seconds"
+    };
+    static const char *const alternate_terms[] = {
+        "alternate self", "what if", "imagine", "hypothetical",
+        "counterfactual", "choice lab", "possible self"
+    };
+
+    if (!strncmp(content, "============================================================\nGAMEPLAY",
+                  strlen("============================================================\nGAMEPLAY")))
+        return r2_query_matches_any_term(query, gameplay_terms,
+            sizeof(gameplay_terms) / sizeof(gameplay_terms[0]));
+    if (!strncmp(content, "============================================================\nCONVERSATION AND DIARY",
+                  strlen("============================================================\nCONVERSATION AND DIARY")))
+        return r2_query_matches_any_term(query, diary_terms,
+            sizeof(diary_terms) / sizeof(diary_terms[0]));
+    if (!strncmp(content, "============================================================\nREAL FILE TOOLS",
+                  strlen("============================================================\nREAL FILE TOOLS")))
+        return r2_query_matches_any_term(query, file_terms,
+            sizeof(file_terms) / sizeof(file_terms[0]));
+    if (!strncmp(content, "============================================================\nREAL BACKGROUND HANDS",
+                  strlen("============================================================\nREAL BACKGROUND HANDS")))
+        return r2_query_matches_any_term(query, hands_terms,
+            sizeof(hands_terms) / sizeof(hands_terms[0]));
+    if (!strncmp(content, "============================================================\nAUTONOMOUS REFLECTION",
+                  strlen("============================================================\nAUTONOMOUS REFLECTION")))
+        return r2_query_matches_any_term(query, autonomous_terms,
+            sizeof(autonomous_terms) / sizeof(autonomous_terms[0]));
+    if (!strncmp(content, "============================================================\nALTERNATE-SELF / CHOICE LAB",
+                  strlen("============================================================\nALTERNATE-SELF / CHOICE LAB")))
+        return r2_query_matches_any_term(query, alternate_terms,
+            sizeof(alternate_terms) / sizeof(alternate_terms[0]));
+    return 0;
+}
+
+static int r2_inference_system_priority(const char *content, const char *query)
 {
     if (!content)
-        return 5;
+        return 6;
     if (!strncmp(content,
                  "============================================================\nIDENTITY AND PERSISTENT MEMORY",
                  strlen("============================================================\nIDENTITY AND PERSISTENT MEMORY")))
@@ -3304,23 +3400,26 @@ static int r2_inference_system_priority(const char *content)
     if (!strncmp(content, "CURRENT TURN RETRIEVED CONTEXT",
                   strlen("CURRENT TURN RETRIEVED CONTEXT")))
         return 2;
-    if (!strncmp(content,
-                  "============================================================\nREALITY CONTEXT: USE IT, DO NOT RECITE IT",
-                  strlen("============================================================\nREALITY CONTEXT: USE IT, DO NOT RECITE IT")))
-        return 3;
-    /*
-     * Startup memory follows the active turn's retrieved evidence and the
-     * capability prompt. Learned summaries and archived dialogue yield first.
-     */
-    if (strstr(content, "R2 PERSISTENT MEMORY - STARTUP CONTEXT"))
+    if (r2_is_capability_section(content)) {
+        if (r2_capability_section_matches_query(content, query))
+            return 3;
+        if (!strncmp(content,
+                     "============================================================\nREALITY CONTEXT: USE IT, DO NOT RECITE IT",
+                     strlen("============================================================\nREALITY CONTEXT: USE IT, DO NOT RECITE IT"))) {
+            /* General reality/action rules lead when no specific subsystem applies. */
+            return 3;
+        }
         return 4;
+    }
+    if (strstr(content, "R2 PERSISTENT MEMORY - STARTUP CONTEXT"))
+        return 5;
     if (!strncmp(content, "PERSISTENT LEARNING CONTEXT",
                   strlen("PERSISTENT LEARNING CONTEXT")))
-        return 5;
+        return 6;
     if (!strncmp(content, "PAST CONVERSATION ARCHIVE — CONTEXT ONLY.",
                   strlen("PAST CONVERSATION ARCHIVE — CONTEXT ONLY.")))
-        return 6;
-    return 5;
+        return 7;
+    return 6;
 }
 
 static size_t r2_order_inference_messages(const Message *msgs,
@@ -3333,11 +3432,12 @@ static size_t r2_order_inference_messages(const Message *msgs,
         return 0;
 
     size_t used = 0;
-    for (int priority = 0; priority < 7; ++priority) {
+    for (int priority = 0; priority < 8; ++priority) {
         for (size_t i = 0; i < count; ++i) {
             if (!include[i] || !msgs[i].role ||
                 strcmp(msgs[i].role, "system") != 0 ||
-                r2_inference_system_priority(msgs[i].content) != priority)
+                r2_inference_system_priority(msgs[i].content,
+                                               ollama_authoritative_user_query) != priority)
                 continue;
             if (used >= capacity)
                 return used;
