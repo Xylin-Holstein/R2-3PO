@@ -65,6 +65,23 @@ class CopyOllamaModelIntegrityTests(unittest.TestCase):
             self.assertEqual(copied.read_bytes(), b"weights")
             self.assertEqual(outside.read_bytes(), b"weights", "external target must remain untouched")
 
+    def test_symlinked_blob_directory_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="r2-model-copy-test-") as temporary:
+            base = Path(temporary)
+            source, destination = base / "source", base / "destination"
+            self._write_model(source, "qwen3.5:9b", {b"config": "unused", b"weights": "unused"})
+            copier.copy_model(source, destination, "qwen3.5:9b", "")
+            external = base / "external-blobs"
+            external.mkdir()
+            sentinel = external / "sentinel"
+            sentinel.write_text("must remain untouched", encoding="utf-8")
+            import shutil
+            shutil.rmtree(destination / "blobs")
+            (destination / "blobs").symlink_to(external, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, "refusing symlinked destination path component"):
+                copier.copy_model(source, destination, "qwen3.5:9b", "")
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "must remain untouched")
+
     def test_corrupt_source_blob_is_rejected_before_overwrite(self) -> None:
         with tempfile.TemporaryDirectory(prefix="r2-model-copy-test-") as temporary:
             base = Path(temporary)
