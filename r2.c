@@ -1057,31 +1057,47 @@ static int message_add_pinned(
    retrieved memories without truncating the identity block halfway through. */
 static int message_add_system_prompt_sections_locked(void)
 {
-    static const char section_marker[] =
-        "============================================================\n"
-        "REALITY CONTEXT: USE IT, DO NOT RECITE IT\n"
-        "============================================================\n";
-    const char *capabilities = strstr(SYSTEM_PROMPT, section_marker);
-    if (!capabilities || capabilities == SYSTEM_PROMPT) {
-        fprintf(stderr, "[R2] Could not split the static system prompt at its capability boundary.\n");
-        return -1;
+    static const char *const section_markers[] = {
+        "============================================================\nIDENTITY AND PERSISTENT MEMORY\n============================================================\n",
+        "============================================================\nREALITY CONTEXT: USE IT, DO NOT RECITE IT\n============================================================\n",
+        "============================================================\nGAMEPLAY IS A REAL-LIFE ACTIVITY, NOT PHYSICAL REALITY\n",
+        "============================================================\nCONVERSATION AND DIARY ARE DIFFERENT\n============================================================\n",
+        "============================================================\nREAL FILE TOOLS\n============================================================\n",
+        "============================================================\nREAL BACKGROUND HANDS\n============================================================\n",
+        "============================================================\nAUTONOMOUS REFLECTION\n============================================================\n",
+        "============================================================\nALTERNATE-SELF / CHOICE LAB\n============================================================\n",
+        "============================================================\nGENERAL\n============================================================\n"
+    };
+    enum { SECTION_COUNT = sizeof(section_markers) / sizeof(section_markers[0]) };
+    const char *starts[SECTION_COUNT];
+    for (size_t i = 0; i < SECTION_COUNT; ++i) {
+        starts[i] = strstr(SYSTEM_PROMPT, section_markers[i]);
+        if (!starts[i] || (i == 0 && starts[i] != SYSTEM_PROMPT) ||
+            (i > 0 && starts[i] <= starts[i - 1])) {
+            fprintf(stderr, "[R2] Could not locate ordered static system-prompt section %zu.\n", i);
+            return -1;
+        }
     }
 
-    size_t identity_length = (size_t)(capabilities - SYSTEM_PROMPT);
-    char *identity_prompt = malloc(identity_length + 1);
-    if (!identity_prompt) {
-        fprintf(stderr, "[R2] Could not allocate the core identity prompt.\n");
-        return -1;
+    size_t prompt_length = strlen(SYSTEM_PROMPT);
+    for (size_t i = 0; i < SECTION_COUNT; ++i) {
+        const char *section_start = starts[i];
+        const char *section_end = i + 1 < SECTION_COUNT
+            ? starts[i + 1] : SYSTEM_PROMPT + prompt_length;
+        size_t section_length = (size_t)(section_end - section_start);
+        char *section = malloc(section_length + 1);
+        if (!section) {
+            fprintf(stderr, "[R2] Could not allocate static system-prompt section %zu.\n", i);
+            return -1;
+        }
+        memcpy(section, section_start, section_length);
+        section[section_length] = '\0';
+        int rc = message_add_pinned("system", section);
+        free(section);
+        if (rc != 0)
+            return rc;
     }
-    memcpy(identity_prompt, SYSTEM_PROMPT, identity_length);
-    identity_prompt[identity_length] = '\0';
-
-    int rc = message_add_pinned("system", identity_prompt);
-    free(identity_prompt);
-    if (rc != 0)
-        return rc;
-
-    return message_add_pinned("system", capabilities);
+    return 0;
 }
 
 static void message_free_all(void)
