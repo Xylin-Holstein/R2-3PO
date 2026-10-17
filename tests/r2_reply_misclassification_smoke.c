@@ -389,6 +389,21 @@ int main(void)
                 "block terminators inside fenced content do not truncate an action payload");
     free(block_with_quoted_end);
 
+    static const char reality_capability[] =
+        "============================================================\nREALITY CONTEXT: USE IT, DO NOT RECITE IT\n============================================================\n";
+    static const char hands_capability[] =
+        "============================================================\nREAL BACKGROUND HANDS\n============================================================\n";
+    static const char file_capability[] =
+        "============================================================\nREAL FILE TOOLS\n============================================================\n";
+    static const char game_capability[] =
+        "============================================================\nGAMEPLAY IS A REAL-LIFE ACTIVITY, NOT PHYSICAL REALITY\n";
+    ok &= check(r2_inference_system_priority(hands_capability, "run a shell command") == 3 &&
+                    r2_inference_system_priority(file_capability, "open a file") == 3 &&
+                    r2_inference_system_priority(game_capability, "play a GameBoy cartridge") == 3 &&
+                    r2_inference_system_priority(reality_capability, "hello there") == 3 &&
+                    r2_inference_system_priority(reality_capability, "run a shell command") == 4,
+                "capability prompt prioritization follows the active request instead of dropping tool-specific instructions");
+
     pthread_mutex_lock(&messages_lock);
     int prompt_sections_rc = message_add_system_prompt_sections_locked();
     pthread_mutex_unlock(&messages_lock);
