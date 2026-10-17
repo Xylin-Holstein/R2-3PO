@@ -34,6 +34,19 @@ cleanup_tail = bridge[cleanup_start:]
 assert "if (child > 0)" in cleanup_tail and "kill(child, SIGKILL)" in cleanup_tail, (
     "an abnormal Whisper wait/clock failure must not leave shutdown blocked on a child that ignores SIGTERM"
 )
+assert "if (waited < 0 && errno != EINTR)" in bridge
+wait_error_start = bridge.index("if (waited < 0 && errno != EINTR)")
+wait_error_end = bridge.index("if (shutting_down ||", wait_error_start)
+wait_error_path = bridge[wait_error_start:wait_error_end]
+assert "if (errno == ECHILD)" in wait_error_path and "child = -1;" in wait_error_path, (
+    "ECHILD must avoid signaling a PID that has already ceased to be our child"
+)
+assert "else" in wait_error_path and "goto cleanup;" in wait_error_path, (
+    "unexpected waitpid errors must preserve the child PID for SIGKILL cleanup"
+)
+assert not re.search(r"else\\s+child\\s*=\\s*-1\\s*;", wait_error_path), (
+    "do not discard the live child PID on unexpected waitpid errors"
+)
 assert "return r2_ears_listen_cancelable(seconds, NULL, NULL);" in core
 assert 'shell_talk(transcript)' in shell
 conversation_start = shell.index("static void shell_talk_inner(const char *message)")

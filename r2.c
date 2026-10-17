@@ -9868,7 +9868,14 @@ char *r2_ears_listen_cancelable(unsigned seconds,
         pid_t waited = waitpid(child, &child_status, WNOHANG);
         if (waited == child) break;
         if (waited < 0 && errno != EINTR) {
-            child = -1;
+            /* ECHILD means there is no child left for us to terminate/reap.
+               For other wait errors, preserve the PID so cleanup can stop
+               a potentially still-running Whisper process before returning. */
+            if (errno == ECHILD)
+                child = -1;
+            else
+                fprintf(stderr, "[Ears] Could not inspect Whisper child status: %s\n",
+                        strerror(errno));
             goto cleanup;
         }
         if (shutting_down || (cancelled && cancelled(userdata)) ||
