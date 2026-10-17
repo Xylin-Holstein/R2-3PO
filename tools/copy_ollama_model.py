@@ -152,6 +152,20 @@ def copy_model(source_root: Path, destination_root: Path, model: str, owner: str
                 or any(char not in "0123456789abcdef" for char in digest[7:])):
             raise ValueError(f"unsupported blob digest in manifest: {digest}")
 
+    # Validate every source blob before creating or changing anything in
+    # the destination. Checking inside the copy loop alone permits an earlier
+    # valid blob to be copied before a later missing/corrupt/symlinked blob is
+    # discovered, leaving a partial model store behind after a failed install.
+    for digest in sorted(set(digests)):
+        expected_sha256 = digest[7:]
+        src = source_root / "blobs" / ("sha256-" + expected_sha256)
+        if src.is_symlink():
+            raise ValueError(f"refusing symlinked source model blob: {src}")
+        if not src.is_file():
+            raise FileNotFoundError(f"model blob is missing: {src}")
+        if _sha256_file(src) != expected_sha256:
+            raise ValueError(f"source model blob failed SHA-256 verification: {src}")
+
     uid = gid = None
     if owner:
         account = pwd.getpwnam(owner)
