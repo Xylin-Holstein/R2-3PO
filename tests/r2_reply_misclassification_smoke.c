@@ -378,8 +378,8 @@ int main(void)
                         strstr(messages.items[before].content, "[R2_INTERNAL_TOOL_REQUEST]") &&
                         !strcmp(messages.items[before + 1].role, "user") &&
                         !strncmp(messages.items[before + 1].content,
-                                 "[R2_INTERNAL_TOOL_RESULT]\\n",
-                                 strlen("[R2_INTERNAL_TOOL_RESULT]\\n")) &&
+                                 "[R2_INTERNAL_TOOL_RESULT]\n",
+                                 strlen("[R2_INTERNAL_TOOL_RESULT]\n")) &&
                         messages.items[before + 1].internal_tool_result,
                     "completed background task is paired and marked as internal, not raw user speech");
     } else if (completed) {
