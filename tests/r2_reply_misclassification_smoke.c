@@ -358,5 +358,42 @@ int main(void)
                 "block terminators inside fenced content do not truncate an action payload");
     free(block_with_quoted_end);
 
+    /* Background task output must never be inserted as an unmarked human turn. */
+    CompletedTask *completed = calloc(1, sizeof(*completed));
+    if (completed) {
+        snprintf(completed->id, sizeof(completed->id), "TEST0001");
+        completed->command = xstrdup("printf task-result");
+        completed->output = xstrdup("task-result");
+        completed->return_code = 0;
+    }
+    int background_task_allocated = completed && completed->command && completed->output;
+    ok &= check(background_task_allocated,
+                "background task fixture allocates its command and output");
+    if (background_task_allocated) {
+        size_t before = messages.count;
+        completed_push(completed);
+        handle_completed_messages();
+        ok &= check(messages.count == before + 2 &&
+                        !strcmp(messages.items[before].role, "assistant") &&
+                        strstr(messages.items[before].content, "[R2_INTERNAL_TOOL_REQUEST]") &&
+                        !strcmp(messages.items[before + 1].role, "user") &&
+                        !strncmp(messages.items[before + 1].content,
+                                 "[R2_INTERNAL_TOOL_RESULT]\\n",
+                                 strlen("[R2_INTERNAL_TOOL_RESULT]\\n")) &&
+                        messages.items[before + 1].internal_tool_result,
+                    "completed background task is paired and marked as internal, not raw user speech");
+    } else if (completed) {
+        free(completed->command);
+        free(completed->output);
+        free(completed);
+    }
+
+    for (size_t i = 0; i < messages.count; ++i) {
+        free(messages.items[i].role);
+        free(messages.items[i].content);
+    }
+    free(messages.items);
+    memset(&messages, 0, sizeof(messages));
+
     return ok ? 0 : 1;
 }
