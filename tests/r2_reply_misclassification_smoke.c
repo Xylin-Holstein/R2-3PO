@@ -167,6 +167,25 @@ int main(void)
                     "hello this message is deliberately much longer than the simple social-turn limit and must not be truncated"),
                 "long messages are never mistaken for simple social turns");
 
+    R2SystemContextBudget context_budget =
+        r2_compute_system_context_budget(9468);
+    ok &= check(context_budget.override_budget > 0 &&
+                    context_budget.identity_budget > 0 &&
+                    context_budget.reality_reserve > 0 &&
+                    context_budget.retrieval_reserve >= 9468 / 6 &&
+                    context_budget.override_budget +
+                        context_budget.identity_budget +
+                        context_budget.reality_reserve +
+                        context_budget.retrieval_reserve == 9468,
+                "the constrained 8k-context prompt budget reserves real space for retrieved memory");
+    R2SystemContextBudget small_context_budget =
+        r2_compute_system_context_budget(1276);
+    ok &= check(small_context_budget.override_budget +
+                    small_context_budget.identity_budget +
+                    small_context_budget.reality_reserve +
+                    small_context_budget.retrieval_reserve == 1276,
+                "small adaptive contexts keep budget arithmetic bounded without consuming the full prompt for identity");
+
     ok &= check(conversation_reply_token_budget("Show me your room") == 4096,
                 "ordinary 'show' wording does not accidentally match the 'how' detail trigger");
     ok &= check(conversation_reply_token_budget("Can you explain how the room works?") == 6144,
