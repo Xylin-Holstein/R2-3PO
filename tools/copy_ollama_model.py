@@ -189,11 +189,9 @@ def copy_model(source_root: Path, destination_root: Path, model: str, owner: str
             raise ValueError(f"refusing symlinked source model blob: {src}")
         if not src.is_file():
             raise FileNotFoundError(f"model blob is missing: {src}")
-        # Ollama blob names are content hashes. Size equality alone is not proof
-        # that a pre-existing destination is intact; verify both source and
-        # destination so a corrupt same-size blob cannot survive an upgrade.
-        if _sha256_file(src) != expected_sha256:
-            raise ValueError(f"source model blob failed SHA-256 verification: {src}")
+        # Every source blob was hashed before destination changes began.
+        # Verify existing destination content independently; when repair is
+        # needed, the copied temporary file is hashed before atomic replacement.
         if dst.is_symlink() or not dst.is_file() or _sha256_file(dst) != expected_sha256:
             # Create the temporary file exclusively in the destination directory.
             # A predictable PID-based name could already be a symlink and redirect
