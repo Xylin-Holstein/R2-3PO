@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Game Boy Advance
+Comment=Power on R2's virtual Game Boy Advance console
+Exec=/home/x/R2_Home/Devices/GameBoyAdvance/GameBoyAdvance
+Terminal=false
+StartupNotify=true
+Categories=Game;Emulator;
