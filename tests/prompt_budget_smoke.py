@@ -49,9 +49,9 @@ for required in (
     if required not in prompt:
         raise SystemExit(f"Complete prompt is missing its expected trailing section: {required}")
 
-# Guard the runtime allocator, not just the size of the static prompt. When
-# available RAM lowers num_ctx, a long per-call override must not consume the
-# whole system budget and crowd out the core identity/live Reality context.
+# Guard the runtime allocator, not just the size of the static prompt. Under
+# constrained context, identity, live Reality, current-turn retrieval, and the
+# relevant capability section each get an explicit share.
 for required in (
     "size_t max_user_reserve = input_budget > 1500",
     "current_user_reserve > max_user_reserve",
@@ -65,8 +65,11 @@ for required in (
     "message_add_system_prompt_sections_locked() != 0",
     "static const char *const section_markers[]",
     "const char *section_start = starts[i];",
+    "enum { SECTION_COUNT = sizeof(section_markers) / sizeof(section_markers[0]) };",
     'message_add_pinned("system", section)',
-    'message_add_pinned("system", section)',
+    "r2_capability_section_matches_query",
+    "r2_inference_system_priority(content, ollama_authoritative_user_query)",
+    "capabilities_used += length",
     "Prefer a complete sentence boundary when the cap falls inside the",
     "message_priority == 0 && length > identity_budget",
     "message_priority == 1 && length > reality_reserve",
