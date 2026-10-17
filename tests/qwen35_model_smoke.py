@@ -190,8 +190,8 @@ require(
 require(
     "budget.identity_budget = system_budget / 3;" in core
     and "budget.retrieval_reserve = system_budget / 6;" in core
-    and "budget.capabilities_reserve = system_budget / 8;" in core
-    and "message_add_system_prompt_sections_locked() != 0" in core
+    and "budget.capabilities_reserve = system_budget / 12;" in core
+    and "message_add_system_prompt_sections_locked() != 0" in core\n    and "return 7;" in core
     and "r2_compute_system_context_budget(system_budget)" in core
     and "length > reality_reserve" in core
     and "length > retrieval_reserve" in core
