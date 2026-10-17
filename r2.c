@@ -5137,6 +5137,49 @@ static void r2_associative_query_cache_store(const char *query, const char *plan
     pthread_mutex_unlock(&r2_associative_query_cache_lock);
 }
 
+/* Simple social turns do not need a separate model call to invent retrieval
+   keywords. Keep this deliberately exact: mixed-topic messages and short
+   factual/recall questions still use semantic planning. */
+static int r2_query_is_simple_social_turn(const char *query)
+{
+    if (!query) return 0;
+    while (*query && isspace((unsigned char)*query)) ++query;
+
+    char normalized[128];
+    size_t used = 0;
+    int previous_space = 0;
+    while (*query && used + 1 < sizeof(normalized)) {
+        unsigned char ch = (unsigned char)*query++;
+        if (isspace(ch)) {
+            if (used && !previous_space) {
+                normalized[used++] = ' ';
+                previous_space = 1;
+            }
+            continue;
+        }
+        normalized[used++] = (char)tolower(ch);
+        previous_space = 0;
+    }
+    if (*query) return 0; /* Long input is never classified as a greeting. */
+    while (used && normalized[used - 1] == ' ') --used;
+    while (used && strchr(".,!?;:", normalized[used - 1])) --used;
+    normalized[used] = '\\0';
+
+    static const char *const social_turns[] = {
+        "hi", "hello", "hey", "yo",
+        "hi r2", "hello r2", "hey r2",
+        "good morning", "good afternoon", "good evening",
+        "how are you", "how's it going", "hows it going",
+        "what's up", "whats up",
+        "thanks", "thank you", "thanks r2", "thank you r2",
+        "okay", "ok", "lol", "lmao"
+    };
+    for (size_t i = 0; i < sizeof(social_turns) / sizeof(social_turns[0]); ++i)
+        if (!strcmp(normalized, social_turns[i]))
+            return 1;
+    return 0;
+}
+
 static char *r2_build_associative_search_query(const char *query)
 {
     if (!query || !*query)
@@ -5145,6 +5188,14 @@ static char *r2_build_associative_search_query(const char *query)
     char *cached_plan = r2_associative_query_cache_lookup(query);
     if (cached_plan)
         return cached_plan;
+
+    /* Preserve the real text for retrieval but avoid spending a full local
+       inference just to turn "hello" or "thanks" into search synonyms. */
+    if (r2_query_is_simple_social_turn(query)) {
+        r2_associative_query_cache_store(query, query);
+        fprintf(stderr, "[R2 Context] Skipped semantic planning for a simple social turn.\\n");
+        return xstrdup(query);
+    }
 
     static const char retrieval_prompt[] =
         "You are R2's internal associative-memory retrieval planner. "
