@@ -122,6 +122,25 @@ class CopyOllamaModelIntegrityTests(unittest.TestCase):
                 copier.copy_model(source, destination, "qwen3.5:9b", "")
             self.assertFalse(destination.exists())
 
+    def test_malformed_manifest_leaves_existing_destination_untouched(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="r2-model-copy-test-") as temporary:
+            base = Path(temporary)
+            source, destination = base / "source", base / "destination"
+            self._write_model(source, "qwen3.5:9b", {b"config": "unused", b"weights": "unused"})
+            destination.mkdir()
+            sentinel = destination / "keep-existing.txt"
+            sentinel.write_text("preserve existing destination", encoding="utf-8")
+            manifest_path = source / copier.model_manifest_relative("qwen3.5:9b")
+            manifest_path.write_text(json.dumps({
+                "config": {"digest": "sha256:" + hashlib.sha256(b"config").hexdigest()},
+                "layers": [{"mediaType": "application/vnd.ollama.image.model"}],
+            }), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "manifest layer 0 is missing a blob digest"):
+                copier.copy_model(source, destination, "qwen3.5:9b", "")
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "preserve existing destination")
+            self.assertEqual(sorted(path.name for path in destination.iterdir()), ["keep-existing.txt"])
+
     def test_manifest_digest_path_syntax_is_rejected_before_destination_changes(self) -> None:
         with tempfile.TemporaryDirectory(prefix="r2-model-copy-test-") as temporary:
             base = Path(temporary)
