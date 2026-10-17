@@ -47,6 +47,10 @@ require(
     "      - 'release/**'" in workflow,
     "release branches run the same full CI workflow instead of silently skipping validation",
 )
+require(
+    "python3 -m compileall -q ." in workflow,
+    "CI syntax-checks every Python source and test module before targeted tests run",
+)
 source_block = re.search(r"^SOURCES\s*=\s*(.+)$", makefile, re.MULTILINE)
 require(source_block is not None, "Makefile declares its production source list")
 for source in required_sources:
