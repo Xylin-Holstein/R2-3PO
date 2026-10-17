@@ -188,13 +188,17 @@ require(
 )
 
 require(
-    "budget.identity_budget = system_budget / 5;" in core
+    "budget.identity_budget = system_budget / 3;" in core
     and "budget.retrieval_reserve = system_budget / 6;" in core
+    and "budget.capabilities_reserve = system_budget / 8;" in core
+    and "message_add_system_prompt_sections_locked() != 0" in core
     and "r2_compute_system_context_budget(system_budget)" in core
     and "length > reality_reserve" in core
+    and "length > retrieval_reserve" in core
+    and "length > capabilities_reserve" in core
     and "Prefer a complete sentence boundary when the cap falls inside the" in core
     and "system_budget - reality_reserve - identity_minimum" not in core,
-    "adaptive context budgeting preserves the conversation contract, identity, live Reality, and a real retrieved-memory share",
+    "adaptive context budgeting preserves core identity, live Reality, retrieved memory, and a separate capability prompt",
 )
 require(
     "Return ONLY valid JSON with keys description and focus" in visual
