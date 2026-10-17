@@ -114,6 +114,15 @@ Pass: the complete active user message remains present in the serialized Ollama 
 
 Do not run these as a blind overnight stress test until the basic live cases above pass. Preserve the logs and compare them against the exact model name, context size, endpoint, and build revision.
 
+
+## 12. Background task results are not human speech
+
+Complete a harmless Hands/background task, then send a different ordinary message in the next conversation turn.
+
+Pass: R2 answers the new message, uses task output only when relevant, and never treats the command/output block as something the user said. The live history should store the completed task as a paired `[R2_INTERNAL_TOOL_REQUEST]` / `[R2_INTERNAL_TOOL_RESULT]` handoff with the result marked internal. Fail: R2 repeats the command, attributes task output to the user, or responds to the task output instead of the actual latest user message.
+
+For a basic greeting such as `hello`, `hi R2`, or `thank you`, the log should show that semantic retrieval planning was skipped for that simple social turn. Mixed-topic greetings and short factual/recall questions must still use semantic planning.
+
 ## Release decision
 
 Do not call conversation behavior validated solely because the build or C smoke test passes. Record whether each live case passed on the target host, and inspect any failure before treating B2.5w2 as ready for overnight operation. The scripted checks validate known guard behavior; these live cases validate the actual model's response quality.
