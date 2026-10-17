@@ -99,6 +99,29 @@ class CopyOllamaModelIntegrityTests(unittest.TestCase):
 
 
 
+    def test_incomplete_manifest_is_rejected_before_destination_changes(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="r2-model-copy-test-") as temporary:
+            base = Path(temporary)
+            source, destination = base / "source", base / "destination"
+            self._write_model(source, "qwen3.5:9b", {b"config": "unused", b"weights": "unused"})
+            manifest_path = source / copier.model_manifest_relative("qwen3.5:9b")
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+            # Missing layer digests must not be silently skipped: the copied
+            # manifest would otherwise reference a blob that was never copied.
+            manifest["layers"][0].pop("digest")
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "manifest layer 0 is missing a blob digest"):
+                copier.copy_model(source, destination, "qwen3.5:9b", "")
+            self.assertFalse(destination.exists())
+
+            # A JSON value that is not an object must also fail cleanly, before
+            # any destination tree is created.
+            manifest_path.write_text("[]", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "invalid Ollama manifest object"):
+                copier.copy_model(source, destination, "qwen3.5:9b", "")
+            self.assertFalse(destination.exists())
+
     def test_manifest_digest_path_syntax_is_rejected_before_destination_changes(self) -> None:
         with tempfile.TemporaryDirectory(prefix="r2-model-copy-test-") as temporary:
             base = Path(temporary)
@@ -178,7 +201,6 @@ class CopyOllamaModelIntegrityTests(unittest.TestCase):
         import contextlib
         import io
         from unittest.mock import patch
-
         errors = io.StringIO()
         with patch.object(sys, "argv", ["copy_ollama_model.py", "--model", "qwen3.5:../outside"]), \
              patch.object(copier, "service_model_root") as discover:
