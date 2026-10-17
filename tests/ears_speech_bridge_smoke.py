@@ -29,6 +29,11 @@ assert "char *r2_ears_listen(unsigned seconds);" in header
 assert "char *r2_ears_listen_cancelable(unsigned seconds," in header
 assert "while (captured_bytes < total_bytes && !shutting_down &&" in bridge
 assert "cancelled && cancelled(userdata)" in bridge
+cleanup_start = bridge.index("cleanup:")
+cleanup_tail = bridge[cleanup_start:]
+assert "if (child > 0)" in cleanup_tail and "kill(child, SIGKILL)" in cleanup_tail, (
+    "an abnormal Whisper wait/clock failure must not leave shutdown blocked on a child that ignores SIGTERM"
+)
 assert "return r2_ears_listen_cancelable(seconds, NULL, NULL);" in core
 assert 'shell_talk(transcript)' in shell
 conversation_start = shell.index("static void shell_talk_inner(const char *message)")
