@@ -4439,8 +4439,9 @@ static int query_has_phrase(const char *query, const char *phrase)
 
 /*
  * Bound reply generation by task complexity and the user's explicit style
- * request. A concise request wins over a long quoted/input message, while
- * code-writing requests retain enough room to return useful code.
+ * request. A concise request wins over a long quoted/input message. Short
+ * code-writing requests get a larger ceiling; long inputs prioritize preserving
+ * the complete user message and relevant context over oversized output limits.
  */
 static int conversation_reply_token_budget(const char *query)
 {
