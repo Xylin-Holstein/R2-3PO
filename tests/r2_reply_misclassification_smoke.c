@@ -79,8 +79,11 @@ int main(void)
 
     ok &= check(r2_keyword_is_low_signal("hello") &&
                     r2_keyword_is_low_signal("r2") &&
-                    r2_keyword_is_low_signal("speaking"),
-                "Life Log retrieval ignores low-signal greeting/address tokens");
+                    r2_keyword_is_low_signal("speaking") &&
+                    r2_keyword_is_low_signal("thanks") &&
+                    r2_keyword_is_low_signal("how") &&
+                    r2_keyword_is_low_signal("up"),
+                "Life Log retrieval ignores low-signal greeting, address, and social-filler tokens");
     ok &= check(!r2_keyword_is_low_signal("mother") &&
                     !r2_keyword_is_low_signal("room") &&
                     !r2_keyword_is_low_signal("pockets"),
