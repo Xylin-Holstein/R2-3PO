@@ -4132,6 +4132,7 @@ static char *ollama_chat_with_limit(
     int audit_startup_memory = 0;
     int audit_retrieved_context = 0;
     int audit_reality_context = 0;
+    int audit_capability_context = 0;
     int audit_learning_context = 0;
     const char *audit_query = ollama_authoritative_user_query;
     size_t audit_query_chars = audit_query ? strlen(audit_query) : 0;
@@ -4165,6 +4166,8 @@ static char *ollama_chat_with_limit(
             if (!strncmp(content, "PERSISTENT REALITY CONTEXT",
                           strlen("PERSISTENT REALITY CONTEXT")))
                 audit_reality_context = 1;
+            if (r2_is_capability_section(content))
+                audit_capability_context = 1;
             if (!strncmp(content, "PERSISTENT LEARNING CONTEXT",
                           strlen("PERSISTENT LEARNING CONTEXT")))
                 audit_learning_context = 1;
@@ -4173,13 +4176,13 @@ static char *ollama_chat_with_limit(
     fprintf(stderr,
             "[R2 Prompt Audit] stage=%s payload_chars=%zu messages=%zu user_messages=%zu "
             "current_query_chars=%zu exact_user_turn=%d query_in_user_turn=%d "
-            "startup_memory=%d retrieved_context=%d reality_context=%d "
+            "startup_memory=%d retrieved_context=%d reality_context=%d capability_context=%d "
             "learning_context=%d system_chars=%zu\n",
             ollama_audit_stage ? ollama_audit_stage : "unspecified",
             strlen(payload), audit_message_count, audit_user_messages,
             audit_query_chars, audit_exact_user_turn, audit_user_turn_contained,
             audit_startup_memory, audit_retrieved_context, audit_reality_context,
-            audit_learning_context, audit_system_chars);
+            audit_capability_context, audit_learning_context, audit_system_chars);
 
     /* Capture exactly what will be sent to Ollama only when the owner opts in. */
     ollama_trace_prompt_if_enabled(payload);
