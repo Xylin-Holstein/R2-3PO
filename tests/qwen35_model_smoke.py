@@ -188,11 +188,13 @@ require(
 )
 
 require(
-    "size_t identity_minimum = system_budget / 5;" in core
-    and "system_budget - reality_reserve - identity_minimum" in core
+    "budget.identity_budget = system_budget / 5;" in core
+    and "budget.retrieval_reserve = system_budget / 6;" in core
+    and "r2_compute_system_context_budget(system_budget)" in core
+    and "length > reality_reserve" in core
     and "Prefer a complete sentence boundary when the cap falls inside the" in core
-    and "override_budget = system_budget / 4;" not in core,
-    "adaptive context budgeting preserves more of the conversation contract without dropping identity or live Reality",
+    and "system_budget - reality_reserve - identity_minimum" not in core,
+    "adaptive context budgeting preserves the conversation contract, identity, live Reality, and a real retrieved-memory share",
 )
 require(
     "Return ONLY valid JSON with keys description and focus" in visual
@@ -336,6 +338,14 @@ require(
     and "Reply cleanup produced no visible text; returning a visible reply and preserving the user turn." in core
     and "goto finalize_reply;" in core,
     "tool/action, parser, and sound-cleanup failures return a visible answer instead of silently rolling back the turn",
+)
+
+require(
+    "static void handle_completed_messages(void)" in core
+    and '"[R2_INTERNAL_TOOL_RESULT]\\n"' in core
+    and "messages.items[messages.count - 1].internal_tool_result = 1;" in core
+    and "it was not inserted as user speech" in core,
+    "completed background tasks enter chat as explicitly marked internal results, not unmarked user turns",
 )
 
 require(
