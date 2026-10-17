@@ -56,14 +56,10 @@ for required in (
     "size_t max_user_reserve = input_budget > 1500",
     "current_user_reserve > max_user_reserve",
     "static R2SystemContextBudget r2_compute_system_context_budget(",
-    "budget.reality_reserve = system_budget / 6;",
+    "budget.reality_reserve = system_budget / 8;",
     "budget.identity_budget = system_budget / 3;",
-    "budget.retrieval_reserve = system_budget / 6;",
-    "budget.capabilities_reserve = system_budget / 12;",
-    "if (system_budget < 18000)",
-    "budget.identity_budget = system_budget / 4;",
     "budget.retrieval_reserve = system_budget / 8;",
-    "budget.capabilities_reserve = system_budget / 20;",
+    "budget.capabilities_reserve = system_budget / 16;",
     "budget.override_budget = system_budget > reserved",
     "r2_compute_system_context_budget(system_budget)",
     "message_add_system_prompt_sections_locked() != 0",
@@ -103,20 +99,12 @@ def allocation_for_context(num_ctx: int, num_predict: int, override_length: int,
         if input_budget > current_user_reserve + 500 else 0
     )
     system_budget = min(system_budget, system_total, input_budget)
-    if system_budget < 18000:
-        reality_reserve = min(system_budget // 10, 2000)
-        identity_minimum = system_budget // 4
-        if identity_minimum < 500 and system_budget > reality_reserve + 1000:
-            identity_minimum = 500
-        retrieval_reserve = system_budget // 8
-        capabilities_reserve = system_budget // 20
-    else:
-        reality_reserve = min(system_budget // 6, 3000)
-        identity_minimum = system_budget // 3
-        if identity_minimum < 1000 and system_budget > reality_reserve + 2000:
-            identity_minimum = 1000
-        retrieval_reserve = system_budget // 6
-        capabilities_reserve = system_budget // 12
+    reality_reserve = min(system_budget // 8, 3000)
+    identity_minimum = system_budget // 3
+    if identity_minimum < 1000 and system_budget > reality_reserve + 2000:
+        identity_minimum = 1000
+    retrieval_reserve = system_budget // 8
+    capabilities_reserve = system_budget // 16
     identity_budget = min(identity_minimum, system_budget - reality_reserve)
     reserved = (reality_reserve + identity_budget + retrieval_reserve
                 + capabilities_reserve)
