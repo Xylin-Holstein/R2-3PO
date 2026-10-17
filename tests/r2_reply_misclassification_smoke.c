@@ -170,6 +170,15 @@ int main(void)
                     "hello this message is deliberately much longer than the simple social-turn limit and must not be truncated"),
                 "long messages are never mistaken for simple social turns");
 
+    const char *retrieval_records =
+        "CURRENT TURN RETRIEVED CONTEXT\nrecord-one\nrecord-two\n";
+    size_t record_cap = strlen("CURRENT TURN RETRIEVED CONTEXT\nrecord-one\nrecord");
+    size_t safe_record_prefix =
+        r2_safe_prompt_prefix_length(retrieval_records, record_cap, 1);
+    ok &= check(safe_record_prefix ==
+                    strlen("CURRENT TURN RETRIEVED CONTEXT\nrecord-one\n"),
+                "a constrained retrieved-memory block is clipped at a record boundary");
+
     R2SystemContextBudget context_budget =
         r2_compute_system_context_budget(9468);
     ok &= check(context_budget.override_budget > 0 &&
