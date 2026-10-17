@@ -58,6 +58,10 @@ require(
     and 'sudo rm -rf /home/x/R2_Home' not in workflow,
     "Life Log integration test uses an isolated temporary root and never chmods/deletes a shared home path",
 )
+require(
+    "python3 tests/copy_ollama_model_integrity.py" in workflow,
+    "CI exercises repair of same-size corrupt model blobs and rejection of corrupt source blobs",
+)
 source_block = re.search(r"^SOURCES\s*=\s*(.+)$", makefile, re.MULTILINE)
 require(source_block is not None, "Makefile declares its production source list")
 for source in required_sources:
