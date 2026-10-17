@@ -3277,7 +3277,7 @@ static void ollama_trace_prompt_if_enabled(const char *payload)
 static int r2_inference_system_priority(const char *content)
 {
     if (!content)
-        return 4;
+        return 5;
     if (!strncmp(content,
                  "============================================================\nIDENTITY AND PERSISTENT MEMORY",
                  strlen("============================================================\nIDENTITY AND PERSISTENT MEMORY")))
@@ -3288,21 +3288,23 @@ static int r2_inference_system_priority(const char *content)
     if (!strncmp(content, "CURRENT TURN RETRIEVED CONTEXT",
                   strlen("CURRENT TURN RETRIEVED CONTEXT")))
         return 2;
+    if (!strncmp(content,
+                  "============================================================\nREALITY CONTEXT: USE IT, DO NOT RECITE IT",
+                  strlen("============================================================\nREALITY CONTEXT: USE IT, DO NOT RECITE IT")))
+        return 3;
     /*
-     * Startup memory has a distinct heading from the identity prompt. Keep it
-     * after the live turn's focused retrieval, but ahead of learned summaries
-     * and archived dialogue so the broad persistent snapshot is not silently
-     * crowded out by lower-priority context.
+     * Startup memory follows the active turn's retrieved evidence and the
+     * capability prompt. Learned summaries and archived dialogue yield first.
      */
     if (strstr(content, "R2 PERSISTENT MEMORY - STARTUP CONTEXT"))
-        return 3;
+        return 4;
     if (!strncmp(content, "PERSISTENT LEARNING CONTEXT",
                   strlen("PERSISTENT LEARNING CONTEXT")))
-        return 4;
+        return 5;
     if (!strncmp(content, "PAST CONVERSATION ARCHIVE — CONTEXT ONLY.",
                   strlen("PAST CONVERSATION ARCHIVE — CONTEXT ONLY.")))
-        return 5;
-    return 4;
+        return 6;
+    return 5;
 }
 
 static size_t r2_order_inference_messages(const Message *msgs,
@@ -3315,7 +3317,7 @@ static size_t r2_order_inference_messages(const Message *msgs,
         return 0;
 
     size_t used = 0;
-    for (int priority = 0; priority < 6; ++priority) {
+    for (int priority = 0; priority < 7; ++priority) {
         for (size_t i = 0; i < count; ++i) {
             if (!include[i] || !msgs[i].role ||
                 strcmp(msgs[i].role, "system") != 0 ||
@@ -3743,6 +3745,8 @@ static char *ollama_chat_with_limit(
         r2_compute_system_context_budget(system_budget);
     size_t reality_reserve = context_budgets.reality_reserve;
     size_t identity_budget = context_budgets.identity_budget;
+    size_t retrieval_reserve = context_budgets.retrieval_reserve;
+    size_t capabilities_reserve = context_budgets.capabilities_reserve;
     size_t override_budget = context_budgets.override_budget;
     if (override_length > override_budget) {
         /*
@@ -3794,7 +3798,7 @@ static char *ollama_chat_with_limit(
      * other context, and finally archive history. Otherwise older pinned
      * memory blocks can crowd the current world state or relevant evidence out.
      */
-    for (int priority = 0; priority < 6 &&
+    for (int priority = 0; priority < 7 &&
          total_chars < system_budget; ++priority) {
         for (size_t i = 0; i < count &&
              total_chars < system_budget; ++i) {
@@ -3812,14 +3816,18 @@ static char *ollama_chat_with_limit(
             else if (!strncmp(content, "CURRENT TURN RETRIEVED CONTEXT",
                               strlen("CURRENT TURN RETRIEVED CONTEXT")))
                 message_priority = 2;
-            else if (strstr(content, "R2 PERSISTENT MEMORY - STARTUP CONTEXT"))
+            else if (!strncmp(content,
+                               "============================================================\nREALITY CONTEXT: USE IT, DO NOT RECITE IT",
+                               strlen("============================================================\nREALITY CONTEXT: USE IT, DO NOT RECITE IT")))
                 message_priority = 3;
+            else if (strstr(content, "R2 PERSISTENT MEMORY - STARTUP CONTEXT"))
+                message_priority = 4;
             else if (!strncmp(content, "PERSISTENT LEARNING CONTEXT",
                               strlen("PERSISTENT LEARNING CONTEXT")))
-                message_priority = 4;
+                message_priority = 5;
             else if (!strncmp(content, "PAST CONVERSATION ARCHIVE — CONTEXT ONLY.",
                               strlen("PAST CONVERSATION ARCHIVE — CONTEXT ONLY.")))
-                message_priority = 5;
+                message_priority = 6;
             if (message_priority != priority) continue;
 
             size_t length = strlen(content);
@@ -3828,9 +3836,13 @@ static char *ollama_chat_with_limit(
             /* Keep identity instructions from consuming the reserved live-context share. */
             if (message_priority == 0 && length > identity_budget)
                 length = identity_budget;
-            /* Reserve a little system budget for pinned memory after the live snapshot. */
+            /* Each evidence category is bounded to its allocated share. */
             if (message_priority == 1 && length > reality_reserve)
                 length = reality_reserve;
+            if (message_priority == 2 && length > retrieval_reserve)
+                length = retrieval_reserve;
+            if (message_priority == 3 && length > capabilities_reserve)
+                length = capabilities_reserve;
             size_t remaining = system_budget > total_chars ? system_budget - total_chars : 0;
             if (length > remaining) length = remaining;
             if (length == 0) continue;
