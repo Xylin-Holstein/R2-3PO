@@ -47,7 +47,7 @@ jobs:
 
       - name: Check consistent strict build configuration
         run: |
-          python3 -m py_compile tests/build_configuration_smoke.py
+          python3 -m compileall -q tests
           python3 tests/build_configuration_smoke.py
 
       - name: Check model references and implemented lifecycle documentation
