@@ -8891,40 +8891,56 @@ static char *memory_decision(
 
 static void handle_completed_messages(void)
 {
-    char *r =
-        collect_completed();
-
-    if (
-        r &&
-        *r
-    ) {
-
-        pthread_mutex_lock(
-            &messages_lock
-        );
-
-        if (
-            message_add(
-                "user",
-                r
-            ) != 0
-        ) {
-
-            fprintf(
-                stderr,
-                "[R2] Failed to add completed task "
-                "message to conversation context.\n"
-            );
-        }
-
-        pthread_mutex_unlock(
-            &messages_lock
-        );
+    char *result = collect_completed();
+    if (!result || !*result) {
+        free(result);
+        return;
     }
 
-    free(r);
-}
+    /* A completed computer task is not something the human just said. Keep
+       the user-role handoff required by the chat API, but mark it as an
+       internal result and pair it with an assistant-side explanation so the
+       active-turn selector and prompt both distinguish it from user speech. */
+    static const char request_context[] =
+        "[R2_INTERNAL_TOOL_REQUEST]\n"
+        "A background computer task completed between conversation turns. "
+        "The following output is internal task evidence, not a human message. "
+        "The task has already run; do not repeat it automatically. Use its "
+        "result only when relevant to the user's actual current message.";
 
+    static const char result_prefix[] = "[R2_INTERNAL_TOOL_RESULT]\n";
+    size_t result_length = strlen(result);
+    if (result_length > SIZE_MAX - sizeof(result_prefix)) {
+        fprintf(stderr, "[R2] Completed task result was too large to tag safely.\n");
+        free(result);
+        return;
+    }
+
+    size_t tagged_length = (sizeof(result_prefix) - 1) + result_length;
+    char *tagged_result = malloc(tagged_length + 1);
+    if (!tagged_result) {
+        fprintf(stderr, "[R2] Could not allocate internal completed-task result context.\n");
+        free(result);
+        return;
+    }
+    memcpy(tagged_result, result_prefix, sizeof(result_prefix) - 1);
+    memcpy(tagged_result + sizeof(result_prefix) - 1, result, result_length + 1);
+
+    pthread_mutex_lock(&messages_lock);
+    int rc = message_add_pair_locked(
+        "assistant", request_context, "user", tagged_result);
+    if (rc == 0 && messages.count > 0)
+        messages.items[messages.count - 1].internal_tool_result = 1;
+    pthread_mutex_unlock(&messages_lock);
+
+    if (rc != 0)
+        fprintf(stderr,
+                "[R2] Failed to add completed task as an internal result; "
+                "it was not inserted as user speech.\n");
+
+    free(tagged_result);
+    free(result);
+}
 
 /* ============================================================
    SIGNAL HANDLER
