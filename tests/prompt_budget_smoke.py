@@ -72,7 +72,8 @@ for required in (
     "enum { SECTION_COUNT = sizeof(section_markers) / sizeof(section_markers[0]) };",
     'message_add_pinned("system", section)',
     "r2_capability_section_matches_query",
-    "r2_inference_system_priority(content, ollama_authoritative_user_query)",
+    "r2_inference_system_priority(",
+    "ollama_authoritative_user_query",
     "capabilities_used += length",
     "Prefer a complete sentence boundary when the cap falls inside the",
     "message_priority == 0 && length > identity_budget",
@@ -90,7 +91,7 @@ for required in (
         raise SystemExit(f"Adaptive prompt budget is missing its context safeguard: {required}")
 
 def allocation_for_context(num_ctx: int, num_predict: int, override_length: int,
-                           current_user_reserve: int = 1500) -> tuple[int, int, int, int, int, int, int, int]:
+                           current_user_reserve: int = 1500) -> tuple[int, int, int, int, int, int, int, int, int]:
     input_budget = (num_ctx - num_predict - 512) * 32 // 10
     input_budget = min(input_budget, history_total)
     max_user_reserve = (
