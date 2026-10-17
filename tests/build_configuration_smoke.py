@@ -53,6 +53,7 @@ require(
 )
 require(
     'ROOT="$(mktemp -d /tmp/r2-log-linked-retrieval.' in workflow
+    and '"$ROOT/log-linked-retrieval-test"' in workflow
     and 'sudo chmod -R a+rwx /home/x/R2_Home' not in workflow
     and 'sudo rm -rf /home/x/R2_Home' not in workflow,
     "Life Log integration test uses an isolated temporary root and never chmods/deletes a shared home path",
