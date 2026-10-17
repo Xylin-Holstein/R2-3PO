@@ -50,6 +50,11 @@ jobs:
           python3 -m compileall -q .
           python3 tests/build_configuration_smoke.py
 
+      - name: Check secure Ollama model-copy integrity
+        run: |
+          python3 -m py_compile tools/copy_ollama_model.py tests/copy_ollama_model_integrity.py
+          python3 tests/copy_ollama_model_integrity.py
+
       - name: Check model references and implemented lifecycle documentation
         run: |
           python3 -m py_compile tests/model_reference_consistency_smoke.py
