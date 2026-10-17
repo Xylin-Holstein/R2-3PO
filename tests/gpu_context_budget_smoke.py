@@ -13,6 +13,13 @@ for label, source in (("interactive launcher", launcher), ("overnight service", 
     assert "export R2_OLLAMA_NUM_CTX=8192" in source, label
     assert '[[ -z "${R2_OLLAMA_NUM_CTX:-}" ]]' in source, label
 assert '"R2_OLLAMA_NUM_CTX=${R2_OLLAMA_NUM_CTX:-}"' in runner
+assert "R2_OLLAMA_NUM_CTX_DEFAULTED=0" in runner
+assert "R2_OLLAMA_NUM_GPU_DEFAULTED=0" in runner
+assert '"$R2_OLLAMA_NUM_GPU_DEFAULTED" == "1" &&' in runner
+assert '"$R2_OLLAMA_NUM_CTX_DEFAULTED" == "1" ]]; then' in runner
+assert "export R2_OLLAMA_NUM_GPU=12" in runner
+assert "export R2_OLLAMA_NUM_CTX=4096" in runner
+assert "Never silently override an explicit operator setting" in runner
 assert 'R2_OLLAMA_NUM_CTX="${R2_OLLAMA_NUM_CTX:-}"' in launcher
 assert 'requested >= 2048 && requested <= 16384' in core
 assert 'if (requested < safe_max) safe_max = (int)requested;' in core
