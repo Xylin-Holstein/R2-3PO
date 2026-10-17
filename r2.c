@@ -9926,7 +9926,12 @@ char *r2_ears_listen_cancelable(unsigned seconds,
         fprintf(stderr, "[Ears] Whisper returned no usable transcript. Try speaking clearly and listening again.\n");
 
 cleanup:
-    if (child > 0) { kill(child, SIGTERM); while (waitpid(child, NULL, 0) < 0 && errno == EINTR) {} }
+    /* If an unusual wait/clock failure reaches cleanup while Whisper is still
+       alive, shutdown must not hang forever waiting for a polite SIGTERM. */
+    if (child > 0) {
+        (void)kill(child, SIGKILL);
+        while (waitpid(child, NULL, 0) < 0 && errno == EINTR) {}
+    }
     if (own_mic && ears) {
         pthread_mutex_lock(&ears_capture_lock);
         r2_ears_close(ears);
