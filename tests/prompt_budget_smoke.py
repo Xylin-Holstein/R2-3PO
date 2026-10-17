@@ -59,7 +59,7 @@ for required in (
     "budget.reality_reserve = system_budget / 6;",
     "budget.identity_budget = system_budget / 3;",
     "budget.retrieval_reserve = system_budget / 6;",
-    "budget.capabilities_reserve = system_budget / 8;",
+    "budget.capabilities_reserve = system_budget / 12;",
     "budget.override_budget = system_budget > reserved",
     "r2_compute_system_context_budget(system_budget)",
     "message_add_system_prompt_sections_locked() != 0",
@@ -71,7 +71,7 @@ for required in (
     "message_priority == 0 && length > identity_budget",
     "message_priority == 1 && length > reality_reserve",
     "message_priority == 2 && length > retrieval_reserve",
-    "message_priority == 3 && length > capabilities_reserve",
+    "message_priority == 3 || message_priority == 4",
     'json_object_object_add(override_message, "content",',
     'bounded_override) != 0',
     'json_object_put(bounded_override);',
@@ -98,7 +98,7 @@ def allocation_for_context(num_ctx: int, num_predict: int, override_length: int,
         identity_minimum = 1000
     identity_budget = min(identity_minimum, system_budget - reality_reserve)
     retrieval_reserve = system_budget // 6
-    capabilities_reserve = system_budget // 8
+    capabilities_reserve = system_budget // 12
     reserved = (reality_reserve + identity_budget + retrieval_reserve
                 + capabilities_reserve)
     override_budget = (
