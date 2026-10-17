@@ -392,16 +392,22 @@ int main(void)
     pthread_mutex_lock(&messages_lock);
     int prompt_sections_rc = message_add_system_prompt_sections_locked();
     pthread_mutex_unlock(&messages_lock);
-    ok &= check(prompt_sections_rc == 0 && messages.count == 2 &&
+    size_t prompt_section_chars = 0;
+    int all_prompt_sections_pinned = 1;
+    for (size_t i = 0; i < messages.count; ++i) {
+        prompt_section_chars += strlen(messages.items[i].content);
+        if (!messages.items[i].pinned)
+            all_prompt_sections_pinned = 0;
+    }
+    ok &= check(prompt_sections_rc == 0 && messages.count == 9 &&
                     !strncmp(messages.items[0].content,
                              "============================================================\nIDENTITY AND PERSISTENT MEMORY",
                              strlen("============================================================\nIDENTITY AND PERSISTENT MEMORY")) &&
                     strstr(messages.items[1].content,
                            "============================================================\nREALITY CONTEXT: USE IT, DO NOT RECITE IT") == messages.items[1].content &&
-                    messages.items[0].pinned && messages.items[1].pinned &&
-                    strlen(messages.items[0].content) + strlen(messages.items[1].content) ==
-                        strlen(SYSTEM_PROMPT),
-                "the complete static prompt is split into pinned core-identity and capability sections");
+                    all_prompt_sections_pinned &&
+                    prompt_section_chars == strlen(SYSTEM_PROMPT),
+                "the complete static prompt is split into nine pinned semantic sections");
 
     /* Background task output must never be inserted as an unmarked human turn. */
     CompletedTask *completed = calloc(1, sizeof(*completed));
