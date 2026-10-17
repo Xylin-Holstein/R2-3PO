@@ -3282,13 +3282,12 @@ static void ollama_trace_prompt_if_enabled(const char *payload)
 }
 
 /*
- * System context has semantic priority as well as a role. The Reality and
- * learning snapshots are refreshed during a session and can be appended after
- * old dialogue; serializing them in that position makes them look like a new
- * mid-conversation instruction. Emit all system context before dialogue in
- * this order: identity/memory, current Reality, active-turn retrieval, learning,
- * then archived history. Preserve order within each category and keep dialogue
- * turns chronological.
+ * System context has semantic priority as well as a role. Reality and learning
+ * snapshots can be appended after old dialogue; emit all system context before
+ * dialogue in this order: core identity, live Reality, active-turn retrieval,
+ * the capability section relevant to the current query, broader capability
+ * guidance, startup memory, learning summaries, and archived history. Preserve
+ * order within each category and keep dialogue turns chronological.
  */
 static int query_has_word_prefix(const char *query, const char *prefix);
 static int query_has_phrase(const char *query, const char *phrase);
