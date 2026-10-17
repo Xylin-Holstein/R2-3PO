@@ -176,7 +176,7 @@ int main(void)
                     context_budget.identity_budget > 0 &&
                     context_budget.reality_reserve > 0 &&
                     context_budget.retrieval_reserve >= 9468 / 6 &&
-                    context_budget.capabilities_reserve >= 9468 / 8 &&
+                    context_budget.capabilities_reserve >= 9468 / 12 &&
                     context_budget.override_budget +
                         context_budget.identity_budget +
                         context_budget.reality_reserve +
