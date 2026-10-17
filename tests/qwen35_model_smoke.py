@@ -196,7 +196,8 @@ require(
     and "r2_compute_system_context_budget(system_budget)" in core
     and "length > reality_reserve" in core
     and "length > retrieval_reserve" in core
-    and "length > capabilities_reserve" in core
+    and "capabilities_reserve > capabilities_used" in core
+    and "capability_remaining" in core
     and "Prefer a complete sentence boundary when the cap falls inside the" in core
     and "system_budget - reality_reserve - identity_minimum" not in core,
     "adaptive context budgeting preserves core identity, live Reality, retrieved memory, and a separate capability prompt",
