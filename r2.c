@@ -3468,7 +3468,7 @@ static R2SystemContextBudget r2_compute_system_context_budget(size_t system_budg
         budget.identity_budget = system_budget - budget.reality_reserve;
 
     budget.retrieval_reserve = system_budget / 6;
-    budget.capabilities_reserve = system_budget / 8;
+    budget.capabilities_reserve = system_budget / 12;
     size_t reserved = budget.reality_reserve +
                       budget.identity_budget +
                       budget.retrieval_reserve +
