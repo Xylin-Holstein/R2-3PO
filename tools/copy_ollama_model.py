@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import pwd
 import shutil
+import stat
 import subprocess
 import sys
 
@@ -70,6 +71,20 @@ def model_manifest_relative(model: str) -> Path:
     return Path("manifests") / "registry.ollama.ai" / Path(*parts) / tag
 
 
+def _reject_symlink_path_components(path: Path) -> None:
+    """Refuse symlinked parent components before a privileged copy writes beneath them."""
+    absolute = path.absolute()
+    current = Path(absolute.anchor)
+    for component in absolute.parts[1:]:
+        current = current / component
+        try:
+            mode = current.lstat().st_mode
+        except FileNotFoundError:
+            continue
+        if stat.S_ISLNK(mode):
+            raise ValueError(f"refusing symlinked destination path component: {current}")
+
+
 def _sha256_file(path: Path) -> str:
     """Hash a model blob without loading its potentially multi-gigabyte bytes into RAM."""
     digest = hashlib.sha256()
@@ -103,6 +118,12 @@ def copy_model(source_root: Path, destination_root: Path, model: str, owner: str
         account = pwd.getpwnam(owner)
         uid, gid = account.pw_uid, account.pw_gid
 
+    # The installer invokes this copier with elevated privileges, while the
+    # destination tree is writable by the r2 runtime account. Do not let a
+    # pre-existing symlink redirect root-owned writes outside the model store.
+    _reject_symlink_path_components(destination_root)
+    _reject_symlink_path_components(destination_root / "blobs")
+    _reject_symlink_path_components(destination_root / rel.parent)
     (destination_root / "blobs").mkdir(parents=True, exist_ok=True)
     (destination_root / rel.parent).mkdir(parents=True, exist_ok=True)
     for digest in sorted(set(digests)):
@@ -112,6 +133,7 @@ def copy_model(source_root: Path, destination_root: Path, model: str, owner: str
         filename = "sha256-" + expected_sha256
         src = source_root / "blobs" / filename
         dst = destination_root / "blobs" / filename
+        _reject_symlink_path_components(dst.parent)
         if not src.is_file():
             raise FileNotFoundError(f"model blob is missing: {src}")
         # Ollama blob names are content hashes. Size equality alone is not proof
@@ -119,7 +141,7 @@ def copy_model(source_root: Path, destination_root: Path, model: str, owner: str
         # destination so a corrupt same-size blob cannot survive an upgrade.
         if _sha256_file(src) != expected_sha256:
             raise ValueError(f"source model blob failed SHA-256 verification: {src}")
-        if not dst.is_file() or _sha256_file(dst) != expected_sha256:
+        if dst.is_symlink() or not dst.is_file() or _sha256_file(dst) != expected_sha256:
             tmp = dst.with_name(dst.name + f".tmp.{os.getpid()}")
             try:
                 shutil.copyfile(src, tmp)
@@ -137,6 +159,7 @@ def copy_model(source_root: Path, destination_root: Path, model: str, owner: str
         os.chmod(dst, 0o644)
 
     target_manifest = destination_root / rel
+    _reject_symlink_path_components(target_manifest.parent)
     tmp_manifest = target_manifest.with_name(target_manifest.name + f".tmp.{os.getpid()}")
     shutil.copyfile(source_manifest, tmp_manifest)
     os.chmod(tmp_manifest, 0o644)
