@@ -3698,12 +3698,11 @@ static char *ollama_chat_with_limit(
         system_budget = input_budget;
 
     /*
-     * Under memory pressure, keep three essentials in the serialized prompt:
-     * the conversation contract, core identity, and live Reality. A fixed
-     * one-quarter cap truncated the conversation contract even when there was
-     * enough room to preserve it by trimming lower-priority historical context.
-     * Reserve live Reality and a meaningful identity share first, then give the
-     * conversation contract the remaining system budget.
+     * Under memory pressure, preserve the conversation contract, core
+     * identity, live Reality, and a nonzero share for current-turn retrieval.
+     * The allocator reserves explicit shares for identity, Reality, and
+     * retrieved evidence before assigning the remaining system budget to the
+     * conversation contract. Lower-priority startup/archive context yields first.
      */
     R2SystemContextBudget context_budgets =
         r2_compute_system_context_budget(system_budget);
