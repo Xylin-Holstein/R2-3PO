@@ -3792,11 +3792,10 @@ static char *ollama_chat_with_limit(
 
     size_t total_chars = override_length;
     /*
-     * Priority matters when the system-context budget is reached. Keep the
-     * core identity/personality prompt first, then live Reality, then context
-     * retrieved specifically for the active turn, then persistent learning and
-     * other context, and finally archive history. Otherwise older pinned
-     * memory blocks can crowd the current world state or relevant evidence out.
+     * Priority matters when the system-context budget is reached: core identity,
+     * live Reality, active-turn retrieval, static capability guidance, broad
+     * startup memory, learning summaries, and finally archived dialogue.
+     * Every category has a cap so one long block cannot crowd the others out.
      */
     for (int priority = 0; priority < 7 &&
          total_chars < system_budget; ++priority) {
@@ -3805,7 +3804,7 @@ static char *ollama_chat_with_limit(
             if (!msgs[i].role || strcmp(msgs[i].role, "system") != 0)
                 continue;
             const char *content = msgs[i].content ? msgs[i].content : "";
-            int message_priority = 4;
+            int message_priority = 5;
             if (!strncmp(content,
                          "============================================================\nIDENTITY AND PERSISTENT MEMORY",
                          strlen("============================================================\nIDENTITY AND PERSISTENT MEMORY")))
