@@ -4674,7 +4674,7 @@ static int conversation_reply_token_budget(const char *query)
     };
     for (size_t i = 0; i < sizeof(detailed_terms) / sizeof(detailed_terms[0]); ++i) {
         if (query_has_word_prefix(query, detailed_terms[i]))
-            return 2048;
+            return 1536;
     }
     return 1024;
 }
