@@ -51,6 +51,12 @@ require(
     "python3 -m compileall -q ." in workflow,
     "CI syntax-checks every Python source and test module before targeted tests run",
 )
+require(
+    'ROOT="$(mktemp -d /tmp/r2-log-linked-retrieval.' in workflow
+    and 'sudo chmod -R a+rwx /home/x/R2_Home' not in workflow
+    and 'sudo rm -rf /home/x/R2_Home' not in workflow,
+    "Life Log integration test uses an isolated temporary root and never chmods/deletes a shared home path",
+)
 source_block = re.search(r"^SOURCES\s*=\s*(.+)$", makefile, re.MULTILINE)
 require(source_block is not None, "Makefile declares its production source list")
 for source in required_sources:
