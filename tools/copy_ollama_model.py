@@ -201,6 +201,9 @@ def main() -> int:
     parser.add_argument("--owner", default="r2")
     args = parser.parse_args()
     try:
+        # Validate before probing the host's model-store paths, so malformed
+        # references fail deterministically even when no candidate store exists.
+        model_manifest_relative(args.model)
         source = args.source_root or service_model_root(args.model)
         if source is None or not source.is_dir():
             print("ERROR: could not locate the existing local Ollama model store. Use --source-root.", file=sys.stderr)
