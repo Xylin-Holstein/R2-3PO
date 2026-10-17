@@ -99,6 +99,22 @@ class CopyOllamaModelIntegrityTests(unittest.TestCase):
 
 
 
+    def test_manifest_digest_path_syntax_is_rejected_before_destination_changes(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="r2-model-copy-test-") as temporary:
+            base = Path(temporary)
+            source, destination = base / "source", base / "destination"
+            self._write_model(source, "qwen3.5:9b", {b"config": "unused", b"weights": "unused"})
+            manifest_path = source / copier.model_manifest_relative("qwen3.5:9b")
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            traversal = "a/" + (".." + "/") * 4
+            manifest["layers"][0]["digest"] = "sha256:" + traversal + ("b" * (64 - len(traversal)))
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "unsupported blob digest in manifest"):
+                copier.copy_model(source, destination, "qwen3.5:9b", "")
+
+            self.assertFalse(destination.exists(), "invalid manifest digests must fail before creating destination files")
+
     def test_preplanted_predictable_temp_symlinks_are_not_followed(self) -> None:
         with tempfile.TemporaryDirectory(prefix="r2-model-copy-test-") as temporary:
             base = Path(temporary)
