@@ -394,10 +394,10 @@ int main(void)
     pthread_mutex_unlock(&messages_lock);
     ok &= check(prompt_sections_rc == 0 && messages.count == 2 &&
                     !strncmp(messages.items[0].content,
-                             "============================================================\\nIDENTITY AND PERSISTENT MEMORY",
-                             strlen("============================================================\\nIDENTITY AND PERSISTENT MEMORY")) &&
+                             "============================================================\nIDENTITY AND PERSISTENT MEMORY",
+                             strlen("============================================================\nIDENTITY AND PERSISTENT MEMORY")) &&
                     strstr(messages.items[1].content,
-                           "============================================================\\nREALITY CONTEXT: USE IT, DO NOT RECITE IT") == messages.items[1].content &&
+                           "============================================================\nREALITY CONTEXT: USE IT, DO NOT RECITE IT") == messages.items[1].content &&
                     messages.items[0].pinned && messages.items[1].pinned &&
                     strlen(messages.items[0].content) + strlen(messages.items[1].content) ==
                         strlen(SYSTEM_PROMPT),
