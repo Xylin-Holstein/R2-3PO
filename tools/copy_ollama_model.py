@@ -117,15 +117,25 @@ def copy_model(source_root: Path, destination_root: Path, model: str, owner: str
             f"pull {model} there, and rerun this installer; this tool never downloads models."
         )
     manifest = json.loads(source_manifest.read_text(encoding="utf-8"))
-    digests = []
-    config = manifest.get("config", {})
-    if isinstance(config, dict) and isinstance(config.get("digest"), str):
-        digests.append(config["digest"])
-    for layer in manifest.get("layers", []):
-        if isinstance(layer, dict) and isinstance(layer.get("digest"), str):
-            digests.append(layer["digest"])
-    if not digests:
-        raise ValueError(f"manifest contains no model blobs: {source_manifest}")
+    if not isinstance(manifest, dict):
+        raise ValueError(f"invalid Ollama manifest object: {source_manifest}")
+    config = manifest.get("config")
+    layers = manifest.get("layers")
+    if not isinstance(config, dict) or not isinstance(config.get("digest"), str):
+        raise ValueError(f"manifest config is missing a blob digest: {source_manifest}")
+    if not isinstance(layers, list) or not layers:
+        raise ValueError(f"manifest layers must be a non-empty list: {source_manifest}")
+
+    # A malformed manifest must not be partially accepted. Skipping a layer
+    # with a missing or non-string digest would produce a copied manifest whose
+    # referenced blob was never copied, leaving the private model unusable.
+    digests = [config["digest"]]
+    for index, layer in enumerate(layers):
+        if not isinstance(layer, dict) or not isinstance(layer.get("digest"), str):
+            raise ValueError(
+                f"manifest layer {index} is missing a blob digest: {source_manifest}"
+            )
+        digests.append(layer["digest"])
 
     # Validate every digest before touching the destination. Digests become
     # filenames below, so length/prefix checks alone are insufficient: a
@@ -237,8 +247,7 @@ def main() -> int:
         copy_model(source, args.destination_root, args.model, args.owner)
     except (OSError, ValueError, json.JSONDecodeError, KeyError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
-        return 1
-    return 0
+        return 1    return 0
 
 
 if __name__ == "__main__":
