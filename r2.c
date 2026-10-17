@@ -3795,8 +3795,8 @@ static char *ollama_chat_with_limit(
             if (message_priority == 0 && length > identity_budget)
                 length = identity_budget;
             /* Reserve a little system budget for pinned memory after the live snapshot. */
-            if (message_priority == 1 && length > 3000)
-                length = 3000;
+            if (message_priority == 1 && length > reality_reserve)
+                length = reality_reserve;
             size_t remaining = system_budget > total_chars ? system_budget - total_chars : 0;
             if (length > remaining) length = remaining;
             if (length == 0) continue;
