@@ -48,7 +48,7 @@ require(
     "release branches run the same full CI workflow instead of silently skipping validation",
 )
 pull_request_block = re.search(
-    r"^  pull_request:\\n(?P<body>.*?)(?=^  [A-Za-z_][A-Za-z0-9_-]*:|\\Z)",
+    r"^  pull_request:\n(?P<body>.*?)(?=^  [A-Za-z_][A-Za-z0-9_-]*:|\Z)",
     workflow,
     re.MULTILINE | re.DOTALL,
 )
