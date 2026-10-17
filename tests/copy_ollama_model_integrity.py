@@ -123,5 +123,19 @@ class CopyOllamaModelIntegrityTests(unittest.TestCase):
             "manifests/registry.ollama.ai/my-org/model_name/latest-quantized",
         )
 
+    def test_cli_rejects_invalid_reference_before_model_store_discovery(self) -> None:
+        import contextlib
+        import io
+        from unittest.mock import patch
+
+        errors = io.StringIO()
+        with patch.object(sys, "argv", ["copy_ollama_model.py", "--model", "qwen3.5:../outside"]), \
+             patch.object(copier, "service_model_root") as discover:
+            with contextlib.redirect_stderr(errors):
+                status = copier.main()
+        self.assertEqual(status, 1)
+        discover.assert_not_called()
+        self.assertIn("invalid Ollama model reference", errors.getvalue())
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
