@@ -4,6 +4,12 @@
 # It never executes source-tree scripts or installs unit contents as root.
 set -euo pipefail
 
+# Do not let an inherited PATH select attacker-controlled utilities for root
+# filesystem/service operations. Keep the same known system path for child tools.
+PATH="/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH
+umask 077
+
 [[ "$EUID" -eq 0 ]] || {
     echo "[R2 installer] ERROR: this trusted bootstrap must be invoked as root via sudo." >&2
     exit 1
