@@ -51,7 +51,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
              patch.object(probe.subprocess, "run", return_value=SimpleNamespace(
                  returncode=0, stdout="NVIDIA GeForce GTX 1050 Ti, 4096 MiB, 123 MiB", stderr=""
              )):
-            self.assertTrue(probe.preflight(timeout=1))
+            self.assertTrue(probe.preflight(timeout=1, require_gpu_offload=True))
         options = read.call_args_list[1].kwargs["payload"]["options"]
         self.assertEqual(options["num_gpu"], 20)
         self.assertEqual(options["num_ctx"], 8192)
@@ -75,6 +75,19 @@ class OllamaPreflightSmoke(unittest.TestCase):
                 "http://127.0.0.1:11435/api/ps",
             ],
         )
+
+    def test_required_gpu_offload_rejects_cpu_only_success(self) -> None:
+        errors = io.StringIO()
+        with patch.dict(probe.os.environ, {"R2_OLLAMA_NUM_GPU": "20"}), \
+             patch.object(probe, "_read_json", side_effect=[
+                 {"models": [{"name": "qwen3.5:9b"}]},
+                 {"message": {"content": "R2_READY"}},
+                 {"models": [{"name": "qwen3.5:9b", "size_vram": 0}]},
+             ]), patch.object(probe.subprocess, "run", return_value=SimpleNamespace(
+                 returncode=0, stdout="NVIDIA GeForce GTX 1050 Ti, 4096 MiB, 0 MiB", stderr=""
+             )), contextlib.redirect_stderr(errors):
+            self.assertFalse(probe.preflight(timeout=1, require_gpu_offload=True))
+        self.assertIn("GPU offload was required", errors.getvalue())
 
     def test_unapproved_non_loopback_endpoint_is_rejected(self) -> None:
         errors = io.StringIO()
