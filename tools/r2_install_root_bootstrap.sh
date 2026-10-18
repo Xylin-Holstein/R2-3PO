@@ -402,15 +402,39 @@ fi
 # Match the exact default policy used by r2_service_runner.sh. A generic
 # no-options probe can pass on CPU while the actual 20-layer/8192-context
 # service configuration fails, so test the real policy before replacing R2.
+NVIDIA_PCI_PRESENT=0
+for vendor_file in /sys/bus/pci/devices/*/vendor; do
+    [[ -r "$vendor_file" ]] || continue
+    NVIDIA_VENDOR=""
+    IFS= read -r NVIDIA_VENDOR < "$vendor_file" || continue
+    if [[ "$NVIDIA_VENDOR" == "0x10de" ]]; then
+        NVIDIA_PCI_PRESENT=1
+        break
+    fi
+done
+NVIDIA_QUERY_OK=0
+NVIDIA_GPU_NAMES=""
+if command -v nvidia-smi >/dev/null 2>&1; then
+    if NVIDIA_GPU_NAMES="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null)" &&
+       [[ -n "$NVIDIA_GPU_NAMES" ]]; then
+        NVIDIA_QUERY_OK=1
+    fi
+fi
+if [[ "$NVIDIA_PCI_PRESENT" == "1" && "$NVIDIA_QUERY_OK" != "1" ]]; then
+    fail "NVIDIA PCI hardware is present but nvidia-smi cannot query a GPU; refusing to silently deploy a CPU-only policy."
+fi
+
 PREFLIGHT_GPU=0
 PREFLIGHT_CTX=""
 PREFLIGHT_POLICY_DEFAULTED=0
 PREFLIGHT_GPU_ARGS=()
-if command -v nvidia-smi >/dev/null 2>&1 &&
-   nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi 'GTX 1050 Ti'; then
+if [[ "$NVIDIA_QUERY_OK" == "1" ]] &&
+   printf '%s\n' "$NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
     PREFLIGHT_GPU=20
     PREFLIGHT_CTX=8192
     PREFLIGHT_POLICY_DEFAULTED=1
+fi
+if [[ "$NVIDIA_PCI_PRESENT" == "1" || "$PREFLIGHT_GPU" != "0" ]]; then
     PREFLIGHT_GPU_ARGS=(--require-gpu-offload)
 fi
 log "Preflight GPU/context policy: R2_OLLAMA_NUM_GPU=$PREFLIGHT_GPU R2_OLLAMA_NUM_CTX=${PREFLIGHT_CTX:-adaptive}"
