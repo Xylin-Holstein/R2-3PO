@@ -25,6 +25,20 @@ static void clear_test_messages(void)
     pthread_mutex_unlock(&messages_lock);
 }
 
+static char *short_no_newline_search(const char *keyword, int limit)
+{
+    (void)keyword;
+    (void)limit;
+    return strdup("SHORT");
+}
+
+static char *utf8_no_newline_search(const char *keyword, int limit)
+{
+    (void)keyword;
+    (void)limit;
+    return strdup("AB\xe2\x98\x83Z");
+}
+
 int main(void)
 {
     /* Byte-based prompt budgets must not cut through a multibyte character. */
@@ -34,6 +48,22 @@ int main(void)
     assert(r2_utf8_safe_prefix_length(unicode_prompt, 4) == 4);
     assert(r2_safe_prompt_prefix_length(unicode_prompt, 2, 0) == 1);
     assert(r2_safe_prompt_prefix_length(unicode_prompt, 2, 1) == 1);
+
+    char bounded_memory[] = "A\xe2\x98\x83Z";
+    r2_bound_context_records(bounded_memory, 2);
+    assert(strcmp(bounded_memory, "A") == 0);
+
+    char keywords[MAX_MEMORY_KEYWORDS][64] = {{0}};
+    snprintf(keywords[0], sizeof(keywords[0]), "quasar");
+    char *associated = r2_collect_associated_records(
+        keywords, 1, short_no_newline_search, 64);
+    assert(associated != NULL && strcmp(associated, "SHORT") == 0);
+    free(associated);
+
+    associated = r2_collect_associated_records(
+        keywords, 1, utf8_no_newline_search, 4);
+    assert(associated != NULL && strcmp(associated, "AB") == 0);
+    free(associated);
 
     /* Exercise the actual 12 KiB message and 24 KiB system byte caps. */
     const size_t long_cap = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;
