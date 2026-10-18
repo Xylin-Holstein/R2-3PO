@@ -326,23 +326,25 @@ fi
 PREFLIGHT_GPU=0
 PREFLIGHT_CTX=""
 PREFLIGHT_POLICY_DEFAULTED=0
+PREFLIGHT_GPU_ARGS=()
 if command -v nvidia-smi >/dev/null 2>&1 &&
    nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi 'GTX 1050 Ti'; then
     PREFLIGHT_GPU=20
     PREFLIGHT_CTX=8192
     PREFLIGHT_POLICY_DEFAULTED=1
+    PREFLIGHT_GPU_ARGS=(--require-gpu-offload)
 fi
 log "Preflight GPU/context policy: R2_OLLAMA_NUM_GPU=$PREFLIGHT_GPU R2_OLLAMA_NUM_CTX=${PREFLIGHT_CTX:-adaptive}"
 if ! run_as_r2 env R2_MODEL="$R2_MODEL" R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
     R2_OLLAMA_NUM_GPU="$PREFLIGHT_GPU" R2_OLLAMA_NUM_CTX="$PREFLIGHT_CTX" \
-    python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 60 --timeout 180; then
+    python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 60 --timeout 180 "${PREFLIGHT_GPU_ARGS[@]}"; then
     if [[ "$PREFLIGHT_POLICY_DEFAULTED" == "1" ]]; then
         log "Default GTX 1050 Ti preflight failed; retrying with 12 GPU layers and 4096 context tokens."
         PREFLIGHT_GPU=12
         PREFLIGHT_CTX=4096
         if ! run_as_r2 env R2_MODEL="$R2_MODEL" R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
             R2_OLLAMA_NUM_GPU="$PREFLIGHT_GPU" R2_OLLAMA_NUM_CTX="$PREFLIGHT_CTX" \
-            python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 30 --timeout 180; then
+            python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 30 --timeout 180 "${PREFLIGHT_GPU_ARGS[@]}"; then
             root_run systemctl stop r2-ollama.service >/dev/null 2>&1 || true
             fail "R2's private Ollama server failed both the 20-layer/8192-context and 12-layer/4096-context generation preflights; the previous R2 executable was preserved."
         fi
