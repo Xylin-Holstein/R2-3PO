@@ -13,6 +13,27 @@ static char *repeat_char(char ch, size_t count)
     return text;
 }
 
+static int test_valid_utf8(const unsigned char *s)
+{
+    while (*s) {
+        if (*s < 0x80) { ++s; continue; }
+        size_t continuation = (*s >= 0xC2 && *s <= 0xDF) ? 1 :
+                              (*s >= 0xE0 && *s <= 0xEF) ? 2 :
+                              (*s >= 0xF0 && *s <= 0xF4) ? 3 : 99;
+        if (continuation == 99) return 0;
+        unsigned char first = *s++;
+        for (size_t i = 0; i < continuation; ++i) {
+            if ((s[i] & 0xC0U) != 0x80U) return 0;
+        }
+        if ((first == 0xE0 && s[0] < 0xA0) ||
+            (first == 0xED && s[0] >= 0xA0) ||
+            (first == 0xF0 && s[0] < 0x90) ||
+            (first == 0xF4 && s[0] >= 0x90)) return 0;
+        s += continuation;
+    }
+    return 1;
+}
+
 static void clear_test_messages(void)
 {
     pthread_mutex_lock(&messages_lock);
@@ -64,6 +85,35 @@ int main(void)
     assert(strstr(context, "inspect the workspace") == NULL);
     assert(strstr(context, "echo safe") != NULL);
     assert(strstr(context, "I literally saw [RUN] in a manual.") != NULL);
+    free(context);
+    clear_test_messages();
+
+    /* Per-message excerpts must not end in an incomplete UTF-8 sequence. */
+    char *utf8_edge = malloc(1003);
+    assert(utf8_edge != NULL);
+    memset(utf8_edge, 'x', 998);
+    utf8_edge[998] = (char)0xE2;
+    utf8_edge[999] = (char)0x98;
+    utf8_edge[1000] = (char)0x83;
+    utf8_edge[1001] = 'Z';
+    utf8_edge[1002] = '\0';
+    assert(message_add("user", utf8_edge) == 0);
+    context = r2_recent_conversation_context(NULL, 2048);
+    assert(context != NULL);
+    assert(test_valid_utf8((const unsigned char *)context));
+    assert(strchr(context, (char)0xE2) == NULL);
+    free(context);
+    clear_test_messages();
+    free(utf8_edge);
+
+    /* The explicit tiny-budget fallback must also preserve code-point boundaries. */
+    const char tiny_unicode[] = "A\xe2\x98\x83Z";
+    assert(message_add("user", tiny_unicode) == 0);
+    context = r2_recent_conversation_context(NULL, 21);
+    assert(context != NULL);
+    assert(test_valid_utf8((const unsigned char *)context));
+    assert(strchr(context, (char)0xE2) == NULL);
+    assert(strlen(context) <= 21);
     free(context);
     clear_test_messages();
 
