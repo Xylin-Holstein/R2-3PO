@@ -115,8 +115,8 @@ Do **not** run a source-tree script with `sudo`. The checkout under `/home/x/R2_
 Do **not** copy the bootstrap directly from `/home/x/R2_Home/R2`: that tree is writable by `r2`, so checking it and then running `sudo install` from the same path leaves a time-of-check/time-of-use gap. Fetch the reviewed bootstrap from an immutable commit into the desktop user's home (outside the R2-writable tree), verify its Git blob ID, then install that exact file:
 
 ```sh
-BOOTSTRAP_COMMIT=70d698b6ea96bae71fe2a9ea0ed09fc051c1b032
-BOOTSTRAP_BLOB_SHA=4a90c53e04a15aa7ad88059333f7c17d69fc8b3d
+BOOTSTRAP_COMMIT=53ef55e2e7799e629da04502d3a3261187a6acc9
+BOOTSTRAP_BLOB_SHA=3b289100d96260fa2acee44210accd06a490c982
 umask 077
 curl -fsSL \
   "https://raw.githubusercontent.com/Xylin-Holstein/R2-3PO/${BOOTSTRAP_COMMIT}/tools/r2_install_root_bootstrap.sh" \
