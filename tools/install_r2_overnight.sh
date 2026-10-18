@@ -10,6 +10,7 @@ if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
 fi
 
 BOOTSTRAP="/usr/local/sbin/r2-3po-install"
+EXPECTED_BOOTSTRAP_BLOB_SHA="6e9906e6ac3e7299b368585fc7e842f32ceb2646"
 if [[ ! -f "$BOOTSTRAP" || -L "$BOOTSTRAP" || ! -x "$BOOTSTRAP" ]]; then
     echo "ERROR: the trusted root-owned R2 installer has not been installed." >&2
     echo "Use the immutable-commit and Git blob hash verification procedure in:" >&2
@@ -22,6 +23,13 @@ owner="$(stat -c '%u' "$BOOTSTRAP")"
 mode="$(stat -c '%a' "$BOOTSTRAP")"
 if [[ "$owner" != "0" ]] || (( (8#$mode & 022) != 0 )); then
     echo "ERROR: $BOOTSTRAP must be owned by root and not group/world-writable." >&2
+    exit 1
+fi
+
+ACTUAL_BOOTSTRAP_BLOB_SHA="$(git hash-object "$BOOTSTRAP" 2>/dev/null || true)"
+if [[ "$ACTUAL_BOOTSTRAP_BLOB_SHA" != "$EXPECTED_BOOTSTRAP_BLOB_SHA" ]]; then
+    echo "ERROR: the protected bootstrap is not the current reviewed version." >&2
+    echo "Refresh it using the immutable-commit and Git blob hash procedure in docs/overnight-service.md." >&2
     exit 1
 fi
 
