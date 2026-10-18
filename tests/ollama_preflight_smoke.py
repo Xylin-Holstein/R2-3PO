@@ -2,6 +2,7 @@
 """Unit smoke tests for the local Ollama readiness probe; never opens a socket."""
 from __future__ import annotations
 
+import base64
 import contextlib
 import io
 import sys
@@ -20,6 +21,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         replies = [
             {"models": [{"name": "qwen3.5:9b"}]},
             {"message": {"content": "R2_READY"}},
+            {"message": {"content": "The square is blue."}},
             {"models": [{"name": "qwen3.5:9b", "size_vram": 123456}]},
         ]
         gpu_result = SimpleNamespace(
@@ -28,20 +30,26 @@ class OllamaPreflightSmoke(unittest.TestCase):
         with patch.object(probe, "_read_json", side_effect=replies) as read, \
              patch.object(probe.subprocess, "run", return_value=gpu_result) as gpu:
             self.assertTrue(probe.preflight(timeout=1))
-        self.assertEqual(read.call_count, 3)
+        self.assertEqual(read.call_count, 4)
         self.assertTrue(read.call_args_list[0].args[0].endswith("/api/tags"))
         self.assertTrue(read.call_args_list[1].args[0].endswith("/api/chat"))
         payload = read.call_args_list[1].kwargs["payload"]
         self.assertEqual(payload["model"], "qwen3.5:9b")
         self.assertIs(payload["think"], False)
         self.assertEqual(payload["options"]["num_predict"], 128)
-        self.assertTrue(read.call_args_list[2].args[0].endswith("/api/ps"))
+        self.assertTrue(read.call_args_list[2].args[0].endswith("/api/chat"))
+        vision_payload = read.call_args_list[2].kwargs["payload"]
+        encoded_image = vision_payload["messages"][0]["images"][0]
+        self.assertTrue(base64.b64decode(encoded_image).startswith(b"\\x89PNG\\r\\n\\x1a\\n"))
+        self.assertEqual(vision_payload["options"], payload["options"])
+        self.assertTrue(read.call_args_list[3].args[0].endswith("/api/ps"))
         self.assertEqual(gpu.call_count, 1)
 
     def test_explicit_gpu_and_context_policy_reaches_real_chat_request(self) -> None:
         replies = [
             {"models": [{"name": "qwen3.5:9b"}]},
             {"message": {"content": "R2_READY"}},
+            {"message": {"content": "blue"}},
             {"models": [{"name": "qwen3.5:9b", "size": 500000, "size_vram": 123456}]},
         ]
         with patch.dict(probe.os.environ, {
@@ -55,11 +63,14 @@ class OllamaPreflightSmoke(unittest.TestCase):
         options = read.call_args_list[1].kwargs["payload"]["options"]
         self.assertEqual(options["num_gpu"], 20)
         self.assertEqual(options["num_ctx"], 8192)
+        self.assertEqual(read.call_args_list[2].kwargs["payload"]["options"], options)
+        self.assertIn("images", read.call_args_list[2].kwargs["payload"]["messages"][0])
 
     def test_overnight_endpoint_is_used_for_tags_chat_and_process_checks(self) -> None:
         replies = [
             {"models": [{"name": "qwen3.5:9b"}]},
             {"message": {"content": "R2_READY"}},
+            {"message": {"content": "blue"}},
             {"models": [{"name": "qwen3.5:9b", "size_vram": 123456}]},
         ]
         gpu_result = SimpleNamespace(returncode=1, stdout="", stderr="")
@@ -72,6 +83,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
             [
                 "http://127.0.0.1:11435/api/tags",
                 "http://127.0.0.1:11435/api/chat",
+                "http://127.0.0.1:11435/api/chat",
                 "http://127.0.0.1:11435/api/ps",
             ],
         )
@@ -82,6 +94,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
              patch.object(probe, "_read_json", side_effect=[
                  {"models": [{"name": "qwen3.5:9b"}]},
                  {"message": {"content": "R2_READY"}},
+                 {"message": {"content": "blue"}},
                  {"models": [{"name": "qwen3.5:9b", "size_vram": 0}]},
              ]), patch.object(probe.subprocess, "run", return_value=SimpleNamespace(
                  returncode=0, stdout="NVIDIA GeForce GTX 1050 Ti, 4096 MiB, 0 MiB", stderr=""
@@ -105,11 +118,26 @@ class OllamaPreflightSmoke(unittest.TestCase):
         with patch.object(probe, "_read_json", side_effect=[
             {"models": [{"name": "qwen3.5:9b"}]},
             {"message": {"content": "R2_READY"}},
+            {"message": {"content": "blue"}},
             OSError("simulated /api/ps unavailable"),
         ]), patch.object(probe.subprocess, "run", side_effect=FileNotFoundError("nvidia-smi")):
             with contextlib.redirect_stderr(errors):
                 self.assertTrue(probe.preflight(timeout=1))
         self.assertEqual(errors.getvalue(), "")
+
+    def test_image_inference_failure_blocks_ready_status(self) -> None:
+        errors = io.StringIO()
+        with patch.object(probe, "_read_json", side_effect=[
+            {"models": [{"name": "qwen3.5:9b"}]},
+            {"message": {"content": "R2_READY"}},
+            OSError("simulated CUDA out of memory during image inference"),
+        ]) as read, patch.object(probe.subprocess, "run", return_value=SimpleNamespace(
+            returncode=0, stdout="Test GPU, 4096 MiB, 123 MiB", stderr=""
+        )), contextlib.redirect_stderr(errors):
+            self.assertFalse(probe.preflight(timeout=1))
+        self.assertEqual(read.call_count, 3)
+        self.assertIn("image-bearing chat failed", errors.getvalue())
+        self.assertIn("CUDA out of memory", errors.getvalue())
 
     def test_missing_model_fails_without_waiting_or_network(self) -> None:
         errors = io.StringIO()
