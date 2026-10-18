@@ -602,7 +602,7 @@ int r2_diary_init(void)
      * Runtime-writable databases live in R2_DATA_DIR, not the source tree.
      */
     if (access(R2_HOME, R_OK | X_OK) != 0 ||
-        r2_mkdir_recursive(R2_DATA_DIR) != 0)
+        access(R2_DATA_DIR, R_OK | W_OK | X_OK) != 0)
     {
         fprintf(
             stderr,
