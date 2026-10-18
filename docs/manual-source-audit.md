@@ -97,3 +97,10 @@ The current review is tracing the changed launcher, chat serialization/context a
 
 
 
+
+### AUDIT-011 — rollout documentation disagreed with effective GPU and firewall policies
+- **File:** `docs/overnight-service.md`
+- **Severity:** Medium / operator correctness
+- **Evidence:** The documentation still described automatic GPU placement as the default even though both launch paths request 20 layers/8192 context on the target GTX 1050 Ti. It also implied both local Ollama ports were available to all `r2` processes while the overnight core's stricter firewall chain is inserted first and only permits port 11435.
+- **Fix:** Updated the documented target GPU/context policy, strict mixed-placement requirement, one-time fallback, and effective per-service firewall behavior.
+- **Status:** Fixed in documentation; exact-head workflow pending.
