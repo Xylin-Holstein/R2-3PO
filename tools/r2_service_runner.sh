@@ -37,19 +37,21 @@ fi
 # Match the interactive launcher's smaller default KV cache on the 4 GiB
 # GTX 1050 Ti. Remember whether these values are defaults so a failed preflight
 # may fall back conservatively without overriding explicit operator settings.
-R2_OLLAMA_NUM_CTX_DEFAULTED=0
+R2_OLLAMA_NUM_CTX_DEFAULTED="${R2_OLLAMA_NUM_CTX_DEFAULTED:-0}"
 if [[ -z "${R2_OLLAMA_NUM_CTX:-}" ]] &&
    command -v nvidia-smi >/dev/null 2>&1 &&
    nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi 'GTX 1050 Ti'; then
     export R2_OLLAMA_NUM_CTX=8192
     R2_OLLAMA_NUM_CTX_DEFAULTED=1
 fi
+# Preserve default-vs-explicit provenance across the systemd-inhibit self-exec.
+export R2_OLLAMA_NUM_CTX_DEFAULTED
 log "Ollama context policy: R2_OLLAMA_NUM_CTX=${R2_OLLAMA_NUM_CTX:-adaptive}"
 
 # Match the interactive launcher: prefer partial offload on the target 4 GiB
 # GTX 1050 Ti, but keep automatic placement when that card is not installed.
 # An explicit service environment override always takes precedence.
-R2_OLLAMA_NUM_GPU_DEFAULTED=0
+R2_OLLAMA_NUM_GPU_DEFAULTED="${R2_OLLAMA_NUM_GPU_DEFAULTED:-0}"
 if [[ -z "${R2_OLLAMA_NUM_GPU+x}" ]]; then
     if command -v nvidia-smi >/dev/null 2>&1 &&
        nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi 'GTX 1050 Ti'; then
@@ -59,6 +61,7 @@ if [[ -z "${R2_OLLAMA_NUM_GPU+x}" ]]; then
     fi
     R2_OLLAMA_NUM_GPU_DEFAULTED=1
 fi
+export R2_OLLAMA_NUM_GPU_DEFAULTED
 log "Ollama GPU layer policy: R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU"
 
 # On the target GTX 1050 Ti, a successful CPU-only response is not sufficient
