@@ -3966,6 +3966,9 @@ static char *ollama_chat_with_limit(
         }
         override_length = boundary >= override_budget / 2
             ? boundary : override_budget;
+        /* Sentence-boundary search can fall back to an arbitrary byte offset.
+           Re-align that final cap so a multibyte UTF-8 code point is never split. */
+        override_length = r2_utf8_safe_prefix_length(system_override, override_length);
         if (system_override && json_object_array_length(arr) > 0) {
             struct json_object *override_message = json_object_array_get_idx(arr, 0);
             if (override_message) {
