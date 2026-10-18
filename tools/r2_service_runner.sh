@@ -78,8 +78,8 @@ log "Ollama context policy: R2_OLLAMA_NUM_CTX=${R2_OLLAMA_NUM_CTX:-adaptive}"
 # An explicit service environment override always takes precedence.
 R2_OLLAMA_NUM_GPU_DEFAULTED="${R2_OLLAMA_NUM_GPU_DEFAULTED:-0}"
 if [[ -z "${R2_OLLAMA_NUM_GPU+x}" ]]; then
-    if command -v nvidia-smi >/dev/null 2>&1 &&
-       nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi 'GTX 1050 Ti'; then
+    if [[ "$R2_NVIDIA_QUERY_OK" == "1" ]] &&
+       printf '%s\n' "$R2_NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
         export R2_OLLAMA_NUM_GPU=20
     else
         export R2_OLLAMA_NUM_GPU=0
