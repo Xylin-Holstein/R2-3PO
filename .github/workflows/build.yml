@@ -163,6 +163,9 @@ jobs:
       - name: Cancel visual inference when stopping Watch
         run: python3 tests/vision_watch_cancellation_smoke.py
 
+      - name: Check transactional vision JSON construction
+        run: python3 tests/visual_payload_allocation_smoke.py
+
       - name: Check unified Qwen 3.5 conversation and vision wiring
         run: python3 tests/qwen35_model_smoke.py
 
