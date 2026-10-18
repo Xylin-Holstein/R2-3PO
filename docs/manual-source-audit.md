@@ -66,10 +66,10 @@ The current review is tracing the changed launcher, chat serialization/context a
 - **Fix:** Repointed the test to `tools/r2_install_root_bootstrap.sh`, assert the protected-path/root-only contract and embedded unit installation, and keep independent checks on the service runner's writable database paths.
 - **Status:** Test updated; exact-head workflow still needs to confirm the regression is gone.
 ### AUDIT-009 — overnight core lacked camera device group access
-- **Files:** `deploy/r2-3po.service`, embedded unit in `tools/r2_install_root_bootstrap.sh`, `tests/r2_overnight_service_smoke.py`
+- **Files:** `R2_Launch_Code.sh`, `deploy/r2-3po.service`, embedded unit in `tools/r2_install_root_bootstrap.sh`, `tests/build_configuration_smoke.py`, `tests/r2_overnight_service_smoke.py`
 - **Severity:** High / vision integration
 - **Evidence:** The isolated Ollama service had `video render` supplementary groups, but the R2 core service only had `audio`. The core's camera/Eyes path runs under the core service UID, so device nodes restricted to the `video` group would remain inaccessible even while the model server had GPU access.
-- **Fix:** Added `video render` to the R2 core service's supplementary groups, synchronized the embedded trusted unit, and added a regression assertion. The embedded unit consistency check ensures both deployed definitions stay aligned.
+- **Fix:** Added `video` to the interactive launcher's per-process supplementary groups and added `video render` to the overnight core service unit; synchronized the embedded trusted unit and added regression assertions. The embedded unit consistency check ensures both deployed definitions stay aligned.
 - **Status:** Fixed in source; requires confirmation on the target machine that the groups exist and camera devices are accessible.
 
 
