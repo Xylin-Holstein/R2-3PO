@@ -19,6 +19,14 @@ This log records source-level findings and their verification status. A green wo
 - **Fix:** update the assertion to require the checked helper and the actual `num_gpu` value construction, independent of the source's line wrapping.
 - **Status:** corrected; full workflow validation is pending for the current branch head.
 
+
+### R2-AUD-003 — Overnight installer test expected the retired systemd probe form
+
+- **Area:** `tests/r2_overnight_service_smoke.py` versus `tools/r2_install_root_bootstrap.sh`.
+- **Finding:** the regression test still required `systemctl is-active --quiet` / `is-enabled --quiet`, but the bootstrap intentionally captures the full service states to distinguish inactive, failed, unknown, masked, static, and other legitimate states before changing anything.
+- **Fix:** assert the current captured-state commands and their active/enabled classification branches rather than the retired probe syntax.
+- **Status:** corrected; full workflow validation is pending for the current branch head.
+
 ## Release gates still open
 
 - Run the current full GitHub Actions workflow to completion on the exact branch head and resolve every failure.
