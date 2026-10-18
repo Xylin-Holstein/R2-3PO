@@ -9,7 +9,8 @@ makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 launcher = (ROOT / "R2_Launch_Code.sh").read_text(encoding="utf-8")
 workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
 core = (ROOT / "r2.c").read_text(encoding="utf-8")
-installer = (ROOT / "tools/install_r2_overnight.sh").read_text(encoding="utf-8")
+installer = (ROOT / "tools/r2_install_root_bootstrap.sh").read_text(encoding="utf-8")
+installer_wrapper = (ROOT / "tools/install_r2_overnight.sh").read_text(encoding="utf-8")
 reality = (ROOT / "Reality.c").read_text(encoding="utf-8")
 
 required_sources = (
@@ -30,6 +31,23 @@ require(
     and 'root_run python3 "$MODEL_COPY_SCRIPT"' not in installer
     and 'root_run make -C "$R2_SOURCE"' not in installer,
     "mutable model-copy script and build system run as r2, never as root",
+)
+
+require(
+    '[[ "$EUID" -eq 0 ]]' in installer
+    and "R2_OLLAMA_UNIT_EOF" in installer
+    and "R2_SERVICE_UNIT_EOF" in installer
+    and 'root_run install -o root -g root -m 0644 "$UNIT_STAGING_DIR/r2-ollama.service"' in installer
+    and 'root_run install -o root -g root -m 0644 "$UNIT_STAGING_DIR/r2-3po.service"' in installer
+    and 'root_run install -m 0644 "$OLLAMA_UNIT_SOURCE"' not in installer
+    and 'root_run install -m 0644 "$UNIT_SOURCE"' not in installer,
+    "privileged bootstrap is root-only and installs embedded trusted unit definitions, not mutable source-tree units",
+)
+require(
+    "do not execute this mutable source-tree script as root" in installer_wrapper
+    and "/usr/local/sbin/r2-3po-install" in installer_wrapper
+    and "root_run " not in installer_wrapper,
+    "source-tree installer does not perform privileged deployment",
 )
 require(
     'root_run chown r2:r2 "$TEMP_EXEC"' not in installer
