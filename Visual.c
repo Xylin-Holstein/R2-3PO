@@ -132,11 +132,16 @@ static void publish_focus_region(json_object *focus)
         (void)unlink(path);
         return;
     }
-    json_object_object_add(root, "x", json_object_new_double(x));
-    json_object_object_add(root, "y", json_object_new_double(y));
-    json_object_object_add(root, "width", json_object_new_double(w));
-    json_object_object_add(root, "height", json_object_new_double(h));
-    json_object_object_add(root, "label", json_object_new_string(label));
+    if (visual_json_object_add_checked(root, "x", json_object_new_double(x)) != 0 ||
+        visual_json_object_add_checked(root, "y", json_object_new_double(y)) != 0 ||
+        visual_json_object_add_checked(root, "width", json_object_new_double(w)) != 0 ||
+        visual_json_object_add_checked(root, "height", json_object_new_double(h)) != 0 ||
+        visual_json_object_add_checked(root, "label", json_object_new_string(label)) != 0) {
+        json_object_put(root);
+        (void)unlink(tmp);
+        (void)unlink(path);
+        return;
+    }
     const char *encoded = json_object_to_json_string_ext(root, JSON_C_TO_STRING_PLAIN);
     FILE *fp = encoded ? fopen(tmp, "w") : NULL;
     int failed = !fp;
