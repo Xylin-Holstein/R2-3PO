@@ -23,6 +23,16 @@ int main(void)
 {
     int ok = 1;
 
+    ok &= check(ollama_response_contract_valid("assistant", 1),
+                "a complete assistant response satisfies the Ollama completion contract");
+    ok &= check(!ollama_response_contract_valid("user", 1),
+                "a non-assistant response cannot become R2's answer");
+    ok &= check(!ollama_response_contract_valid("assistant", 0),
+                "an unfinished response cannot become R2's answer");
+    ok &= check(!ollama_response_contract_valid("missing", -1) &&
+                    !ollama_response_contract_valid(NULL, 1),
+                "missing completion metadata fails closed");
+
     Message interleaved_messages[] = {
         { .role = "user", .content = "older user turn", .pinned = 0 },
         { .role = "system", .content = "PAST CONVERSATION ARCHIVE — CONTEXT ONLY.", .pinned = 0 },
