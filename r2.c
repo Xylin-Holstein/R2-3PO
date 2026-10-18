@@ -3760,7 +3760,8 @@ static char *ollama_chat_with_limit(
 
     size_t override_length = system_override ? strlen(system_override) : 0;
     if (override_length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS)
-        override_length = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;
+        override_length = r2_utf8_safe_prefix_length(
+            system_override, OLLAMA_MAX_SYSTEM_MESSAGE_CHARS);
     if (system_override &&
         ollama_json_append_message(arr, "system", system_override,
                                    override_length) != 0) {
@@ -3989,7 +3990,8 @@ static char *ollama_chat_with_limit(
 
             size_t length = strlen(content);
             if (length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS)
-                length = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;
+                length = r2_utf8_safe_prefix_length(
+                    content, OLLAMA_MAX_SYSTEM_MESSAGE_CHARS);
             if (message_priority == 0 && length > identity_budget)
                 length = r2_safe_prompt_prefix_length(content, identity_budget, 0);
             if (message_priority == 1 && length > reality_reserve)
@@ -4026,7 +4028,8 @@ static char *ollama_chat_with_limit(
             ? msgs[current_user_index].content : "";
         size_t length = strlen(content);
         if (length > OLLAMA_MAX_MESSAGE_CHARS)
-            length = OLLAMA_MAX_MESSAGE_CHARS;
+            length = r2_utf8_safe_prefix_length(
+                content, OLLAMA_MAX_MESSAGE_CHARS);
         size_t remaining = input_budget - total_chars;
         if (length > remaining) length = r2_utf8_safe_prefix_length(content, remaining);
         if (length > 0) {
@@ -4045,7 +4048,8 @@ static char *ollama_chat_with_limit(
         const char *content = msgs[index].content ? msgs[index].content : "";
         size_t length = strlen(content);
         if (length > OLLAMA_MAX_MESSAGE_CHARS)
-            length = OLLAMA_MAX_MESSAGE_CHARS;
+            length = r2_utf8_safe_prefix_length(
+                content, OLLAMA_MAX_MESSAGE_CHARS);
         if (total_chars >= input_budget) break;
         size_t remaining = input_budget - total_chars;
         if (length > remaining) length = r2_utf8_safe_prefix_length(content, remaining);
