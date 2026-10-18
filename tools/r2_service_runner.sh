@@ -79,7 +79,7 @@ fi
 [[ "$(id -un)" == "r2" ]] || fail "must run as the dedicated Linux account 'r2' (systemd unit configures this)."
 [[ -x "$R2_EXEC" ]] || fail "executable missing or not executable: $R2_EXEC; run tools/install_r2_overnight.sh first."
 [[ -d "$R2_SOURCE" && ! -L "$R2_SOURCE" && -r "$R2_SOURCE" && -x "$R2_SOURCE" ]] || fail "source/runtime directory is missing, symlinked, or unreadable: $R2_SOURCE"
-[[ -w "$R2_ROOT" && -k "$R2_ROOT" ]] || fail "R2 workspace must be writable by r2 and sticky-protected against source-directory replacement: $R2_ROOT"
+[[ -w "$R2_ROOT" && -k "$R2_ROOT" && "$(stat -c '%u' "$R2_ROOT")" != "$(id -u)" ]] || fail "R2 workspace must be writable/sticky-protected and not owned by r2, or the source directory can be replaced: $R2_ROOT"
 [[ "$(stat -c '%u' "$R2_SOURCE")" == "0" && -k "$R2_SOURCE" && -w "$R2_SOURCE" ]] || fail "R2 source root must be root-owned, sticky, and writable for SQLite data: $R2_SOURCE"
 untrusted_source_directory="$(find "$R2_SOURCE" -mindepth 1 -type d \( ! -user root -o -writable \) -print -quit)"
 [[ -z "$untrusted_source_directory" ]] || fail "nested source directory is not root-owned or is runtime-writable: $untrusted_source_directory"
