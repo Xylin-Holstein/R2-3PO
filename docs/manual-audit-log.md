@@ -27,6 +27,14 @@ This log records source-level findings and their verification status. A green wo
 - **Fix:** assert the current captured-state commands and their active/enabled classification branches rather than the retired probe syntax.
 - **Status:** corrected; full workflow validation is pending for the current branch head.
 
+
+### R2-AUD-004 — Overnight installer notice was not executable in the Git tree
+
+- **Area:** Git file mode for `tools/install_r2_overnight.sh`.
+- **Finding:** the source-tree notice had a valid Bash shebang and content, but its committed mode was `100644`; the permission regression test correctly rejected it because the documented direct invocation requires an executable file.
+- **Fix:** restored the Git tree mode to `100755` without changing the script contents.
+- **Status:** mode corrected in commit `501e101279622310d82ae5c0184d50aba73b7580`; full workflow validation is pending for the current branch head.
+
 ## Release gates still open
 
 - Run the current full GitHub Actions workflow to completion on the exact branch head and resolve every failure.
