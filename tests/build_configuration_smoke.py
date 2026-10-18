@@ -35,6 +35,8 @@ require(
     'root_run chown r2:r2 "$TEMP_EXEC"' not in installer
     and 'root_run chown r2:r2 "$R2_EXEC"' not in installer
     and 'root_run chown r2:r2 "$BACKUP_EXEC"' not in installer
+    and 'chmod 0755 "$RUNNER_SOURCE" "$OLLAMA_RUNNER_SOURCE"' not in installer
+    and 'run_as_r2 chmod 0755 "$RUNNER_SOURCE" "$OLLAMA_RUNNER_SOURCE"' in installer
     and 'run_as_r2 mv -f "$TEMP_EXEC" "$R2_EXEC"' in installer,
     "writable runtime paths are not passed to privileged ownership-changing operations",
 )
