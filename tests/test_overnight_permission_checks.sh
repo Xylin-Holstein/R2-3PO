@@ -41,6 +41,10 @@ grep -Fq 'do not execute this mutable source-tree script as root' "$WRAPPER" ||
     fail "source-tree notice no longer warns against privileged execution."
 grep -Fq '/usr/local/sbin/r2-3po-install' "$WRAPPER" ||
     fail "source-tree notice no longer points to the protected bootstrap."
+grep -Fq 'docs/overnight-service.md' "$WRAPPER" ||
+    fail "source-tree notice no longer points to the immutable bootstrap/hash verification procedure."
+! grep -Fq '/home/x/R2_Home/R2/tools/r2_install_root_bootstrap.sh /usr/local/sbin/r2-3po-install' "$WRAPPER" ||
+    fail "source-tree notice still recommends privileged installation from the runtime-writable tree."
 ! grep -Fq 'root_run ' "$WRAPPER" ||
     fail "source-tree notice contains privileged deployment operations."
 

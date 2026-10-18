@@ -12,8 +12,9 @@ fi
 BOOTSTRAP="/usr/local/sbin/r2-3po-install"
 if [[ ! -f "$BOOTSTRAP" || -L "$BOOTSTRAP" || ! -x "$BOOTSTRAP" ]]; then
     echo "ERROR: the trusted root-owned R2 installer has not been installed." >&2
-    echo "After reviewing tools/r2_install_root_bootstrap.sh from the intended release, install it once with:" >&2
-    echo "  sudo install -o root -g root -m 0755 /home/x/R2_Home/R2/tools/r2_install_root_bootstrap.sh /usr/local/sbin/r2-3po-install" >&2
+    echo "Use the immutable-commit and Git blob hash verification procedure in:" >&2
+    echo "  /home/x/R2_Home/R2/docs/overnight-service.md" >&2
+    echo "Do not install the bootstrap directly from the runtime-writable R2 source tree." >&2
     exit 1
 fi
 
