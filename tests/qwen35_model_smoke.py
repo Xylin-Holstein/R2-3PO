@@ -90,14 +90,14 @@ require(
 )
 require(
     'getenv("R2_OLLAMA_NUM_GPU")' in visual
-    and 'json_object_object_add(options, "num_gpu"' in visual,
+    and 'visual_json_object_add_checked' in visual and '"num_gpu", json_object_new_int((int)gpu_layers)' in visual,
     "vision inference follows the same configurable GPU layer policy as chat",
 )
 require(
     "int r2_ollama_context_tokens(void);" in header
     and "int num_ctx = r2_ollama_context_tokens();" in visual
-    and 'json_object_object_add(options, "num_ctx", json_object_new_int(num_ctx))' in visual
-    and 'json_object_object_add(options, "num_predict", json_object_new_int(num_predict))' in visual,
+    and 'visual_json_object_add_checked(options, "num_ctx", json_object_new_int(num_ctx))' in visual
+    and 'visual_json_object_add_checked(options, "num_predict", json_object_new_int(num_predict))' in visual,
     "vision uses the shared RAM-aware context ceiling and a bounded observation output budget",
 )
 require(
@@ -176,7 +176,7 @@ require(
     "vision keeps Qwen3.5's recommended non-thinking sampler",
 )
 require(
-    'json_object_object_add(root, "think", json_object_new_boolean(0))' in visual,
+    'visual_json_object_add_checked(root, "think", json_object_new_boolean(0))' in visual,
     "vision requests disable separate thinking output just like text conversation",
 )
 require(
@@ -208,7 +208,7 @@ require(
 require(
     "Return ONLY valid JSON with keys description and focus" in visual
     and "observation for R2's conversation to use as sensory evidence, not as a user-facing answer." in visual
-    and 'json_object_object_add(root, "format", json_object_new_string("json"))' in visual
+    and 'visual_json_object_add_checked(root, "format", json_object_new_string("json"))' in visual
     and "extract_visual_description(model_text)" in visual,
     "vision output carries a natural-language sensory description plus structured focus metadata",
 )
