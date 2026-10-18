@@ -61,6 +61,18 @@ if [[ -z "${R2_OLLAMA_NUM_GPU+x}" ]]; then
 fi
 log "Ollama GPU layer policy: R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU"
 
+# On the target GTX 1050 Ti, a successful CPU-only response is not sufficient
+# to declare the requested mixed CPU/GPU policy ready.
+R2_OLLAMA_REQUIRE_GPU_OFFLOAD=0
+if command -v nvidia-smi >/dev/null 2>&1 &&
+   nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi 'GTX 1050 Ti'; then
+    R2_OLLAMA_REQUIRE_GPU_OFFLOAD=1
+fi
+PREFLIGHT_GPU_ARGS=()
+if [[ "$R2_OLLAMA_REQUIRE_GPU_OFFLOAD" == "1" ]]; then
+    PREFLIGHT_GPU_ARGS=(--require-gpu-offload)
+fi
+
 # Acquire the sleep inhibitor before waiting for Ollama or doing any preflight.
 # Re-enter this script under the inhibitor with real time; faketime is applied
 # only to the final R2 process, never to systemd-inhibit or its checks.
@@ -130,7 +142,7 @@ fi
 [[ -r "$R2_SOURCE/tools/preflight_ollama_model.py" ]] ||
     fail "shared Ollama inference preflight is missing: $R2_SOURCE/tools/preflight_ollama_model.py"
 log "Waiting for local Qwen 3.5 model availability and a real chat completion..."
-if ! python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 60 --timeout 180; then
+if ! python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 60 --timeout 180 "${PREFLIGHT_GPU_ARGS[@]}"; then
     # The target GTX 1050 Ti has only 4 GiB VRAM. If the default 20-layer /
     # 8192-context probe fails, retry once with less GPU offload and half the
     # KV-cache context. Never silently override an explicit operator policy.
@@ -140,7 +152,7 @@ if ! python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 60 --ti
         export R2_OLLAMA_NUM_GPU=12
         export R2_OLLAMA_NUM_CTX=4096
         log "Fallback Ollama policy: R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU R2_OLLAMA_NUM_CTX=$R2_OLLAMA_NUM_CTX"
-        python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 30 --timeout 180 ||
+        python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 30 --timeout 180 "${PREFLIGHT_GPU_ARGS[@]}" ||
             fail "Ollama preflight failed with both default and conservative GPU/context policies. Check model/server logs; systemd will retry automatically."
     else
         fail "Ollama did not complete a real qwen3.5:9b chat preflight with the explicitly configured GPU/context policy. Check the local model/server; systemd will retry automatically."
