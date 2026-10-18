@@ -55,4 +55,9 @@ require(
     and "length = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;" not in core,
     "Ollama hard byte caps clip system overrides and message bodies at UTF-8 boundaries",
 )
+require(
+    "cut = r2_utf8_safe_prefix_length(context, max_chars);" in core
+    and "n = r2_utf8_safe_prefix_length(found, max_chars - used);" in core,
+    "shared retrieved-evidence and associated-record caps preserve UTF-8 boundaries when no full record fits",
+)
 print("Recent conversation context budget smoke passed.")
