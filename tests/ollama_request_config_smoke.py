@@ -47,7 +47,7 @@ if progress_start < 0 or progress_end <= progress_start:
     raise SystemExit("FAIL: could not isolate foreground inference progress callback")
 progress = source[progress_start:progress_end]
 require("CLOCK_MONOTONIC" in progress
-        and "Still processing stage=%s" in progress
+        and "Still waiting for local Ollama response; stage=%s" in progress
         and "since_notice >= 15" in progress
         and "!ollama_background_mode" in progress
         and "ollama_progress_clock_valid = 0;" in function,
