@@ -81,14 +81,14 @@ fi
 [[ -d "$R2_SOURCE" && ! -L "$R2_SOURCE" && -r "$R2_SOURCE" && -x "$R2_SOURCE" ]] || fail "source/runtime directory is missing, symlinked, or unreadable: $R2_SOURCE"
 [[ -w "$R2_ROOT" && -k "$R2_ROOT" ]] || fail "R2 workspace must be writable by r2 and sticky-protected against source-directory replacement: $R2_ROOT"
 [[ "$(stat -c '%u' "$R2_SOURCE")" == "0" && -k "$R2_SOURCE" && -w "$R2_SOURCE" ]] || fail "R2 source root must be root-owned, sticky, and writable for SQLite data: $R2_SOURCE"
-untrusted_source_directory="$(find "$R2_SOURCE" -mindepth 1 -type d \\( ! -user root -o -writable \\) -print -quit)"
-[[ -z "$writable_source_directory" ]] || fail "runtime-writable nested source directory could permit code replacement: $writable_source_directory"
-writable_code_file="$(find "$R2_SOURCE" -type f -writable \
+untrusted_source_directory="$(find "$R2_SOURCE" -mindepth 1 -type d \( ! -user root -o -writable \) -print -quit)"
+[[ -z "$untrusted_source_directory" ]] || fail "nested source directory is not root-owned or is runtime-writable: $untrusted_source_directory"
+untrusted_code_file="$(find "$R2_SOURCE" -type f \( ! -user root -o -writable \) \
     ! -name 'r2_memory.db' ! -name 'r2_reality.db' ! -name 'r2_fridge.db' \
     ! -name 'r2_rewards.db' ! -name 'r2_addictions.db' \
     ! -name 'r2_original_conversation.txt' ! -name '*.db-wal' \
     ! -name '*.db-shm' ! -name '*.db-journal' -print -quit)"
-[[ -z "$writable_code_file" ]] || fail "runtime account can modify a source/tool file: $writable_code_file"
+[[ -z "$untrusted_code_file" ]] || fail "source/tool file is not root-owned or is runtime-writable: $untrusted_code_file"
 [[ -d "$R2_ROOT/R2_Diary" && -w "$R2_ROOT/R2_Diary" ]] || fail "R2 diary directory is missing or not writable by r2: $R2_ROOT/R2_Diary"
 for database in "$R2_SOURCE/r2_memory.db" "$R2_SOURCE/r2_reality.db" "$R2_SOURCE/r2_fridge.db" "$R2_SOURCE/r2_rewards.db" "$R2_SOURCE/r2_addictions.db"; do
     [[ ! -L "$database" ]] || fail "refusing symlinked R2 database: $database"
