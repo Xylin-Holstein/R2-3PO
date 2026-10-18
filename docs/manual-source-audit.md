@@ -18,8 +18,8 @@ This is a code-review log, not a CI report. Each finding must be tied to the act
 - **Files:** `tools/install_r2_overnight.sh`, `deploy/r2-3po.service`, `deploy/r2-ollama.service`
 - **Severity:** Release blocker
 - **Evidence:** The privileged installer itself is stored in the runtime-writable source tree, and it installs systemd unit contents read from that same tree. A compromised `r2` account can modify the privileged entrypoint before it is invoked, or replace the unit files that root installs. Running the build and model copier as `r2` does not fix this boundary.
-- **Fix:** Added `tools/r2_install_root_bootstrap.sh`, which requires root, embeds both service-unit definitions, performs the build/model-copy/audit/preflight as `r2`, and installs only the embedded unit files from a root-owned staging directory. Changed `tools/install_r2_overnight.sh` into a nonprivileged notice that refuses root execution. Updated deployment documentation and added assertions that the embedded units match the reviewed `deploy/*.service` files.
-- **Status:** Repository-side implementation added; **target setup gate remains open** until the bootstrap is installed as `/usr/local/sbin/r2-3po-install` from the reviewed release and verified root-owned/not group- or world-writable.
+- **Fix:** Added `tools/r2_install_root_bootstrap.sh`, which requires root, embeds both service-unit definitions, performs the build/model-copy/audit/preflight as `r2`, and installs only the embedded unit files from a root-owned staging directory. Changed `tools/install_r2_overnight.sh` into a nonprivileged notice that refuses root execution. The one-time install instructions now fetch the bootstrap from an immutable commit into `/home/x`, verify its Git blob SHA, and only then copy it to the protected root path; they no longer privileged-copy from the runtime-writable checkout. Regression assertions keep the embedded units aligned with the reviewed `deploy/*.service` files.
+- **Status:** Repository-side implementation and safe install procedure are in place; **target setup gate remains open** until the verified bootstrap is actually installed at `/usr/local/sbin/r2-3po-install` and checked root-owned/not group- or world-writable.
 
 ### AUDIT-003 — target-host behavior has not been established by source review
 - **Areas:** Qwen generation and GPU placement, multi-turn chat, persistence/restart, microphone/camera/audio, TV/VCR, Game Boy, and clean shutdown.
@@ -123,3 +123,12 @@ The current review is tracing the changed launcher, chat serialization/context a
 ## Verification snapshot
 
 The full GitHub Actions workflow passed for candidate code head `67ac3f345143d7664df42862521dcbb0f8713448`. The current audit-log/documentation cleanup is a later commit and must receive its own exact-head workflow result. This is recorded separately from manual source review: neither a passing workflow nor this table establishes that the physical machine has passed acceptance.
+
+
+### AUDIT-014 — text-only preflight did not exercise the multimodal path
+- **File:** `tools/preflight_ollama_model.py`
+- **Severity:** High / target GPU readiness
+- **Evidence:** The installer and both launch paths used a successful text-only chat request as their model-readiness signal. That did not exercise Qwen's image encoder or the image-bearing request path, despite the target GTX 1050 Ti having already shown multimodal CUDA OOM risk. A text probe could therefore pass, activate R2, and leave Eyes/Watch vision failing at runtime.
+- **Fix:** Preflight now sends a small generated PNG with a known blue square through the same `/api/chat` image payload and the same GPU/context options, then requires the answer to identify the blue square. An image request failure or incorrect result blocks readiness, allowing the existing default-only 20/8192 → 12/4096 fallback to run.
+- **Regression coverage:** `tests/ollama_preflight_smoke.py` verifies PNG construction, policy propagation to the image request, endpoint selection, known-color response checking, and rejection of simulated CUDA OOM.
+- **Status:** Source fix and focused regression tests passed in the 86-step workflow for the reviewed code head; the exact documentation-updated head needs its own final workflow result. Real camera inference still belongs to target-host acceptance.

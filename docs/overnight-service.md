@@ -40,7 +40,7 @@ It checks the source/deployment files, the local Ollama API and `qwen3.5:9b`, re
    curl -fsS http://127.0.0.1:11434/api/tags
    ```
 
-   If Ollama is installed without a system unit named `ollama.service`, start it using the host's existing method. The installer copies the already-installed `qwen3.5:9b` blobs into R2's private model store and starts `r2-ollama.service` on port 11435. It then uses `tools/preflight_ollama_model.py` to require one real local `qwen3.5:9b` chat completion (up to 180 seconds) before starting the R2 core. The copy and inference checks do not download model weights or contact an external API; the host Ollama service on port 11434 is left running and unmodified.
+   If Ollama is installed without a system unit named `ollama.service`, start it using the host's existing method. The installer copies the already-installed `qwen3.5:9b` blobs into R2's private model store and starts `r2-ollama.service` on port 11435. It then requires both a real text completion and a real image-bearing completion that identifies a known blue square, using the selected GPU/context policy (up to 180 seconds per inference request) before starting the R2 core. This catches image-encoder/KV-cache OOMs that a text-only probe can miss; the default GTX 1050 Ti policy retries once at 12 GPU layers / 4096 context when both settings were defaults. The copy and inference checks do not download model weights or contact an external API; the host Ollama service on port 11434 is left running and unmodified.
 
 5. Confirm the service account can access the existing workspace and local FX assets. Do not solve permission problems with broad `chmod 777` permissions:
 
@@ -112,18 +112,28 @@ First exit any interactive R2 session. The service and interactive launcher shar
 
 Do **not** run a source-tree script with `sudo`. The checkout under `/home/x/R2_Home/R2` must remain writable by `r2` for the existing persistent SQLite databases and runtime files. A privileged installer stored there would let a compromised runtime account replace code that is later executed as root.
 
-After checking that the checkout is the intended reviewed release and that the bootstrap is a regular file (not a symlink), install that file once as a protected root-owned entrypoint:
+Do **not** copy the bootstrap directly from `/home/x/R2_Home/R2`: that tree is writable by `r2`, so checking it and then running `sudo install` from the same path leaves a time-of-check/time-of-use gap. Fetch the reviewed bootstrap from an immutable commit into the desktop user's home (outside the R2-writable tree), verify its Git blob ID, then install that exact file:
 
 ```sh
-test -f /home/x/R2_Home/R2/tools/r2_install_root_bootstrap.sh
-test ! -L /home/x/R2_Home/R2/tools/r2_install_root_bootstrap.sh
-git -C /home/x/R2_Home/R2 status --short
+BOOTSTRAP_COMMIT=67ac3f345143d7664df42862521dcbb0f8713448
+BOOTSTRAP_BLOB_SHA=4ab80dc311fa5da8507a933bae20463c629dea9a
+umask 077
+curl -fsSL \
+  "https://raw.githubusercontent.com/Xylin-Holstein/R2-3PO/${BOOTSTRAP_COMMIT}/tools/r2_install_root_bootstrap.sh" \
+  -o /home/x/r2-3po-install
+chmod 0600 /home/x/r2-3po-install
+ACTUAL_BLOB_SHA="$(git hash-object /home/x/r2-3po-install)"
+if [[ "$ACTUAL_BLOB_SHA" != "$BOOTSTRAP_BLOB_SHA" ]]; then
+  rm -f /home/x/r2-3po-install
+  echo "ERROR: trusted bootstrap hash mismatch; refusing installation." >&2
+  exit 1
+fi
 sudo install -o root -g root -m 0755 \
-  /home/x/R2_Home/R2/tools/r2_install_root_bootstrap.sh \
-  /usr/local/sbin/r2-3po-install
+  /home/x/r2-3po-install /usr/local/sbin/r2-3po-install
+rm -f /home/x/r2-3po-install
 ```
 
-Review any reported working-tree changes before installing; do not bootstrap from an unexpected or modified checkout.
+The commit URL is immutable, and the Git blob hash must match exactly. Do not replace this with a copy from the runtime-writable checkout. If the bootstrap source changes in a future release, review the new file and deliberately update both the pinned commit and blob hash.
 
 From then on, use only the protected entrypoint:
 
@@ -152,7 +162,7 @@ systemctl --no-pager --full status r2-3po.service
 journalctl -u r2-3po.service -n 100 --no-pager
 ```
 
-Expected state is `enabled` and `active`. The journal should report a successful local Ollama chat preflight and the core readiness marker (`[R2 READY] Core initialized; entering shell.`). The installer does not call the service ready based only on systemd's early `active` state. If the unit keeps restarting, inspect the logs; common causes are a missing `qwen3.5:9b` model, missing `libfaketime`, inaccessible workspace/database files, or Ollama not running.
+Expected state is `enabled` and `active`. The journal should report successful text and synthetic-image Ollama preflights and the core readiness marker (`[R2 READY] Core initialized; entering shell.`). The installer does not call the service ready based only on systemd's early `active` state. If the unit keeps restarting, inspect the logs; common causes are a missing `qwen3.5:9b` model, missing `libfaketime`, inaccessible workspace/database files, or Ollama not running.
 
 Follow live logs with `journalctl -u r2-3po.service -f`.
 
