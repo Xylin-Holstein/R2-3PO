@@ -17,7 +17,7 @@
 #include <strings.h>
 #include <time.h>
 
-#define REWARD_DB_PATH R2_DATA_DIR "/r2_rewards.db"
+#define REWARD_DB_PATH R2_HOME "/r2_rewards.db"
 #define REWARD_TARGET_MAX 256
 #define REWARD_REASON_MAX 1024
 #define REWARD_DECAY_SECONDS (30 * 60)
