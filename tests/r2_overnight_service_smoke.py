@@ -55,6 +55,7 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn("qwen3.5:9b", source)
         self.assertIn("refusing symlinked R2 database", source)
         self.assertIn('R2_SOURCE must be root-owned with its sticky bit set', source)
+        self.assertIn("must not be owned by r2", source)
         self.assertIn("nested source directory is not root-owned or is runtime-writable", source)
         self.assertIn("source/tool file is not root-owned or is runtime-writable", source)
         self.assertIn('run_as_r2 test ! -w "$R2_ROOT/R2_Launch_Code.sh"', source)
