@@ -50,7 +50,7 @@ int main(void)
     long_unicode[long_cap] = (char)0x98;
     long_unicode[long_cap + 1] = (char)0x83;
     long_unicode[long_cap + 2] = 'Z';
-    long_unicode[long_cap + 3] = '\\0';
+    long_unicode[long_cap + 3] = '\0';
     assert(r2_utf8_safe_prefix_length(long_unicode, long_cap) == long_cap - 1);
     free(long_unicode);
     assert(message_add("user", "OLDER_USER_TURN") == 0);
