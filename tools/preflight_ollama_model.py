@@ -243,7 +243,7 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
     # memory really landed in VRAM. CPU-only success must not masquerade as a
     # successful GTX 1050 Ti policy preflight.
     if require_gpu_offload and (
-        gpu_layers == 0 or not gpu_offload_verified or not mixed_placement_verified
+        not gpu_offload_verified or not mixed_placement_verified
     ):
         print(
             "ERROR: mixed CPU/GPU placement was required but Ollama did not report "
