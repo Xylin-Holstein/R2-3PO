@@ -171,13 +171,13 @@ if [[ -d "$R2_ROOT" && -d "$R2_SOURCE" ]]; then
     else
       fail "workspace and root-owned source directories must have sticky-bit protection before privileged installation"
     fi
-    untrusted_source_directory="$(find "$R2_SOURCE" -mindepth 1 -type d \\( ! -user root -o -writable \\) -print -quit)"
+    untrusted_source_directory="$(find "$R2_SOURCE" -mindepth 1 -type d \( ! -user root -o -writable \) -print -quit)"
     if [[ -z "$untrusted_source_directory" ]]; then
       pass "no nested source/tool directory is writable by r2"
     else
       fail "nested source directory is not root-owned or is runtime-writable: $untrusted_source_directory"
     fi
-    untrusted_code_file="$(find "$R2_SOURCE" -type f \\( ! -user root -o -writable \\) \
+    untrusted_code_file="$(find "$R2_SOURCE" -type f \( ! -user root -o -writable \) \
       ! -name 'r2_memory.db' ! -name 'r2_reality.db' ! -name 'r2_fridge.db' \
       ! -name 'r2_rewards.db' ! -name 'r2_addictions.db' \
       ! -name 'r2_original_conversation.txt' ! -name '*.db-wal' \
