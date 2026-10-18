@@ -54,6 +54,47 @@ run_as_r2() {
 }
 
 BACKUP_EXEC=""
+INSTALL_SUCCEEDED=0
+OLLAMA_STATE_CAPTURED=0
+OLLAMA_WAS_ACTIVE=0
+OLLAMA_WAS_ENABLED=0
+R2_ROLLBACK_RESTARTED=0
+UNIT_STAGING_DIR=""
+
+cleanup_unit_staging() {
+    if [[ -n "${UNIT_STAGING_DIR:-}" && -d "$UNIT_STAGING_DIR" ]]; then
+        rm -rf -- "$UNIT_STAGING_DIR"
+    fi
+}
+
+cleanup_on_exit() {
+    local status=$?
+    trap - EXIT
+    cleanup_unit_staging
+
+    # The installer stops the private model server while repairing its model
+    # store. If any pre-activation step fails, restore its original enabled and
+    # active state instead of leaving a previously running service stranded.
+    # If rollback successfully restarted the previous R2 core, keep its model
+    # server running; that core depends on it.
+    if [[ "$INSTALL_SUCCEEDED" != "1" &&
+          "$OLLAMA_STATE_CAPTURED" == "1" &&
+          "$R2_ROLLBACK_RESTARTED" != "1" ]]; then
+        if [[ "$OLLAMA_WAS_ENABLED" == "1" ]]; then
+            root_run systemctl enable r2-ollama.service >/dev/null 2>&1 || true
+        else
+            root_run systemctl disable r2-ollama.service >/dev/null 2>&1 || true
+        fi
+        if [[ "$OLLAMA_WAS_ACTIVE" == "1" ]]; then
+            root_run systemctl start r2-ollama.service >/dev/null 2>&1 ||
+                log "WARNING: could not restore the private Ollama service's prior active state."
+        else
+            root_run systemctl stop r2-ollama.service >/dev/null 2>&1 || true
+        fi
+    fi
+    exit "$status"
+}
+trap cleanup_on_exit EXIT
 
 wait_for_core_ready() {
     local since="$1"
@@ -99,6 +140,7 @@ rollback_previous_executable() {
         return 1
     fi
     if wait_for_core_ready "$rollback_started_at"; then
+        R2_ROLLBACK_RESTARTED=1
         log "Previous executable restored and core readiness marker observed."
     else
         log "WARNING: previous executable is restored, but it did not reach core readiness."
@@ -135,6 +177,17 @@ fi
 if pgrep -x r2 >/dev/null 2>&1; then
     fail "an R2 process is already running. Shut it down before rebuilding so its executable and databases are not disturbed."
 fi
+
+# Record the private Ollama service's pre-install state before any stop/enable
+# operation. A failed model copy/build/preflight must not strand an existing
+# service in a different state from the one the operator had before installing.
+if root_run systemctl is-active --quiet r2-ollama.service 2>/dev/null; then
+    OLLAMA_WAS_ACTIVE=1
+fi
+if root_run systemctl is-enabled --quiet r2-ollama.service 2>/dev/null; then
+    OLLAMA_WAS_ENABLED=1
+fi
+OLLAMA_STATE_CAPTURED=1
 
 # The existing design stores five SQLite databases inside R2/ alongside source code.
 # The root and source directory must already be writable; create missing data-only
@@ -216,13 +269,6 @@ run_as_r2 chmod 0755 "$RUNNER_SOURCE" "$OLLAMA_RUNNER_SOURCE"
 UNIT_STAGING_DIR="$(mktemp -d /run/r2-3po-install.XXXXXX)" ||
     fail "could not create a private root-owned unit staging directory."
 chmod 0700 "$UNIT_STAGING_DIR"
-cleanup_unit_staging() {
-    if [[ -n "${UNIT_STAGING_DIR:-}" && -d "$UNIT_STAGING_DIR" ]]; then
-        rm -rf -- "$UNIT_STAGING_DIR"
-    fi
-}
-trap cleanup_unit_staging EXIT
-
 cat > "$UNIT_STAGING_DIR/r2-ollama.service" <<'R2_OLLAMA_UNIT_EOF'
 [Unit]
 Description=R2-3PO isolated Ollama inference server (runs as r2)
@@ -312,7 +358,6 @@ root_run install -o root -g root -m 0644 "$UNIT_STAGING_DIR/r2-3po.service" "$UN
 root_run systemctl daemon-reload
 cleanup_unit_staging
 UNIT_STAGING_DIR=""
-trap - EXIT
 
 log "Starting R2's dedicated Ollama server as user r2..."
 if ! root_run systemctl enable --now r2-ollama.service; then
@@ -394,6 +439,7 @@ if ! wait_for_core_ready "$STARTED_AT"; then
     fail "R2 did not reach active state. The previous executable was restored when available; inspect the service logs before retrying deployment."
 fi
 
+INSTALL_SUCCEEDED=1
 log "R2 core initialization was observed; service is active and enabled for boot."
 root_run systemctl --no-pager --full status r2-3po.service || true
 log "Live logs: journalctl -u r2-3po.service -f"
