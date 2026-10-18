@@ -77,7 +77,7 @@ The current review is tracing the changed launcher, chat serialization/context a
 - **File:** `tools/r2_install_root_bootstrap.sh`
 - **Severity:** High / rollback reliability
 - **Evidence:** The explicit rollback path covered systemd activation/readiness failures, but a failure immediately after the atomic executable replacement (for example, the following chmod or a later command under `set -e`) could exit before reaching that path. The prior executable backup would remain unused while the replacement stayed installed.
-- **Fix:** Extended the existing EXIT cleanup trap to restore the previous executable for any nonzero exit after replacement, clean the temporary build, and preserve the existing private-Ollama service-state restoration. The explicit rollback path clears the replacement flag after restoring the prior binary to avoid duplicate rollback. If a first install has no previous binary, the trap stops R2 and removes the failed replacement rather than leaving it runnable.
+- **Fix:** Extended the existing EXIT cleanup trap to restore the previous executable for any nonzero exit after replacement, clean the temporary build, and preserve the existing private-Ollama service-state restoration. The explicit rollback path clears the replacement flag after restoring the prior binary to avoid duplicate rollback. If a first install has no previous binary, the trap stops and disables the failed R2 service, then removes the failed replacement rather than leaving it runnable.
 - **Status:** Implemented; exact-head workflow and review of failure ordering still pending.
 ### AUDIT-011 — system-override clipping could split a UTF-8 code point
 - **File:** `r2.c`
