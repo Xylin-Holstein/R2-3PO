@@ -198,7 +198,11 @@ run_as_r2 mv -f "$TEMP_EXEC" "$R2_EXEC"
 run_as_r2 chmod 0755 "$R2_EXEC"
 
 # Install both isolated model and R2 units. The FX collection stays on the host at R2_sounds/FX.
-chmod 0755 "$RUNNER_SOURCE" "$OLLAMA_RUNNER_SOURCE"
+# These runner files live in the runtime-writable tree. Never chmod them as root:
+# chmod follows symlinks, so a compromised r2 account could redirect the operation
+# onto an unrelated host file. The r2 account owns this workspace and can set its
+# own executable bits without privilege.
+run_as_r2 chmod 0755 "$RUNNER_SOURCE" "$OLLAMA_RUNNER_SOURCE"
 root_run install -m 0644 "$OLLAMA_UNIT_SOURCE" "$OLLAMA_UNIT_DEST"
 root_run install -m 0644 "$UNIT_SOURCE" "$UNIT_DEST"
 root_run systemctl daemon-reload
