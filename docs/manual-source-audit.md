@@ -67,7 +67,7 @@ The current review is tracing the changed launcher, chat serialization/context a
 - **Status:** Fixed in source; requires confirmation on the target machine that the groups exist and camera devices are accessible.
 
 
-### AUDIT-008 — installer could leave the private Ollama service in the wrong state after an early failure
+### AUDIT-010 — installer could leave the private Ollama service in the wrong state after an early failure
 - **File:** `tools/r2_install_root_bootstrap.sh`
 - **Severity:** Medium / rollout reliability
 - **Evidence:** The installer stopped `r2-ollama.service` before copying the model store. Failures in the model copy, build, or real model preflight exited through `fail()` without restoring whether the service had been active/enabled before the attempt. A failed install could therefore strand an existing model service stopped, or leave a previously disabled service enabled after a failed preflight.
