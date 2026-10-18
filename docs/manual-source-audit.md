@@ -157,3 +157,12 @@ The full 86-step GitHub Actions workflow passed for candidate code head `5bb6ff4
 - **Fix:** Capture the prior active/enabled states as explicit strings and fail on unrecognized/query-error states. After requesting stop, accept only inactive/failed/unknown unit states, then verify there is no `ollama` process owned by `r2`; any ambiguous state blocks copying.
 - **Regression coverage:** The overnight service smoke test asserts that post-stop state and orphan-process checks occur before `copy_ollama_model.py` is invoked.
 - **Status:** Source fix and regression assertion are committed; target-host installation still must demonstrate that systemd stops the private model server cleanly.
+
+
+### AUDIT-017 — model-store copy could race with a still-running Ollama process
+- **File:** `tools/r2_install_root_bootstrap.sh`
+- **Severity:** High / installation reliability
+- **Evidence:** The install path previously proceeded to copy model blobs after requesting service shutdown without confirming that the service and its Ollama process had actually exited.
+- **Fix:** The bootstrap now verifies the service state and checks for a remaining Ollama process before modifying the private model store; uncertainty fails closed.
+- **Regression coverage:** Existing installer smoke coverage passes, but a dedicated assertion for this new stop-verification branch remains to be added.
+- **Status:** Implementation committed; the current workflow and dedicated regression assertion are still pending.
