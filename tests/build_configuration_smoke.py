@@ -12,6 +12,7 @@ core = (ROOT / "r2.c").read_text(encoding="utf-8")
 installer = (ROOT / "tools/r2_install_root_bootstrap.sh").read_text(encoding="utf-8")
 installer_wrapper = (ROOT / "tools/install_r2_overnight.sh").read_text(encoding="utf-8")
 service_runner = (ROOT / "tools/r2_service_runner.sh").read_text(encoding="utf-8")
+hardware_preflight = (ROOT / "tools/preflight_r2_hardware.sh").read_text(encoding="utf-8")
 reality = (ROOT / "Reality.c").read_text(encoding="utf-8")
 
 required_sources = (
@@ -46,6 +47,14 @@ require(
     and "--require-gpu-offload" in service_runner
     and "--require-gpu-offload" in launcher
     and "for DEVICE_GROUP in audio video; do" in launcher
+    and "R2_NVIDIA_PCI_PRESENT=0" in launcher
+    and "R2_NVIDIA_PCI_PRESENT=0" in service_runner
+    and "NVIDIA_PCI_PRESENT=0" in installer
+    and "NVIDIA_PCI_PRESENT=0" in hardware_preflight
+    and "refusing CPU-only fallback" in launcher
+    and "refusing CPU-only fallback" in service_runner
+    and "refusing to silently deploy a CPU-only policy" in installer
+    and "refusing to treat this as a CPU-only host" in hardware_preflight
     and 'root_run install -o root -g root -m 0644 "$UNIT_STAGING_DIR/r2-ollama.service"' in installer
     and 'root_run install -o root -g root -m 0644 "$UNIT_STAGING_DIR/r2-3po.service"' in installer
     and 'root_run install -m 0644 "$OLLAMA_UNIT_SOURCE"' not in installer
