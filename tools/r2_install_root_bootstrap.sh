@@ -265,6 +265,9 @@ log "Database snapshot and integrity audit passed: $SNAPSHOT_DIR"
 # Keep the desktop user's Ollama service untouched. Copy only the already
 # installed model into the dedicated r2-owned model store; never download it.
 root_run systemctl stop r2-ollama.service >/dev/null 2>&1 || true
+if root_run systemctl is-active --quiet r2-ollama.service 2>/dev/null; then
+    fail "the private Ollama service remains active after the stop request; refusing to mutate its live model store."
+fi
 log "Copying the already-installed $R2_MODEL into R2's private model store..."
 # The model store belongs to r2. Run the copier without privilege: the source
 # script and destination are both in r2-writable locations, so root must never
