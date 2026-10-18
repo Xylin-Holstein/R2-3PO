@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Regression guard: recent conversation context must keep the newest turns."""
 from pathlib import Path
+import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,5 +47,49 @@ require(
     "pthread_mutex_lock(&messages_lock);" in builder
     and "pthread_mutex_unlock(&messages_lock);" in builder,
     "history selection and formatting remain protected by the message-history mutex",
+)
+require(
+    not re.search(
+        r"^\s*(?:length|override_length)\s*=\s*OLLAMA_MAX_(?:MESSAGE|SYSTEM_MESSAGE)_CHARS\s*;",
+        core,
+        re.MULTILINE,
+    )
+    and len(re.findall(
+        r"if \(length > OLLAMA_MAX_MESSAGE_CHARS\)\s*length = "
+        r"r2_utf8_safe_prefix_length\(\s*content,\s*OLLAMA_MAX_MESSAGE_CHARS\);",
+        core,
+    )) == 2
+    and re.search(
+        r"if \(length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS\)\s*length = "
+        r"r2_utf8_safe_prefix_length\(\s*content,\s*OLLAMA_MAX_SYSTEM_MESSAGE_CHARS\);",
+        core,
+    )
+    and re.search(
+        r"if \(override_length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS\)\s*"
+        r"override_length = r2_utf8_safe_prefix_length\(\s*system_override,\s*"
+        r"OLLAMA_MAX_SYSTEM_MESSAGE_CHARS\);",
+        core,
+    )
+    and re.search(
+        r"override_length = r2_utf8_safe_prefix_length\(\s*system_override,\s*"
+        r"boundary >= override_budget / 2 \? boundary : override_budget\);",
+        core,
+    ),
+    "every per-message and system-override byte cap preserves UTF-8 boundaries",
+)
+collector_start = core.index("static char *r2_collect_associated_records(")
+collector_end = core.index("static void r2_append_association_section", collector_start)
+collector = core[collector_start:collector_end]
+require(
+    "size_t content_budget = remaining - separator_length;" in collector
+    and "r2_utf8_safe_prefix_length(found, n)" in collector
+    and "if (n == 0)\n            n = max_chars - used;" not in collector,
+    "associated-memory collection never expands a short result into an out-of-bounds copy",
+)
+require(
+    "r2_utf8_safe_prefix_length(context, max_chars)" in core
+    and '"%s: %.*s\\n"' in core
+    and "%.1000s" not in core,
+    "recent-memory history caps preserve UTF-8 and use the selected safe prefix length",
 )
 print("Recent conversation context budget smoke passed.")

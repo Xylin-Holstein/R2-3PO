@@ -23,6 +23,7 @@ on:
     branches:
       - main
       - 'integrate/**'
+      - 'release/**'
       - clean-copy-r2-audit-2026-10-09
       - r2-hunger-reflection-fix-2026-10-10
       - consolidate/b2-5w2-latest-audit-2026-10-11
@@ -49,6 +50,11 @@ jobs:
         run: |
           python3 -m compileall -q .
           python3 tests/build_configuration_smoke.py
+
+      - name: Check secure Ollama model-copy integrity
+        run: |
+          python3 -m py_compile tools/copy_ollama_model.py tests/copy_ollama_model_integrity.py
+          python3 tests/copy_ollama_model_integrity.py
 
       - name: Check model references and implemented lifecycle documentation
         run: |

@@ -114,15 +114,32 @@ if pgrep -x r2 >/dev/null 2>&1; then
     fail "an R2 process is already running. Shut it down before rebuilding so its executable and databases are not disturbed."
 fi
 
-# The existing design stores five SQLite databases inside R2/ alongside source code.
-# The root and source directory must already be writable; create missing data-only
-# folders as r2 so first-run setup does not leave them owned by the desktop account.
-for path in "$R2_ROOT" "$R2_SOURCE"; do
-    [[ -d "$path" ]] || fail "required persistent-data directory is missing: $path"
-    run_as_r2 test -x "$path" || fail "Linux user r2 cannot traverse $path; fix directory permissions before activation."
-    run_as_r2 test -r "$path" || fail "Linux user r2 cannot read $path; fix permissions before activation."
-    run_as_r2 test -w "$path" || fail "Linux user r2 cannot write $path; SQLite, memories, and diary need persistent write access."
-done
+# The source directory must be runtime-writable only as a sticky root-owned
+# directory: SQLite data lives here, but r2 must not be able to replace code.
+# The workspace's sticky bit also prevents r2 from renaming/replacing R2/.
+[[ -d "$R2_ROOT" && -d "$R2_SOURCE" && ! -L "$R2_SOURCE" ]] ||
+    fail "workspace/source directory missing or source is a symlink."
+[[ -k "$R2_ROOT" && "$(stat -c '%u' "$R2_ROOT")" != "$(id -u r2)" ]] ||
+    fail "$R2_ROOT must be sticky-protected and must not be owned by r2, or r2 could replace the trusted source directory."
+[[ "$(stat -c '%u' "$R2_SOURCE")" == "0" && -k "$R2_SOURCE" ]] ||
+    fail "$R2_SOURCE must be root-owned with its sticky bit set."
+run_as_r2 test -x "$R2_ROOT" && run_as_r2 test -w "$R2_ROOT" ||
+    fail "r2 must be able to traverse and write the workspace root."
+run_as_r2 test -x "$R2_SOURCE" && run_as_r2 test -r "$R2_SOURCE" && run_as_r2 test -w "$R2_SOURCE" ||
+    fail "R2 source root must be readable/traversable and sticky-writable for SQLite data."
+
+untrusted_source_directory="$(run_as_r2 find "$R2_SOURCE" -mindepth 1 -type d \( ! -user root -o -writable \) -print -quit)"
+[[ -z "$untrusted_source_directory" ]] ||
+    fail "nested source directory is not root-owned or is runtime-writable: $untrusted_source_directory"
+untrusted_code_file="$(run_as_r2 find "$R2_SOURCE" -type f \( ! -user root -o -writable \) \
+    ! -name 'r2_memory.db' ! -name 'r2_reality.db' ! -name 'r2_fridge.db' \
+    ! -name 'r2_rewards.db' ! -name 'r2_addictions.db' \
+    ! -name 'r2_original_conversation.txt' ! -name '*.db-wal' \
+    ! -name '*.db-shm' ! -name '*.db-journal' -print -quit)"
+[[ -z "$untrusted_code_file" ]] ||
+    fail "source/tool file is not root-owned or is runtime-writable: $untrusted_code_file"
+run_as_r2 test ! -w "$R2_ROOT/R2_Launch_Code.sh" ||
+    fail "the interactive launcher must not be writable by r2 because it invokes privileged setup commands."
 run_as_r2 mkdir -p \
     "$R2_ROOT/R2_Diary" \
     "$R2_ROOT/room/shelf" \

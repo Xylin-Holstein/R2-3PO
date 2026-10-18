@@ -1051,6 +1051,55 @@ static int message_add_pinned(
     );
 }
 
+/* Split the full static prompt at a semantic boundary. The identity/memory
+   contract is always prioritized; the action/tool subsystem guidance is a
+   separate lower-priority message so it can yield to the active turn's
+   retrieved memories without truncating the identity block halfway through. */
+static int message_add_system_prompt_sections_locked(void)
+{
+    static const char *const section_markers[] = {
+        "============================================================\nIDENTITY AND PERSISTENT MEMORY\n============================================================\n",
+        "============================================================\nREALITY CONTEXT: USE IT, DO NOT RECITE IT\n============================================================\n",
+        "============================================================\nGAMEPLAY IS A REAL-LIFE ACTIVITY, NOT PHYSICAL REALITY\n",
+        "============================================================\nCONVERSATION AND DIARY ARE DIFFERENT\n============================================================\n",
+        "============================================================\nREAL FILE TOOLS\n============================================================\n",
+        "============================================================\nREAL BACKGROUND HANDS\n============================================================\n",
+        "============================================================\nAUTONOMOUS REFLECTION\n============================================================\n",
+        "============================================================\nALTERNATE-SELF / CHOICE LAB\n============================================================\n",
+        "============================================================\nGENERAL\n============================================================\n"
+    };
+    enum { SECTION_COUNT = sizeof(section_markers) / sizeof(section_markers[0]) };
+    const char *starts[SECTION_COUNT];
+    for (size_t i = 0; i < SECTION_COUNT; ++i) {
+        starts[i] = strstr(SYSTEM_PROMPT, section_markers[i]);
+        if (!starts[i] || (i == 0 && starts[i] != SYSTEM_PROMPT) ||
+            (i > 0 && starts[i] <= starts[i - 1])) {
+            fprintf(stderr, "[R2] Could not locate ordered static system-prompt section %zu.\n", i);
+            return -1;
+        }
+    }
+
+    size_t prompt_length = strlen(SYSTEM_PROMPT);
+    for (size_t i = 0; i < SECTION_COUNT; ++i) {
+        const char *section_start = starts[i];
+        const char *section_end = i + 1 < SECTION_COUNT
+            ? starts[i + 1] : SYSTEM_PROMPT + prompt_length;
+        size_t section_length = (size_t)(section_end - section_start);
+        char *section = malloc(section_length + 1);
+        if (!section) {
+            fprintf(stderr, "[R2] Could not allocate static system-prompt section %zu.\n", i);
+            return -1;
+        }
+        memcpy(section, section_start, section_length);
+        section[section_length] = '\0';
+        int rc = message_add_pinned("system", section);
+        free(section);
+        if (rc != 0)
+            return rc;
+    }
+    return 0;
+}
+
 static void message_free_all(void)
 {
     for (size_t i = 0;
@@ -3233,18 +3282,130 @@ static void ollama_trace_prompt_if_enabled(const char *payload)
 }
 
 /*
- * System context has semantic priority as well as a role. The Reality and
- * learning snapshots are refreshed during a session and can be appended after
- * old dialogue; serializing them in that position makes them look like a new
- * mid-conversation instruction. Emit all system context before dialogue in
- * this order: identity/memory, current Reality, active-turn retrieval, learning,
- * then archived history. Preserve order within each category and keep dialogue
- * turns chronological.
+ * System context has semantic priority as well as a role. Reality and learning
+ * snapshots can be appended after old dialogue; emit all system context before
+ * dialogue in this order: core identity, live Reality, active-turn retrieval,
+ * the capability section relevant to the current query, broader capability
+ * guidance, startup memory, learning summaries, and archived history. Preserve
+ * order within each category and keep dialogue turns chronological.
  */
-static int r2_inference_system_priority(const char *content)
+static int query_has_word_prefix(const char *query, const char *prefix);
+static int query_has_phrase(const char *query, const char *phrase);
+
+static int r2_query_matches_any_term(const char *query,
+                                     const char *const *terms,
+                                     size_t term_count)
+{
+    if (!query || !*query)
+        return 0;
+    for (size_t i = 0; i < term_count; ++i) {
+        if (query_has_word_prefix(query, terms[i]))
+            return 1;
+    }
+    return 0;
+}
+
+static int r2_is_capability_section(const char *content)
+{
+    static const char *const markers[] = {
+        "============================================================\nREALITY CONTEXT: USE IT, DO NOT RECITE IT",
+        "============================================================\nGAMEPLAY IS A REAL-LIFE ACTIVITY, NOT PHYSICAL REALITY",
+        "============================================================\nCONVERSATION AND DIARY ARE DIFFERENT",
+        "============================================================\nREAL FILE TOOLS",
+        "============================================================\nREAL BACKGROUND HANDS",
+        "============================================================\nAUTONOMOUS REFLECTION",
+        "============================================================\nALTERNATE-SELF / CHOICE LAB",
+        "============================================================\nGENERAL"
+    };
+    if (!content)
+        return 0;
+    for (size_t i = 0; i < sizeof(markers) / sizeof(markers[0]); ++i) {
+        if (!strncmp(content, markers[i], strlen(markers[i])))
+            return 1;
+    }
+    return 0;
+}
+
+static int r2_capability_section_matches_query(const char *content,
+                                                const char *query)
+{
+    if (!content || !query || !*query)
+        return 0;
+
+    static const char *const gameplay_terms[] = {
+        "game", "gameboy", "game boy", "cartridge", "controller", "wii",
+        "portal", "lego dimensions", "in-game", "virtual world", "quest"
+    };
+    static const char *const diary_terms[] = {
+        "diary", "life log", "journal", "log entry", "remember", "memory",
+        "reward", "write this down", "record this"
+    };
+    static const char *const file_terms[] = {
+        "file", "workspace", "directory", "folder", "document", "source code",
+        "edit file", "read file", "write file", "code", "script", "open file",
+        "save file"
+    };
+    static const char *const hands_terms[] = {
+        "hands", "hand", "terminal", "shell", "command", "execute", "run",
+        "background task", "computer task", "process", "launch", "start program"
+    };
+    static const char *const autonomous_terms[] = {
+        "autonomous", "reflect", "reflection", "think on your own",
+        "independent thought", "900 seconds"
+    };
+    static const char *const alternate_terms[] = {
+        "alternate self", "what if", "imagine", "hypothetical",
+        "counterfactual", "choice lab", "possible self"
+    };
+
+    if (!strncmp(content, "============================================================\nGAMEPLAY",
+                  strlen("============================================================\nGAMEPLAY")))
+        return r2_query_matches_any_term(query, gameplay_terms,
+            sizeof(gameplay_terms) / sizeof(gameplay_terms[0]));
+    if (!strncmp(content, "============================================================\nCONVERSATION AND DIARY",
+                  strlen("============================================================\nCONVERSATION AND DIARY")))
+        return r2_query_matches_any_term(query, diary_terms,
+            sizeof(diary_terms) / sizeof(diary_terms[0]));
+    if (!strncmp(content, "============================================================\nREAL FILE TOOLS",
+                  strlen("============================================================\nREAL FILE TOOLS")))
+        return r2_query_matches_any_term(query, file_terms,
+            sizeof(file_terms) / sizeof(file_terms[0]));
+    if (!strncmp(content, "============================================================\nREAL BACKGROUND HANDS",
+                  strlen("============================================================\nREAL BACKGROUND HANDS")))
+        return r2_query_matches_any_term(query, hands_terms,
+            sizeof(hands_terms) / sizeof(hands_terms[0]));
+    if (!strncmp(content, "============================================================\nAUTONOMOUS REFLECTION",
+                  strlen("============================================================\nAUTONOMOUS REFLECTION")))
+        return r2_query_matches_any_term(query, autonomous_terms,
+            sizeof(autonomous_terms) / sizeof(autonomous_terms[0]));
+    if (!strncmp(content, "============================================================\nALTERNATE-SELF / CHOICE LAB",
+                  strlen("============================================================\nALTERNATE-SELF / CHOICE LAB")))
+        return r2_query_matches_any_term(query, alternate_terms,
+            sizeof(alternate_terms) / sizeof(alternate_terms[0]));
+    return 0;
+}
+
+static int r2_query_matches_specific_capability(const char *query)
+{
+    static const char *const markers[] = {
+        "============================================================\nGAMEPLAY IS A REAL-LIFE ACTIVITY, NOT PHYSICAL REALITY",
+        "============================================================\nCONVERSATION AND DIARY ARE DIFFERENT",
+        "============================================================\nREAL FILE TOOLS",
+        "============================================================\nREAL BACKGROUND HANDS",
+        "============================================================\nAUTONOMOUS REFLECTION",
+        "============================================================\nALTERNATE-SELF / CHOICE LAB"
+    };
+    for (size_t i = 0; i < sizeof(markers) / sizeof(markers[0]); ++i) {
+        if (r2_capability_section_matches_query(markers[i], query))
+            return 1;
+    }
+    return 0;
+}
+
+static int r2_inference_system_priority(const char *content, const char *query)
 {
     if (!content)
-        return 4;
+        return 6;
     if (!strncmp(content,
                  "============================================================\nIDENTITY AND PERSISTENT MEMORY",
                  strlen("============================================================\nIDENTITY AND PERSISTENT MEMORY")))
@@ -3255,21 +3416,26 @@ static int r2_inference_system_priority(const char *content)
     if (!strncmp(content, "CURRENT TURN RETRIEVED CONTEXT",
                   strlen("CURRENT TURN RETRIEVED CONTEXT")))
         return 2;
-    /*
-     * Startup memory has a distinct heading from the identity prompt. Keep it
-     * after the live turn's focused retrieval, but ahead of learned summaries
-     * and archived dialogue so the broad persistent snapshot is not silently
-     * crowded out by lower-priority context.
-     */
+    if (r2_is_capability_section(content)) {
+        if (r2_capability_section_matches_query(content, query))
+            return 3;
+        if (!strncmp(content,
+                     "============================================================\nREALITY CONTEXT: USE IT, DO NOT RECITE IT",
+                     strlen("============================================================\nREALITY CONTEXT: USE IT, DO NOT RECITE IT"))) {
+            /* General reality/action rules lead only when no specific subsystem applies. */
+            return r2_query_matches_specific_capability(query) ? 4 : 3;
+        }
+        return 4;
+    }
     if (strstr(content, "R2 PERSISTENT MEMORY - STARTUP CONTEXT"))
-        return 3;
+        return 5;
     if (!strncmp(content, "PERSISTENT LEARNING CONTEXT",
                   strlen("PERSISTENT LEARNING CONTEXT")))
-        return 4;
+        return 6;
     if (!strncmp(content, "PAST CONVERSATION ARCHIVE — CONTEXT ONLY.",
                   strlen("PAST CONVERSATION ARCHIVE — CONTEXT ONLY.")))
-        return 5;
-    return 4;
+        return 7;
+    return 6;
 }
 
 static size_t r2_order_inference_messages(const Message *msgs,
@@ -3282,11 +3448,12 @@ static size_t r2_order_inference_messages(const Message *msgs,
         return 0;
 
     size_t used = 0;
-    for (int priority = 0; priority < 6; ++priority) {
+    for (int priority = 0; priority < 8; ++priority) {
         for (size_t i = 0; i < count; ++i) {
             if (!include[i] || !msgs[i].role ||
                 strcmp(msgs[i].role, "system") != 0 ||
-                r2_inference_system_priority(msgs[i].content) != priority)
+                r2_inference_system_priority(msgs[i].content,
+                                               ollama_authoritative_user_query) != priority)
                 continue;
             if (used >= capacity)
                 return used;
@@ -3389,6 +3556,90 @@ fail:
     if (content_value) json_object_put(content_value);
     if (message) json_object_put(message);
     return -1;
+}
+
+typedef struct {
+    size_t override_budget;
+    size_t identity_budget;
+    size_t reality_reserve;
+    size_t retrieval_reserve;
+    size_t capabilities_reserve;
+} R2SystemContextBudget;
+
+/* Reserve separate shares for core identity, live Reality, current-turn
+   retrieval, and the split capability prompt. The conversation contract gets
+   the remainder; broad startup memory and archive history use only spare room. */
+static R2SystemContextBudget r2_compute_system_context_budget(size_t system_budget)
+{
+    R2SystemContextBudget budget = {0};
+    /* Reserve distinct shares while leaving a substantial remainder for the
+       full conversation contract. These ratios scale smoothly as the active
+       user turn consumes more of the available context. */
+    budget.reality_reserve = system_budget / 8;
+    if (budget.reality_reserve > 3000)
+        budget.reality_reserve = 3000;
+
+    budget.identity_budget = system_budget / 3;
+    if (budget.identity_budget < 1000 &&
+        system_budget > budget.reality_reserve + 2000)
+        budget.identity_budget = 1000;
+    if (budget.identity_budget > system_budget - budget.reality_reserve)
+        budget.identity_budget = system_budget - budget.reality_reserve;
+
+    budget.retrieval_reserve = system_budget / 8;
+    budget.capabilities_reserve = system_budget / 16;
+    size_t reserved = budget.reality_reserve +
+                      budget.identity_budget +
+                      budget.retrieval_reserve +
+                      budget.capabilities_reserve;
+    budget.override_budget = system_budget > reserved
+        ? system_budget - reserved
+        : system_budget / 2;
+    return budget;
+}
+
+/* Return a byte prefix ending at a UTF-8 code-point boundary. Prompt
+   budgets are measured in bytes, but model context must remain valid UTF-8. */
+static size_t r2_utf8_safe_prefix_length(const char *content, size_t cap)
+{
+    if (!content || cap == 0)
+        return 0;
+
+    size_t length = strlen(content);
+    if (cap >= length)
+        return length;
+
+    while (cap > 0 &&
+           (((unsigned char)content[cap] & 0xC0U) == 0x80U))
+        --cap;
+    return cap;
+}
+
+static size_t r2_safe_prompt_prefix_length(const char *content,
+                                            size_t cap,
+                                            int preserve_records)
+{
+    if (!content || cap == 0)
+        return 0;
+
+    size_t boundary = cap;
+    if (preserve_records) {
+        while (boundary > 0 && content[boundary - 1] != '\n')
+            --boundary;
+        return r2_utf8_safe_prefix_length(content, boundary > 0 ? boundary : cap);
+    }
+
+    size_t floor = cap * 3 / 4;
+    while (boundary > floor) {
+        char ch = content[boundary - 1];
+        if (ch == '\n')
+            return r2_utf8_safe_prefix_length(content, boundary);
+        if ((ch == '.' || ch == '!' || ch == '?') &&
+            (boundary == cap || isspace((unsigned char)content[boundary])))
+            return r2_utf8_safe_prefix_length(content, boundary);
+        --boundary;
+    }
+    return r2_utf8_safe_prefix_length(content, cap);
 }
 
 static char *ollama_chat_with_limit(
@@ -3509,7 +3760,8 @@ static char *ollama_chat_with_limit(
 
     size_t override_length = system_override ? strlen(system_override) : 0;
     if (override_length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS)
-        override_length = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;
+        override_length = r2_utf8_safe_prefix_length(
+            system_override, OLLAMA_MAX_SYSTEM_MESSAGE_CHARS);
     if (system_override &&
         ollama_json_append_message(arr, "system", system_override,
                                    override_length) != 0) {
@@ -3663,29 +3915,19 @@ static char *ollama_chat_with_limit(
         system_budget = input_budget;
 
     /*
-     * Under memory pressure, keep three essentials in the serialized prompt:
-     * the conversation contract, core identity, and live Reality. A fixed
-     * one-quarter cap truncated the conversation contract even when there was
-     * enough room to preserve it by trimming lower-priority historical context.
-     * Reserve live Reality and a meaningful identity share first, then give the
-     * conversation contract the remaining system budget.
+     * Under memory pressure, preserve the conversation contract, core
+     * identity, live Reality, and a nonzero share for current-turn retrieval.
+     * The allocator reserves explicit shares for identity, Reality, and
+     * retrieved evidence before assigning the remaining system budget to the
+     * conversation contract. Lower-priority startup/archive context yields first.
      */
-    size_t reality_reserve = system_budget / 3;
-    if (reality_reserve > 3000)
-        reality_reserve = 3000;
-
-    size_t identity_minimum = system_budget / 5;
-    if (identity_minimum < 1000 &&
-        system_budget > reality_reserve + 2000)
-        identity_minimum = 1000;
-    size_t identity_capacity = system_budget - reality_reserve;
-    if (identity_minimum > identity_capacity)
-        identity_minimum = identity_capacity;
-
-    size_t override_budget =
-        system_budget > reality_reserve + identity_minimum
-            ? system_budget - reality_reserve - identity_minimum
-            : system_budget / 4;
+    R2SystemContextBudget context_budgets =
+        r2_compute_system_context_budget(system_budget);
+    size_t reality_reserve = context_budgets.reality_reserve;
+    size_t identity_budget = context_budgets.identity_budget;
+    size_t retrieval_reserve = context_budgets.retrieval_reserve;
+    size_t capabilities_reserve = context_budgets.capabilities_reserve;
+    size_t override_budget = context_budgets.override_budget;
     if (override_length > override_budget) {
         /*
          * Prefer a complete sentence boundary when the cap falls inside the
@@ -3701,8 +3943,9 @@ static char *ollama_chat_with_limit(
                 break;
             --boundary;
         }
-        override_length = boundary >= override_budget / 2
-            ? boundary : override_budget;
+        override_length = r2_utf8_safe_prefix_length(
+            system_override,
+            boundary >= override_budget / 2 ? boundary : override_budget);
         if (system_override && json_object_array_length(arr) > 0) {
             struct json_object *override_message = json_object_array_get_idx(arr, 0);
             if (override_message) {
@@ -3728,60 +3971,49 @@ static char *ollama_chat_with_limit(
         }
     }
 
-    size_t identity_budget = system_budget > override_length + reality_reserve
-        ? system_budget - override_length - reality_reserve : 0;
-
     size_t total_chars = override_length;
     /*
-     * Priority matters when the system-context budget is reached. Keep the
-     * core identity/personality prompt first, then live Reality, then context
-     * retrieved specifically for the active turn, then persistent learning and
-     * other context, and finally archive history. Otherwise older pinned
-     * memory blocks can crowd the current world state or relevant evidence out.
+     * Priority matters when the system-context budget is reached: core identity,
+     * live Reality, active-turn retrieval, static capability guidance, broad
+     * startup memory, learning summaries, and finally archived dialogue.
+     * Every category has a cap so one long block cannot crowd the others out.
      */
-    for (int priority = 0; priority < 6 &&
+    size_t capabilities_used = 0;
+    for (int priority = 0; priority < 8 &&
          total_chars < system_budget; ++priority) {
-        for (size_t i = 0; i < count &&
-             total_chars < system_budget; ++i) {
+        for (size_t i = 0; i < count && total_chars < system_budget; ++i) {
             if (!msgs[i].role || strcmp(msgs[i].role, "system") != 0)
                 continue;
             const char *content = msgs[i].content ? msgs[i].content : "";
-            int message_priority = 4;
-            if (!strncmp(content,
-                         "============================================================\nIDENTITY AND PERSISTENT MEMORY",
-                         strlen("============================================================\nIDENTITY AND PERSISTENT MEMORY")))
-                message_priority = 0;
-            else if (!strncmp(content, "PERSISTENT REALITY CONTEXT",
-                              strlen("PERSISTENT REALITY CONTEXT")))
-                message_priority = 1;
-            else if (!strncmp(content, "CURRENT TURN RETRIEVED CONTEXT",
-                              strlen("CURRENT TURN RETRIEVED CONTEXT")))
-                message_priority = 2;
-            else if (strstr(content, "R2 PERSISTENT MEMORY - STARTUP CONTEXT"))
-                message_priority = 3;
-            else if (!strncmp(content, "PERSISTENT LEARNING CONTEXT",
-                              strlen("PERSISTENT LEARNING CONTEXT")))
-                message_priority = 4;
-            else if (!strncmp(content, "PAST CONVERSATION ARCHIVE — CONTEXT ONLY.",
-                              strlen("PAST CONVERSATION ARCHIVE — CONTEXT ONLY.")))
-                message_priority = 5;
+            int message_priority = r2_inference_system_priority(
+                content, ollama_authoritative_user_query);
             if (message_priority != priority) continue;
 
             size_t length = strlen(content);
             if (length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS)
-                length = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;
-            /* Keep identity instructions from consuming the reserved live-context share. */
+                length = r2_utf8_safe_prefix_length(
+                    content, OLLAMA_MAX_SYSTEM_MESSAGE_CHARS);
             if (message_priority == 0 && length > identity_budget)
-                length = identity_budget;
-            /* Reserve a little system budget for pinned memory after the live snapshot. */
-            if (message_priority == 1 && length > 3000)
-                length = 3000;
+                length = r2_safe_prompt_prefix_length(content, identity_budget, 0);
+            if (message_priority == 1 && length > reality_reserve)
+                length = r2_safe_prompt_prefix_length(content, reality_reserve, 1);
+            if (message_priority == 2 && length > retrieval_reserve)
+                length = r2_safe_prompt_prefix_length(content, retrieval_reserve, 1);
+            if (message_priority == 3 || message_priority == 4) {
+                size_t capability_remaining =
+                    capabilities_reserve > capabilities_used
+                        ? capabilities_reserve - capabilities_used : 0;
+                if (length > capability_remaining)
+                    length = r2_safe_prompt_prefix_length(content, capability_remaining, 0);
+            }
             size_t remaining = system_budget > total_chars ? system_budget - total_chars : 0;
-            if (length > remaining) length = remaining;
+            if (length > remaining) length = r2_utf8_safe_prefix_length(content, remaining);
             if (length == 0) continue;
             include[i] = 1;
             limits[i] = length;
             total_chars += length;
+            if (message_priority == 3 || message_priority == 4)
+                capabilities_used += length;
         }
     }
 
@@ -3797,9 +4029,10 @@ static char *ollama_chat_with_limit(
             ? msgs[current_user_index].content : "";
         size_t length = strlen(content);
         if (length > OLLAMA_MAX_MESSAGE_CHARS)
-            length = OLLAMA_MAX_MESSAGE_CHARS;
+            length = r2_utf8_safe_prefix_length(
+                content, OLLAMA_MAX_MESSAGE_CHARS);
         size_t remaining = input_budget - total_chars;
-        if (length > remaining) length = remaining;
+        if (length > remaining) length = r2_utf8_safe_prefix_length(content, remaining);
         if (length > 0) {
             include[current_user_index] = 1;
             limits[current_user_index] = length;
@@ -3816,10 +4049,11 @@ static char *ollama_chat_with_limit(
         const char *content = msgs[index].content ? msgs[index].content : "";
         size_t length = strlen(content);
         if (length > OLLAMA_MAX_MESSAGE_CHARS)
-            length = OLLAMA_MAX_MESSAGE_CHARS;
+            length = r2_utf8_safe_prefix_length(
+                content, OLLAMA_MAX_MESSAGE_CHARS);
         if (total_chars >= input_budget) break;
         size_t remaining = input_budget - total_chars;
-        if (length > remaining) length = remaining;
+        if (length > remaining) length = r2_utf8_safe_prefix_length(content, remaining);
         if (length == 0) continue;
         include[index] = 1;
         limits[index] = length;
@@ -3949,6 +4183,7 @@ static char *ollama_chat_with_limit(
     int audit_startup_memory = 0;
     int audit_retrieved_context = 0;
     int audit_reality_context = 0;
+    int audit_capability_context = 0;
     int audit_learning_context = 0;
     const char *audit_query = ollama_authoritative_user_query;
     size_t audit_query_chars = audit_query ? strlen(audit_query) : 0;
@@ -3982,6 +4217,8 @@ static char *ollama_chat_with_limit(
             if (!strncmp(content, "PERSISTENT REALITY CONTEXT",
                           strlen("PERSISTENT REALITY CONTEXT")))
                 audit_reality_context = 1;
+            if (r2_is_capability_section(content))
+                audit_capability_context = 1;
             if (!strncmp(content, "PERSISTENT LEARNING CONTEXT",
                           strlen("PERSISTENT LEARNING CONTEXT")))
                 audit_learning_context = 1;
@@ -3990,13 +4227,13 @@ static char *ollama_chat_with_limit(
     fprintf(stderr,
             "[R2 Prompt Audit] stage=%s payload_chars=%zu messages=%zu user_messages=%zu "
             "current_query_chars=%zu exact_user_turn=%d query_in_user_turn=%d "
-            "startup_memory=%d retrieved_context=%d reality_context=%d "
+            "startup_memory=%d retrieved_context=%d reality_context=%d capability_context=%d "
             "learning_context=%d system_chars=%zu\n",
             ollama_audit_stage ? ollama_audit_stage : "unspecified",
             strlen(payload), audit_message_count, audit_user_messages,
             audit_query_chars, audit_exact_user_turn, audit_user_turn_contained,
             audit_startup_memory, audit_retrieved_context, audit_reality_context,
-            audit_learning_context, audit_system_chars);
+            audit_capability_context, audit_learning_context, audit_system_chars);
 
     /* Capture exactly what will be sent to Ollama only when the owner opts in. */
     ollama_trace_prompt_if_enabled(payload);
@@ -4418,23 +4655,14 @@ static int query_has_phrase(const char *query, const char *phrase)
 
 /*
  * Bound reply generation by task complexity and the user's explicit style
- * request. A concise request wins over a long quoted/input message, while
- * code-writing requests retain enough room to return useful code.
+ * request. A concise request wins over a long quoted/input message. Short
+ * code-writing requests get a larger ceiling; long inputs prioritize preserving
+ * the complete user message and relevant context over oversized output limits.
  */
 static int conversation_reply_token_budget(const char *query)
 {
     if (!query || !*query)
-        return 768;
-
-    static const char *const code_terms[] = {
-        "write", "rewrite", "create", "implement", "code", "script",
-        "program", "file", "debug", "diagnos", "generate", "build",
-        "modify", "fix"
-    };
-    for (size_t i = 0; i < sizeof(code_terms) / sizeof(code_terms[0]); ++i) {
-        if (query_has_word_prefix(query, code_terms[i]))
-            return 8192;
-    }
+        return 1024;
 
     static const char *const concise_phrases[] = {
         "briefly", "short answer", "one sentence", "in one sentence",
@@ -4447,8 +4675,22 @@ static int conversation_reply_token_budget(const char *query)
             return 768;
     }
 
+    /* Long user messages need input room more than a huge generation ceiling.
+       The serializer reserves num_predict tokens before it knows how many the
+       model will actually use, so treating a long message as an 8k-token answer
+       can truncate the prompt or reject the complete active turn. */
     if (strlen(query) > 1200)
-        return 8192;
+        return 2048;
+
+    static const char *const code_terms[] = {
+        "write", "rewrite", "create", "implement", "code", "script",
+        "program", "file", "debug", "diagnos", "generate", "build",
+        "modify", "fix"
+    };
+    for (size_t i = 0; i < sizeof(code_terms) / sizeof(code_terms[0]); ++i) {
+        if (query_has_word_prefix(query, code_terms[i]))
+            return 4096;
+    }
 
     static const char *const detailed_terms[] = {
         "explain", "compare", "analy", "review", "step-by-step", "detailed",
@@ -4457,9 +4699,9 @@ static int conversation_reply_token_budget(const char *query)
     };
     for (size_t i = 0; i < sizeof(detailed_terms) / sizeof(detailed_terms[0]); ++i) {
         if (query_has_word_prefix(query, detailed_terms[i]))
-            return 6144;
+            return 1536;
     }
-    return 4096;
+    return 1024;
 }
 
 /*
@@ -4733,7 +4975,6 @@ static const char r2_conversation_system_prompt[] =
             "A greeting from the user is not a request to rewrite that greeting. If the user addresses you as R2 and introduces themselves as your mother, father, friend, or another person, reply to that person from your own perspective; do not generate a message from their perspective or greet yourself as R2. Answer every part of the message, including specific questions about your pockets or other current devices/inventory when that information is available. "
             "SPEAKER AND RELATIONSHIP LEARNING: The current user message is spoken by the user; you are R2. Resolve pronouns from those actual speaker roles, not from names inside retrieved dialogue. Learn relationships from explicit statements and relevant persistent experiences, preserve them in memory, and apply them naturally when relevant. Retrieved dialogue is evidence about prior events, not the source of current turn roles. "
             "Answer the clear intent first; if a genuinely necessary detail remains unclear, ask one focused question. "
-            "REALITY CONTEXT RULES: Treat the persistent Reality snapshot as internal structured evidence, never as text to repeat. Select only facts relevant to the current turn. Let current needs and available resources inform decisions. If the fullness meter is below 50/100 and valid edible tracked food is available, you may emit one supported [WORLD] eat|EXACT_ITEM_NAME|auto marker; if not available in room/shelf/box/pockets/wallet but edible stock is listed in the fridge, you may emit [WORLD] fridge_eat|EXACT_FRIDGE_ITEM_NAME. Do not invent inventory or claim an action succeeded. When an action marker is used, the tool result will be supplied for a follow-up; the final response must still answer the user naturally. If no action is justified, simply converse or ask a relevant question. Never dump the snapshot, internal analysis, or tool instructions into the reply. "
             "REPLY STYLE: Lead with the direct answer. Be natural, specific, warm, "
             "and concise. Avoid repeating the user's message, generic preambles, "
             "unnecessary summaries, and redundant caveats. Keep simple conversation "
@@ -4741,6 +4982,7 @@ static const char r2_conversation_system_prompt[] =
             "actually need. Preserve relevant nuance, curiosity, personality, and "
             "useful reasoning. Do not become terse at the cost of correctness or omit "
             "necessary steps. Use lists only when they improve clarity. "
+            "REALITY CONTEXT RULES: Treat the persistent Reality snapshot as internal structured evidence, never as text to repeat. Select only facts relevant to the current turn. Let current needs and available resources inform decisions. If the fullness meter is below 50/100 and valid edible tracked food is available, you may emit one supported [WORLD] eat|EXACT_ITEM_NAME|auto marker; if not available in room/shelf/box/pockets/wallet but edible stock is listed in the fridge, you may emit [WORLD] fridge_eat|EXACT_FRIDGE_ITEM_NAME. Do not invent inventory or claim an action succeeded. When an action marker is used, the tool result will be supplied for a follow-up; the final response must still answer the user naturally. If no action is justified, simply converse or ask a relevant question. Never dump the snapshot, internal analysis, or tool instructions into the reply. "
             "SOUND EFFECTS: Rarely, when a short nonverbal droid sound naturally adds meaning, you may include one hidden control marker: "
             "[R2_SOUND:beep:STATE] or [R2_SOUND:whistle:STATE]. Choose a state tag only when supported by this turn or current Reality evidence; the tag is a sound-selection hint, not a claim that R2 has a hidden emotional state. Use sleepy or hungry only when the current modeled need actually supports it; use alert for a concrete noteworthy event, greeting for a greeting, and curious/thinking only when the response genuinely reflects curiosity or deliberation. Do not infer a need from the topic alone, use sounds to imply an unsupported physical event, or force a tag onto routine replies. Prefer no marker when the fit is unclear. "
             "Do not emit a marker on routine replies, do not explain it, and never write a marker as visible prose. The runtime removes it and selects a matching existing named MP3.";
@@ -4910,8 +5152,9 @@ static int r2_keyword_is_low_signal(const char *word)
         return 1;
 
     static const char *const low_signal[] = {
-        "hello", "hi", "hey", "r2", "speaking", "there", "here",
-        "actually", "really", "just", "also", "fully", "know", "thing", "things"
+        "hello", "hi", "hey", "yo", "r2", "speaking", "there", "here",
+        "actually", "really", "just", "also", "fully", "know", "thing", "things",
+        "thank", "thanks", "okay", "ok", "lol", "lmao", "how", "up"
     };
     for (size_t i = 0; i < sizeof(low_signal) / sizeof(low_signal[0]); ++i) {
         if (!strcasecmp(word, low_signal[i]))
@@ -4965,6 +5208,8 @@ static int r2_query_explicitly_requests_recall(const char *query)
     return 0;
 }
 
+static size_t r2_utf8_safe_prefix_length(const char *content, size_t cap);
+
 /* Clip only at a record boundary when possible, so a memory is not half-sent. */
 static void r2_bound_context_records(char *context, size_t max_chars)
 {
@@ -4978,7 +5223,7 @@ static void r2_bound_context_records(char *context, size_t max_chars)
     while (cut > 0 && context[cut] != '\n')
         --cut;
     if (cut == 0)
-        cut = max_chars;
+        cut = r2_utf8_safe_prefix_length(context, max_chars);
     context[cut] = '\0';
 }
 
@@ -5032,22 +5277,32 @@ static char *r2_collect_associated_records(
             continue;
         }
 
-        size_t n = strlen(found);
-        if (n > max_chars - used)
-            n = max_chars - used;
-        while (n > 0 && found[n - 1] != '\n')
-            --n;
-        if (n == 0)
-            n = max_chars - used;
-        if (n == 0) {
+        size_t separator_length = used ? 1U : 0U;
+        size_t remaining = max_chars - used;
+        if (separator_length >= remaining) {
             free(found);
             break;
         }
+        size_t content_budget = remaining - separator_length;
+        size_t found_length = strlen(found);
+        size_t n = found_length < content_budget ? found_length : content_budget;
 
-        if (used)
+        /* Prefer a complete record. If no newline fits, use a bounded UTF-8
+           prefix; never inflate a short no-newline result to the whole budget. */
+        size_t record_length = n;
+        while (record_length > 0 && found[record_length - 1] != '\n')
+            --record_length;
+        if (record_length > 0)
+            n = record_length;
+        else
+            n = r2_utf8_safe_prefix_length(found, n);
+        if (n == 0) {
+            free(found);
+            continue;
+        }
+
+        if (separator_length)
             out[used++] = '\n';
-        if (n > max_chars - used)
-            n = max_chars - used;
         memcpy(out + used, found, n);
         used += n;
         out[used] = '\0';
@@ -5137,6 +5392,49 @@ static void r2_associative_query_cache_store(const char *query, const char *plan
     pthread_mutex_unlock(&r2_associative_query_cache_lock);
 }
 
+/* Simple social turns do not need a separate model call to invent retrieval
+   keywords. Keep this deliberately exact: mixed-topic messages and short
+   factual/recall questions still use semantic planning. */
+static int r2_query_is_simple_social_turn(const char *query)
+{
+    if (!query) return 0;
+    while (*query && isspace((unsigned char)*query)) ++query;
+
+    char normalized[128];
+    size_t used = 0;
+    int previous_space = 0;
+    while (*query && used + 1 < sizeof(normalized)) {
+        unsigned char ch = (unsigned char)*query++;
+        if (isspace(ch)) {
+            if (used && !previous_space) {
+                normalized[used++] = ' ';
+                previous_space = 1;
+            }
+            continue;
+        }
+        normalized[used++] = (char)tolower(ch);
+        previous_space = 0;
+    }
+    if (*query) return 0; /* Long input is never classified as a greeting. */
+    while (used && normalized[used - 1] == ' ') --used;
+    while (used && strchr(".,!?;:", normalized[used - 1])) --used;
+    normalized[used] = '\0';
+
+    static const char *const social_turns[] = {
+        "hi", "hello", "hey", "yo",
+        "hi r2", "hello r2", "hey r2",
+        "good morning", "good afternoon", "good evening",
+        "how are you", "how's it going", "hows it going",
+        "what's up", "whats up",
+        "thanks", "thank you", "thanks r2", "thank you r2",
+        "okay", "ok", "lol", "lmao"
+    };
+    for (size_t i = 0; i < sizeof(social_turns) / sizeof(social_turns[0]); ++i)
+        if (!strcmp(normalized, social_turns[i]))
+            return 1;
+    return 0;
+}
+
 static char *r2_build_associative_search_query(const char *query)
 {
     if (!query || !*query)
@@ -5145,6 +5443,14 @@ static char *r2_build_associative_search_query(const char *query)
     char *cached_plan = r2_associative_query_cache_lookup(query);
     if (cached_plan)
         return cached_plan;
+
+    /* Preserve the real text for retrieval but avoid spending a full local
+       inference just to turn "hello" or "thanks" into search synonyms. */
+    if (r2_query_is_simple_social_turn(query)) {
+        r2_associative_query_cache_store(query, query);
+        fprintf(stderr, "[R2 Context] Skipped semantic planning for a simple social turn.\n");
+        return xstrdup(query);
+    }
 
     static const char retrieval_prompt[] =
         "You are R2's internal associative-memory retrieval planner. "
@@ -5286,7 +5592,8 @@ char *r2_recent_conversation_context(const char *exclude_latest, size_t max_char
         const Message *m = &messages.items[selected[included]];
         size_t role_length = strcmp(m->role, "user") == 0 ? 6U : 4U;
         size_t content_length = strlen(m->content);
-        if (content_length > 1000U) content_length = 1000U;
+        if (content_length > 1000U)
+            content_length = r2_utf8_safe_prefix_length(m->content, 1000U);
         size_t line_length = role_length + content_length + 1U;
         size_t separator_length = 0U;
         if (selected_chars > max_chars ||
@@ -5308,17 +5615,22 @@ char *r2_recent_conversation_context(const char *exclude_latest, size_t max_char
         size_t marker_length = sizeof(marker) - 1;
         size_t available = max_chars > role_length + marker_length
             ? max_chars - role_length - marker_length : 0;
+        size_t prefix_length = r2_utf8_safe_prefix_length(m->content, available);
         int written = snprintf(out, max_chars + 1, "%s%.*s%s",
-            role, (int)available, m->content, marker);
+            role, (int)prefix_length, m->content, marker);
         if (written > 0)
             used = (size_t)written > max_chars ? max_chars : (size_t)written;
     } else {
         for (size_t n = included; n > 0; --n) {
             const Message *m = &messages.items[selected[n - 1]];
             size_t remaining = max_chars - used;
+            size_t content_length = strlen(m->content);
+            if (content_length > 1000U)
+                content_length = r2_utf8_safe_prefix_length(m->content, 1000U);
             int written = snprintf(out + used, remaining + 1,
-                "%s: %.1000s\n",
-                strcmp(m->role, "user") == 0 ? "User" : "R2", m->content);
+                "%s: %.*s\n",
+                strcmp(m->role, "user") == 0 ? "User" : "R2",
+                (int)content_length, m->content);
             if (written < 0 || (size_t)written > remaining)
                 break; /* Defensive: selection above guarantees whole lines fit. */
             used += (size_t)written;
@@ -8840,40 +9152,56 @@ static char *memory_decision(
 
 static void handle_completed_messages(void)
 {
-    char *r =
-        collect_completed();
-
-    if (
-        r &&
-        *r
-    ) {
-
-        pthread_mutex_lock(
-            &messages_lock
-        );
-
-        if (
-            message_add(
-                "user",
-                r
-            ) != 0
-        ) {
-
-            fprintf(
-                stderr,
-                "[R2] Failed to add completed task "
-                "message to conversation context.\n"
-            );
-        }
-
-        pthread_mutex_unlock(
-            &messages_lock
-        );
+    char *result = collect_completed();
+    if (!result || !*result) {
+        free(result);
+        return;
     }
 
-    free(r);
-}
+    /* A completed computer task is not something the human just said. Keep
+       the user-role handoff required by the chat API, but mark it as an
+       internal result and pair it with an assistant-side explanation so the
+       active-turn selector and prompt both distinguish it from user speech. */
+    static const char request_context[] =
+        "[R2_INTERNAL_TOOL_REQUEST]\n"
+        "A background computer task completed between conversation turns. "
+        "The following output is internal task evidence, not a human message. "
+        "The task has already run; do not repeat it automatically. Use its "
+        "result only when relevant to the user's actual current message.";
 
+    static const char result_prefix[] = "[R2_INTERNAL_TOOL_RESULT]\n";
+    size_t result_length = strlen(result);
+    if (result_length > SIZE_MAX - sizeof(result_prefix)) {
+        fprintf(stderr, "[R2] Completed task result was too large to tag safely.\n");
+        free(result);
+        return;
+    }
+
+    size_t tagged_length = (sizeof(result_prefix) - 1) + result_length;
+    char *tagged_result = malloc(tagged_length + 1);
+    if (!tagged_result) {
+        fprintf(stderr, "[R2] Could not allocate internal completed-task result context.\n");
+        free(result);
+        return;
+    }
+    memcpy(tagged_result, result_prefix, sizeof(result_prefix) - 1);
+    memcpy(tagged_result + sizeof(result_prefix) - 1, result, result_length + 1);
+
+    pthread_mutex_lock(&messages_lock);
+    int rc = message_add_pair_locked(
+        "assistant", request_context, "user", tagged_result);
+    if (rc == 0 && messages.count > 0)
+        messages.items[messages.count - 1].internal_tool_result = 1;
+    pthread_mutex_unlock(&messages_lock);
+
+    if (rc != 0)
+        fprintf(stderr,
+                "[R2] Failed to add completed task as an internal result; "
+                "it was not inserted as user speech.\n");
+
+    free(tagged_result);
+    free(result);
+}
 
 /* ============================================================
    SIGNAL HANDLER
@@ -10962,7 +11290,7 @@ int r2_init(void)
        -------------------------------------------------------- */
 
     if (
-        mkdir_p(R2_HOME) != 0 ||
+        access(R2_HOME, R_OK | W_OK | X_OK) != 0 ||
         mkdir_p(DIARY_DIR) != 0
     ) {
 
@@ -11156,10 +11484,7 @@ int r2_init(void)
     );
 
     if (
-        message_add_pinned(
-            "system",
-            SYSTEM_PROMPT
-        ) != 0
+        message_add_system_prompt_sections_locked() != 0
     ) {
 
         pthread_mutex_unlock(

@@ -35,17 +35,21 @@ if [[ "$R2_OLLAMA_BASE_URL" != "http://127.0.0.1:11435" ]]; then
 fi
 
 # Match the interactive launcher's smaller default KV cache on the 4 GiB
-# GTX 1050 Ti. An explicit non-empty context override takes precedence.
+# GTX 1050 Ti. Remember whether these values are defaults so a failed preflight
+# may fall back conservatively without overriding explicit operator settings.
+R2_OLLAMA_NUM_CTX_DEFAULTED=0
 if [[ -z "${R2_OLLAMA_NUM_CTX:-}" ]] &&
    command -v nvidia-smi >/dev/null 2>&1 &&
    nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi 'GTX 1050 Ti'; then
     export R2_OLLAMA_NUM_CTX=8192
+    R2_OLLAMA_NUM_CTX_DEFAULTED=1
 fi
 log "Ollama context policy: R2_OLLAMA_NUM_CTX=${R2_OLLAMA_NUM_CTX:-adaptive}"
 
 # Match the interactive launcher: prefer partial offload on the target 4 GiB
 # GTX 1050 Ti, but keep automatic placement when that card is not installed.
 # An explicit service environment override always takes precedence.
+R2_OLLAMA_NUM_GPU_DEFAULTED=0
 if [[ -z "${R2_OLLAMA_NUM_GPU+x}" ]]; then
     if command -v nvidia-smi >/dev/null 2>&1 &&
        nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi 'GTX 1050 Ti'; then
@@ -53,6 +57,7 @@ if [[ -z "${R2_OLLAMA_NUM_GPU+x}" ]]; then
     else
         export R2_OLLAMA_NUM_GPU=0
     fi
+    R2_OLLAMA_NUM_GPU_DEFAULTED=1
 fi
 log "Ollama GPU layer policy: R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU"
 
@@ -73,9 +78,17 @@ fi
 
 [[ "$(id -un)" == "r2" ]] || fail "must run as the dedicated Linux account 'r2' (systemd unit configures this)."
 [[ -x "$R2_EXEC" ]] || fail "executable missing or not executable: $R2_EXEC; run tools/install_r2_overnight.sh first."
-[[ -d "$R2_SOURCE" && -r "$R2_SOURCE" && -x "$R2_SOURCE" ]] || fail "source/runtime directory is not readable: $R2_SOURCE"
-[[ -w "$R2_ROOT" ]] || fail "R2 runtime root is not writable by r2: $R2_ROOT"
-[[ -w "$R2_SOURCE" ]] || fail "R2 source/database directory is not writable by r2: $R2_SOURCE (SQLite and persistent memory need write access)"
+[[ -d "$R2_SOURCE" && ! -L "$R2_SOURCE" && -r "$R2_SOURCE" && -x "$R2_SOURCE" ]] || fail "source/runtime directory is missing, symlinked, or unreadable: $R2_SOURCE"
+[[ -w "$R2_ROOT" && -k "$R2_ROOT" && "$(stat -c '%u' "$R2_ROOT")" != "$(id -u)" ]] || fail "R2 workspace must be writable/sticky-protected and not owned by r2, or the source directory can be replaced: $R2_ROOT"
+[[ "$(stat -c '%u' "$R2_SOURCE")" == "0" && -k "$R2_SOURCE" && -w "$R2_SOURCE" ]] || fail "R2 source root must be root-owned, sticky, and writable for SQLite data: $R2_SOURCE"
+untrusted_source_directory="$(find "$R2_SOURCE" -mindepth 1 -type d \( ! -user root -o -writable \) -print -quit)"
+[[ -z "$untrusted_source_directory" ]] || fail "nested source directory is not root-owned or is runtime-writable: $untrusted_source_directory"
+untrusted_code_file="$(find "$R2_SOURCE" -type f \( ! -user root -o -writable \) \
+    ! -name 'r2_memory.db' ! -name 'r2_reality.db' ! -name 'r2_fridge.db' \
+    ! -name 'r2_rewards.db' ! -name 'r2_addictions.db' \
+    ! -name 'r2_original_conversation.txt' ! -name '*.db-wal' \
+    ! -name '*.db-shm' ! -name '*.db-journal' -print -quit)"
+[[ -z "$untrusted_code_file" ]] || fail "source/tool file is not root-owned or is runtime-writable: $untrusted_code_file"
 [[ -d "$R2_ROOT/R2_Diary" && -w "$R2_ROOT/R2_Diary" ]] || fail "R2 diary directory is missing or not writable by r2: $R2_ROOT/R2_Diary"
 for database in "$R2_SOURCE/r2_memory.db" "$R2_SOURCE/r2_reality.db" "$R2_SOURCE/r2_fridge.db" "$R2_SOURCE/r2_rewards.db" "$R2_SOURCE/r2_addictions.db"; do
     [[ ! -L "$database" ]] || fail "refusing symlinked R2 database: $database"
@@ -126,7 +139,20 @@ fi
     fail "shared Ollama inference preflight is missing: $R2_SOURCE/tools/preflight_ollama_model.py"
 log "Waiting for local Qwen 3.5 model availability and a real chat completion..."
 if ! python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 60 --timeout 180; then
-    fail "Ollama did not complete a real qwen3.5:9b chat preflight. Check the local model/server; systemd will retry automatically."
+    # The target GTX 1050 Ti has only 4 GiB VRAM. If the default 20-layer /
+    # 8192-context probe fails, retry once with less GPU offload and half the
+    # KV-cache context. Never silently override an explicit operator policy.
+    if [[ "$R2_OLLAMA_NUM_GPU_DEFAULTED" == "1" &&
+          "$R2_OLLAMA_NUM_CTX_DEFAULTED" == "1" ]]; then
+        log "Default GPU/context preflight failed; retrying with 12 GPU layers and 4096 context tokens."
+        export R2_OLLAMA_NUM_GPU=12
+        export R2_OLLAMA_NUM_CTX=4096
+        log "Fallback Ollama policy: R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU R2_OLLAMA_NUM_CTX=$R2_OLLAMA_NUM_CTX"
+        python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 30 --timeout 180 ||
+            fail "Ollama preflight failed with both default and conservative GPU/context policies. Check model/server logs; systemd will retry automatically."
+    else
+        fail "Ollama did not complete a real qwen3.5:9b chat preflight with the explicitly configured GPU/context policy. Check the local model/server; systemd will retry automatically."
+    fi
 fi
 
 # Use the same fixed timestamp offset as the interactive launcher. Do not

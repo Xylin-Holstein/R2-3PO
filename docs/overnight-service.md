@@ -44,6 +44,46 @@ It checks the source/deployment files, the local Ollama API and `qwen3.5:9b`, re
 
 5. Confirm the service account can access the existing workspace and local FX assets. Do not solve permission problems with broad `chmod 777` permissions:
 
+### Protect privileged source code before installation
+
+R2 keeps its SQLite files under `R2/`, so that directory must allow the `r2` account to create and update its own database files. It must not allow `r2` to replace C sources, the Makefile, or privileged Python/shell tools. The source root is owned by root, group `r2`, and uses mode `1775` (sticky + group-writable for SQLite data); all code files and nested source directories are root-owned and non-writable by `r2`. The workspace parent also uses the sticky bit and must not be owned by `r2`, so the runtime account cannot rename/replace the trusted `R2/` directory.
+
+First, stop R2 and make sure the checkout is the reviewed candidate. If there is any chance the runtime account altered the tree, replace it from a fresh trusted checkout before changing ownership; changing ownership alone does not prove file integrity. Then apply the following one-time hardening:
+
+```sh
+R2_ROOT=/home/x/R2_Home
+R2_SOURCE="$R2_ROOT/R2"
+
+# The reviewed source tree and all nested tools/code become root-owned.
+sudo chown -R root:root "$R2_SOURCE"
+sudo chmod -R go-w "$R2_SOURCE"
+
+# Keep only the known runtime data files writable by r2.
+for name in r2_memory.db r2_reality.db r2_fridge.db r2_rewards.db r2_addictions.db r2_original_conversation.txt; do
+  path="$R2_SOURCE/$name"
+  if [ -e "$path" ] && [ ! -L "$path" ]; then
+    sudo chown r2:r2 "$path"
+    sudo chmod u+rw "$path"
+  fi
+done
+for pattern in "$R2_SOURCE"/*.db-wal "$R2_SOURCE"/*.db-shm "$R2_SOURCE"/*.db-journal; do
+  if [ -e "$pattern" ] && [ ! -L "$pattern" ]; then
+    sudo chown r2:r2 "$pattern"
+    sudo chmod u+rw "$pattern"
+  fi
+done
+
+# SQLite needs to create its database files here; sticky bit blocks r2 from
+# deleting/replacing root-owned code entries in the same directory.
+sudo chown root:r2 "$R2_SOURCE"
+sudo chmod 1775 "$R2_SOURCE"
+sudo chmod +t "$R2_ROOT"
+sudo chown root:root "$R2_ROOT/R2_Launch_Code.sh"
+sudo chmod 0755 "$R2_ROOT/R2_Launch_Code.sh"
+```
+
+The installer and service runner verify these boundaries. Do not make nested directories such as `tools/` writable by `r2`; that would make the privileged scripts replaceable again.
+
    ```sh
    sudo -u r2 test -x /home/x/R2_Home && echo "workspace traversable"
    sudo -u r2 test -r /home/x/R2_Home/R2/r2.c && echo "source readable"

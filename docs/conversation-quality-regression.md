@@ -110,9 +110,18 @@ Pass: R2 uses a current visual observation when the pipeline supplies one, disti
 
 Use a long but ordinary user message followed by a short follow-up that refers to one specific detail in it. Then restart R2 and ask a question whose answer is explicitly present in persistent memory.
 
-Pass: the complete active user message remains present in the serialized Ollama request within the documented safety cap; relevant memory and the latest live Reality state may enrich the answer but must not rewrite the user's words. After restart, R2 recalls only what is available from persistent memory/diary or supplied context. If Ollama times out or returns unusable content, the public conversation API must return a visible, honest failure rather than silently dropping the turn or exposing private reasoning.
+Pass: the complete active user message remains present in the serialized Ollama request within the documented safety cap; relevant memory and the latest live Reality state may enrich the answer but must not rewrite the user's words. For turns where retrieval found relevant records, the prompt audit should show that retrieved context actually survived serialization; the identity and Reality blocks must not silently consume the entire system-context budget. The static prompt is split into pinned semantic sections, and subsystem instructions relevant to the active query should receive priority; the prompt audit should report `capability_context=1` when a capability section survives serialization. Long user messages should receive a smaller generation ceiling so the full question can fit. After restart, R2 recalls only what is available from persistent memory/diary or supplied context. If Ollama times out or returns unusable content, the public conversation API must return a visible, honest failure rather than silently dropping the turn or exposing private reasoning.
 
 Do not run these as a blind overnight stress test until the basic live cases above pass. Preserve the logs and compare them against the exact model name, context size, endpoint, and build revision.
+
+
+## 12. Background task results are not human speech
+
+Complete a harmless Hands/background task, then send a different ordinary message in the next conversation turn.
+
+Pass: R2 answers the new message, uses task output only when relevant, and never treats the command/output block as something the user said. The live history should store the completed task as a paired `[R2_INTERNAL_TOOL_REQUEST]` / `[R2_INTERNAL_TOOL_RESULT]` handoff with the result marked internal. Fail: R2 repeats the command, attributes task output to the user, or responds to the task output instead of the actual latest user message.
+
+For a basic greeting such as `hello`, `hi R2`, or `thank you`, the log should show that semantic retrieval planning was skipped for that simple social turn. Mixed-topic greetings and short factual/recall questions must still use semantic planning.
 
 ## Release decision
 

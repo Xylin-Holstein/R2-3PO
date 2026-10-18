@@ -598,17 +598,14 @@ int r2_diary_init(void)
     char *error_message = NULL;
 
     /*
-     * R2's own kernel/code directory.
+     * The protected source/data directory must already exist. Do not create
+     * a missing code directory from the runtime account.
      */
-    if (
-        r2_mkdir_recursive(
-            R2_HOME
-        ) != 0
-    )
+    if (access(R2_HOME, R_OK | W_OK | X_OK) != 0)
     {
         fprintf(
             stderr,
-            "[R2 DIARY] Could not create R2 home: %s\n",
+            "[R2 DIARY] R2 home is unavailable: %s\n",
             R2_HOME
         );
 

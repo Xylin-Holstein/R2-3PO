@@ -25,8 +25,69 @@ static void clear_test_messages(void)
     pthread_mutex_unlock(&messages_lock);
 }
 
+static char *short_no_newline_search(const char *keyword, int limit)
+{
+    (void)keyword;
+    (void)limit;
+    char *result = malloc(64);
+    if (!result) return NULL;
+    memset(result, 'X', 64);
+    memcpy(result, "SHORT", sizeof("SHORT"));
+    return result;
+}
+
+static char *utf8_no_newline_search(const char *keyword, int limit)
+{
+    (void)keyword;
+    (void)limit;
+    return strdup("AB\xe2\x98\x83Z");
+}
+
 int main(void)
 {
+    /* Byte-based prompt budgets must not cut through a multibyte character. */
+    const char unicode_prompt[] = "A\xe2\x98\x83Z"; /* A, snowman, Z */
+    assert(r2_utf8_safe_prefix_length(unicode_prompt, 2) == 1);
+    assert(r2_utf8_safe_prefix_length(unicode_prompt, 3) == 1);
+    assert(r2_utf8_safe_prefix_length(unicode_prompt, 4) == 4);
+    assert(r2_safe_prompt_prefix_length(unicode_prompt, 2, 0) == 1);
+    assert(r2_safe_prompt_prefix_length(unicode_prompt, 2, 1) == 1);
+
+    char bounded_memory[] = "A\xe2\x98\x83Z";
+    r2_bound_context_records(bounded_memory, 2);
+    assert(strcmp(bounded_memory, "A") == 0);
+
+    char keywords[MAX_MEMORY_KEYWORDS][64] = {{0}};
+    snprintf(keywords[0], sizeof(keywords[0]), "quasar");
+    char *associated = r2_collect_associated_records(
+        keywords, 1, short_no_newline_search, 64);
+    assert(associated != NULL && strcmp(associated, "SHORT") == 0);
+    assert(associated[6] == '\0'); /* bytes past the logical string were not copied */
+    free(associated);
+
+    associated = r2_collect_associated_records(
+        keywords, 1, utf8_no_newline_search, 4);
+    assert(associated != NULL && strcmp(associated, "AB") == 0);
+    free(associated);
+
+    /* Exercise the actual 12 KiB message and 24 KiB system byte caps. */
+    const size_t long_cap = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;
+    char *long_unicode = malloc(long_cap + 4);
+    assert(long_unicode != NULL);
+    memset(long_unicode, 'x', long_cap + 3);
+    long_unicode[OLLAMA_MAX_MESSAGE_CHARS - 1] = (char)0xe2;
+    long_unicode[OLLAMA_MAX_MESSAGE_CHARS] = (char)0x98;
+    long_unicode[OLLAMA_MAX_MESSAGE_CHARS + 1] = (char)0x83;
+    long_unicode[OLLAMA_MAX_MESSAGE_CHARS + 2] = 'Z';
+    assert(r2_utf8_safe_prefix_length(
+        long_unicode, OLLAMA_MAX_MESSAGE_CHARS) == OLLAMA_MAX_MESSAGE_CHARS - 1);
+    long_unicode[long_cap - 1] = (char)0xe2;
+    long_unicode[long_cap] = (char)0x98;
+    long_unicode[long_cap + 1] = (char)0x83;
+    long_unicode[long_cap + 2] = 'Z';
+    long_unicode[long_cap + 3] = '\0';
+    assert(r2_utf8_safe_prefix_length(long_unicode, long_cap) == long_cap - 1);
+    free(long_unicode);
     assert(message_add("user", "OLDER_USER_TURN") == 0);
     assert(message_add("assistant", "OLDER_ASSISTANT_TURN") == 0);
     assert(message_add("user", "LATEST_USER_TURN") == 0);
@@ -40,6 +101,36 @@ int main(void)
     assert(older < assistant && assistant < latest);
     free(context);
 
+    clear_test_messages();
+
+    /* Recent-history clipping must preserve complete UTF-8 code points. */
+    char *utf8_history = repeat_char('H', 1100);
+    assert(utf8_history != NULL);
+    utf8_history[45] = (char)0xe2;
+    utf8_history[46] = (char)0x98;
+    utf8_history[47] = (char)0x83;
+    utf8_history[999] = (char)0xe2;
+    utf8_history[1000] = (char)0x98;
+    utf8_history[1001] = (char)0x83;
+    utf8_history[1100] = '\0';
+    assert(message_add("user", utf8_history) == 0);
+
+    context = r2_recent_conversation_context(NULL, 64);
+    assert(context != NULL);
+    assert(strstr(context, "[truncated]") != NULL);
+    assert(strstr(context, "\xe2\x98\x83") == NULL);
+    assert(strlen(context) <= 64);
+    free(context);
+
+    context = r2_recent_conversation_context(NULL, 1200);
+    assert(context != NULL);
+    char *first_snowman = strstr(context, "\xe2\x98\x83");
+    assert(first_snowman != NULL);
+    assert(strstr(first_snowman + 3, "\xe2\x98\x83") == NULL);
+    assert(context[strlen(context) - 1] == '\n');
+    assert(strlen(context) <= 1200);
+    free(context);
+    free(utf8_history);
     clear_test_messages();
 
     /* Executable control turns are history metadata, not human-facing dialogue. */

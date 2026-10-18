@@ -166,6 +166,32 @@ if [[ -d "$R2_ROOT" && -d "$R2_SOURCE" ]]; then
         fail "r2 must have read/write/traverse access to $path for runtime directories, SQLite, and persistent memory; correct ownership/permissions before launch"
       fi
     done
+    if [[ -k "$R2_ROOT" && "$(stat -c '%u' "$R2_ROOT")" != "$(id -u)" && -k "$R2_SOURCE" && "$(stat -c '%u' "$R2_SOURCE")" == "0" ]]; then
+      pass "workspace/source sticky-bit ownership protects trusted code from r2 replacement"
+    else
+      fail "workspace must not be owned by r2, and workspace/source directories must have sticky-bit protection before privileged installation"
+    fi
+    untrusted_source_directory="$(find "$R2_SOURCE" -mindepth 1 -type d \( ! -user root -o -writable \) -print -quit)"
+    if [[ -z "$untrusted_source_directory" ]]; then
+      pass "no nested source/tool directory is writable by r2"
+    else
+      fail "nested source directory is not root-owned or is runtime-writable: $untrusted_source_directory"
+    fi
+    untrusted_code_file="$(find "$R2_SOURCE" -type f \( ! -user root -o -writable \) \
+      ! -name 'r2_memory.db' ! -name 'r2_reality.db' ! -name 'r2_fridge.db' \
+      ! -name 'r2_rewards.db' ! -name 'r2_addictions.db' \
+      ! -name 'r2_original_conversation.txt' ! -name '*.db-wal' \
+      ! -name '*.db-shm' ! -name '*.db-journal' -print -quit)"
+    if [[ -z "$untrusted_code_file" ]]; then
+      pass "no runtime-writable source/tool files found outside persistent data"
+    else
+      fail "source/tool file is not root-owned or is runtime-writable: $untrusted_code_file"
+    fi
+    if run_as_r2 test ! -w "$R2_ROOT/R2_Launch_Code.sh"; then
+      pass "interactive launcher is not writable by r2"
+    else
+      fail "interactive launcher must not be writable by r2 because it invokes privileged setup commands"
+    fi
     # Existing persistent directories/files must be writable by the actual
     # runtime account. Missing directories are okay: the launcher creates them
     # as r2, but existing unwritable paths would otherwise fail after launch.

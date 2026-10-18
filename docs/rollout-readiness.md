@@ -4,9 +4,10 @@ This checklist separates repository/CI evidence from checks that must run on the
 
 ## 1. Confirm the candidate and CI
 
-- Use the `release/r2-rollout-readiness-2026-10-17` branch for this candidate; it carries the integrated conversation, speech, vision, database compatibility, Game Boy, TV, and lifecycle work.
+- Use the `release/r2-rollout-candidate-2026-10-18` branch for this candidate; it carries the integrated conversation, prompt-budget, speech, vision, database compatibility, Game Boy, TV, and lifecycle work.
 - Require the full `R2 build` GitHub Actions workflow to pass on the exact candidate commit. The release branch is explicitly included in the workflow's push filters.
 - Do not merge to `main` or call the candidate hardware-verified based on static smoke tests alone.
+- Prompt-budget and retrieval regression coverage exercises UTF-8 boundaries in recent-history formatting, system overrides, and serialized message caps. It also checks that associated-memory collection never expands a short no-newline search result into an out-of-bounds copy.
 
 ## 2. Preflight the target host before activation
 
@@ -40,6 +41,12 @@ Do not delete or replace legacy databases to make a check pass. Investigate inte
 ## 3. Install and verify one runtime mode at a time
 
 Follow [the overnight service guide](overnight-service.md) for dependency preparation and the installer. The service copies the already-installed `qwen3.5:9b` model into R2's private local Ollama store and requires a real local chat completion before starting the core.
+
+The model-copy step validates the Ollama model reference and manifest structure before writing, rejects symlinked source manifests/blob files and source/destination parent components, checks every blob digest and source blob hash, verifies copied content, and uses exclusively-created temporary files for atomic replacement.
+
+On the 4 GiB GTX 1050 Ti, both the interactive launcher and overnight runner first probe the default 20-GPU-layer / 8192-context policy. If real generation fails and both settings were defaults—not explicit operator overrides—they retry once at 12 GPU layers / 4096 context to reduce VRAM/KV-cache pressure. A successful fallback becomes the policy used by the core; if it also fails, startup remains blocked and the failure is reported. It must reject malformed references/manifests and must not follow pre-planted destination or temporary-file symlinks. These checks protect the copy operation; they do not replace the target-host model-generation and GPU-placement checks below.
+
+**Installer trust boundary:** the current layout keeps SQLite databases beside source files, so the source directory must remain writable for runtime data. That is safe for privileged installation only when the directory is root-owned, group-writable by `r2`, and sticky; the workspace parent must also have its sticky bit set. Code files must not be writable by `r2`, and nested source/tool directories must not be writable by `r2`. The installer and service runner now fail closed if these conditions are absent. The sticky bit prevents the runtime account from replacing root-owned code entries while still allowing it to create/write its own database files. **Before using the privileged installer, refresh the tree from the reviewed GitHub candidate if its integrity is uncertain, then apply the source-tree ownership/permission procedure in the overnight-service guide.** Do not simply `chown` a source tree that may already have been modified by a compromised runtime account.
 
 **Never run the interactive launcher and the overnight systemd core simultaneously.** They share persistent databases and are designed for one active R2 core.
 

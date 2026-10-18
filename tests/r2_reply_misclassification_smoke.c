@@ -79,8 +79,11 @@ int main(void)
 
     ok &= check(r2_keyword_is_low_signal("hello") &&
                     r2_keyword_is_low_signal("r2") &&
-                    r2_keyword_is_low_signal("speaking"),
-                "Life Log retrieval ignores low-signal greeting/address tokens");
+                    r2_keyword_is_low_signal("speaking") &&
+                    r2_keyword_is_low_signal("thanks") &&
+                    r2_keyword_is_low_signal("how") &&
+                    r2_keyword_is_low_signal("up"),
+                "Life Log retrieval ignores low-signal greeting, address, and social-filler tokens");
     ok &= check(!r2_keyword_is_low_signal("mother") &&
                     !r2_keyword_is_low_signal("room") &&
                     !r2_keyword_is_low_signal("pockets"),
@@ -155,20 +158,69 @@ int main(void)
                     "I'm glad you're here. How are you doing?"),
                 "short ordinary conversation is not retried");
 
-    ok &= check(conversation_reply_token_budget("Show me your room") == 4096,
-                "ordinary 'show' wording does not accidentally match the 'how' detail trigger");
-    ok &= check(conversation_reply_token_budget("Can you explain how the room works?") == 6144,
-                "a genuine 'how' question retains the detailed-answer budget");
-    ok &= check(conversation_reply_token_budget("Show me your profile picture") == 4096,
+    ok &= check(r2_query_is_simple_social_turn("hello") &&
+                    r2_query_is_simple_social_turn("  Hi R2!!!  ") &&
+                    r2_query_is_simple_social_turn("THANK YOU."),
+                "simple greetings and thanks bypass the extra semantic-planner inference");
+    ok &= check(!r2_query_is_simple_social_turn("Who am I?") &&
+                    !r2_query_is_simple_social_turn("Hi R2, how are you today?") &&
+                    !r2_query_is_simple_social_turn("Thanks, do you remember my room?"),
+                "short recall questions and mixed-topic social messages retain semantic retrieval");
+    ok &= check(!r2_query_is_simple_social_turn(
+                    "hello this message is deliberately much longer than the simple social-turn limit and must not be truncated"),
+                "long messages are never mistaken for simple social turns");
+
+    const char *retrieval_records =
+        "CURRENT TURN RETRIEVED CONTEXT\nrecord-one\nrecord-two\n";
+    size_t record_cap = strlen("CURRENT TURN RETRIEVED CONTEXT\nrecord-one\nrecord");
+    size_t safe_record_prefix =
+        r2_safe_prompt_prefix_length(retrieval_records, record_cap, 1);
+    ok &= check(safe_record_prefix ==
+                    strlen("CURRENT TURN RETRIEVED CONTEXT\nrecord-one\n"),
+                "a constrained retrieved-memory block is clipped at a record boundary");
+
+    R2SystemContextBudget context_budget =
+        r2_compute_system_context_budget(9468);
+    ok &= check(context_budget.override_budget > 0 &&
+                    context_budget.identity_budget > 0 &&
+                    context_budget.reality_reserve > 0 &&
+                    context_budget.retrieval_reserve >= 9468 / 8 &&
+                    context_budget.capabilities_reserve >= 9468 / 16 &&
+                    context_budget.override_budget +
+                        context_budget.identity_budget +
+                        context_budget.reality_reserve +
+                        context_budget.retrieval_reserve +
+                        context_budget.capabilities_reserve == 9468,
+                "the constrained 8k-context prompt budget reserves identity, Reality, retrieved memory, and capability guidance");
+    R2SystemContextBudget small_context_budget =
+        r2_compute_system_context_budget(1276);
+    ok &= check(small_context_budget.override_budget +
+                    small_context_budget.identity_budget +
+                    small_context_budget.reality_reserve +
+                    small_context_budget.retrieval_reserve +
+                    small_context_budget.capabilities_reserve == 1276,
+                "small adaptive contexts keep budget arithmetic bounded while reserving memory and capability context");
+
+    ok &= check(conversation_reply_token_budget("Show me your room") == 1024,
+                "ordinary 'show' wording keeps the normal conversational generation ceiling");
+    ok &= check(conversation_reply_token_budget("Can you explain how the room works?") == 1536,
+                "a genuine 'how' question receives a bounded detailed-answer budget");
+    ok &= check(conversation_reply_token_budget("Show me your profile picture") == 1024,
                 "words containing 'file' do not accidentally trigger the code-generation budget");
     ok &= check(conversation_reply_token_budget("Please answer in one sentence: what is 2 plus 2?") == 768,
                 "explicit one-sentence requests receive a concise output budget");
     ok &= check(conversation_reply_token_budget("Briefly explain the result") == 768,
                 "explicit brevity takes priority over a general explanation budget");
-    ok &= check(conversation_reply_token_budget("Please write a short script") == 8192,
-                "code-writing requests retain sufficient output budget even when described as short");
+    ok &= check(conversation_reply_token_budget("Please write a short script") == 4096,
+                "short code-writing requests retain a larger output budget");
     ok &= check(conversation_reply_token_budget("Summarize in one sentence: " "a long source") == 768,
                 "explicit brevity is respected even when summarizing longer input");
+
+    char long_question[5001];
+    memset(long_question, 'Q', sizeof(long_question) - 1);
+    long_question[sizeof(long_question) - 1] = '\0';
+    ok &= check(conversation_reply_token_budget(long_question) == 2048,
+                "long user messages reserve input context instead of an oversized output ceiling");
 
     ok &= check(r2_reply_misclassifies_plain_text(
                     "Hello R2, This is your mother speaking to you. whats new with you? did you know about your pockets?",
@@ -345,6 +397,78 @@ int main(void)
                     strstr(block_with_quoted_end, "visible after"),
                 "block terminators inside fenced content do not truncate an action payload");
     free(block_with_quoted_end);
+
+    static const char reality_capability[] =
+        "============================================================\nREALITY CONTEXT: USE IT, DO NOT RECITE IT\n============================================================\n";
+    static const char hands_capability[] =
+        "============================================================\nREAL BACKGROUND HANDS\n============================================================\n";
+    static const char file_capability[] =
+        "============================================================\nREAL FILE TOOLS\n============================================================\n";
+    static const char game_capability[] =
+        "============================================================\nGAMEPLAY IS A REAL-LIFE ACTIVITY, NOT PHYSICAL REALITY\n";
+    ok &= check(r2_inference_system_priority(hands_capability, "run a shell command") == 3 &&
+                    r2_inference_system_priority(file_capability, "open a file") == 3 &&
+                    r2_inference_system_priority(game_capability, "play a GameBoy cartridge") == 3 &&
+                    r2_inference_system_priority(reality_capability, "hello there") == 3 &&
+                    r2_inference_system_priority(reality_capability, "run a shell command") == 4,
+                "capability prompt prioritization follows the active request instead of dropping tool-specific instructions");
+
+    pthread_mutex_lock(&messages_lock);
+    int prompt_sections_rc = message_add_system_prompt_sections_locked();
+    pthread_mutex_unlock(&messages_lock);
+    size_t prompt_section_chars = 0;
+    int all_prompt_sections_pinned = 1;
+    for (size_t i = 0; i < messages.count; ++i) {
+        prompt_section_chars += strlen(messages.items[i].content);
+        if (!messages.items[i].pinned)
+            all_prompt_sections_pinned = 0;
+    }
+    ok &= check(prompt_sections_rc == 0 && messages.count == 9 &&
+                    !strncmp(messages.items[0].content,
+                             "============================================================\nIDENTITY AND PERSISTENT MEMORY",
+                             strlen("============================================================\nIDENTITY AND PERSISTENT MEMORY")) &&
+                    strstr(messages.items[1].content,
+                           "============================================================\nREALITY CONTEXT: USE IT, DO NOT RECITE IT") == messages.items[1].content &&
+                    all_prompt_sections_pinned &&
+                    prompt_section_chars == strlen(SYSTEM_PROMPT),
+                "the complete static prompt is split into nine pinned semantic sections");
+
+    /* Background task output must never be inserted as an unmarked human turn. */
+    CompletedTask *completed = calloc(1, sizeof(*completed));
+    if (completed) {
+        snprintf(completed->id, sizeof(completed->id), "TEST0001");
+        completed->command = xstrdup("printf task-result");
+        completed->output = xstrdup("task-result");
+        completed->return_code = 0;
+    }
+    int background_task_allocated = completed && completed->command && completed->output;
+    ok &= check(background_task_allocated,
+                "background task fixture allocates its command and output");
+    if (background_task_allocated) {
+        size_t before = messages.count;
+        completed_push(completed);
+        handle_completed_messages();
+        ok &= check(messages.count == before + 2 &&
+                        !strcmp(messages.items[before].role, "assistant") &&
+                        strstr(messages.items[before].content, "[R2_INTERNAL_TOOL_REQUEST]") &&
+                        !strcmp(messages.items[before + 1].role, "user") &&
+                        !strncmp(messages.items[before + 1].content,
+                                 "[R2_INTERNAL_TOOL_RESULT]\n",
+                                 strlen("[R2_INTERNAL_TOOL_RESULT]\n")) &&
+                        messages.items[before + 1].internal_tool_result,
+                    "completed background task is paired and marked as internal, not raw user speech");
+    } else if (completed) {
+        free(completed->command);
+        free(completed->output);
+        free(completed);
+    }
+
+    for (size_t i = 0; i < messages.count; ++i) {
+        free(messages.items[i].role);
+        free(messages.items[i].content);
+    }
+    free(messages.items);
+    memset(&messages, 0, sizeof(messages));
 
     return ok ? 0 : 1;
 }
