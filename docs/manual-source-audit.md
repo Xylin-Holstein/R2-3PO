@@ -73,7 +73,21 @@ The current review is tracing the changed launcher, chat serialization/context a
 - **Status:** Fixed in source; requires confirmation on the target machine that the groups exist and camera devices are accessible.
 
 
-### AUDIT-010 — installer could leave the private Ollama service in the wrong state after an early failure
+### AUDIT-010 — installer had unhandled early exits after executable replacement
+- **File:** `tools/r2_install_root_bootstrap.sh`
+- **Severity:** High / rollback reliability
+- **Evidence:** The explicit rollback path covered systemd activation/readiness failures, but a failure immediately after the atomic executable replacement (for example, the following chmod or a later command under `set -e`) could exit before reaching that path. The prior executable backup would remain unused while the replacement stayed installed.
+- **Fix:** Extended the existing EXIT cleanup trap to restore the previous executable for any nonzero exit after replacement, clean the temporary build, and preserve the existing private-Ollama service-state restoration. The explicit rollback path clears the replacement flag after restoring the prior binary to avoid duplicate rollback. If a first install has no previous binary, the trap stops R2 and removes the failed replacement rather than leaving it runnable.
+- **Status:** Implemented; exact-head workflow and review of failure ordering still pending.
+### AUDIT-011 — system-override clipping could split a UTF-8 code point
+- **File:** `r2.c`
+- **Severity:** Medium / prompt reliability
+- **Evidence:** When a long system override exceeded its assigned budget, the sentence-boundary search fell back to the midpoint of the byte budget if it found no punctuation. That midpoint was not guaranteed to be a UTF-8 boundary, even though the rest of the serializer uses UTF-8-safe clipping. Passing the resulting byte prefix to json-c could produce invalid UTF-8 and fail or corrupt a request.
+- **Fix:** Re-align the chosen override length with `r2_utf8_safe_prefix_length()` after sentence-boundary selection and before constructing the bounded JSON string.
+- **Regression coverage:** Extended `tests/prompt_budget_smoke.py` to require that the final UTF-8 alignment occurs after the boundary choice and before serialization.
+- **Status:** Source fix and regression assertion committed on the candidate branch. Exact-head workflow and continued semantic review remain open.
+
+### AUDIT-012 — installer could leave the private Ollama service in the wrong state after an early failure
 - **File:** `tools/r2_install_root_bootstrap.sh`
 - **Severity:** Medium / rollout reliability
 - **Evidence:** The installer stopped `r2-ollama.service` before copying the model store. Failures in the model copy, build, or real model preflight exited through `fail()` without restoring whether the service had been active/enabled before the attempt. A failed install could therefore strand an existing model service stopped, or leave a previously disabled service enabled after a failed preflight.
@@ -83,17 +97,3 @@ The current review is tracing the changed launcher, chat serialization/context a
 
 
 
-### AUDIT-011 — system-override clipping could split a UTF-8 code point
-- **File:** `r2.c`
-- **Severity:** Medium / prompt reliability
-- **Evidence:** When a long system override exceeded its assigned budget, the sentence-boundary search fell back to the midpoint of the byte budget if it found no punctuation. That midpoint was not guaranteed to be a UTF-8 boundary, even though the rest of the serializer uses UTF-8-safe clipping. Passing the resulting byte prefix to json-c could produce invalid UTF-8 and fail or corrupt a request.
-- **Fix:** Re-align the chosen override length with `r2_utf8_safe_prefix_length()` after sentence-boundary selection and before constructing the bounded JSON string.
-- **Regression coverage:** Extended `tests/prompt_budget_smoke.py` to require that the final UTF-8 alignment occurs after the boundary choice and before serialization.
-- **Status:** Source fix and regression assertion committed on the candidate branch. Exact-head workflow and continued semantic review remain open.
-
-### AUDIT-010 — installer had unhandled early exits after executable replacement
-- **File:** `tools/r2_install_root_bootstrap.sh`
-- **Severity:** High / rollback reliability
-- **Evidence:** The explicit rollback path covered systemd activation/readiness failures, but a failure immediately after the atomic executable replacement (for example, the following chmod or a later command under `set -e`) could exit before reaching that path. The prior executable backup would remain unused while the replacement stayed installed.
-- **Fix:** Extended the existing EXIT cleanup trap to restore the previous executable for any nonzero exit after replacement, clean the temporary build, and preserve the existing private-Ollama service-state restoration. The explicit rollback path clears the replacement flag after restoring the prior binary to avoid duplicate rollback. If a first install has no previous binary, the trap stops R2 and removes the failed replacement rather than leaving it runnable.
-- **Status:** Implemented; exact-head workflow and review of failure ordering still pending.
