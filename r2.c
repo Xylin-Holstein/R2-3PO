@@ -4838,6 +4838,11 @@ static int r2_reply_misclassifies_plain_text(const char *query, const char *repl
          strcasestr(query, "your response") ||
          strcasestr(query, "your answer") ||
          strcasestr(query, "your last") ||
+         strcasestr(query, "your output") ||
+         strcasestr(query, "your audio") ||
+         strcasestr(query, "your voice") ||
+         strcasestr(query, "your speech") ||
+         strcasestr(query, "your sound") ||
          strcasestr(query, "what you said") ||
          strcasestr(query, "what you wrote") ||
          strcasestr(query, "message you sent") ||

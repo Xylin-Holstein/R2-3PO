@@ -158,11 +158,10 @@ The full 86-step GitHub Actions workflow passed for candidate code head `5bb6ff4
 - **Regression coverage:** The overnight service smoke test asserts that post-stop state and orphan-process checks occur before `copy_ollama_model.py` is invoked.
 - **Status:** Source fix and regression assertion are committed; target-host installation still must demonstrate that systemd stops the private model server cleanly.
 
-
-### AUDIT-017 — model-store copy could race with a still-running Ollama process
-- **File:** `tools/r2_install_root_bootstrap.sh`
-- **Severity:** High / installation reliability
-- **Evidence:** The install path previously proceeded to copy model blobs after requesting service shutdown without confirming that the service and its Ollama process had actually exited.
-- **Fix:** The bootstrap now verifies the service state and checks for a remaining Ollama process before modifying the private model store; uncertainty fails closed.
-- **Regression coverage:** Existing installer smoke coverage passes, but a dedicated assertion for this new stop-verification branch remains to be added.
-- **Status:** Implementation committed; the current workflow and dedicated regression assertion are still pending.
+### AUDIT-018 — audio-output complaints were exempted as generic audio-topic discussion
+- **File:** `r2.c`
+- **Severity:** Medium / conversation recovery
+- **Evidence:** The reply-misclassification guard intentionally exempts legitimate audio/transcription topics, but its output-problem detector recognized text/message/reply wording and not `your audio` or `your voice`. A complaint such as `Your audio is garbled.` therefore fell into the topic exemption and could let a reply that labels the user's message gibberish bypass recovery.
+- **Fix:** Extend the output-problem detector to recognize explicit references to R2's output, including `your output`, `your audio`, `your voice`, `your speech`, and `your sound`, while retaining the issue-word requirement and existing audio-topic exemption for ordinary discussion.
+- **Regression coverage:** Added a test where `Your audio is garbled.` followed by a gibberish-classifying reply must trigger recovery; the existing ordinary audio/transcription exemption test remains in place.
+- **Status:** Source fix and focused regression test are committed; target-host voice/audio acceptance remains required.

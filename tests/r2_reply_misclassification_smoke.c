@@ -162,6 +162,11 @@ int main(void)
                     "Hi", "That sounds like a random assortment of sounds."),
                 "explicit misclassification phrases are caught even for short user turns");
 
+    ok &= check(r2_reply_misclassifies_plain_text(
+                    "Your audio is garbled.",
+                    "Your message appears to be gibberish."),
+                "audio-output feedback bypasses the audio-topic exemption");
+
     ok &= check(r2_query_is_simple_social_turn("hello") &&
                     r2_query_is_simple_social_turn("  Hi R2!!!  ") &&
                     r2_query_is_simple_social_turn("THANK YOU."),
