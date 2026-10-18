@@ -682,17 +682,19 @@ fi
 echo "Launching R2..."
 echo
 
-# Give this R2 process the audio device group without permanently changing
-# account membership. Preserve every supplementary group already assigned
-# to r2, then add the host's audio GID when that group exists.
+# Give this R2 process the device groups it needs without permanently
+# changing account membership. Preserve r2's existing groups, then add the
+# host audio/video GIDs for speaker/microphone and camera access when present.
 R2_RUNTIME_GROUPS="$(id -G r2 | tr ' ' ',')"
-if AUDIO_GID="$(getent group audio 2>/dev/null | cut -d: -f3)" &&
-   [[ "$AUDIO_GID" =~ ^[0-9]+$ ]]; then
-    case ",$R2_RUNTIME_GROUPS," in
-        *,"$AUDIO_GID",*) ;;
-        *) R2_RUNTIME_GROUPS+=",${AUDIO_GID}" ;;
-    esac
-fi
+for DEVICE_GROUP in audio video; do
+    if DEVICE_GID="$(getent group "$DEVICE_GROUP" 2>/dev/null | cut -d: -f3)" &&
+       [[ "$DEVICE_GID" =~ ^[0-9]+$ ]]; then
+        case ",$R2_RUNTIME_GROUPS," in
+            *,"$DEVICE_GID",*) ;;
+            *) R2_RUNTIME_GROUPS+=",${DEVICE_GID}" ;;
+        esac
+    fi
+done
 
 # ------------------------------------------------------------
 # START R2 WITH ITS PRIVATE CLOCK
