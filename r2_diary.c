@@ -598,18 +598,16 @@ int r2_diary_init(void)
     char *error_message = NULL;
 
     /*
-     * R2's own kernel/code directory.
+     * Code is provisioned separately and must already exist/readable.
+     * Runtime-writable databases live in R2_DATA_DIR, not the source tree.
      */
-    if (
-        r2_mkdir_recursive(
-            R2_HOME
-        ) != 0
-    )
+    if (access(R2_HOME, R_OK | X_OK) != 0 ||
+        r2_mkdir_recursive(R2_DATA_DIR) != 0)
     {
         fprintf(
             stderr,
-            "[R2 DIARY] Could not create R2 home: %s\n",
-            R2_HOME
+            "[R2 DIARY] Code or data directory is unavailable (code=%s, data=%s)\n",
+            R2_HOME, R2_DATA_DIR
         );
 
         return -1;
