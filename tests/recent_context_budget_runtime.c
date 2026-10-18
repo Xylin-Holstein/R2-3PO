@@ -27,6 +27,13 @@ static void clear_test_messages(void)
 
 int main(void)
 {
+    /* Byte-based prompt budgets must not cut through a multibyte character. */
+    const char unicode_prompt[] = "A\xe2\x98\x83Z"; /* A, snowman, Z */
+    assert(r2_utf8_safe_prefix_length(unicode_prompt, 2) == 1);
+    assert(r2_utf8_safe_prefix_length(unicode_prompt, 3) == 1);
+    assert(r2_utf8_safe_prefix_length(unicode_prompt, 4) == 4);
+    assert(r2_safe_prompt_prefix_length(unicode_prompt, 2, 0) == 1);
+    assert(r2_safe_prompt_prefix_length(unicode_prompt, 2, 1) == 1);
     assert(message_add("user", "OLDER_USER_TURN") == 0);
     assert(message_add("assistant", "OLDER_ASSISTANT_TURN") == 0);
     assert(message_add("user", "LATEST_USER_TURN") == 0);
