@@ -42,9 +42,10 @@ for key in ('"model"', '"stream"', '"think"', '"format"', '"keep_alive"',
             '"num_ctx"', '"num_predict"', '"temperature"', '"top_p"',
             '"top_k"', '"min_p"', '"presence_penalty"', '"repeat_penalty"',
             '"role"', '"content"', '"images"', '"options"', '"messages"'):
-    require(f"visual_json_object_add_checked" in builder or
-            "visual_json_array_add_checked" in builder,
-            "vision request uses checked JSON helpers")
+    require(key in builder, f"vision request includes expected field {key}")
+require("visual_json_object_add_checked" in builder and
+        "visual_json_array_add_checked" in builder,
+        "vision request uses checked JSON helpers")
 require("goto build_failure;" in builder and "payload_ready:" in builder,
         "vision request aborts construction atomically before serialization")
 require("if (root) json_object_put(root);" in builder and
