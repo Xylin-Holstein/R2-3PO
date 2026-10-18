@@ -34,6 +34,25 @@ int main(void)
     assert(r2_utf8_safe_prefix_length(unicode_prompt, 4) == 4);
     assert(r2_safe_prompt_prefix_length(unicode_prompt, 2, 0) == 1);
     assert(r2_safe_prompt_prefix_length(unicode_prompt, 2, 1) == 1);
+
+    /* Exercise the actual 12 KiB message and 24 KiB system byte caps. */
+    const size_t long_cap = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;
+    char *long_unicode = malloc(long_cap + 4);
+    assert(long_unicode != NULL);
+    memset(long_unicode, 'x', long_cap + 3);
+    long_unicode[OLLAMA_MAX_MESSAGE_CHARS - 1] = (char)0xe2;
+    long_unicode[OLLAMA_MAX_MESSAGE_CHARS] = (char)0x98;
+    long_unicode[OLLAMA_MAX_MESSAGE_CHARS + 1] = (char)0x83;
+    long_unicode[OLLAMA_MAX_MESSAGE_CHARS + 2] = 'Z';
+    assert(r2_utf8_safe_prefix_length(
+        long_unicode, OLLAMA_MAX_MESSAGE_CHARS) == OLLAMA_MAX_MESSAGE_CHARS - 1);
+    long_unicode[long_cap - 1] = (char)0xe2;
+    long_unicode[long_cap] = (char)0x98;
+    long_unicode[long_cap + 1] = (char)0x83;
+    long_unicode[long_cap + 2] = 'Z';
+    long_unicode[long_cap + 3] = '\\0';
+    assert(r2_utf8_safe_prefix_length(long_unicode, long_cap) == long_cap - 1);
+    free(long_unicode);
     assert(message_add("user", "OLDER_USER_TURN") == 0);
     assert(message_add("assistant", "OLDER_ASSISTANT_TURN") == 0);
     assert(message_add("user", "LATEST_USER_TURN") == 0);
