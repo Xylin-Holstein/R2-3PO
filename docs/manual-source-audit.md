@@ -44,3 +44,10 @@ The current review is tracing the changed launcher, chat serialization/context a
 - **Severity:** High
 - **Implementation:** The privileged bootstrap now embeds the systemd units and writes them from a root-owned staging directory, instead of installing mutable unit files from `R2_SOURCE`. The mutable model copier, database audit, preflight, and build are invoked as `r2`. The source-tree installer is a nonprivileged notice. Regression coverage compares the embedded units byte-for-byte with the repository unit files and asserts the wrapper has no privileged operations.
 - **Status:** Implemented; awaiting the exact-head workflow and manual semantic review of the bootstrap path.
+
+### AUDIT-006 — installer preflight did not test the service's actual GPU/context policy
+- **Files:** `tools/r2_install_root_bootstrap.sh`, `tools/r2_service_runner.sh`, `tools/preflight_ollama_model.py`, `tests/ollama_preflight_smoke.py`, `tests/r2_overnight_service_smoke.py`
+- **Severity:** High / rollout reliability
+- **Evidence:** The installer previously called the real generation probe without `R2_OLLAMA_NUM_GPU` or `R2_OLLAMA_NUM_CTX`, so it could pass with automatic placement/default context even though the service's 20-layer/8192-context policy would fail. That left the actual hardware policy to fail only after executable replacement and service activation.
+- **Fix:** The trusted bootstrap now detects the target GTX 1050 Ti and probes with 20 GPU layers and 8192 context before replacing the executable; if that default fails, it retries with 12 layers and 4096 context, matching the service runner's fallback. The preflight test now verifies those options reach the Ollama request.
+- **Status:** Implemented in the current candidate; exact-head workflow and target GPU allocation still need verification.
