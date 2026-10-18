@@ -157,7 +157,11 @@ log "Database snapshot and integrity audit passed: $SNAPSHOT_DIR"
 # installed model into the dedicated r2-owned model store; never download it.
 root_run systemctl stop r2-ollama.service >/dev/null 2>&1 || true
 log "Copying the already-installed $R2_MODEL into R2's private model store..."
-root_run python3 "$MODEL_COPY_SCRIPT" --model "$R2_MODEL" \
+# The model store belongs to r2. Run the copier without privilege: the source
+# script and destination are both in r2-writable locations, so root must never
+# execute this mutable Python file. Source model blobs are expected to be readable
+# to the desktop account/runtime user; fail closed if host permissions deny that.
+run_as_r2 python3 "$MODEL_COPY_SCRIPT" --model "$R2_MODEL" \
     --destination-root "$R2_ROOT/.ollama/models" --owner r2 ||
     fail "could not prepare R2's private model store. Ensure $R2_MODEL is installed in the existing local Ollama store; no external download was attempted."
 
@@ -168,7 +172,9 @@ if [[ -e "$TEMP_EXEC" || -L "$TEMP_EXEC" ]]; then
     fail "refusing existing temporary build path: $TEMP_EXEC"
 fi
 log "Compiling the complete C runtime..."
-make -C "$R2_SOURCE" clean all TARGET="$TEMP_EXEC"
+# The Makefile and all C sources live in the runtime-writable tree. Compile
+# as r2 so a modified Makefile/source can never execute build commands as root.
+run_as_r2 make -C "$R2_SOURCE" clean all TARGET="$TEMP_EXEC"
 [[ -x "$TEMP_EXEC" ]] || fail "build completed without producing $TEMP_EXEC."
 chmod 0755 "$TEMP_EXEC"
 root_run chown r2:r2 "$TEMP_EXEC"
