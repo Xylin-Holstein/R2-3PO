@@ -209,7 +209,7 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=180,
                         help="maximum seconds for the single real inference request")
     parser.add_argument("--require-gpu-offload", action="store_true",
-                        help="fail unless Ollama reports positive model VRAM allocation")
+                        help="fail unless Ollama reports both VRAM allocation and model memory outside VRAM")
     args = parser.parse_args()
     if args.timeout <= 0 or args.wait_seconds < 0:
         parser.error("--timeout must be positive and --wait-seconds cannot be negative")
