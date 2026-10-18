@@ -169,7 +169,7 @@ if [[ -d "$R2_ROOT" && -d "$R2_SOURCE" ]]; then
     if [[ -k "$R2_ROOT" && "$(stat -c '%u' "$R2_ROOT")" != "$(id -u)" && -k "$R2_SOURCE" && "$(stat -c '%u' "$R2_SOURCE")" == "0" ]]; then
       pass "workspace/source sticky-bit ownership protects trusted code from r2 replacement"
     else
-      fail "workspace and root-owned source directories must have sticky-bit protection before privileged installation"
+      fail "workspace must not be owned by r2, and workspace/source directories must have sticky-bit protection before privileged installation"
     fi
     untrusted_source_directory="$(find "$R2_SOURCE" -mindepth 1 -type d \( ! -user root -o -writable \) -print -quit)"
     if [[ -z "$untrusted_source_directory" ]]; then
