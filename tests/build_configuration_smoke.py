@@ -9,6 +9,7 @@ makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 launcher = (ROOT / "R2_Launch_Code.sh").read_text(encoding="utf-8")
 workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
 core = (ROOT / "r2.c").read_text(encoding="utf-8")
+installer = (ROOT / "tools/install_r2_overnight.sh").read_text(encoding="utf-8")
 reality = (ROOT / "Reality.c").read_text(encoding="utf-8")
 
 required_sources = (
