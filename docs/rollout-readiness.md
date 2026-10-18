@@ -4,9 +4,10 @@ This checklist separates repository/CI evidence from checks that must run on the
 
 ## 1. Confirm the candidate and CI
 
-- Use the `release/r2-rollout-readiness-2026-10-17` branch for this candidate; it carries the integrated conversation, speech, vision, database compatibility, Game Boy, TV, and lifecycle work.
+- Use the `release/r2-rollout-candidate-2026-10-18` branch for this candidate; it carries the integrated conversation, prompt-budget, speech, vision, database compatibility, Game Boy, TV, and lifecycle work.
 - Require the full `R2 build` GitHub Actions workflow to pass on the exact candidate commit. The release branch is explicitly included in the workflow's push filters.
 - Do not merge to `main` or call the candidate hardware-verified based on static smoke tests alone.
+- The prompt-budget regression coverage includes UTF-8 boundary cases for the recent-history formatter, system override, and serialized message caps; this protects the exact bounded text sent to the local model, not just compilation.
 
 ## 2. Preflight the target host before activation
 
