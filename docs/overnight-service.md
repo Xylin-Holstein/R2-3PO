@@ -46,7 +46,7 @@ It checks the source/deployment files, the local Ollama API and `qwen3.5:9b`, re
 
 ### Protect privileged source code before installation
 
-R2 keeps its SQLite files under `R2/`, so that directory must allow the `r2` account to create and update its own database files. It must not allow `r2` to replace C sources, the Makefile, or privileged Python/shell tools. The source root uses the sticky bit; all code files and nested source directories are non-writable by `r2`. The workspace parent also uses the sticky bit so `r2` cannot rename/replace the trusted `R2/` directory.
+R2 keeps its SQLite files under `R2/`, so that directory must allow the `r2` account to create and update its own database files. It must not allow `r2` to replace C sources, the Makefile, or privileged Python/shell tools. The source root is owned by root, group `r2`, and uses mode `1775` (sticky + group-writable for SQLite data); all code files and nested source directories are root-owned and non-writable by `r2`. The workspace parent also uses the sticky bit and must not be owned by `r2`, so the runtime account cannot rename/replace the trusted `R2/` directory.
 
 First, stop R2 and make sure the checkout is the reviewed candidate. If there is any chance the runtime account altered the tree, replace it from a fresh trusted checkout before changing ownership; changing ownership alone does not prove file integrity. Then apply the following one-time hardening:
 
