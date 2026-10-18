@@ -229,6 +229,7 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn('R2_ROLLBACK_RESTARTED=1', installer)
         self.assertIn('INSTALL_SUCCEEDED=1', installer)
         self.assertIn('run_as_r2 rm -f -- "$R2_EXEC"', installer)
+        self.assertIn('root_run systemctl disable r2-3po.service >/dev/null 2>&1 || true', installer)
         self.assertIn('NEW_EXEC_INSTALLED=0', installer)
         model_copy_section = installer.index("# Keep the desktop user's Ollama service untouched.")
         stop_at = installer.index(
