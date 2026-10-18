@@ -34,6 +34,30 @@ if [[ "$R2_OLLAMA_BASE_URL" != "http://127.0.0.1:11435" ]]; then
     fail "overnight R2 must use its permitted isolated Ollama endpoint 127.0.0.1:11435."
 fi
 
+# Do not silently downgrade a machine with an NVIDIA PCI device to CPU-only
+# inference merely because its driver/runtime query is broken.
+R2_NVIDIA_PCI_PRESENT=0
+for vendor_file in /sys/bus/pci/devices/*/vendor; do
+    [[ -r "$vendor_file" ]] || continue
+    R2_NVIDIA_VENDOR=""
+    IFS= read -r R2_NVIDIA_VENDOR < "$vendor_file" || continue
+    if [[ "$R2_NVIDIA_VENDOR" == "0x10de" ]]; then
+        R2_NVIDIA_PCI_PRESENT=1
+        break
+    fi
+done
+R2_NVIDIA_QUERY_OK=0
+R2_NVIDIA_GPU_NAMES=""
+if command -v nvidia-smi >/dev/null 2>&1; then
+    if R2_NVIDIA_GPU_NAMES="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null)" &&
+       [[ -n "$R2_NVIDIA_GPU_NAMES" ]]; then
+        R2_NVIDIA_QUERY_OK=1
+    fi
+fi
+if [[ "$R2_NVIDIA_PCI_PRESENT" == "1" && "$R2_NVIDIA_QUERY_OK" != "1" ]]; then
+    fail "NVIDIA PCI hardware is present but nvidia-smi cannot query a GPU; refusing CPU-only fallback."
+fi
+
 # Match the interactive launcher's smaller default KV cache on the 4 GiB
 # GTX 1050 Ti. Remember whether these values are defaults so a failed preflight
 # may fall back conservatively without overriding explicit operator settings.
@@ -67,9 +91,7 @@ log "Ollama GPU layer policy: R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU"
 # On the target GTX 1050 Ti, a successful CPU-only response is not sufficient
 # to declare the requested mixed CPU/GPU policy ready.
 R2_OLLAMA_REQUIRE_GPU_OFFLOAD=0
-if [[ "$R2_OLLAMA_NUM_GPU" != "0" ]] &&
-   command -v nvidia-smi >/dev/null 2>&1 &&
-   nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi 'GTX 1050 Ti'; then
+if [[ "$R2_NVIDIA_PCI_PRESENT" == "1" || "$R2_OLLAMA_NUM_GPU" != "0" ]]; then
     R2_OLLAMA_REQUIRE_GPU_OFFLOAD=1
 fi
 PREFLIGHT_GPU_ARGS=()
