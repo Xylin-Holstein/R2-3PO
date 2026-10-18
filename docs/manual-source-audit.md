@@ -65,3 +65,12 @@ The current review is tracing the changed launcher, chat serialization/context a
 - **Evidence:** The isolated Ollama service had `video render` supplementary groups, but the R2 core service only had `audio`. The core's camera/Eyes path runs under the core service UID, so device nodes restricted to the `video` group would remain inaccessible even while the model server had GPU access.
 - **Fix:** Added `video render` to the R2 core service's supplementary groups, synchronized the embedded trusted unit, and added a regression assertion. The embedded unit consistency check ensures both deployed definitions stay aligned.
 - **Status:** Fixed in source; requires confirmation on the target machine that the groups exist and camera devices are accessible.
+
+
+### AUDIT-008 — installer could leave the private Ollama service in the wrong state after an early failure
+- **File:** `tools/r2_install_root_bootstrap.sh`
+- **Severity:** Medium / rollout reliability
+- **Evidence:** The installer stopped `r2-ollama.service` before copying the model store. Failures in the model copy, build, or real model preflight exited through `fail()` without restoring whether the service had been active/enabled before the attempt. A failed install could therefore strand an existing model service stopped, or leave a previously disabled service enabled after a failed preflight.
+- **Fix:** Capture the original active/enabled state before the first service mutation. A single exit cleanup handler now restores that state on unsuccessful exits; if rollback has successfully restarted the previous R2 core, it leaves the model service available to that core. Successful deployment suppresses restoration.
+- **Regression coverage:** Added a focused installer lifecycle assertion to `tests/r2_overnight_service_smoke.py`.
+- **Status:** Source fix and regression assertion committed on the candidate branch; the exact new head still needs a full manual review and workflow result. This does not close target-host acceptance.
