@@ -49,16 +49,32 @@ require(
     "history selection and formatting remain protected by the message-history mutex",
 )
 require(
-    "r2_utf8_safe_prefix_length" in core
-    and not re.search(
+    not re.search(
         r"^\s*(?:length|override_length)\s*=\s*OLLAMA_MAX_(?:MESSAGE|SYSTEM_MESSAGE)_CHARS\s*;",
         core,
         re.MULTILINE,
     )
-    and core.count(
-        "r2_utf8_safe_prefix_length(\n                content, OLLAMA_MAX_MESSAGE_CHARS);"
-    ) == 2
-    and "r2_utf8_safe_prefix_length(\n            system_override, OLLAMA_MAX_SYSTEM_MESSAGE_CHARS);" in core,
+    and len(re.findall(
+        r"if \(length > OLLAMA_MAX_MESSAGE_CHARS\)\s*length = "
+        r"r2_utf8_safe_prefix_length\(\s*content,\s*OLLAMA_MAX_MESSAGE_CHARS\);",
+        core,
+    )) == 2
+    and re.search(
+        r"if \(length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS\)\s*length = "
+        r"r2_utf8_safe_prefix_length\(\s*content,\s*OLLAMA_MAX_SYSTEM_MESSAGE_CHARS\);",
+        core,
+    )
+    and re.search(
+        r"if \(override_length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS\)\s*"
+        r"override_length = r2_utf8_safe_prefix_length\(\s*system_override,\s*"
+        r"OLLAMA_MAX_SYSTEM_MESSAGE_CHARS\);",
+        core,
+    )
+    and re.search(
+        r"override_length = r2_utf8_safe_prefix_length\(\s*system_override,\s*"
+        r"boundary >= override_budget / 2 \? boundary : override_budget\);",
+        core,
+    ),
     "every per-message and system-override byte cap preserves UTF-8 boundaries",
 )
 print("Recent conversation context budget smoke passed.")
