@@ -108,21 +108,35 @@ Tracing is off by default. When enabled, each serialized request is saved to a n
 
 First exit any interactive R2 session. The service and interactive launcher share persistent SQLite databases.
 
-Run the existing installer:
+### Install the trusted root bootstrap once
+
+Do **not** run a source-tree script with `sudo`. The checkout under `/home/x/R2_Home/R2` must remain writable by `r2` for the existing persistent SQLite databases and runtime files. A privileged installer stored there would let a compromised runtime account replace code that is later executed as root.
+
+After reviewing `tools/r2_install_root_bootstrap.sh` from the intended release, install that file once as a protected root-owned entrypoint:
 
 ```sh
-sudo bash /home/x/R2_Home/R2/tools/install_r2_overnight.sh
+sudo install -o root -g root -m 0755 \
+  /home/x/R2_Home/R2/tools/r2_install_root_bootstrap.sh \
+  /usr/local/sbin/r2-3po-install
 ```
 
-It will:
-- verify `r2`, build tools, `libfaketime`, and the expected deployed files;
+From then on, use only the protected entrypoint:
+
+```sh
+sudo /usr/local/sbin/r2-3po-install
+```
+
+The trusted bootstrap compiles the current checkout and runs the model copier, database audit, and preflight as the unprivileged `r2` account. Its systemd unit definitions are embedded in the root-owned bootstrap; it does not install unit contents read from the runtime-writable checkout. The repository's `tools/install_r2_overnight.sh` is now only a nonprivileged notice and must not be invoked with `sudo`. If the trusted bootstrap itself is intentionally changed in a future release, review that change and reinstall the root-owned copy deliberately.
+
+The bootstrap will:
+- verify `r2`, build tools, `libfaketime`, and the required runtime files;
 - refuse to run beside an already active R2 process;
 - check permissions and refuse symlinked database paths;
 - create a private snapshot of the memory, Reality, fridge, reward, and addiction databases and require the integrity audit to pass;
-- compile the full C runtime to a temporary executable so a failed build does not replace the prior executable;
-- install the systemd unit, reload systemd, and enable/start the overnight service.
+- compile the full C runtime as `r2` and keep the previous executable until the private Ollama server passes a real generation preflight;
+- install the trusted embedded systemd units, reload systemd, and enable/start the overnight service.
 
-The installer intentionally stops if the database audit fails. Preserve the report and snapshot and investigate the issue rather than deleting or replacing the database files.
+The bootstrap intentionally stops if the database audit or model preflight fails. Preserve the report and snapshot and investigate the issue rather than deleting or replacing the database files.
 
 ## Verify that R2 is actually active
 
