@@ -128,10 +128,10 @@ run_as_r2 test -x "$R2_ROOT" && run_as_r2 test -w "$R2_ROOT" ||
 run_as_r2 test -x "$R2_SOURCE" && run_as_r2 test -r "$R2_SOURCE" && run_as_r2 test -w "$R2_SOURCE" ||
     fail "R2 source root must be readable/traversable and sticky-writable for SQLite data."
 
-untrusted_source_directory="$(run_as_r2 find "$R2_SOURCE" -mindepth 1 -type d \\( ! -user root -o -writable \\) -print -quit)"
+untrusted_source_directory="$(run_as_r2 find "$R2_SOURCE" -mindepth 1 -type d \( ! -user root -o -writable \) -print -quit)"
 [[ -z "$untrusted_source_directory" ]] ||
     fail "nested source directory is not root-owned or is runtime-writable: $untrusted_source_directory"
-untrusted_code_file="$(run_as_r2 find "$R2_SOURCE" -type f \\( ! -user root -o -writable \\) \
+untrusted_code_file="$(run_as_r2 find "$R2_SOURCE" -type f \( ! -user root -o -writable \) \
     ! -name 'r2_memory.db' ! -name 'r2_reality.db' ! -name 'r2_fridge.db' \
     ! -name 'r2_rewards.db' ! -name 'r2_addictions.db' \
     ! -name 'r2_original_conversation.txt' ! -name '*.db-wal' \
