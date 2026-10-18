@@ -149,6 +149,16 @@ else
     echo "[GPU] Using configured R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU."
 fi
 
+# If this launch is requesting GPU layers on the target card, require Ollama's
+# process report to confirm actual VRAM allocation rather than accepting a
+# CPU-only generation as a successful GPU preflight.
+R2_OLLAMA_PREFLIGHT_ARGS=()
+if [[ "$R2_OLLAMA_NUM_GPU" != "0" ]] &&
+   command -v nvidia-smi >/dev/null 2>&1 &&
+   nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi 'GTX 1050 Ti'; then
+    R2_OLLAMA_PREFLIGHT_ARGS=(--require-gpu-offload)
+fi
+
 # The interactive launcher and the overnight service share persistent databases.
 # Never start a second core against those same files.
 if command -v systemctl >/dev/null 2>&1 &&
@@ -266,7 +276,7 @@ if ! sudo -n -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
     R2_OLLAMA_NUM_CTX="${R2_OLLAMA_NUM_CTX:-}" \
     R2_OLLAMA_NUM_GPU="$R2_OLLAMA_NUM_GPU" \
     R2_OLLAMA_TIMEOUT_SECONDS="${R2_OLLAMA_TIMEOUT_SECONDS:-}" \
-    python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --timeout 180; then
+    python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --timeout 180 "${R2_OLLAMA_PREFLIGHT_ARGS[@]}"; then
     if [[ "$R2_OLLAMA_NUM_GPU_DEFAULTED" == "1" &&
           "$R2_OLLAMA_NUM_CTX_DEFAULTED" == "1" ]]; then
         echo "[GPU] Default inference preflight failed; retrying with 12 GPU layers and 4096 context tokens."
@@ -277,7 +287,7 @@ if ! sudo -n -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
             R2_OLLAMA_NUM_CTX="$R2_OLLAMA_NUM_CTX" \
             R2_OLLAMA_NUM_GPU="$R2_OLLAMA_NUM_GPU" \
             R2_OLLAMA_TIMEOUT_SECONDS="${R2_OLLAMA_TIMEOUT_SECONDS:-}" \
-            python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --timeout 180; then
+            python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --timeout 180 "${R2_OLLAMA_PREFLIGHT_ARGS[@]}"; then
             echo "ERROR: Default and conservative GPU/context preflights both failed."
             echo "R2 was NOT launched; check the local model/server logs."
             read -p "Press Enter to exit..."
