@@ -6,7 +6,7 @@ R2 already has a headless shell mode, a supervised systemd unit, a local-model p
 - R2 unit: `deploy/r2-3po.service`
 - Dedicated model-server runner/unit: `tools/r2_ollama_runner.sh`, `deploy/r2-ollama.service`
 - Local model copier: `tools/copy_ollama_model.py`
-- Installer: `tools/install_r2_overnight.sh`
+- Trusted bootstrap source: `tools/r2_install_root_bootstrap.sh` (install once as `/usr/local/sbin/r2-3po-install`); `tools/install_r2_overnight.sh` is only a nonprivileged notice.
 
 The overnight core uses the same persistent R2 databases as the interactive launcher, but its inference server is separate: the installer copies the already-installed `qwen3.5:9b` model from the host Ollama service at `127.0.0.1:11434` into `/home/x/R2_Home/.ollama/models`, then runs an `r2`-owned Ollama server on `127.0.0.1:11435`. It does not download model weights or modify the host Ollama service. **Only one R2 core may run at a time.** Both launch paths keep `HOME` set to `/home/x/R2_Home`, while the process UID remains `r2`; `/home/r2` is not an alternate memory, diary, or workspace location. While the overnight services run, UID-scoped firewall chains allow only local Ollama ports 11434 and 11435; IPv6 egress and all other IPv4 egress for UID `r2` are rejected. Port 11434 remains available for the interactive launcher, while the overnight core uses port 11435. The separate chains are cleaned up independently so stopping one service does not remove the other's rules. The installer refuses to rebuild while an R2 process is already running, checks database paths and permissions, takes a private SQLite snapshot, requires a clean integrity audit, copies only an already-installed model, builds to a process-specific temporary executable, preserves the previous binary, and starts the private model server only after installation checks. If the private model preflight fails, R2 is not started; if R2 activation fails, it attempts to restore and restart the previous executable.
 
@@ -112,13 +112,18 @@ First exit any interactive R2 session. The service and interactive launcher shar
 
 Do **not** run a source-tree script with `sudo`. The checkout under `/home/x/R2_Home/R2` must remain writable by `r2` for the existing persistent SQLite databases and runtime files. A privileged installer stored there would let a compromised runtime account replace code that is later executed as root.
 
-After reviewing `tools/r2_install_root_bootstrap.sh` from the intended release, install that file once as a protected root-owned entrypoint:
+After checking that the checkout is the intended reviewed release and that the bootstrap is a regular file (not a symlink), install that file once as a protected root-owned entrypoint:
 
 ```sh
+test -f /home/x/R2_Home/R2/tools/r2_install_root_bootstrap.sh
+test ! -L /home/x/R2_Home/R2/tools/r2_install_root_bootstrap.sh
+git -C /home/x/R2_Home/R2 status --short
 sudo install -o root -g root -m 0755 \
   /home/x/R2_Home/R2/tools/r2_install_root_bootstrap.sh \
   /usr/local/sbin/r2-3po-install
 ```
+
+Review any reported working-tree changes before installing; do not bootstrap from an unexpected or modified checkout.
 
 From then on, use only the protected entrypoint:
 
