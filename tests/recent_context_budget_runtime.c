@@ -68,6 +68,36 @@ int main(void)
 
     clear_test_messages();
 
+    /* Recent-history clipping must preserve complete UTF-8 code points. */
+    char *utf8_history = repeat_char('H', 1100);
+    assert(utf8_history != NULL);
+    utf8_history[45] = (char)0xe2;
+    utf8_history[46] = (char)0x98;
+    utf8_history[47] = (char)0x83;
+    utf8_history[999] = (char)0xe2;
+    utf8_history[1000] = (char)0x98;
+    utf8_history[1001] = (char)0x83;
+    utf8_history[1100] = '\0';
+    assert(message_add("user", utf8_history) == 0);
+
+    context = r2_recent_conversation_context(NULL, 64);
+    assert(context != NULL);
+    assert(strstr(context, "[truncated]") != NULL);
+    assert(strstr(context, "\xe2\x98\x83") == NULL);
+    assert(strlen(context) <= 64);
+    free(context);
+
+    context = r2_recent_conversation_context(NULL, 1200);
+    assert(context != NULL);
+    char *first_snowman = strstr(context, "\xe2\x98\x83");
+    assert(first_snowman != NULL);
+    assert(strstr(first_snowman + 3, "\xe2\x98\x83") == NULL);
+    assert(context[strlen(context) - 1] == '\n');
+    assert(strlen(context) <= 1200);
+    free(context);
+    free(utf8_history);
+    clear_test_messages();
+
     /* Executable control turns are history metadata, not human-facing dialogue. */
     assert(message_add("assistant",
         "[RUN] echo unsafe\n[END RUN]") == 0);
