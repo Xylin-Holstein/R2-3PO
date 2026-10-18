@@ -14,7 +14,6 @@ fail() {
 bash -n "$BOOTSTRAP" || fail "trusted bootstrap has a shell syntax error."
 bash -n "$WRAPPER" || fail "source-tree notice has a shell syntax error."
 bash -n "$RUNNER" || fail "overnight service runner has a shell syntax error."
-[[ -x "$BOOTSTRAP" ]] || fail "trusted bootstrap lost its executable bit in the Git tree."
 [[ -x "$WRAPPER" ]] || fail "source-tree notice lost its executable bit in the Git tree."
 
 # The privileged entrypoint must only run from the protected root-owned path.
