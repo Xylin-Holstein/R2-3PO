@@ -34,6 +34,35 @@ static int visual_initialized = 0;
 static char visual_directory[PATH_MAX];
 static char visual_model[256];
 
+/* Treat JSON construction as a transaction: never send a partial payload. */
+static int visual_json_object_add_checked(json_object *object,
+                                          const char *key,
+                                          json_object *value)
+{
+    if (!object || !key || !value) {
+        if (value) json_object_put(value);
+        return -1;
+    }
+    if (json_object_object_add(object, key, value) != 0) {
+        json_object_put(value);
+        return -1;
+    }
+    return 0;
+}
+
+static int visual_json_array_add_checked(json_object *array, json_object *value)
+{
+    if (!array || !value) {
+        if (value) json_object_put(value);
+        return -1;
+    }
+    if (json_object_array_add(array, value) != 0) {
+        json_object_put(value);
+        return -1;
+    }
+    return 0;
+}
+
 #define R2_VWEBCAM_DIR "/tmp/r2-vwebcam-r2"
 
 static int visual_vwebcam_prepare_dir(void)
