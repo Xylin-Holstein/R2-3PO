@@ -5220,7 +5220,7 @@ static void r2_bound_context_records(char *context, size_t max_chars)
     while (cut > 0 && context[cut] != '\n')
         --cut;
     if (cut == 0)
-        cut = max_chars;
+        cut = r2_utf8_safe_prefix_length(context, max_chars);
     context[cut] = '\0';
 }
 
@@ -5280,7 +5280,7 @@ static char *r2_collect_associated_records(
         while (n > 0 && found[n - 1] != '\n')
             --n;
         if (n == 0)
-            n = max_chars - used;
+            n = r2_utf8_safe_prefix_length(found, max_chars - used);
         if (n == 0) {
             free(found);
             break;
@@ -5289,7 +5289,11 @@ static char *r2_collect_associated_records(
         if (used)
             out[used++] = '\n';
         if (n > max_chars - used)
-            n = max_chars - used;
+            n = r2_utf8_safe_prefix_length(found, max_chars - used);
+        if (n == 0) {
+            free(found);
+            break;
+        }
         memcpy(out + used, found, n);
         used += n;
         out[used] = '\0';
