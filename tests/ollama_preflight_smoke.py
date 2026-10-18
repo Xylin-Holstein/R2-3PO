@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import io
+import json
 import sys
 import unittest
 from types import SimpleNamespace
@@ -78,7 +79,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         replies = [
             {"models": [{"name": "qwen3.5:9b"}]},
             {"message": {"content": "R2_READY"}},
-            {"message": {"content": "blue"}},
+            {"message": {"content": "{\"color\":\"blue\"}"}},
             {"models": [{"name": "qwen3.5:9b", "size_vram": 123456}]},
         ]
         gpu_result = SimpleNamespace(returncode=1, stdout="", stderr="")
@@ -102,7 +103,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
              patch.object(probe, "_read_json", side_effect=[
                  {"models": [{"name": "qwen3.5:9b"}]},
                  {"message": {"content": "R2_READY"}},
-                 {"message": {"content": "blue"}},
+                 {"message": {"content": "{\"color\":\"blue\"}"}},
                  {"models": [{"name": "qwen3.5:9b", "size_vram": 0}]},
              ]), patch.object(probe.subprocess, "run", return_value=SimpleNamespace(
                  returncode=0, stdout="NVIDIA GeForce GTX 1050 Ti, 4096 MiB, 0 MiB", stderr=""
@@ -114,7 +115,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         replies = [
             {"models": [{"name": "qwen3.5:9b"}]},
             {"message": {"content": "R2_READY"}},
-            {"message": {"content": "The square is blue."}},
+            {"message": {"content": "{\"color\":\"blue\"}"}},
             {"models": [{"name": "qwen3.5:9b", "size": 500000, "size_vram": 123456}]},
         ]
         with patch.dict(probe.os.environ, {"R2_OLLAMA_NUM_GPU": "0", "R2_OLLAMA_NUM_CTX": "8192"}), \
@@ -124,6 +125,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
              )):
             self.assertTrue(probe.preflight(timeout=1, require_gpu_offload=True))
         self.assertNotIn("num_gpu", read.call_args_list[1].kwargs["payload"]["options"])
+        self.assertEqual(read.call_args_list[2].kwargs["payload"]["options"]["num_predict"], 512)
 
     def test_unapproved_non_loopback_endpoint_is_rejected(self) -> None:
         errors = io.StringIO()
@@ -141,7 +143,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         with patch.object(probe, "_read_json", side_effect=[
             {"models": [{"name": "qwen3.5:9b"}]},
             {"message": {"content": "R2_READY"}},
-            {"message": {"content": "blue"}},
+            {"message": {"content": "{\"color\":\"blue\"}"}},
             OSError("simulated /api/ps unavailable"),
         ]), patch.object(probe.subprocess, "run", side_effect=FileNotFoundError("nvidia-smi")):
             with contextlib.redirect_stderr(errors):
