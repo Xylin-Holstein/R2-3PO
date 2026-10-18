@@ -42,12 +42,26 @@ start = core.find("static int r2_reply_misclassifies_plain_text(")
 end = core.find("\nstatic char *r2_retry_direct_answer(", start)
 require(start >= 0 and end > start, "plain-text misclassification guard exists")
 guard = core[start:end]
+failure_start = core.find("static int r2_reply_contains_known_failure_phrase(")
+failure_end = core.find("\nstatic int r2_reply_misclassifies_plain_text(", failure_start)
+require(failure_start >= 0 and failure_end > failure_start,
+        "known failure-phrase helper exists")
+failure_guard = core[failure_start:failure_end]
 for phrase in (
     '"jumbled set of sounds"',
     '"appears to be gibberish"',
     '"unable to understand your message"',
-    '"that\'s a bit garbled"',
+    '"that\\'s a bit garbled"',
     '"that’s a bit garbled"',
+):
+    require(phrase in failure_guard, f"failure-phrase helper checks {phrase}")
+require(
+    "r2_reply_contains_known_failure_phrase(reply)" in guard
+    and guard.index("r2_reply_contains_known_failure_phrase(reply)")
+        < guard.index("if (!reports_r2_output_problem && strlen(query) < 24)"),
+    "explicit failure phrases are checked before short-query guards",
+)
+for phrase in (
     "if (!reports_r2_output_problem && words < 5)",
     "Keep legitimate audio/transcription discussions out of this guard",
     "reports_r2_output_problem",
