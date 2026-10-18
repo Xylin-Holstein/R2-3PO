@@ -128,16 +128,16 @@ run_as_r2 test -x "$R2_ROOT" && run_as_r2 test -w "$R2_ROOT" ||
 run_as_r2 test -x "$R2_SOURCE" && run_as_r2 test -r "$R2_SOURCE" && run_as_r2 test -w "$R2_SOURCE" ||
     fail "R2 source root must be readable/traversable and sticky-writable for SQLite data."
 
-writable_source_directory="$(run_as_r2 find "$R2_SOURCE" -mindepth 1 -type d -writable -print -quit)"
-[[ -z "$writable_source_directory" ]] ||
-    fail "nested source directory is runtime-writable and could allow code replacement: $writable_source_directory"
-writable_code_file="$(run_as_r2 find "$R2_SOURCE" -type f -writable \
+untrusted_source_directory="$(run_as_r2 find "$R2_SOURCE" -mindepth 1 -type d \\( ! -user root -o -writable \\) -print -quit)"
+[[ -z "$untrusted_source_directory" ]] ||
+    fail "nested source directory is not root-owned or is runtime-writable: $untrusted_source_directory"
+untrusted_code_file="$(run_as_r2 find "$R2_SOURCE" -type f \\( ! -user root -o -writable \\) \
     ! -name 'r2_memory.db' ! -name 'r2_reality.db' ! -name 'r2_fridge.db' \
     ! -name 'r2_rewards.db' ! -name 'r2_addictions.db' \
     ! -name 'r2_original_conversation.txt' ! -name '*.db-wal' \
     ! -name '*.db-shm' ! -name '*.db-journal' -print -quit)"
-[[ -z "$writable_code_file" ]] ||
-    fail "runtime account can modify a code/tool file: $writable_code_file"
+[[ -z "$untrusted_code_file" ]] ||
+    fail "source/tool file is not root-owned or is runtime-writable: $untrusted_code_file"
 run_as_r2 test ! -w "$R2_ROOT/R2_Launch_Code.sh" ||
     fail "the interactive launcher must not be writable by r2 because it invokes privileged setup commands."
 run_as_r2 mkdir -p \
