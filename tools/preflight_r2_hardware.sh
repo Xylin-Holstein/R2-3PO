@@ -94,7 +94,9 @@ for vendor_file in /sys/bus/pci/devices/*/vendor; do
   [[ -r "$vendor_file" ]] || continue
   NVIDIA_VENDOR=""
   IFS= read -r NVIDIA_VENDOR < "$vendor_file" || continue
-  if [[ "$NVIDIA_VENDOR" == "0x10de" ]]; then
+  NVIDIA_CLASS=""
+  IFS= read -r NVIDIA_CLASS < "${vendor_file%/vendor}/class" 2>/dev/null || continue
+  if [[ "$NVIDIA_VENDOR" == "0x10de" && "$NVIDIA_CLASS" == 0x03* ]]; then
     NVIDIA_PCI_PRESENT=1
     break
   fi
