@@ -51,7 +51,7 @@
 
 #define DB_PATH R2_DIARY_DATABASE
 #define ORIGINAL_CONVERSATION \
-    R2_HOME "/r2_original_conversation.txt"
+    R2_DATA_DIR "/r2_original_conversation.txt"
 
 /* ============================================================
    SYSTEM INCLUDES
@@ -11290,7 +11290,8 @@ int r2_init(void)
        -------------------------------------------------------- */
 
     if (
-        mkdir_p(R2_HOME) != 0 ||
+        access(R2_HOME, R_OK | X_OK) != 0 ||
+        mkdir_p(R2_DATA_DIR) != 0 ||
         mkdir_p(DIARY_DIR) != 0
     ) {
 
