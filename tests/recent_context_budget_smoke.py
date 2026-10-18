@@ -51,14 +51,14 @@ require(
 require(
     "r2_utf8_safe_prefix_length" in core
     and not re.search(
-        r"^\\s*(?:length|override_length)\\s*=\\s*OLLAMA_MAX_(?:MESSAGE|SYSTEM_MESSAGE)_CHARS\\s*;",
+        r"^\s*(?:length|override_length)\s*=\s*OLLAMA_MAX_(?:MESSAGE|SYSTEM_MESSAGE)_CHARS\s*;",
         core,
         re.MULTILINE,
     )
     and core.count(
-        "r2_utf8_safe_prefix_length(\\n                content, OLLAMA_MAX_MESSAGE_CHARS);"
+        "r2_utf8_safe_prefix_length(\n                content, OLLAMA_MAX_MESSAGE_CHARS);"
     ) == 2
-    and "r2_utf8_safe_prefix_length(\\n            system_override, OLLAMA_MAX_SYSTEM_MESSAGE_CHARS);" in core,
+    and "r2_utf8_safe_prefix_length(\n            system_override, OLLAMA_MAX_SYSTEM_MESSAGE_CHARS);" in core,
     "every per-message and system-override byte cap preserves UTF-8 boundaries",
 )
 print("Recent conversation context budget smoke passed.")
