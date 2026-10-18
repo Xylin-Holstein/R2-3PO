@@ -170,6 +170,10 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertEqual(source.count("rollback_previous_executable || log"), 2)
         self.assertLess(source.index('cp "$R2_EXEC" "$BACKUP_EXEC"'),
                         source.index('mv -f "$TEMP_EXEC" "$R2_EXEC"'))
+        self.assertLess(
+            source.index('python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 60'),
+            source.index('BACKUP_EXEC="$(run_as_r2 mktemp "$R2_ROOT/r2.previous.XXXXXX")"'),
+        )
         self.assertIn("systemctl enable --now r2-3po.service", source)
         self.assertIn("copy_ollama_model.py", source)
         self.assertIn("deploy/r2-ollama.service", source)
