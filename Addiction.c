@@ -13,7 +13,7 @@
 #include <strings.h>
 #include <time.h>
 
-#define ADDICTION_DB_PATH R2_DATA_DIR "/r2_addictions.db"
+#define ADDICTION_DB_PATH R2_HOME "/r2_addictions.db"
 #define ADDICTION_TEXT_MAX 2048
 
 static sqlite3 *addiction_db = NULL;
