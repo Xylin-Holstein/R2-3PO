@@ -138,7 +138,7 @@ writable_code_file="$(run_as_r2 find "$R2_SOURCE" -type f -writable \
     ! -name '*.db-shm' ! -name '*.db-journal' -print -quit)"
 [[ -z "$writable_code_file" ]] ||
     fail "runtime account can modify a code/tool file: $writable_code_file"
-[[ ! -w "$R2_ROOT/R2_Launch_Code.sh" ]] ||
+run_as_r2 test ! -w "$R2_ROOT/R2_Launch_Code.sh" ||
     fail "the interactive launcher must not be writable by r2 because it invokes privileged setup commands."
 run_as_r2 mkdir -p \
     "$R2_ROOT/R2_Diary" \
