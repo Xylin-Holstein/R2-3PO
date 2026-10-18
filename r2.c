@@ -11291,7 +11291,7 @@ int r2_init(void)
 
     if (
         access(R2_HOME, R_OK | X_OK) != 0 ||
-        mkdir_p(R2_DATA_DIR) != 0 ||
+        access(R2_DATA_DIR, R_OK | W_OK | X_OK) != 0 ||
         mkdir_p(DIARY_DIR) != 0
     ) {
 
