@@ -117,6 +117,32 @@ r2_apply_network_lock() {
 }
 
 
+# Detect NVIDIA hardware independently of nvidia-smi. If the PCI device is
+# present but the driver/runtime cannot query it, fail before silently falling
+# back to CPU-only inference.
+R2_NVIDIA_PCI_PRESENT=0
+for vendor_file in /sys/bus/pci/devices/*/vendor; do
+    [[ -r "$vendor_file" ]] || continue
+    R2_NVIDIA_VENDOR=""
+    IFS= read -r R2_NVIDIA_VENDOR < "$vendor_file" || continue
+    if [[ "$R2_NVIDIA_VENDOR" == "0x10de" ]]; then
+        R2_NVIDIA_PCI_PRESENT=1
+        break
+    fi
+done
+R2_NVIDIA_QUERY_OK=0
+R2_NVIDIA_GPU_NAMES=""
+if command -v nvidia-smi >/dev/null 2>&1; then
+    if R2_NVIDIA_GPU_NAMES="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null)" &&
+       [[ -n "$R2_NVIDIA_GPU_NAMES" ]]; then
+        R2_NVIDIA_QUERY_OK=1
+    fi
+fi
+if [[ "$R2_NVIDIA_PCI_PRESENT" == "1" && "$R2_NVIDIA_QUERY_OK" != "1" ]]; then
+    echo "[GPU] ERROR: NVIDIA PCI hardware is present but nvidia-smi cannot query a GPU; refusing CPU-only fallback." >&2
+    exit 1
+fi
+
 # Keep the default KV cache within a safer budget on the 4 GiB GTX 1050 Ti.
 # Remember which values are defaults so failed preflight can retry conservatively
 # without overriding explicit operator settings.
@@ -153,9 +179,7 @@ fi
 # process report to confirm actual VRAM allocation rather than accepting a
 # CPU-only generation as a successful GPU preflight.
 R2_OLLAMA_PREFLIGHT_ARGS=()
-if [[ "$R2_OLLAMA_NUM_GPU" != "0" ]] &&
-   command -v nvidia-smi >/dev/null 2>&1 &&
-   nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi 'GTX 1050 Ti'; then
+if [[ "$R2_NVIDIA_PCI_PRESENT" == "1" || "$R2_OLLAMA_NUM_GPU" != "0" ]]; then
     R2_OLLAMA_PREFLIGHT_ARGS=(--require-gpu-offload)
 fi
 
