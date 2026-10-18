@@ -379,7 +379,7 @@ static int make_room_dirs(void)
     snprintf(old_fridge,sizeof(old_fridge),"%s/room/fridge",R2_ROOT);
     snprintf(old_toy_box,sizeof(old_toy_box),"%s/room/toy_box",R2_ROOT);
     snprintf(diary,sizeof(diary),"%s",R2_DIARY_DIR);
-    if(ensure_dir_tree(R2_ROOT)||ensure_dir_tree(R2_DATA_DIR)||ensure_dir_tree(diary)||ensure_dir_tree(room)||
+    if(ensure_dir_tree(R2_ROOT)||access(R2_HOME,R_OK|X_OK)!=0||access(R2_DATA_DIR,R_OK|W_OK|X_OK)!=0||ensure_dir_tree(diary)||ensure_dir_tree(room)||
        ensure_dir_tree(shelf)||ensure_dir_tree(box)||ensure_dir_tree(pockets)||ensure_dir_tree(wallet)||
        ensure_dir_tree(fridge)||ensure_dir_tree(piggybank)) {
         fprintf(stderr, "[R2 Reality] Could not create room/shelf/box directories under %s\n", R2_ROOT);
