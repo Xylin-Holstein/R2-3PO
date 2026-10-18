@@ -598,16 +598,15 @@ int r2_diary_init(void)
     char *error_message = NULL;
 
     /*
-     * Code is provisioned separately and must already exist/readable.
-     * Runtime-writable databases live in R2_DATA_DIR, not the source tree.
+     * The protected source/data directory must already exist. Do not create
+     * a missing code directory from the runtime account.
      */
-    if (access(R2_HOME, R_OK | X_OK) != 0 ||
-        access(R2_DATA_DIR, R_OK | W_OK | X_OK) != 0)
+    if (access(R2_HOME, R_OK | W_OK | X_OK) != 0)
     {
         fprintf(
             stderr,
-            "[R2 DIARY] Code or data directory is unavailable (code=%s, data=%s)\n",
-            R2_HOME, R2_DATA_DIR
+            "[R2 DIARY] R2 home is unavailable: %s\n",
+            R2_HOME
         );
 
         return -1;
