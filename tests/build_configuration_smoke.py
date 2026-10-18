@@ -57,7 +57,88 @@ require(
     'root_run chown r2:r2 "$TEMP_EXEC"' not in installer
     and 'root_run chown r2:r2 "$R2_EXEC"' not in installer
     and 'root_run chown r2:r2 "$BACKUP_EXEC"' not in installer
-    and 'chmod 0755 "$RUNNER_SOURCE" "$OLLAMA_RUNNER_SOURCE"' not in installer
+    and re.search(r'^chmod 0755 "\$RUNNER_SOURCE" "\$OLLAMA_RUNNER_SOURCE"
+    and 'run_as_r2 mv -f "$TEMP_EXEC" "$R2_EXEC"' in installer,
+    "writable runtime paths are not passed to privileged ownership-changing operations",
+)
+
+require(
+    re.search(r"^CFLAGS\s*\?=\s*-std=c11\s+-Wall\s+-Wextra\s+-Werror\s+-O2\s*$",
+              makefile, re.MULTILINE) is not None,
+    "default Makefile build treats compiler warnings as errors",
+)
+require(
+    'sudo -n -u r2 -- gcc -std=c11 -Wall -Wextra -Werror -O2 \\' in launcher,
+    "interactive launcher uses the same strict compiler policy",
+)
+require(
+    'TEMP_EXEC="${R2_EXEC}.tmp.${BASHPID}"' in launcher
+    and '-o "$TEMP_EXEC" \\' in launcher
+    and 'mv -f "$TEMP_EXEC" "$R2_EXEC"' in launcher
+    and '-o "$R2_EXEC" \\' not in launcher,
+    "interactive build preserves the last known-good executable until atomic replacement",
+)
+require(
+    'make clean all CFLAGS="-std=c11 -Wall -Wextra -Werror -O2"' in workflow,
+    "CI compiles with the same strict compiler policy",
+)
+require(
+    "      - 'release/**'" in workflow,
+    "release branches run the same full CI workflow instead of silently skipping validation",
+)
+pull_request_block = re.search(
+    r"^  pull_request:\n(?P<body>.*?)(?=^  [A-Za-z_][A-Za-z0-9_-]*:|\Z)",
+    workflow,
+    re.MULTILINE | re.DOTALL,
+)
+require(
+    pull_request_block is not None and "      - 'release/**'" in pull_request_block.group("body"),
+    "pull requests targeting release branches trigger the full CI workflow",
+)
+require(
+    "python3 -m compileall -q ." in workflow,
+    "CI syntax-checks every Python source and test module before targeted tests run",
+)
+require(
+    'ROOT="$(mktemp -d /tmp/r2-log-linked-retrieval.' in workflow
+    and '"$ROOT/log-linked-retrieval-test"' in workflow
+    and 'sudo chmod -R a+rwx /home/x/R2_Home' not in workflow
+    and 'sudo rm -rf /home/x/R2_Home' not in workflow,
+    "Life Log integration test uses an isolated temporary root and never chmods/deletes a shared home path",
+)
+require(
+    "python3 tests/copy_ollama_model_integrity.py" in workflow,
+    "CI exercises repair of same-size corrupt model blobs and rejection of corrupt source blobs",
+)
+source_block = re.search(r"^SOURCES\s*=\s*(.+)$", makefile, re.MULTILINE)
+require(source_block is not None, "Makefile declares its production source list")
+for source in required_sources:
+    require(source in source_block.group(1), f"Makefile includes {source}")
+    require(f'"$R2_SOURCE/{source}"' in launcher, f"launcher includes {source}")
+require(
+    "static const double HUNGER_PER_SECOND = 100.0 / (3.0 * 3600.0);" in reality
+    and "double hunger = sqlite3_column_double(st, 0) - elapsed * HUNGER_PER_SECOND;" in reality
+    and "hunger=MIN(100,hunger+?)" in reality,
+    "fullness meter drains over three hours and eating restores it",
+)
+require(
+    "static const double SATIETY_PER_SECOND = 0.1 / 4.75;" in reality
+    and "double satisfaction = sqlite3_column_double(st, 4) - elapsed * SATIETY_PER_SECOND;" in reality,
+    "satisfaction independently decays by 0.1 per 4.75 seconds",
+)
+require(
+    "return valid_hunger && hunger < 50.0;" in core
+    and "if (hunger < 50.0) {" in core
+    and "If the fullness meter is below 50/100" in core,
+    "model and autonomous feeding thresholds match decreasing fullness semantics",
+)
+require(
+    "hunger_fullness_semantics_v2" in reality
+    and "100-hunger" in reality,
+    "legacy hunger values migrate to the new fullness scale exactly once",
+)
+print("R2 build configuration smoke test passed.")
+, installer, re.MULTILINE) is None
     and 'run_as_r2 chmod 0755 "$RUNNER_SOURCE" "$OLLAMA_RUNNER_SOURCE"' in installer
     and 'run_as_r2 mv -f "$TEMP_EXEC" "$R2_EXEC"' in installer,
     "writable runtime paths are not passed to privileged ownership-changing operations",
