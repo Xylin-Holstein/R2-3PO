@@ -14,16 +14,18 @@ for label, source in (("interactive launcher", launcher), ("overnight service", 
     assert '[[ -z "${R2_OLLAMA_NUM_CTX:-}" ]]' in source, label
 assert '"R2_OLLAMA_NUM_CTX=${R2_OLLAMA_NUM_CTX:-}"' in runner
 for label, source in (("interactive launcher", launcher), ("overnight service", runner)):
-    assert "R2_OLLAMA_NUM_CTX_DEFAULTED=0" in source, label
-    assert "R2_OLLAMA_NUM_GPU_DEFAULTED=0" in source, label
     assert '"$R2_OLLAMA_NUM_GPU_DEFAULTED" == "1" &&' in source, label
     assert '"$R2_OLLAMA_NUM_CTX_DEFAULTED" == "1" ]]; then' in source, label
     assert "export R2_OLLAMA_NUM_GPU=12" in source, label
     assert "export R2_OLLAMA_NUM_CTX=4096" in source, label
 assert "without overriding explicit operator settings" in launcher
 assert "Never silently override an explicit operator policy" in runner
-assert "R2_OLLAMA_NUM_CTX_DEFAULTED=0" in runner
-assert "R2_OLLAMA_NUM_GPU_DEFAULTED=0" in runner
+assert 'R2_OLLAMA_NUM_CTX_DEFAULTED="${R2_OLLAMA_NUM_CTX_DEFAULTED:-0}"' in runner
+assert 'R2_OLLAMA_NUM_GPU_DEFAULTED="${R2_OLLAMA_NUM_GPU_DEFAULTED:-0}"' in runner
+assert "export R2_OLLAMA_NUM_CTX_DEFAULTED" in runner
+assert "export R2_OLLAMA_NUM_GPU_DEFAULTED" in runner
+assert "R2_OLLAMA_NUM_CTX_DEFAULTED=0" in launcher
+assert "R2_OLLAMA_NUM_GPU_DEFAULTED=0" in launcher
 assert '"$R2_OLLAMA_NUM_GPU_DEFAULTED" == "1" &&' in runner
 assert '"$R2_OLLAMA_NUM_CTX_DEFAULTED" == "1" ]]; then' in runner
 assert "export R2_OLLAMA_NUM_GPU=12" in runner
