@@ -8,6 +8,7 @@ import json
 import os
 import re
 import struct
+import zlib
 import subprocess
 import sys
 import time
