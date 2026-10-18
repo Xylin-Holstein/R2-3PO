@@ -11,7 +11,7 @@ for label, source in (("interactive launcher", launcher), ("overnight service", 
     assert "nvidia-smi --query-gpu=name --format=csv,noheader" in source, label
     assert "grep -qi 'GTX 1050 Ti'" in source, label
     assert "export R2_OLLAMA_NUM_CTX=8192" in source, label
-    assert '[[ -z "${R2_OLLAMA_NUM_CTX:-}" ]]' in source, label
+    assert '[[ -z "${R2_OLLAMA_NUM_CTX:-}" && "$R2_NVIDIA_QUERY_OK" == "1" ]]' in source, label
 assert '"R2_OLLAMA_NUM_CTX=${R2_OLLAMA_NUM_CTX:-}"' in runner
 for label, source in (("interactive launcher", launcher), ("overnight service", runner)):
     assert '"$R2_OLLAMA_NUM_GPU_DEFAULTED" == "1" &&' in source, label
