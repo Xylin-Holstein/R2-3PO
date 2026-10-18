@@ -89,8 +89,30 @@ if [[ -e /dev/dri/renderD128 || -e /dev/dri/card0 ]]; then
 else
   warn "No DRM graphics device detected; expect CPU inference unless Ollama reports otherwise."
 fi
-if have nvidia-smi; then nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | sed 's/^/GPU: /' || warn "NVIDIA GPU query failed."
-else printf 'GPU: no NVIDIA runtime detected; CPU inference may still work.\n'; fi
+NVIDIA_PCI_PRESENT=0
+for vendor_file in /sys/bus/pci/devices/*/vendor; do
+  [[ -r "$vendor_file" ]] || continue
+  NVIDIA_VENDOR=""
+  IFS= read -r NVIDIA_VENDOR < "$vendor_file" || continue
+  if [[ "$NVIDIA_VENDOR" == "0x10de" ]]; then
+    NVIDIA_PCI_PRESENT=1
+    break
+  fi
+done
+if have nvidia-smi; then
+  if NVIDIA_GPU_NAMES="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null)" &&
+     [[ -n "$NVIDIA_GPU_NAMES" ]]; then
+    printf '%s\n' "$NVIDIA_GPU_NAMES" | sed 's/^/GPU: /'
+  elif [[ "$NVIDIA_PCI_PRESENT" == "1" ]]; then
+    fail "NVIDIA PCI hardware is present but nvidia-smi cannot query a GPU; mixed CPU/GPU inference cannot be verified."
+  else
+    warn "NVIDIA GPU query failed."
+  fi
+elif [[ "$NVIDIA_PCI_PRESENT" == "1" ]]; then
+  fail "NVIDIA PCI hardware is present but nvidia-smi is missing; refusing to treat this as a CPU-only host."
+else
+  printf 'GPU: no NVIDIA runtime detected; CPU inference may still work.\n'
+fi
 
 section "Required files and build tools"
 # These commands are used directly by the interactive launcher or overnight installer.
