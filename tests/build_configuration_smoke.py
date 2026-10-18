@@ -49,8 +49,12 @@ require(
     and "for DEVICE_GROUP in audio video; do" in launcher
     and "R2_NVIDIA_PCI_PRESENT=0" in launcher
     and "R2_NVIDIA_PCI_PRESENT=0" in service_runner
+    and '[[ "$R2_NVIDIA_VENDOR" == "0x10de" && "$R2_NVIDIA_CLASS" == 0x03* ]]' in launcher
+    and '[[ "$R2_NVIDIA_VENDOR" == "0x10de" && "$R2_NVIDIA_CLASS" == 0x03* ]]' in service_runner
     and "NVIDIA_PCI_PRESENT=0" in installer
+    and '[[ "$NVIDIA_VENDOR" == "0x10de" && "$NVIDIA_CLASS" == 0x03* ]]' in installer
     and "NVIDIA_PCI_PRESENT=0" in hardware_preflight
+    and '[[ "$NVIDIA_VENDOR" == "0x10de" && "$NVIDIA_CLASS" == 0x03* ]]' in hardware_preflight
     and "refusing CPU-only fallback" in launcher
     and "refusing CPU-only fallback" in service_runner
     and "refusing to silently deploy a CPU-only policy" in installer
