@@ -40,7 +40,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         self.assertTrue(read.call_args_list[2].args[0].endswith("/api/chat"))
         vision_payload = read.call_args_list[2].kwargs["payload"]
         encoded_image = vision_payload["messages"][0]["images"][0]
-        self.assertTrue(base64.b64decode(encoded_image).startswith(b"\\x89PNG\\r\\n\\x1a\\n"))
+        self.assertTrue(base64.b64decode(encoded_image).startswith(bytes((137, 80, 78, 71, 13, 10, 26, 10))))
         self.assertEqual(vision_payload["options"], payload["options"])
         self.assertTrue(read.call_args_list[3].args[0].endswith("/api/ps"))
         self.assertEqual(gpu.call_count, 1)
