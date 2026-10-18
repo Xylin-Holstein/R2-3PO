@@ -15,6 +15,19 @@ umask 077
     exit 1
 }
 
+# Even this file exists in the mutable checkout before its one-time installation.
+# Refuse to run that copy with privilege; only the protected installed path is valid.
+BOOTSTRAP_PATH="/usr/local/sbin/r2-3po-install"
+if [[ "$0" != "$BOOTSTRAP_PATH" || -L "$BOOTSTRAP_PATH" ||
+      ! -f "$BOOTSTRAP_PATH" || "$(stat -c '%u' "$BOOTSTRAP_PATH")" != "0" ]]; then
+    echo "[R2 installer] ERROR: refusing privileged execution outside the root-owned bootstrap path." >&2
+    exit 1
+fi
+BOOTSTRAP_MODE="$(stat -c '%a' "$BOOTSTRAP_PATH")"
+if (( (8#$BOOTSTRAP_MODE & 022) != 0 )); then
+    echo "[R2 installer] ERROR: installed bootstrap must not be group/world-writable." >&2
+    exit 1
+fi
 
 R2_ROOT="/home/x/R2_Home"
 R2_SOURCE="$R2_ROOT/R2"
