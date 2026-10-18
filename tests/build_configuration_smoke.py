@@ -45,6 +45,7 @@ require(
     and "--require-gpu-offload" in installer
     and "--require-gpu-offload" in service_runner
     and "--require-gpu-offload" in launcher
+    and "for DEVICE_GROUP in audio video; do" in launcher
     and 'root_run install -o root -g root -m 0644 "$UNIT_STAGING_DIR/r2-ollama.service"' in installer
     and 'root_run install -o root -g root -m 0644 "$UNIT_STAGING_DIR/r2-3po.service"' in installer
     and 'root_run install -m 0644 "$OLLAMA_UNIT_SOURCE"' not in installer
