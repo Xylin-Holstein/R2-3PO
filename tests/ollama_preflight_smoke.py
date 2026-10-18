@@ -42,7 +42,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         replies = [
             {"models": [{"name": "qwen3.5:9b"}]},
             {"message": {"content": "R2_READY"}},
-            {"models": [{"name": "qwen3.5:9b", "size_vram": 123456}]},
+            {"models": [{"name": "qwen3.5:9b", "size": 500000, "size_vram": 123456}]},
         ]
         with patch.dict(probe.os.environ, {
             "R2_OLLAMA_NUM_GPU": "20",
@@ -87,7 +87,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
                  returncode=0, stdout="NVIDIA GeForce GTX 1050 Ti, 4096 MiB, 0 MiB", stderr=""
              )), contextlib.redirect_stderr(errors):
             self.assertFalse(probe.preflight(timeout=1, require_gpu_offload=True))
-        self.assertIn("GPU offload was required", errors.getvalue())
+        self.assertIn("mixed CPU/GPU placement was required", errors.getvalue())
 
     def test_unapproved_non_loopback_endpoint_is_rejected(self) -> None:
         errors = io.StringIO()
