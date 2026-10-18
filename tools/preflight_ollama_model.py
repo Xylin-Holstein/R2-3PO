@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
+import re
+import struct
 import subprocess
 import sys
 import time
@@ -44,6 +47,35 @@ def _read_json(url: str, timeout: float, payload: dict[str, Any] | None = None) 
     if not isinstance(result, dict):
         raise ValueError("Ollama returned a non-object JSON response")
     return result
+
+
+def _png_chunk(kind: bytes, payload: bytes) -> bytes:
+    return (
+        struct.pack(">I", len(payload))
+        + kind
+        + payload
+        + struct.pack(">I", zlib.crc32(kind + payload) & 0xFFFFFFFF)
+    )
+
+
+def _vision_probe_image_base64() -> str:
+    """Build a small known-color PNG using only the standard library."""
+    width = height = 256
+    scanlines = bytearray()
+    for y in range(height):
+        scanlines.append(0)  # PNG filter: None
+        for x in range(width):
+            if 32 <= x < 224 and 32 <= y < 224:
+                scanlines.extend((0, 0, 255, 255))  # solid blue square
+            else:
+                scanlines.extend((255, 255, 255, 255))  # white background
+    png = (
+        b"\\x89PNG\\r\\n\\x1a\\n"
+        + _png_chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0))
+        + _png_chunk(b"IDAT", zlib.compress(bytes(scanlines), level=6))
+        + _png_chunk(b"IEND", b"")
+    )
+    return base64.b64encode(png).decode("ascii")
 
 
 def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload: bool = False) -> bool:
@@ -131,6 +163,40 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
         print(f"ERROR: Ollama listed {MODEL} but chat generation produced no usable final answer. {detail}", file=sys.stderr)
         return False
 
+    # Text-only readiness does not exercise Qwen's image encoder or the memory
+    # path that previously OOMed on this host. Require a real image-bearing
+    # request under the same GPU/context policy before declaring R2 ready.
+    try:
+        vision_reply = _read_json(
+            f"{api_base}/api/chat",
+            timeout=timeout,
+            payload={
+                "model": MODEL,
+                "messages": [{
+                    "role": "user",
+                    "content": "Look at the image. What color is the large square? Reply with one color word.",
+                    "images": [_vision_probe_image_base64()],
+                }],
+                "stream": False,
+                "think": False,
+                "keep_alive": "10m",
+                "options": options,
+            },
+        )
+    except (OSError, ValueError, urllib.error.URLError, TimeoutError) as exc:
+        print(f"ERROR: {MODEL} passed text generation but image-bearing chat failed: {exc}", file=sys.stderr)
+        return False
+
+    vision_message = vision_reply.get("message")
+    vision_content = vision_message.get("content") if isinstance(vision_message, dict) else None
+    if not isinstance(vision_content, str) or not re.search(r"\\bblue\\b", vision_content, re.IGNORECASE):
+        print(
+            f"ERROR: {MODEL} passed text generation but failed the known-color vision probe "
+            "(expected the image-bearing reply to identify the blue square).",
+            file=sys.stderr,
+        )
+        return False
+
     gpu_offload_verified = False
     mixed_placement_verified = False
     if gpu_layers == 0:
@@ -185,7 +251,7 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
         )
         return False
 
-    print(f"Local Ollama is ready: {MODEL} completed a real chat generation (reply omitted).")
+    print(f"Local Ollama is ready: {MODEL} passed real text and image-bearing chat generations (replies omitted).")
 
     # Host-side diagnostic; lack of nvidia-smi access does not fail preflight.
     try:
