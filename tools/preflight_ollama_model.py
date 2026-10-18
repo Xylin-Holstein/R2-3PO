@@ -46,7 +46,7 @@ def _read_json(url: str, timeout: float, payload: dict[str, Any] | None = None) 
     return result
 
 
-def preflight(wait_seconds: float = 0, timeout: float = 180) -> bool:
+def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload: bool = False) -> bool:
     """Check local model availability and one real, bounded inference."""
     try:
         api_base = _configured_api_base()
@@ -131,7 +131,7 @@ def preflight(wait_seconds: float = 0, timeout: float = 180) -> bool:
         print(f"ERROR: Ollama listed {MODEL} but chat generation produced no usable final answer. {detail}", file=sys.stderr)
         return False
 
-    print(f"Local Ollama is ready: {MODEL} completed a real chat generation (reply omitted).")
+    gpu_offload_verified = False
     if gpu_layers == 0:
         print("GPU policy: automatic placement (no explicit layer count sent).")
     else:
@@ -155,11 +155,29 @@ def preflight(wait_seconds: float = 0, timeout: float = 180) -> bool:
             except (TypeError, ValueError):
                 vram = 0
             if vram > 0:
+                gpu_offload_verified = True
                 print(f"GPU verification: Ollama reports {vram / (1024 ** 3):.2f} GiB allocated in GPU VRAM.")
+                total_size = active.get("size", 0)
+                try:
+                    total_size = int(total_size)
+                except (TypeError, ValueError):
+                    total_size = 0
+                if total_size > vram:
+                    print(f"Mixed placement: model process reports {total_size / (1024 ** 3):.2f} GiB total with {vram / (1024 ** 3):.2f} GiB in VRAM; remaining model/runtime memory is outside GPU VRAM.")
             else:
                 print("GPU verification: Ollama reports no VRAM allocation; inference may be CPU-only.")
     except (OSError, ValueError, urllib.error.URLError, TimeoutError) as exc:
         print(f"GPU verification unavailable: could not query Ollama /api/ps ({exc}).")
+
+    # When the host explicitly requests GPU layers, a successful text reply is
+    # not enough: require Ollama's process report to confirm that some model
+    # memory really landed in VRAM. CPU-only success must not masquerade as a
+    # successful GTX 1050 Ti policy preflight.
+    if require_gpu_offload and (gpu_layers == 0 or not gpu_offload_verified):
+        print("ERROR: GPU offload was required but Ollama did not report positive model VRAM allocation.", file=sys.stderr)
+        return False
+
+    print(f"Local Ollama is ready: {MODEL} completed a real chat generation (reply omitted).")
 
     # Host-side diagnostic; lack of nvidia-smi access does not fail preflight.
     try:
@@ -182,10 +200,12 @@ def main() -> int:
                         help="wait this long for the local API/model to become available")
     parser.add_argument("--timeout", type=float, default=180,
                         help="maximum seconds for the single real inference request")
+    parser.add_argument("--require-gpu-offload", action="store_true",
+                        help="fail unless Ollama reports positive model VRAM allocation")
     args = parser.parse_args()
     if args.timeout <= 0 or args.wait_seconds < 0:
         parser.error("--timeout must be positive and --wait-seconds cannot be negative")
-    return 0 if preflight(args.wait_seconds, args.timeout) else 1
+    return 0 if preflight(args.wait_seconds, args.timeout, args.require_gpu_offload) else 1
 
 
 if __name__ == "__main__":
