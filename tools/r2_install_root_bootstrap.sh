@@ -55,6 +55,7 @@ run_as_r2() {
 
 BACKUP_EXEC=""
 INSTALL_SUCCEEDED=0
+NEW_EXEC_INSTALLED=0
 OLLAMA_STATE_CAPTURED=0
 OLLAMA_WAS_ACTIVE=0
 OLLAMA_WAS_ENABLED=0
@@ -71,6 +72,33 @@ cleanup_on_exit() {
     local status=$?
     trap - EXIT
     cleanup_unit_staging
+
+    # Cover failures after replacing R2 but before the explicit activation
+    # rollback path (for example, chmod/date/systemd setup failures).
+    if [[ "$status" -ne 0 && "$INSTALL_SUCCEEDED" != "1" &&
+          "$NEW_EXEC_INSTALLED" == "1" ]]; then
+        if [[ -n "$BACKUP_EXEC" && -f "$BACKUP_EXEC" ]]; then
+            local restore_exec=""
+            restore_exec="$(run_as_r2 mktemp "$R2_ROOT/r2.restore.XXXXXX" 2>/dev/null)" || true
+            if [[ -n "$restore_exec" ]] &&
+               run_as_r2 cp "$BACKUP_EXEC" "$restore_exec" &&
+               run_as_r2 chmod 0755 "$restore_exec" &&
+               run_as_r2 mv -f "$restore_exec" "$R2_EXEC"; then
+                NEW_EXEC_INSTALLED=0
+                log "Restored previous executable from $BACKUP_EXEC after an early installer failure."
+            else
+                [[ -z "$restore_exec" ]] || run_as_r2 rm -f "$restore_exec" || true
+                log "ERROR: automatic early-exit rollback could not restore $BACKUP_EXEC."
+                root_run systemctl stop r2-3po.service >/dev/null 2>&1 || true
+            fi
+        else
+            log "ERROR: installer failed after replacing R2, but no prior executable exists to restore."
+            root_run systemctl stop r2-3po.service >/dev/null 2>&1 || true
+        fi
+    fi
+    if [[ -e "$TEMP_EXEC" || -L "$TEMP_EXEC" ]]; then
+        run_as_r2 rm -f -- "$TEMP_EXEC" || true
+    fi
 
     # The installer stops the private model server while repairing its model
     # store. If any pre-activation step fails, restore its original enabled and
@@ -131,6 +159,7 @@ rollback_previous_executable() {
         log "ERROR: could not atomically restore the previous executable from $BACKUP_EXEC"
         return 1
     fi
+    NEW_EXEC_INSTALLED=0
     log "Restored previous executable from $BACKUP_EXEC"
     root_run systemctl reset-failed r2-3po.service >/dev/null 2>&1 || true
     local rollback_started_at
@@ -419,6 +448,7 @@ if [[ -e "$R2_EXEC" ]]; then
 fi
 
 run_as_r2 mv -f "$TEMP_EXEC" "$R2_EXEC"
+NEW_EXEC_INSTALLED=1
 run_as_r2 chmod 0755 "$R2_EXEC"
 
 log "Enabling R2 at boot and starting the overnight service..."
