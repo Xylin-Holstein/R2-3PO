@@ -14,7 +14,7 @@ This is a code-review log, not a CI report. Each finding must be tied to the act
 - **Fix:** Change the operation to `run_as_r2 chmod`; add an assertion in `tests/build_configuration_smoke.py` that rejects the old root-level operation.
 - **Status:** Fixed in the current candidate head; workflow result for the resulting head must be checked.
 
-### AUDIT-002 — privileged installer and unit-file trust boundary remains open
+### AUDIT-002 — privileged installer and unit-file trust boundary
 - **Files:** `tools/install_r2_overnight.sh`, `deploy/r2-3po.service`, `deploy/r2-ollama.service`
 - **Severity:** Release blocker
 - **Evidence:** The privileged installer itself is stored in the runtime-writable source tree, and it installs systemd unit contents read from that same tree. A compromised `r2` account can modify the privileged entrypoint before it is invoked, or replace the unit files that root installs. Running the build and model copier as `r2` does not fix this boundary.
@@ -39,10 +39,10 @@ The current review is tracing the changed launcher, chat serialization/context a
 - **Fix:** Keep the freshly built binary at its unique temporary path until the private Ollama service passes the real generation preflight. Only then preserve the old executable and atomically replace it. Add a regression assertion that the real model preflight precedes the backup/replacement sequence.
 - **Status:** Fixed in the current candidate head; workflow result for the resulting head must be checked.
 
-### AUDIT-005 — trusted bootstrap consistency and privilege boundary
+### AUDIT-005 — protected bootstrap entrypoint and unit-definition consistency
 - **Files:** `tools/r2_install_root_bootstrap.sh`, `tools/install_r2_overnight.sh`, `deploy/r2-3po.service`, `deploy/r2-ollama.service`, `tests/build_configuration_smoke.py`, `tests/r2_overnight_service_smoke.py`
 - **Severity:** High
-- **Implementation:** The privileged bootstrap now embeds the systemd units and writes them from a root-owned staging directory, instead of installing mutable unit files from `R2_SOURCE`. The mutable model copier, database audit, preflight, and build are invoked as `r2`. The source-tree installer is a nonprivileged notice. Regression coverage compares the embedded units byte-for-byte with the repository unit files and asserts the wrapper has no privileged operations.
+- **Implementation:** The privileged bootstrap refuses to run from the mutable checkout, verifies the installed path is root-owned and not group/world-writable, pins a safe system PATH, embeds the systemd units and writes them from a root-owned staging directory, instead of installing mutable unit files from `R2_SOURCE`. The mutable model copier, database audit, preflight, and build are invoked as `r2`. The source-tree installer is a nonprivileged notice. Regression coverage compares the embedded units byte-for-byte with the repository unit files and asserts the wrapper has no privileged operations.
 - **Status:** Implemented; awaiting the exact-head workflow and manual semantic review of the bootstrap path.
 
 ### AUDIT-006 — installer preflight did not test the service's actual GPU/context policy
