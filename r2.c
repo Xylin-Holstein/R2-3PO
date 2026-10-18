@@ -124,6 +124,10 @@ static atomic_uint_fast64_t last_conversation_activity_ms = ATOMIC_VAR_INIT(0);
 static _Thread_local int ollama_background_mode = 0;
 /* Nested model calls made by the foreground turn itself are not background work. */
 static _Thread_local int ollama_foreground_turn_mode = 0;
+/* Monotonic timestamps let long foreground inference report that it is still active. */
+static _Thread_local struct timespec ollama_progress_started_at;
+static _Thread_local struct timespec ollama_progress_last_notice_at;
+static _Thread_local int ollama_progress_clock_valid = 0;
 /* Original user query for the active contextual conversation request. */
 static _Thread_local const char *ollama_authoritative_user_query = NULL;
 /* Labels prompt audits so intermediate planning calls cannot be confused with the final answer request. */
@@ -3046,6 +3050,24 @@ static int ollama_progress(void *userdata,
     (void)download_now;
     (void)upload_total;
     (void)upload_now;
+
+    if (!shutting_down && !ollama_background_mode &&
+        ollama_progress_clock_valid) {
+        struct timespec now;
+        if (clock_gettime(CLOCK_MONOTONIC, &now) == 0) {
+            time_t elapsed = now.tv_sec - ollama_progress_started_at.tv_sec;
+            time_t since_notice = now.tv_sec - ollama_progress_last_notice_at.tv_sec;
+            if (elapsed >= 15 && since_notice >= 15) {
+                fprintf(stderr,
+                        "[R2 Ollama] Still processing stage=%s; %ld seconds elapsed. "
+                        "The foreground request is active, not silently dropped.\n",
+                        ollama_audit_stage ? ollama_audit_stage : "unspecified",
+                        (long)elapsed);
+                ollama_progress_last_notice_at = now;
+            }
+        }
+    }
+
     return shutting_down ||
            (ollama_background_mode &&
             (atomic_load(&foreground_ollama_waiting) > 0 ||
@@ -4288,7 +4310,15 @@ static char *ollama_chat_with_limit(
         pthread_mutex_lock(&ollama_request_lock);
         atomic_fetch_sub(&foreground_ollama_waiting, 1);
     }
+    if (!ollama_background_mode &&
+        clock_gettime(CLOCK_MONOTONIC, &ollama_progress_started_at) == 0) {
+        ollama_progress_last_notice_at = ollama_progress_started_at;
+        ollama_progress_clock_valid = 1;
+    } else {
+        ollama_progress_clock_valid = 0;
+    }
     CURLcode cc = curl_easy_perform(curl);
+    ollama_progress_clock_valid = 0;
     pthread_mutex_unlock(&ollama_request_lock);
 
     long http_status = 0;
