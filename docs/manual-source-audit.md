@@ -165,3 +165,12 @@ The full 86-step GitHub Actions workflow passed for candidate code head `5bb6ff4
 - **Fix:** Extend the output-problem detector to recognize explicit references to R2's output, including `your output`, `your audio`, `your voice`, `your speech`, and `your sound`, while retaining the issue-word requirement and existing audio-topic exemption for ordinary discussion.
 - **Regression coverage:** Added a test where `Your audio is garbled.` followed by a gibberish-classifying reply must trigger recovery; the existing ordinary audio/transcription exemption test remains in place.
 - **Status:** Source fix and focused regression test are committed; target-host voice/audio acceptance remains required.
+
+
+### AUDIT-019 — vision JSON construction ignored allocation/insertion failures
+- **File:** `Visual.c`
+- **Severity:** Medium / vision reliability under memory pressure
+- **Evidence:** The vision request builder and focus-region writer previously inserted JSON fields without checking json-c allocation or insertion return values. A partial request or focus record could proceed to serialization.
+- **Fix:** Added checked object/array insertion helpers, routed request and focus fields through them, and made failed construction release only objects still owned by the builder before returning.
+- **Regression coverage:** Added `tests/visual_payload_allocation_smoke.py` and wired it into the build workflow. It checks the expected payload fields, checked insertion helpers, failure cleanup, and absence of unchecked direct insertions.
+- **Status:** Source fix and focused regression coverage are committed; the exact-head workflow is running. Physical camera inference still requires target-host acceptance.
