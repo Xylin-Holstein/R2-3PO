@@ -40,7 +40,7 @@ It checks the source/deployment files, the local Ollama API and `qwen3.5:9b`, re
    curl -fsS http://127.0.0.1:11434/api/tags
    ```
 
-   If Ollama is installed without a system unit named `ollama.service`, start it using the host's existing method. The installer copies the already-installed `qwen3.5:9b` blobs into R2's private model store and starts `r2-ollama.service` on port 11435. It then requires both a real text completion and a real image-bearing completion that identifies a known blue square, using the selected GPU/context policy (up to 180 seconds per inference request) before starting the R2 core. This catches image-encoder/KV-cache OOMs that a text-only probe can miss; the default GTX 1050 Ti policy retries once at 12 GPU layers / 4096 context when both settings were defaults. The copy and inference checks do not download model weights or contact an external API; the host Ollama service on port 11434 is left running and unmodified.
+   If Ollama is installed without a system unit named `ollama.service`, start it using the host's existing method. The installer copies the already-installed `qwen3.5:9b` blobs into R2's private model store and starts `r2-ollama.service` on port 11435. It then requires both a real text completion and a 640x480 image-bearing JSON-mode completion that identifies a known blue square, with the same context-dependent output cap used by Visual.c, using the selected GPU/context policy (up to 180 seconds per inference request) before starting the R2 core. This catches image-encoder/KV-cache OOMs that a text-only probe can miss; the default GTX 1050 Ti policy retries once at 12 GPU layers / 4096 context when both settings were defaults. The copy and inference checks do not download model weights or contact an external API; the host Ollama service on port 11434 is left running and unmodified.
 
 5. Confirm the service account can access the existing workspace and local FX assets. Do not solve permission problems with broad `chmod 777` permissions:
 
@@ -115,8 +115,8 @@ Do **not** run a source-tree script with `sudo`. The checkout under `/home/x/R2_
 Do **not** copy the bootstrap directly from `/home/x/R2_Home/R2`: that tree is writable by `r2`, so checking it and then running `sudo install` from the same path leaves a time-of-check/time-of-use gap. Fetch the reviewed bootstrap from an immutable commit into the desktop user's home (outside the R2-writable tree), verify its Git blob ID, then install that exact file:
 
 ```sh
-BOOTSTRAP_COMMIT=67ac3f345143d7664df42862521dcbb0f8713448
-BOOTSTRAP_BLOB_SHA=4ab80dc311fa5da8507a933bae20463c629dea9a
+BOOTSTRAP_COMMIT=70d698b6ea96bae71fe2a9ea0ed09fc051c1b032
+BOOTSTRAP_BLOB_SHA=4a90c53e04a15aa7ad88059333f7c17d69fc8b3d
 umask 077
 curl -fsSL \
   "https://raw.githubusercontent.com/Xylin-Holstein/R2-3PO/${BOOTSTRAP_COMMIT}/tools/r2_install_root_bootstrap.sh" \
@@ -129,7 +129,17 @@ if [[ "$ACTUAL_BLOB_SHA" != "$BOOTSTRAP_BLOB_SHA" ]]; then
   exit 1
 fi
 sudo install -o root -g root -m 0755 \
-  /home/x/r2-3po-install /usr/local/sbin/r2-3po-install
+  /home/x/r2-3po-install /usr/local/sbin/r2-3po-install || {
+    rm -f /home/x/r2-3po-install
+    echo "ERROR: failed to install the trusted root bootstrap." >&2
+    exit 1
+  }
+if ! sudo test -f /usr/local/sbin/r2-3po-install || \
+   ! sudo test ! -L /usr/local/sbin/r2-3po-install || \
+   [[ "$(sudo stat -c '%u:%a' /usr/local/sbin/r2-3po-install)" != "0:755" ]]; then
+  echo "ERROR: installed bootstrap is not a root-owned, non-symlink 0755 file." >&2
+  exit 1
+fi
 rm -f /home/x/r2-3po-install
 ```
 

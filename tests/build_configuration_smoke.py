@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Ensure all documented R2 build paths use the same strict source/config policy."""
 from pathlib import Path
+import hashlib
 import re
 import sys
 
@@ -10,6 +11,7 @@ launcher = (ROOT / "R2_Launch_Code.sh").read_text(encoding="utf-8")
 workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
 core = (ROOT / "r2.c").read_text(encoding="utf-8")
 installer = (ROOT / "tools/r2_install_root_bootstrap.sh").read_text(encoding="utf-8")
+overnight_docs = (ROOT / "docs/overnight-service.md").read_text(encoding="utf-8")
 installer_wrapper = (ROOT / "tools/install_r2_overnight.sh").read_text(encoding="utf-8")
 service_runner = (ROOT / "tools/r2_service_runner.sh").read_text(encoding="utf-8")
 hardware_preflight = (ROOT / "tools/preflight_r2_hardware.sh").read_text(encoding="utf-8")
@@ -156,5 +158,12 @@ require(
     "hunger_fullness_semantics_v2" in reality
     and "100-hunger" in reality,
     "legacy hunger values migrate to the new fullness scale exactly once",
+)
+bootstrap_bytes = (ROOT / "tools/r2_install_root_bootstrap.sh").read_bytes()
+git_blob_sha = hashlib.sha1(b"blob " + str(len(bootstrap_bytes)).encode("ascii") + bytes([0]) + bootstrap_bytes).hexdigest()
+pinned_bootstrap_sha = re.search(r"^BOOTSTRAP_BLOB_SHA=([0-9a-f]{40})$", overnight_docs, re.MULTILINE)
+require(
+    pinned_bootstrap_sha is not None and pinned_bootstrap_sha.group(1) == git_blob_sha,
+    "one-time trusted bootstrap pin matches the exact reviewed source blob",
 )
 print("R2 build configuration smoke test passed.")

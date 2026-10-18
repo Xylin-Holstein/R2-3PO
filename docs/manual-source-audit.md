@@ -122,16 +122,8 @@ The current review is tracing the changed launcher, chat serialization/context a
 
 ## Verification snapshot
 
-The full GitHub Actions workflow passed for candidate code head `67ac3f345143d7664df42862521dcbb0f8713448`. The current audit-log/documentation cleanup is a later commit and must receive its own exact-head workflow result. This is recorded separately from manual source review: neither a passing workflow nor this table establishes that the physical machine has passed acceptance.
+The full GitHub Actions workflow passed for candidate code head `70d698b6ea96bae71fe2a9ea0ed09fc051c1b032`. The current audit-log/documentation cleanup is a later commit and must receive its own exact-head workflow result. This is recorded separately from manual source review: neither a passing workflow nor this table establishes that the physical machine has passed acceptance.
 
-
-### AUDIT-014 — text-only preflight did not exercise the multimodal path
-- **File:** `tools/preflight_ollama_model.py`
-- **Severity:** High / target GPU readiness
-- **Evidence:** The installer and both launch paths used a successful text-only chat request as their model-readiness signal. That did not exercise Qwen's image encoder or the image-bearing request path, despite the target GTX 1050 Ti having already shown multimodal CUDA OOM risk. A text probe could therefore pass, activate R2, and leave Eyes/Watch vision failing at runtime.
-- **Fix:** Preflight now sends a small generated PNG with a known blue square through the same `/api/chat` image payload and the same GPU/context options, then requires the answer to identify the blue square. An image request failure or incorrect result blocks readiness, allowing the existing default-only 20/8192 → 12/4096 fallback to run.
-- **Regression coverage:** `tests/ollama_preflight_smoke.py` verifies PNG construction, policy propagation to the image request, endpoint selection, known-color response checking, and rejection of simulated CUDA OOM.
-- **Status:** Source fix and focused regression tests passed in the 86-step workflow for the reviewed code head; the exact documentation-updated head needs its own final workflow result. Real camera inference still belongs to target-host acceptance.
 
 ### AUDIT-014 — broken NVIDIA runtime detection could silently select CPU-only inference
 - **Files:** `R2_Launch_Code.sh`, `tools/r2_service_runner.sh`, `tools/r2_install_root_bootstrap.sh`, `tools/preflight_r2_hardware.sh`, `tests/build_configuration_smoke.py`
@@ -139,3 +131,20 @@ The full GitHub Actions workflow passed for candidate code head `67ac3f345143d76
 - **Evidence:** GPU layer defaults and the strict mixed-placement requirement were previously enabled only when `nvidia-smi` successfully named the GTX 1050 Ti. If the card remained on the PCI bus but the driver/runtime query failed, the launch paths could fall back to automatic/CPU placement and pass a text/vision generation without proving GPU use.
 - **Fix:** Detect NVIDIA PCI vendor IDs and display-class codes independently. If an NVIDIA display device is present but `nvidia-smi` cannot query a GPU, the interactive launcher, service runner, installer, and read-only hardware preflight now fail closed. Any detected NVIDIA display device also requires the mixed-placement report; the target GTX 1050 Ti gets the 20-layer/8192-context default and 12-layer/4096-context fallback. Automatic layer placement remains valid only if Ollama's process report proves mixed use.
 - **Status:** Implemented in source with static regression assertions; target hardware must still demonstrate the actual driver query and mixed-placement values.
+
+
+### AUDIT-015 — text-only preflight did not exercise the multimodal path
+- **File:** `tools/preflight_ollama_model.py`
+- **Severity:** High / target GPU readiness
+- **Evidence:** The installer and both launch paths used a successful text-only chat request as their model-readiness signal. That did not exercise Qwen's image encoder or the image-bearing request path, despite the target GTX 1050 Ti having already shown multimodal CUDA OOM risk. A text probe could therefore pass, activate R2, and leave Eyes/Watch vision failing at runtime.
+- **Fix:** Preflight now sends a camera-sized 640x480 PNG with a known blue square through `/api/chat` in JSON mode, uses the same GPU/context policy and context-dependent output cap as `Visual.c`, then parses the JSON and requires `color=blue`. An image request failure or incorrect result blocks readiness, allowing the existing default-only 20/8192 → 12/4096 fallback to run.
+- **Regression coverage:** `tests/ollama_preflight_smoke.py` verifies PNG construction, policy propagation to the image request, endpoint selection, known-color response checking, and rejection of simulated CUDA OOM.
+- **Status:** Source fix and focused regression tests passed in the 86-step workflow for the reviewed code head; the exact documentation-updated head needs its own final workflow result. Real camera inference still belongs to target-host acceptance.
+
+### AUDIT-016 — explicit reply-misclassification phrases were skipped on short turns
+- **File:** `r2.c`
+- **Severity:** Medium / conversation correctness
+- **Evidence:** `r2_reply_misclassifies_plain_text()` returned early for queries shorter than 24 bytes or fewer than five words before checking known failure phrases. A short, meaningful turn such as `Hi` could therefore receive a reply calling it a “random assortment of sounds” without triggering the retry path, even though the response phrase was an explicit misclassification signal.
+- **Fix:** Check the existing known-failure phrase set before the minimum-length and word-count guards, while retaining the audio/transcription-topic exemption and the separate acknowledgment path for user feedback about R2's own output.
+- **Regression coverage:** Added a short-turn test that requires the explicit misclassification phrase to trigger recovery; existing short-conversation and audio/transcription tests remain in place.
+- **Status:** Source fix and focused regression test are committed; the exact updated head's full workflow is still required before closing this finding.
