@@ -5536,6 +5536,8 @@ static int r2_recent_message_is_tool_payload(const char *content)
 /* Return only recent human-facing turns for grounded hypothetical generation.
    Pinned system/archive context and internal tool payloads are deliberately
    excluded; this transcript is contextual evidence, not a new instruction. */
+static size_t r2_utf8_safe_prefix_length(const char *content, size_t cap);
+
 char *r2_recent_conversation_context(const char *exclude_latest, size_t max_chars)
 {
     /* Treat max_chars as a hard cap; do not silently inflate small budgets. */
@@ -5580,7 +5582,8 @@ char *r2_recent_conversation_context(const char *exclude_latest, size_t max_char
         const Message *m = &messages.items[selected[included]];
         size_t role_length = strcmp(m->role, "user") == 0 ? 6U : 4U;
         size_t content_length = strlen(m->content);
-        if (content_length > 1000U) content_length = 1000U;
+        if (content_length > 1000U)
+            content_length = r2_utf8_safe_prefix_length(m->content, 1000U);
         size_t line_length = role_length + content_length + 1U;
         size_t separator_length = 0U;
         if (selected_chars > max_chars ||
@@ -5602,17 +5605,22 @@ char *r2_recent_conversation_context(const char *exclude_latest, size_t max_char
         size_t marker_length = sizeof(marker) - 1;
         size_t available = max_chars > role_length + marker_length
             ? max_chars - role_length - marker_length : 0;
+        size_t prefix_length = r2_utf8_safe_prefix_length(m->content, available);
         int written = snprintf(out, max_chars + 1, "%s%.*s%s",
-            role, (int)available, m->content, marker);
+            role, (int)prefix_length, m->content, marker);
         if (written > 0)
             used = (size_t)written > max_chars ? max_chars : (size_t)written;
     } else {
         for (size_t n = included; n > 0; --n) {
             const Message *m = &messages.items[selected[n - 1]];
             size_t remaining = max_chars - used;
+            size_t content_length = strlen(m->content);
+            if (content_length > 1000U)
+                content_length = r2_utf8_safe_prefix_length(m->content, 1000U);
             int written = snprintf(out + used, remaining + 1,
-                "%s: %.1000s\n",
-                strcmp(m->role, "user") == 0 ? "User" : "R2", m->content);
+                "%s: %.*s\n",
+                strcmp(m->role, "user") == 0 ? "User" : "R2",
+                (int)content_length, m->content);
             if (written < 0 || (size_t)written > remaining)
                 break; /* Defensive: selection above guarantees whole lines fit. */
             used += (size_t)written;
