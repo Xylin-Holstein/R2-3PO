@@ -29,7 +29,11 @@ static char *short_no_newline_search(const char *keyword, int limit)
 {
     (void)keyword;
     (void)limit;
-    return strdup("SHORT");
+    char *result = malloc(64);
+    if (!result) return NULL;
+    memset(result, 'X', 64);
+    memcpy(result, "SHORT", sizeof("SHORT"));
+    return result;
 }
 
 static char *utf8_no_newline_search(const char *keyword, int limit)
@@ -58,6 +62,7 @@ int main(void)
     char *associated = r2_collect_associated_records(
         keywords, 1, short_no_newline_search, 64);
     assert(associated != NULL && strcmp(associated, "SHORT") == 0);
+    assert(associated[6] == '\0'); /* bytes past the logical string were not copied */
     free(associated);
 
     associated = r2_collect_associated_records(
