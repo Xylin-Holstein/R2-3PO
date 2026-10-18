@@ -149,9 +149,8 @@ fi
 # Remember which values are defaults so failed preflight can retry conservatively
 # without overriding explicit operator settings.
 R2_OLLAMA_NUM_CTX_DEFAULTED=0
-if [[ -z "${R2_OLLAMA_NUM_CTX:-}" ]] &&
-   command -v nvidia-smi >/dev/null 2>&1 &&
-   nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi 'GTX 1050 Ti'; then
+if [[ -z "${R2_OLLAMA_NUM_CTX:-}" && "$R2_NVIDIA_QUERY_OK" == "1" ]] &&
+   printf '%s\n' "$R2_NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
     export R2_OLLAMA_NUM_CTX=8192
     R2_OLLAMA_NUM_CTX_DEFAULTED=1
     echo "[GPU] GTX 1050 Ti detected; limiting default Ollama context to 8192 tokens."
