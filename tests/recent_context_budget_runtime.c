@@ -107,7 +107,7 @@ int main(void)
     free(utf8_edge);
 
     /* The explicit tiny-budget fallback must also preserve code-point boundaries. */
-    const char tiny_unicode[] = "A\xe2\x98\x83Z";
+    const char tiny_unicode[] = "A\xe2\x98\x83ZZZZZZZZZZZZZZZZZZZZ";
     assert(message_add("user", tiny_unicode) == 0);
     context = r2_recent_conversation_context(NULL, 21);
     assert(context != NULL);
