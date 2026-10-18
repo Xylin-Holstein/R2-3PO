@@ -12,6 +12,18 @@ core = (ROOT / "r2.c").read_text(encoding="utf-8")
 installer = (ROOT / "tools/install_r2_overnight.sh").read_text(encoding="utf-8")
 reality = (ROOT / "Reality.c").read_text(encoding="utf-8")
 
+required_sources = (
+    "r2.c", "shell.c", "r2_diary.c", "Log.c", "Reality.c", "Addiction.c",
+    "Reward.c", "AlternateSelf.c", "Visual.c", "Ears.c", "Eyes.c",
+    "R2Sounds.c", "R2Reply.c",
+)
+
+def require(ok: bool, message: str) -> None:
+    if not ok:
+        print(f"FAIL: {message}", file=sys.stderr)
+        raise SystemExit(1)
+    print(f"PASS: {message}")
+
 require(
     'run_as_r2 python3 "$MODEL_COPY_SCRIPT"' in installer
     and 'run_as_r2 make -C "$R2_SOURCE" clean all TARGET="$TEMP_EXEC"' in installer
@@ -26,18 +38,6 @@ require(
     and 'run_as_r2 mv -f "$TEMP_EXEC" "$R2_EXEC"' in installer,
     "writable runtime paths are not passed to privileged ownership-changing operations",
 )
-
-required_sources = (
-    "r2.c", "shell.c", "r2_diary.c", "Log.c", "Reality.c", "Addiction.c",
-    "Reward.c", "AlternateSelf.c", "Visual.c", "Ears.c", "Eyes.c",
-    "R2Sounds.c", "R2Reply.c",
-)
-
-def require(ok: bool, message: str) -> None:
-    if not ok:
-        print(f"FAIL: {message}", file=sys.stderr)
-        raise SystemExit(1)
-    print(f"PASS: {message}")
 
 require(
     re.search(r"^CFLAGS\s*\?=\s*-std=c11\s+-Wall\s+-Wextra\s+-Werror\s+-O2\s*$",
