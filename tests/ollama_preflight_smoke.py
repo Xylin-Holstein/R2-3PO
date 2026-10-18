@@ -21,7 +21,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         replies = [
             {"models": [{"name": "qwen3.5:9b"}]},
             {"message": {"content": "R2_READY"}},
-            {"message": {"content": "The square is blue."}},
+            {"message": {"content": "{\"color\":\"blue\"}"}},
             {"models": [{"name": "qwen3.5:9b", "size_vram": 123456}]},
         ]
         gpu_result = SimpleNamespace(
@@ -39,9 +39,14 @@ class OllamaPreflightSmoke(unittest.TestCase):
         self.assertEqual(payload["options"]["num_predict"], 128)
         self.assertTrue(read.call_args_list[2].args[0].endswith("/api/chat"))
         vision_payload = read.call_args_list[2].kwargs["payload"]
-        encoded_image = vision_payload["messages"][0]["images"][0]
-        self.assertTrue(base64.b64decode(encoded_image).startswith(bytes((137, 80, 78, 71, 13, 10, 26, 10))))
-        self.assertEqual(vision_payload["options"], payload["options"])
+        png_bytes = base64.b64decode(vision_payload["messages"][1]["images"][0])
+        self.assertEqual(png_bytes[:8], bytes((137, 80, 78, 71, 13, 10, 26, 10)))
+        self.assertEqual(int.from_bytes(png_bytes[16:20], "big"), 640)
+        self.assertEqual(int.from_bytes(png_bytes[20:24], "big"), 480)
+        self.assertEqual(vision_payload["format"], "json")
+        self.assertEqual(vision_payload["messages"][0]["role"], "system")
+        self.assertEqual(vision_payload["options"]["num_predict"], 256)
+        self.assertEqual(vision_payload["options"]["temperature"], payload["options"]["temperature"])
         self.assertTrue(read.call_args_list[3].args[0].endswith("/api/ps"))
         self.assertEqual(gpu.call_count, 1)
 
@@ -49,7 +54,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         replies = [
             {"models": [{"name": "qwen3.5:9b"}]},
             {"message": {"content": "R2_READY"}},
-            {"message": {"content": "blue"}},
+            {"message": {"content": "{\"color\":\"blue\"}"}},
             {"models": [{"name": "qwen3.5:9b", "size": 500000, "size_vram": 123456}]},
         ]
         with patch.dict(probe.os.environ, {
@@ -63,8 +68,11 @@ class OllamaPreflightSmoke(unittest.TestCase):
         options = read.call_args_list[1].kwargs["payload"]["options"]
         self.assertEqual(options["num_gpu"], 20)
         self.assertEqual(options["num_ctx"], 8192)
-        self.assertEqual(read.call_args_list[2].kwargs["payload"]["options"], options)
-        self.assertIn("images", read.call_args_list[2].kwargs["payload"]["messages"][0])
+        vision_payload = read.call_args_list[2].kwargs["payload"]
+        self.assertEqual(vision_payload["options"]["num_gpu"], 20)
+        self.assertEqual(vision_payload["options"]["num_ctx"], 8192)
+        self.assertEqual(vision_payload["options"]["num_predict"], 512)
+        self.assertIn("images", vision_payload["messages"][1])
 
     def test_overnight_endpoint_is_used_for_tags_chat_and_process_checks(self) -> None:
         replies = [
@@ -139,6 +147,20 @@ class OllamaPreflightSmoke(unittest.TestCase):
             with contextlib.redirect_stderr(errors):
                 self.assertTrue(probe.preflight(timeout=1))
         self.assertEqual(errors.getvalue(), "")
+
+    def test_wrong_color_json_blocks_ready_status(self) -> None:
+        errors = io.StringIO()
+        red_literal = json.dumps({"color": "red"})
+        with patch.object(probe, "_read_json", side_effect=[
+            {"models": [{"name": "qwen3.5:9b"}]},
+            {"message": {"content": "R2_READY"}},
+            {"message": {"content": red_literal}},
+        ]) as read, patch.object(probe.subprocess, "run", return_value=SimpleNamespace(
+            returncode=0, stdout="Test GPU, 4096 MiB, 123 MiB", stderr=""
+        )), contextlib.redirect_stderr(errors):
+            self.assertFalse(probe.preflight(timeout=1))
+        self.assertEqual(read.call_count, 3)
+        self.assertIn("failed the JSON known-color vision probe", errors.getvalue())
 
     def test_image_inference_failure_blocks_ready_status(self) -> None:
         errors = io.StringIO()
