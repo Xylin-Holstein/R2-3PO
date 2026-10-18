@@ -3059,8 +3059,7 @@ static int ollama_progress(void *userdata,
             time_t since_notice = now.tv_sec - ollama_progress_last_notice_at.tv_sec;
             if (elapsed >= 15 && since_notice >= 15) {
                 fprintf(stderr,
-                        "[R2 Ollama] Still processing stage=%s; %ld seconds elapsed. "
-                        "The foreground request is active, not silently dropped.\n",
+                        "[R2 Ollama] Still waiting for local Ollama response; stage=%s, %ld seconds elapsed.\n",
                         ollama_audit_stage ? ollama_audit_stage : "unspecified",
                         (long)elapsed);
                 ollama_progress_last_notice_at = now;
