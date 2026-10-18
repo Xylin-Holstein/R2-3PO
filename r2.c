@@ -5208,6 +5208,8 @@ static int r2_query_explicitly_requests_recall(const char *query)
     return 0;
 }
 
+static size_t r2_utf8_safe_prefix_length(const char *content, size_t cap);
+
 /* Clip only at a record boundary when possible, so a memory is not half-sent. */
 static void r2_bound_context_records(char *context, size_t max_chars)
 {
@@ -5221,7 +5223,7 @@ static void r2_bound_context_records(char *context, size_t max_chars)
     while (cut > 0 && context[cut] != '\n')
         --cut;
     if (cut == 0)
-        cut = max_chars;
+        cut = r2_utf8_safe_prefix_length(context, max_chars);
     context[cut] = '\0';
 }
 
@@ -5275,22 +5277,32 @@ static char *r2_collect_associated_records(
             continue;
         }
 
-        size_t n = strlen(found);
-        if (n > max_chars - used)
-            n = max_chars - used;
-        while (n > 0 && found[n - 1] != '\n')
-            --n;
-        if (n == 0)
-            n = max_chars - used;
-        if (n == 0) {
+        size_t separator_length = used ? 1U : 0U;
+        size_t remaining = max_chars - used;
+        if (separator_length >= remaining) {
             free(found);
             break;
         }
+        size_t content_budget = remaining - separator_length;
+        size_t found_length = strlen(found);
+        size_t n = found_length < content_budget ? found_length : content_budget;
 
-        if (used)
+        /* Prefer a complete record. If no newline fits, use a bounded UTF-8
+           prefix; never inflate a short no-newline result to the whole budget. */
+        size_t record_length = n;
+        while (record_length > 0 && found[record_length - 1] != '\n')
+            --record_length;
+        if (record_length > 0)
+            n = record_length;
+        else
+            n = r2_utf8_safe_prefix_length(found, n);
+        if (n == 0) {
+            free(found);
+            continue;
+        }
+
+        if (separator_length)
             out[used++] = '\n';
-        if (n > max_chars - used)
-            n = max_chars - used;
         memcpy(out + used, found, n);
         used += n;
         out[used] = '\0';
@@ -5536,8 +5548,6 @@ static int r2_recent_message_is_tool_payload(const char *content)
 /* Return only recent human-facing turns for grounded hypothetical generation.
    Pinned system/archive context and internal tool payloads are deliberately
    excluded; this transcript is contextual evidence, not a new instruction. */
-static size_t r2_utf8_safe_prefix_length(const char *content, size_t cap);
-
 char *r2_recent_conversation_context(const char *exclude_latest, size_t max_chars)
 {
     /* Treat max_chars as a hard cap; do not silently inflate small budgets. */
