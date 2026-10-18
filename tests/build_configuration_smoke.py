@@ -11,6 +11,7 @@ workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
 core = (ROOT / "r2.c").read_text(encoding="utf-8")
 installer = (ROOT / "tools/r2_install_root_bootstrap.sh").read_text(encoding="utf-8")
 installer_wrapper = (ROOT / "tools/install_r2_overnight.sh").read_text(encoding="utf-8")
+service_runner = (ROOT / "tools/r2_service_runner.sh").read_text(encoding="utf-8")
 reality = (ROOT / "Reality.c").read_text(encoding="utf-8")
 
 required_sources = (
@@ -41,6 +42,9 @@ require(
     and 'refusing privileged execution outside the root-owned bootstrap path' in installer
     and "R2_OLLAMA_UNIT_EOF" in installer
     and "R2_SERVICE_UNIT_EOF" in installer
+    and "--require-gpu-offload" in installer
+    and "--require-gpu-offload" in service_runner
+    and "--require-gpu-offload" in launcher
     and 'root_run install -o root -g root -m 0644 "$UNIT_STAGING_DIR/r2-ollama.service"' in installer
     and 'root_run install -o root -g root -m 0644 "$UNIT_STAGING_DIR/r2-3po.service"' in installer
     and 'root_run install -m 0644 "$OLLAMA_UNIT_SOURCE"' not in installer
