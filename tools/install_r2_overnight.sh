@@ -58,16 +58,13 @@ rollback_previous_executable() {
         log "ERROR: refusing to overwrite existing rollback path: $restore_exec"
         return 1
     fi
-    if ! root_run cp "$BACKUP_EXEC" "$restore_exec" ||
-       ! root_run chmod 0755 "$restore_exec" ||
-       ! root_run chown r2:r2 "$restore_exec" ||
-       ! root_run mv -f "$restore_exec" "$R2_EXEC"; then
-        root_run rm -f "$restore_exec" || true
+    if ! run_as_r2 cp "$BACKUP_EXEC" "$restore_exec" ||
+       ! run_as_r2 chmod 0755 "$restore_exec" ||
+       ! run_as_r2 mv -f "$restore_exec" "$R2_EXEC"; then
+        run_as_r2 rm -f "$restore_exec" || true
         log "ERROR: could not atomically restore the previous executable from $BACKUP_EXEC"
         return 1
     fi
-    root_run chown r2:r2 "$R2_EXEC" || return 1
-    root_run chmod 0755 "$R2_EXEC" || return 1
     log "Restored previous executable from $BACKUP_EXEC"
     root_run systemctl reset-failed r2-3po.service >/dev/null 2>&1 || true
     local rollback_started_at
@@ -176,8 +173,7 @@ log "Compiling the complete C runtime..."
 # as r2 so a modified Makefile/source can never execute build commands as root.
 run_as_r2 make -C "$R2_SOURCE" clean all TARGET="$TEMP_EXEC"
 [[ -x "$TEMP_EXEC" ]] || fail "build completed without producing $TEMP_EXEC."
-chmod 0755 "$TEMP_EXEC"
-root_run chown r2:r2 "$TEMP_EXEC"
+run_as_r2 chmod 0755 "$TEMP_EXEC"
 
 # Preserve the last known executable before installing the new build. Refuse
 # symlinks and unexpected file types rather than backing up an ambiguous target.
@@ -187,21 +183,19 @@ fi
 if [[ -e "$R2_EXEC" ]]; then
     [[ -f "$R2_EXEC" && -x "$R2_EXEC" ]] ||
         fail "existing executable is not a regular executable file: $R2_EXEC"
-    BACKUP_EXEC="$(mktemp "$R2_ROOT/r2.previous.XXXXXX")" ||
-        fail "could not reserve a private rollback copy path."
-    if ! cp "$R2_EXEC" "$BACKUP_EXEC"; then
-        rm -f "$BACKUP_EXEC"
+    BACKUP_EXEC="$(run_as_r2 mktemp "$R2_ROOT/r2.previous.XXXXXX")" ||
+        fail "could not reserve a rollback copy path as r2."
+    if ! run_as_r2 cp "$R2_EXEC" "$BACKUP_EXEC"; then
+        run_as_r2 rm -f "$BACKUP_EXEC"
         BACKUP_EXEC=""
         fail "could not preserve the previous executable; existing installation was left untouched."
     fi
-    chmod 0755 "$BACKUP_EXEC"
-    root_run chown r2:r2 "$BACKUP_EXEC"
+    run_as_r2 chmod 0755 "$BACKUP_EXEC"
     log "Previous executable preserved at $BACKUP_EXEC"
 fi
 
-mv -f "$TEMP_EXEC" "$R2_EXEC"
-root_run chown r2:r2 "$R2_EXEC"
-root_run chmod 0755 "$R2_EXEC"
+run_as_r2 mv -f "$TEMP_EXEC" "$R2_EXEC"
+run_as_r2 chmod 0755 "$R2_EXEC"
 
 # Install both isolated model and R2 units. The FX collection stays on the host at R2_sounds/FX.
 chmod 0755 "$RUNNER_SOURCE" "$OLLAMA_RUNNER_SOURCE"
