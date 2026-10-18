@@ -90,3 +90,10 @@ The current review is tracing the changed launcher, chat serialization/context a
 - **Fix:** Re-align the chosen override length with `r2_utf8_safe_prefix_length()` after sentence-boundary selection and before constructing the bounded JSON string.
 - **Regression coverage:** Extended `tests/prompt_budget_smoke.py` to require that the final UTF-8 alignment occurs after the boundary choice and before serialization.
 - **Status:** Source fix and regression assertion committed on the candidate branch. Exact-head workflow and continued semantic review remain open.
+
+### AUDIT-010 — installer had unhandled early exits after executable replacement
+- **File:** `tools/r2_install_root_bootstrap.sh`
+- **Severity:** High / rollback reliability
+- **Evidence:** The explicit rollback path covered systemd activation/readiness failures, but a failure immediately after the atomic executable replacement (for example, the following chmod or a later command under `set -e`) could exit before reaching that path. The prior executable backup would remain unused while the replacement stayed installed.
+- **Fix:** Extended the existing EXIT cleanup trap to restore the previous executable for any nonzero exit after replacement, clean the temporary build, and preserve the existing private-Ollama service-state restoration. The explicit rollback path clears the replacement flag after restoring the prior binary to avoid duplicate rollback.
+- **Status:** Implemented; exact-head workflow and review of failure ordering still pending.
