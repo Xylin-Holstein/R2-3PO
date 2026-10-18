@@ -51,7 +51,7 @@ for phrase in (
     '"jumbled set of sounds"',
     '"appears to be gibberish"',
     '"unable to understand your message"',
-    '"that\\'s a bit garbled"',
+    "\"that's a bit garbled\"",
     '"that’s a bit garbled"',
 ):
     require(phrase in failure_guard, f"failure-phrase helper checks {phrase}")
