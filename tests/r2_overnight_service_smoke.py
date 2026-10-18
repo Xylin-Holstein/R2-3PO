@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Static safety/regression checks for R2's unattended overnight service."""
 from pathlib import Path
-import re
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -185,13 +184,15 @@ class OvernightServiceTests(unittest.TestCase):
         # The privileged bootstrap's embedded units are the exact definitions
         # installed by root; they must stay synchronized with reviewed repo units.
         ollama_unit = (ROOT / "deploy/r2-ollama.service").read_text(encoding="utf-8").rstrip("\n")
-        r2_unit = (ROOT / "deploy/r2-3po.service").read_text(encoding="utf-8").rstrip("\\n")
-        ollama_match = re.search(r"cat > \"\\$UNIT_STAGING_DIR/r2-ollama\\.service\" <<'R2_OLLAMA_UNIT_EOF'\n(.*?)\nR2_OLLAMA_UNIT_EOF", source, re.S)
-        r2_match = re.search(r"cat > \"\\$UNIT_STAGING_DIR/r2-3po\\.service\" <<'R2_SERVICE_UNIT_EOF'\n(.*?)\nR2_SERVICE_UNIT_EOF", source, re.S)
-        self.assertIsNotNone(ollama_match)
-        self.assertIsNotNone(r2_match)
-        self.assertEqual(ollama_match.group(1), ollama_unit)
-        self.assertEqual(r2_match.group(1), r2_unit)
+        r2_unit = (ROOT / "deploy/r2-3po.service").read_text(encoding="utf-8").rstrip("\n")
+        ollama_marker = 'cat > "$UNIT_STAGING_DIR/r2-ollama.service" <<\'R2_OLLAMA_UNIT_EOF\'\n'
+        r2_marker = 'cat > "$UNIT_STAGING_DIR/r2-3po.service" <<\'R2_SERVICE_UNIT_EOF\'\n'
+        ollama_start = source.index(ollama_marker) + len(ollama_marker)
+        r2_start = source.index(r2_marker) + len(r2_marker)
+        ollama_end = source.index("\nR2_OLLAMA_UNIT_EOF", ollama_start)
+        r2_end = source.index("\nR2_SERVICE_UNIT_EOF", r2_start)
+        self.assertEqual(source[ollama_start:ollama_end], ollama_unit)
+        self.assertEqual(source[r2_start:r2_end], r2_unit)
         self.assertIn("systemctl enable --now r2-ollama.service", source)
         self.assertIn("preflight_ollama_model.py", source)
         self.assertNotIn("ollama pull", source)
