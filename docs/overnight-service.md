@@ -78,6 +78,8 @@ done
 sudo chown root:r2 "$R2_SOURCE"
 sudo chmod 1775 "$R2_SOURCE"
 sudo chmod +t "$R2_ROOT"
+sudo chown root:root "$R2_ROOT/R2_Launch_Code.sh"
+sudo chmod 0755 "$R2_ROOT/R2_Launch_Code.sh"
 ```
 
 The installer and service runner verify these boundaries. Do not make nested directories such as `tools/` writable by `r2`; that would make the privileged scripts replaceable again.
