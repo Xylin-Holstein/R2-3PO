@@ -12,7 +12,7 @@ This is a code-review log, not a CI report. Each finding must be tied to the act
 - **Severity:** High
 - **Evidence:** The installer used root-level `chmod 0755` on `$RUNNER_SOURCE` and `$OLLAMA_RUNNER_SOURCE`, both under `/home/x/R2_Home/R2`, which must remain writable by `r2`. `chmod` follows a symlink, so a runtime account able to replace one of those paths could cause the privileged operation to change permissions on an unrelated target.
 - **Fix:** Change the operation to `run_as_r2 chmod`; add an assertion in `tests/build_configuration_smoke.py` that rejects the old root-level operation.
-- **Status:** Fixed in the current candidate head; workflow result for the resulting head must be checked.
+- **Status:** Source fix implemented and regression assertion added; verification is tracked in the snapshot below.
 
 ### AUDIT-002 — privileged installer and unit-file trust boundary
 - **Files:** `tools/install_r2_overnight.sh`, `deploy/r2-3po.service`, `deploy/r2-ollama.service`
@@ -43,34 +43,34 @@ The current review is tracing the changed launcher, chat serialization/context a
 - **Files:** `tools/r2_install_root_bootstrap.sh`, `tools/install_r2_overnight.sh`, `deploy/r2-3po.service`, `deploy/r2-ollama.service`, `tests/build_configuration_smoke.py`, `tests/r2_overnight_service_smoke.py`
 - **Severity:** High
 - **Implementation:** The privileged bootstrap refuses to run from the mutable checkout, verifies the installed path is root-owned and not group/world-writable, pins a safe system PATH, embeds the systemd units and writes them from a root-owned staging directory, instead of installing mutable unit files from `R2_SOURCE`. The mutable model copier, database audit, preflight, and build are invoked as `r2`. The source-tree installer is a nonprivileged notice. Regression coverage compares the embedded units byte-for-byte with the repository unit files and asserts the wrapper has no privileged operations.
-- **Status:** Implemented; awaiting the exact-head workflow and manual semantic review of the bootstrap path.
+- **Status:** Protected entrypoint and embedded-unit consistency implemented and manually reviewed; actual root-owned installation remains a target setup gate.
 
 ### AUDIT-006 — installer preflight did not test the service's actual GPU/context policy
 - **Files:** `tools/r2_install_root_bootstrap.sh`, `tools/r2_service_runner.sh`, `tools/preflight_ollama_model.py`, `tests/ollama_preflight_smoke.py`, `tests/r2_overnight_service_smoke.py`
 - **Severity:** High / rollout reliability
 - **Evidence:** The installer previously called the real generation probe without `R2_OLLAMA_NUM_GPU` or `R2_OLLAMA_NUM_CTX`, so it could pass with automatic placement/default context even though the service's 20-layer/8192-context policy would fail. That left the actual hardware policy to fail only after executable replacement and service activation.
 - **Fix:** The trusted bootstrap now detects the target GTX 1050 Ti and probes with 20 GPU layers and 8192 context before replacing the executable; if that default fails, it retries with 12 layers and 4096 context, matching the service runner's fallback. The shared preflight can require a real mixed placement report (positive `size_vram` and total model memory greater than VRAM), and the interactive and overnight launch paths pass that requirement when requesting GPU layers on the target card. Regression coverage checks the policy options and rejects CPU-only success.
-- **Status:** Implemented in source; exact-head workflow and target GPU allocation still need verification.
+- **Status:** Source fix and regression coverage implemented. Target GPU allocation and fallback behavior still require the actual machine.
 
 ### AUDIT-007 — inhibitor self-exec discarded GPU/context fallback provenance
 - **File:** `tools/r2_service_runner.sh`
 - **Severity:** High / hardware startup reliability
 - **Evidence:** The runner detects that 20 GPU layers and 8192 context were defaults, then re-execs itself under `systemd-inhibit`. The re-exec inherited the resolved values but the old code reset both `*_DEFAULTED` flags to zero because the values were no longer empty. A failed first preflight therefore skipped the intended 12-layer/4096-context fallback.
 - **Fix:** Initialize the flags from inherited values and export them across the inhibitor re-exec. Updated `tests/gpu_context_budget_smoke.py` to assert that default provenance is preserved and explicit operator settings remain distinguishable.
-- **Status:** Fixed in source; exact-head workflow still pending.
+- **Status:** Source fix and regression coverage implemented; target fallback behavior remains unverified.
 
 ### AUDIT-008 — permission regression test still targeted the retired installer implementation
 - **File:** `tests/test_overnight_permission_checks.sh`
 - **Severity:** CI regression (not a runtime defect)
 - **Evidence:** After the privileged logic moved into the root-owned bootstrap, the test still searched `tools/install_r2_overnight.sh` for the old privileged build/access-check implementation. The source-tree file is now intentionally only a nonprivileged notice, so the stale test failed even though the implementation had moved.
 - **Fix:** Repointed the test to `tools/r2_install_root_bootstrap.sh`, assert the protected-path/root-only contract and embedded unit installation, and keep independent checks on the service runner's writable database paths.
-- **Status:** Test updated; exact-head workflow still needs to confirm the regression is gone.
+- **Status:** Test updated to the trusted-bootstrap contract; workflow verification is tracked in the snapshot below.
 ### AUDIT-009 — overnight core lacked camera device group access
 - **Files:** `R2_Launch_Code.sh`, `deploy/r2-3po.service`, embedded unit in `tools/r2_install_root_bootstrap.sh`, `tests/build_configuration_smoke.py`, `tests/r2_overnight_service_smoke.py`
 - **Severity:** High / vision integration
 - **Evidence:** The isolated Ollama service had `video render` supplementary groups, but the R2 core service only had `audio`. The core's camera/Eyes path runs under the core service UID, so device nodes restricted to the `video` group would remain inaccessible even while the model server had GPU access.
 - **Fix:** Added `video` to the interactive launcher's per-process supplementary groups and added `video render` to the overnight core service unit; synchronized the embedded trusted unit and added regression assertions. The embedded unit consistency check ensures both deployed definitions stay aligned.
-- **Status:** Fixed in source; requires confirmation on the target machine that the groups exist and camera devices are accessible.
+- **Status:** Source fix and unit consistency implemented; target group/device access remains to be confirmed.
 
 
 ### AUDIT-010 — installer had unhandled early exits after executable replacement
@@ -78,14 +78,14 @@ The current review is tracing the changed launcher, chat serialization/context a
 - **Severity:** High / rollback reliability
 - **Evidence:** The explicit rollback path covered systemd activation/readiness failures, but a failure immediately after the atomic executable replacement (for example, the following chmod or a later command under `set -e`) could exit before reaching that path. The prior executable backup would remain unused while the replacement stayed installed.
 - **Fix:** Extended the existing EXIT cleanup trap to restore the previous executable for any nonzero exit after replacement, clean the temporary build, and preserve the existing private-Ollama service-state restoration. The explicit rollback path clears the replacement flag after restoring the prior binary to avoid duplicate rollback. If a first install has no previous binary, the trap stops and disables the failed R2 service, then removes the failed replacement rather than leaving it runnable.
-- **Status:** Implemented; exact-head workflow and review of failure ordering still pending.
+- **Status:** Source fix implemented and manually reviewed; target failure-injection remains unperformed.
 ### AUDIT-011 — system-override clipping could split a UTF-8 code point
 - **File:** `r2.c`
 - **Severity:** Medium / prompt reliability
 - **Evidence:** When a long system override exceeded its assigned budget, the sentence-boundary search fell back to the midpoint of the byte budget if it found no punctuation. That midpoint was not guaranteed to be a UTF-8 boundary, even though the rest of the serializer uses UTF-8-safe clipping. Passing the resulting byte prefix to json-c could produce invalid UTF-8 and fail or corrupt a request.
 - **Fix:** Re-align the chosen override length with `r2_utf8_safe_prefix_length()` after sentence-boundary selection and before constructing the bounded JSON string.
 - **Regression coverage:** Extended `tests/prompt_budget_smoke.py` to require that the final UTF-8 alignment occurs after the boundary choice and before serialization.
-- **Status:** Source fix and regression assertion committed on the candidate branch. Exact-head workflow and continued semantic review remain open.
+- **Status:** Source fix and regression assertion implemented; workflow verification is tracked below.
 
 ### AUDIT-012 — installer could leave the private Ollama service in the wrong state after an early failure
 - **File:** `tools/r2_install_root_bootstrap.sh`
@@ -93,14 +93,33 @@ The current review is tracing the changed launcher, chat serialization/context a
 - **Evidence:** The installer stopped `r2-ollama.service` before copying the model store. Failures in the model copy, build, or real model preflight exited through `fail()` without restoring whether the service had been active/enabled before the attempt. A failed install could therefore strand an existing model service stopped, or leave a previously disabled service enabled after a failed preflight.
 - **Fix:** Capture the original active/enabled state before the first service mutation. A single exit cleanup handler now restores that state on unsuccessful exits; if rollback has successfully restarted the previous R2 core, it leaves the model service available to that core. Successful deployment suppresses restoration.
 - **Regression coverage:** Added a focused installer lifecycle assertion to `tests/r2_overnight_service_smoke.py`.
-- **Status:** Source fix and regression assertion committed on the candidate branch; the exact new head still needs a full manual review and workflow result. This does not close target-host acceptance.
+- **Status:** Source fix and regression assertion implemented; lifecycle ordering was manually reviewed. This does not close target-host acceptance.
 
 
 
 
-### AUDIT-011 — rollout documentation disagreed with effective GPU and firewall policies
+### AUDIT-013 — rollout documentation disagreed with effective GPU and firewall policies
 - **File:** `docs/overnight-service.md`
 - **Severity:** Medium / operator correctness
 - **Evidence:** The documentation still described automatic GPU placement as the default even though both launch paths request 20 layers/8192 context on the target GTX 1050 Ti. It also implied both local Ollama ports were available to all `r2` processes while the overnight core's stricter firewall chain is inserted first and only permits port 11435.
 - **Fix:** Updated the documented target GPU/context policy, strict mixed-placement requirement, one-time fallback, and effective per-service firewall behavior.
-- **Status:** Fixed in documentation; exact-head workflow pending.
+- **Status:** Documentation corrected; workflow verification is tracked in the snapshot below.
+
+## File-by-file manual review ledger
+
+| File | Manual review performed | Remaining limitation |
+|---|---|---|
+| `r2.c` | Traced authoritative current-turn selection, serialized request construction, UTF-8-safe clipping, system-context priority/budgeting, response-channel parsing, visible-answer recovery, tool-result reinsertion, and foreground/background cancellation. | No target-model conversation run is available from this code-review environment. |
+| `R2_Launch_Code.sh` | Traced build/preflight order, GPU/context default and fallback, per-process audio/video groups, network-lock installation and cleanup, and nonzero-exit cleanup. | Camera/microphone/audio device access needs one target-host acceptance pass. |
+| `tools/r2_service_runner.sh` | Traced runtime permission checks, private endpoint pinning, systemd-inhibit self-exec, preservation of default provenance, mixed-placement preflight, fallback, and service startup. | The GTX 1050 Ti's actual VRAM/RAM allocation is host-only evidence. |
+| `tools/r2_install_root_bootstrap.sh` | Traced root-only protected-path guard, fixed PATH, mutable operations dropped to `r2`, DB snapshot/audit, model copy, exact embedded unit content, preflight-before-replacement, rollback, and private-Ollama state restoration. | The protected bootstrap must be installed and verified root-owned on the target; failure-injection has not been run there. |
+| `tools/preflight_ollama_model.py` | Traced endpoint allowlist, installed-model check, real text generation, generated known-color PNG vision request, response validation, context/GPU options, and required mixed-placement report. | Must observe the actual target API's `size`/`size_vram` values. |
+| `tools/copy_ollama_model.py` | Reviewed source-store discovery, manifest/layer digest validation, path/symlink rejection, verified atomic blob/manifest copy, and ownership handling. | Actual host model-store permissions and manifest must be confirmed by preflight. |
+| `tools/install_r2_overnight.sh` | Confirmed it is now a nonprivileged notice and refuses root execution; it no longer acts as the privileged deployment entrypoint. | None in its intended role. |
+| `deploy/r2-3po.service` and `deploy/r2-ollama.service` | Reviewed account/device groups, sandbox paths, endpoint environment, firewall-chain setup/cleanup, restart/dependency behavior, and the effective stricter core egress policy. Embedded copies were compared byte-for-byte with the repository units. | Actual group existence, device permissions, and firewall behavior need host acceptance. |
+| `tests/build_configuration_smoke.py`, `tests/gpu_context_budget_smoke.py`, `tests/ollama_preflight_smoke.py`, `tests/r2_overnight_service_smoke.py`, `tests/test_overnight_permission_checks.sh`, and prompt/context regression tests | Reviewed assertions against the actual implementation; corrected stale installer/group assertions and added regression coverage for GPU placement, fallback provenance, embedded units, camera groups, and early rollback. | Tests cannot substitute for hardware acceptance. |
+| `docs/overnight-service.md`, `docs/rollout-readiness.md`, `docs/conversation-quality-regression.md` | Reviewed installation sequence, root trust boundary, effective firewall behavior, GPU/context policy, and acceptance checklist for consistency with source. | The acceptance checklist must be completed on the target machine. |
+
+## Verification snapshot
+
+The full GitHub Actions workflow passed for candidate code head `67ac3f345143d7664df42862521dcbb0f8713448`. The current audit-log/documentation cleanup is a later commit and must receive its own exact-head workflow result. This is recorded separately from manual source review: neither a passing workflow nor this table establishes that the physical machine has passed acceptance.
