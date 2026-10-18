@@ -81,3 +81,12 @@ The current review is tracing the changed launcher, chat serialization/context a
 - **Regression coverage:** Added a focused installer lifecycle assertion to `tests/r2_overnight_service_smoke.py`.
 - **Status:** Source fix and regression assertion committed on the candidate branch; the exact new head still needs a full manual review and workflow result. This does not close target-host acceptance.
 
+
+
+### AUDIT-011 — system-override clipping could split a UTF-8 code point
+- **File:** `r2.c`
+- **Severity:** Medium / prompt reliability
+- **Evidence:** When a long system override exceeded its assigned budget, the sentence-boundary search fell back to the midpoint of the byte budget if it found no punctuation. That midpoint was not guaranteed to be a UTF-8 boundary, even though the rest of the serializer uses UTF-8-safe clipping. Passing the resulting byte prefix to json-c could produce invalid UTF-8 and fail or corrupt a request.
+- **Fix:** Re-align the chosen override length with `r2_utf8_safe_prefix_length()` after sentence-boundary selection and before constructing the bounded JSON string.
+- **Regression coverage:** Extended `tests/prompt_budget_smoke.py` to require that the final UTF-8 alignment occurs after the boundary choice and before serialization.
+- **Status:** Source fix and regression assertion committed on the candidate branch. Exact-head workflow and continued semantic review remain open.
