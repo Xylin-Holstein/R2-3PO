@@ -125,7 +125,9 @@ for vendor_file in /sys/bus/pci/devices/*/vendor; do
     [[ -r "$vendor_file" ]] || continue
     R2_NVIDIA_VENDOR=""
     IFS= read -r R2_NVIDIA_VENDOR < "$vendor_file" || continue
-    if [[ "$R2_NVIDIA_VENDOR" == "0x10de" ]]; then
+    R2_NVIDIA_CLASS=""
+    IFS= read -r R2_NVIDIA_CLASS < "${vendor_file%/vendor}/class" 2>/dev/null || continue
+    if [[ "$R2_NVIDIA_VENDOR" == "0x10de" && "$R2_NVIDIA_CLASS" == 0x03* ]]; then
         R2_NVIDIA_PCI_PRESENT=1
         break
     fi
