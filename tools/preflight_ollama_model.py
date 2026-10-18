@@ -132,6 +132,7 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
         return False
 
     gpu_offload_verified = False
+    mixed_placement_verified = False
     if gpu_layers == 0:
         print("GPU policy: automatic placement (no explicit layer count sent).")
     else:
@@ -163,6 +164,7 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
                 except (TypeError, ValueError):
                     total_size = 0
                 if total_size > vram:
+                    mixed_placement_verified = True
                     print(f"Mixed placement: model process reports {total_size / (1024 ** 3):.2f} GiB total with {vram / (1024 ** 3):.2f} GiB in VRAM; remaining model/runtime memory is outside GPU VRAM.")
             else:
                 print("GPU verification: Ollama reports no VRAM allocation; inference may be CPU-only.")
@@ -173,8 +175,14 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
     # not enough: require Ollama's process report to confirm that some model
     # memory really landed in VRAM. CPU-only success must not masquerade as a
     # successful GTX 1050 Ti policy preflight.
-    if require_gpu_offload and (gpu_layers == 0 or not gpu_offload_verified):
-        print("ERROR: GPU offload was required but Ollama did not report positive model VRAM allocation.", file=sys.stderr)
+    if require_gpu_offload and (
+        gpu_layers == 0 or not gpu_offload_verified or not mixed_placement_verified
+    ):
+        print(
+            "ERROR: mixed CPU/GPU placement was required but Ollama did not report "
+            "both positive VRAM allocation and total model memory greater than VRAM.",
+            file=sys.stderr,
+        )
         return False
 
     print(f"Local Ollama is ready: {MODEL} completed a real chat generation (reply omitted).")
