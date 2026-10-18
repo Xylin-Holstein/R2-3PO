@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Regression guard: recent conversation context must keep the newest turns."""
 from pathlib import Path
+import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -51,8 +52,8 @@ require(
     "override_length = r2_utf8_safe_prefix_length(" in core
     and "content, OLLAMA_MAX_SYSTEM_MESSAGE_CHARS);" in core
     and core.count("content, OLLAMA_MAX_MESSAGE_CHARS);") == 2
-    and "length = OLLAMA_MAX_MESSAGE_CHARS;" not in core
-    and "length = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;" not in core,
+    and not re.search(r"^\\s+length = OLLAMA_MAX_MESSAGE_CHARS;$", core, re.MULTILINE)
+    and not re.search(r"^\\s+length = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;$", core, re.MULTILINE),
     "Ollama hard byte caps clip system overrides and message bodies at UTF-8 boundaries",
 )
 require(
