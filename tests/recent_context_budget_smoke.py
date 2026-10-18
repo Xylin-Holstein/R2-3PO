@@ -77,4 +77,19 @@ require(
     ),
     "every per-message and system-override byte cap preserves UTF-8 boundaries",
 )
+collector_start = core.index("static char *r2_collect_associated_records(")
+collector_end = core.index("static void r2_append_association_section", collector_start)
+collector = core[collector_start:collector_end]
+require(
+    "size_t content_budget = remaining - separator_length;" in collector
+    and "r2_utf8_safe_prefix_length(found, n)" in collector
+    and "if (n == 0)\n            n = max_chars - used;" not in collector,
+    "associated-memory collection never expands a short result into an out-of-bounds copy",
+)
+require(
+    "r2_utf8_safe_prefix_length(context, max_chars)" in core
+    and '"%s: %.*s\\n"' in core
+    and "%.1000s" not in core,
+    "recent-memory history caps preserve UTF-8 and use the selected safe prefix length",
+)
 print("Recent conversation context budget smoke passed.")
