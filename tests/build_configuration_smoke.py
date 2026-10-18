@@ -12,6 +12,21 @@ core = (ROOT / "r2.c").read_text(encoding="utf-8")
 installer = (ROOT / "tools/install_r2_overnight.sh").read_text(encoding="utf-8")
 reality = (ROOT / "Reality.c").read_text(encoding="utf-8")
 
+require(
+    'run_as_r2 python3 "$MODEL_COPY_SCRIPT"' in installer
+    and 'run_as_r2 make -C "$R2_SOURCE" clean all TARGET="$TEMP_EXEC"' in installer
+    and 'root_run python3 "$MODEL_COPY_SCRIPT"' not in installer
+    and 'root_run make -C "$R2_SOURCE"' not in installer,
+    "mutable model-copy script and build system run as r2, never as root",
+)
+require(
+    'root_run chown r2:r2 "$TEMP_EXEC"' not in installer
+    and 'root_run chown r2:r2 "$R2_EXEC"' not in installer
+    and 'root_run chown r2:r2 "$BACKUP_EXEC"' not in installer
+    and 'run_as_r2 mv -f "$TEMP_EXEC" "$R2_EXEC"' in installer,
+    "writable runtime paths are not passed to privileged ownership-changing operations",
+)
+
 required_sources = (
     "r2.c", "shell.c", "r2_diary.c", "Log.c", "Reality.c", "Addiction.c",
     "Reward.c", "AlternateSelf.c", "Visual.c", "Ears.c", "Eyes.c",
