@@ -27,7 +27,9 @@ if 'R2_OLLAMA_NUM_GPU="${R2_OLLAMA_NUM_GPU}"' not in launcher:
     raise SystemExit("Interactive launcher must pass GPU layer policy through the sanitized runtime environment.")
 if 'R2_OLLAMA_NUM_CTX="${R2_OLLAMA_NUM_CTX:-}"' not in launcher:
     raise SystemExit("Interactive launcher must preserve the optional adaptive context override.")
-if 'getenv("R2_OLLAMA_NUM_GPU")' not in visual or 'visual_json_object_add_checked(options, "num_gpu", json_object_new_int((int)gpu_layers))' not in visual:
+if ('getenv("R2_OLLAMA_NUM_GPU")' not in visual
+        or "visual_json_object_add_checked(" not in visual
+        or '"num_gpu", json_object_new_int((int)gpu_layers)' not in visual):
     raise SystemExit("Vision requests must use the same GPU layer policy as chat.")
 if "GTX 1050 Ti" not in runner or "export R2_OLLAMA_NUM_GPU=20" not in runner:
     raise SystemExit("Overnight service runner must select partial offload when the GTX 1050 Ti is present.")
