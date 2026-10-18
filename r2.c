@@ -4787,6 +4787,37 @@ static int r2_reply_reverses_speaker_roles(const char *query, const char *reply)
     return 1;
 }
 
+static int r2_reply_contains_known_failure_phrase(const char *reply)
+{
+    if (!reply)
+        return 0;
+    static const char *const failure_phrases[] = {
+        "jumbled set of sounds",
+        "jumbled set of words",
+        "appears to be gibberish",
+        "appears to be nonsense",
+        "your message is unintelligible",
+        "message is unintelligible",
+        "unable to understand your message",
+        "cannot understand your message",
+        "can't understand what you're saying",
+        "cannot make sense of your message",
+        "can't make sense of your message",
+        "not a coherent question",
+        "random assortment of sounds",
+        "random string of words",
+        "that's a bit garbled",
+        "that’s a bit garbled",
+        "that is a bit garbled"
+    };
+    for (size_t i = 0; i < sizeof(failure_phrases) / sizeof(failure_phrases[0]); ++i) {
+        if (strcasestr(reply, failure_phrases[i]))
+            return 1;
+    }
+
+    return 0;
+}
+
 static int r2_reply_misclassifies_plain_text(const char *query, const char *reply)
 {
     if (!query || !reply)
@@ -4838,22 +4869,6 @@ static int r2_reply_misclassifies_plain_text(const char *query, const char *repl
          strcasestr(query, "can't understand") ||
          strcasestr(query, "cannot understand"));
 
-    if (!reports_r2_output_problem && strlen(query) < 24)
-        return 0;
-
-    size_t words = 0;
-    int in_word = 0;
-    for (const unsigned char *p = (const unsigned char *)query; *p; ++p) {
-        if (isalnum(*p)) {
-            if (!in_word) ++words;
-            in_word = 1;
-        } else {
-            in_word = 0;
-        }
-    }
-    if (!reports_r2_output_problem && words < 5)
-        return 0;
-
     /*
      * User feedback that R2's previous output was garbled is itself a clear,
      * meaningful message. Do not let the words "gibberish" or "unintelligible"
@@ -4871,6 +4886,26 @@ static int r2_reply_misclassifies_plain_text(const char *query, const char *repl
                 return 0;
         }
     }
+
+    int reply_has_failure_phrase = r2_reply_contains_known_failure_phrase(reply);
+    if (!reports_r2_output_problem && reply_has_failure_phrase)
+        return 1;
+
+    if (!reports_r2_output_problem && strlen(query) < 24)
+        return 0;
+
+    size_t words = 0;
+    int in_word = 0;
+    for (const unsigned char *p = (const unsigned char *)query; *p; ++p) {
+        if (isalnum(*p)) {
+            if (!in_word) ++words;
+            in_word = 1;
+        } else {
+            in_word = 0;
+        }
+    }
+    if (!reports_r2_output_problem && words < 5)
+        return 0;
 
     /*
      * If the user is correcting R2's own prior output, a reply that does not
@@ -4895,29 +4930,7 @@ static int r2_reply_misclassifies_plain_text(const char *query, const char *repl
         }
         if (!acknowledges_or_repairs)
             return 1;
-    }
-
-    static const char *const failure_phrases[] = {
-        "jumbled set of sounds",
-        "jumbled set of words",
-        "appears to be gibberish",
-        "appears to be nonsense",
-        "your message is unintelligible",
-        "message is unintelligible",
-        "unable to understand your message",
-        "cannot understand your message",
-        "can't understand what you're saying",
-        "cannot make sense of your message",
-        "can't make sense of your message",
-        "not a coherent question",
-        "random assortment of sounds",
-        "random string of words",
-        "that's a bit garbled",
-        "that’s a bit garbled",
-        "that is a bit garbled"
-    };
-    for (size_t i = 0; i < sizeof(failure_phrases) / sizeof(failure_phrases[0]); ++i) {
-        if (strcasestr(reply, failure_phrases[i]))
+        if (reply_has_failure_phrase)
             return 1;
     }
 
