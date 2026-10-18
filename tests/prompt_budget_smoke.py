@@ -82,9 +82,24 @@ for required in (
     'json_object_object_add(override_message, "content",',
     'bounded_override) != 0',
     'json_object_put(bounded_override);',
+    "override_length = r2_utf8_safe_prefix_length(system_override, override_length);",
 ):
     if required not in core:
         raise SystemExit(f"Adaptive prompt budget is missing its context safeguard: {required}")
+
+# The sentence-boundary search can fall back to an arbitrary byte offset.
+# Confirm that the final system-override cap is re-aligned before JSON creation.
+override_clip_start = core.find("if (override_length > override_budget)")
+override_clip_end = core.find("size_t total_chars = override_length;", override_clip_start)
+if override_clip_start < 0 or override_clip_end < 0:
+    raise SystemExit("Could not isolate the system-override clipping path")
+override_clip = core[override_clip_start:override_clip_end]
+boundary_choice = override_clip.find("override_length = boundary >=")
+utf8_alignment = override_clip.find(
+    "override_length = r2_utf8_safe_prefix_length(system_override, override_length);"
+)
+if boundary_choice < 0 or utf8_alignment <= boundary_choice:
+    raise SystemExit("System-override clipping can split a multibyte UTF-8 character")
 
 def allocation_for_context(num_ctx: int, num_predict: int, override_length: int,
                            current_user_reserve: int = 1500) -> tuple[int, int, int, int, int, int, int, int, int]:
