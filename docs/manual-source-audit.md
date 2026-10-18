@@ -31,3 +31,10 @@ This is a code-review log, not a CI report. Each finding must be tied to the act
 ## Audit scope and rule
 
 The current review is tracing the changed launcher, chat serialization/context allocator, tool-result history, model copier, preflight, service runner, installer, unit files, and the tests that assert those contracts. Findings are added here as concrete source defects are confirmed. “Not found yet” is not equivalent to “proven correct,” and neither syntax checks nor PR status closes a semantic finding.
+
+### AUDIT-004 — failed private-model startup replaced the prior executable too early
+- **File:** `tools/install_r2_overnight.sh`
+- **Severity:** Medium / rollout reliability
+- **Evidence:** The installer previously replaced `$R2_EXEC` before starting the dedicated Ollama service and proving it could generate a real response. If model startup or model preflight failed, the known-good executable had already been displaced and the rollback routine was not invoked on those early exits.
+- **Fix:** Keep the freshly built binary at its unique temporary path until the private Ollama service passes the real generation preflight. Only then preserve the old executable and atomically replace it. Add a regression assertion that the real model preflight precedes the backup/replacement sequence.
+- **Status:** Fixed in the current candidate head; workflow result for the resulting head must be checked.
