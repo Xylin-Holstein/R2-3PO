@@ -175,27 +175,9 @@ run_as_r2 make -C "$R2_SOURCE" clean all TARGET="$TEMP_EXEC"
 [[ -x "$TEMP_EXEC" ]] || fail "build completed without producing $TEMP_EXEC."
 run_as_r2 chmod 0755 "$TEMP_EXEC"
 
-# Preserve the last known executable before installing the new build. Refuse
-# symlinks and unexpected file types rather than backing up an ambiguous target.
-if [[ -L "$R2_EXEC" ]]; then
-    fail "refusing symlinked existing executable: $R2_EXEC"
-fi
-if [[ -e "$R2_EXEC" ]]; then
-    [[ -f "$R2_EXEC" && -x "$R2_EXEC" ]] ||
-        fail "existing executable is not a regular executable file: $R2_EXEC"
-    BACKUP_EXEC="$(run_as_r2 mktemp "$R2_ROOT/r2.previous.XXXXXX")" ||
-        fail "could not reserve a rollback copy path as r2."
-    if ! run_as_r2 cp "$R2_EXEC" "$BACKUP_EXEC"; then
-        run_as_r2 rm -f "$BACKUP_EXEC"
-        BACKUP_EXEC=""
-        fail "could not preserve the previous executable; existing installation was left untouched."
-    fi
-    run_as_r2 chmod 0755 "$BACKUP_EXEC"
-    log "Previous executable preserved at $BACKUP_EXEC"
-fi
-
-run_as_r2 mv -f "$TEMP_EXEC" "$R2_EXEC"
-run_as_r2 chmod 0755 "$R2_EXEC"
+# Keep the newly built executable at TEMP_EXEC until the private Ollama
+# service has passed its real inference preflight. A model-server failure must
+# not replace the last known executable.
 
 # Install both isolated model and R2 units. The FX collection stays on the host at R2_sounds/FX.
 # These runner files live in the runtime-writable tree. Never chmod them as root:
@@ -218,6 +200,28 @@ if ! run_as_r2 env R2_MODEL="$R2_MODEL" R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL"
     root_run systemctl stop r2-ollama.service >/dev/null 2>&1 || true
     fail "R2's private Ollama server did not pass a real $R2_MODEL generation test; R2 was not started."
 fi
+
+# Preserve the last known executable only after the private model is usable.
+# Refuse symlinks and unexpected file types rather than backing up an ambiguous target.
+if [[ -L "$R2_EXEC" ]]; then
+    fail "refusing symlinked existing executable: $R2_EXEC"
+fi
+if [[ -e "$R2_EXEC" ]]; then
+    [[ -f "$R2_EXEC" && -x "$R2_EXEC" ]] ||
+        fail "existing executable is not a regular executable file: $R2_EXEC"
+    BACKUP_EXEC="$(run_as_r2 mktemp "$R2_ROOT/r2.previous.XXXXXX")" ||
+        fail "could not reserve a rollback copy path as r2."
+    if ! run_as_r2 cp "$R2_EXEC" "$BACKUP_EXEC"; then
+        run_as_r2 rm -f "$BACKUP_EXEC"
+        BACKUP_EXEC=""
+        fail "could not preserve the previous executable; existing installation was left untouched."
+    fi
+    run_as_r2 chmod 0755 "$BACKUP_EXEC"
+    log "Previous executable preserved at $BACKUP_EXEC"
+fi
+
+run_as_r2 mv -f "$TEMP_EXEC" "$R2_EXEC"
+run_as_r2 chmod 0755 "$R2_EXEC"
 
 log "Enabling R2 at boot and starting the overnight service..."
 STARTED_AT="$(date '+%Y-%m-%d %H:%M:%S')"
