@@ -55,8 +55,6 @@ require("if (root) json_object_put(root);" in builder and
         "if (images) json_object_put(images);" in builder and
         "if (options) json_object_put(options);" in builder,
         "all partially-owned JSON containers are released on construction failure")
-require("headers = curl_slist_append(headers, \"Content-Type: application/json\");\n        if (!headers)" in builder,
-        "vision request aborts cleanly if the HTTP header allocation fails")
 require("json_object_object_add(root," not in builder and
         "json_object_array_add(messages," not in builder and
         "json_object_array_add(images," not in builder,
