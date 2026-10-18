@@ -223,8 +223,16 @@ class OvernightServiceTests(unittest.TestCase):
         installer = (ROOT / "tools/r2_install_root_bootstrap.sh").read_text(encoding="utf-8")
         self.assertIn("OLLAMA_WAS_ACTIVE=0", installer)
         self.assertIn("OLLAMA_WAS_ENABLED=0", installer)
-        self.assertIn("systemctl is-active --quiet r2-ollama.service", installer)
-        self.assertIn("systemctl is-enabled --quiet r2-ollama.service", installer)
+        self.assertIn(
+            'OLLAMA_ACTIVE_STATE="$(root_run systemctl is-active r2-ollama.service 2>/dev/null || true)"',
+            installer,
+        )
+        self.assertIn(
+            'OLLAMA_ENABLED_STATE="$(root_run systemctl is-enabled r2-ollama.service 2>/dev/null || true)"',
+            installer,
+        )
+        self.assertIn("active) OLLAMA_WAS_ACTIVE=1 ;;", installer)
+        self.assertIn("enabled|enabled-runtime|linked|linked-runtime) OLLAMA_WAS_ENABLED=1 ;;", installer)
         self.assertIn("OLLAMA_STATE_CAPTURED=1", installer)
         self.assertIn('if [[ "$INSTALL_SUCCEEDED" != "1"', installer)
         self.assertIn('R2_ROLLBACK_RESTARTED=1', installer)
