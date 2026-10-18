@@ -2,7 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-INSTALLER="$ROOT/tools/install_r2_overnight.sh"
+BOOTSTRAP="$ROOT/tools/r2_install_root_bootstrap.sh"
+WRAPPER="$ROOT/tools/install_r2_overnight.sh"
 RUNNER="$ROOT/tools/r2_service_runner.sh"
 
 fail() {
@@ -10,22 +11,39 @@ fail() {
     exit 1
 }
 
-bash -n "$INSTALLER" || fail "overnight installer has a shell syntax error."
+bash -n "$BOOTSTRAP" || fail "trusted bootstrap has a shell syntax error."
+bash -n "$WRAPPER" || fail "source-tree notice has a shell syntax error."
 bash -n "$RUNNER" || fail "overnight service runner has a shell syntax error."
-[[ -x "$INSTALLER" ]] || fail "installer lost its executable bit in the Git tree."
+[[ -x "$BOOTSTRAP" ]] || fail "trusted bootstrap lost its executable bit in the Git tree."
+[[ -x "$WRAPPER" ]] || fail "source-tree notice lost its executable bit in the Git tree."
 
-# The installer must prove that r2 can traverse, read, and write the canonical
-# workspace before it modifies or activates the overnight service.
-grep -Fq 'run_as_r2 test -x "$path"' "$INSTALLER" ||
-    fail "installer no longer verifies workspace traversal as r2."
-grep -Fq 'run_as_r2 test -r "$path"' "$INSTALLER" ||
-    fail "installer no longer verifies workspace readability as r2."
-grep -Fq 'run_as_r2 test -w "$path"' "$INSTALLER" ||
-    fail "installer no longer verifies workspace writability as r2."
-grep -Fq 'runuser -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2' "$INSTALLER" ||
-    fail "root-run installer no longer drops to the r2 account for access checks."
-grep -Fq 'sudo -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2' "$INSTALLER" ||
-    fail "unprivileged installer no longer checks access through sudo as r2."
+# The privileged entrypoint must only run from the protected root-owned path.
+grep -Fq 'BOOTSTRAP_PATH="/usr/local/sbin/r2-3po-install"' "$BOOTSTRAP" ||
+    fail "bootstrap no longer pins its trusted installed path."
+grep -Fq 'refusing privileged execution outside the root-owned bootstrap path' "$BOOTSTRAP" ||
+    fail "bootstrap no longer refuses execution from the mutable checkout."
+grep -Fq '[[ "$EUID" -eq 0 ]]' "$BOOTSTRAP" ||
+    fail "bootstrap no longer requires root execution."
+grep -Fq 'runuser -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2' "$BOOTSTRAP" ||
+    fail "trusted bootstrap no longer drops to the r2 account for mutable build/model/database operations."
+grep -Fq 'run_as_r2 test -x "$path"' "$BOOTSTRAP" ||
+    fail "bootstrap no longer verifies workspace traversal as r2."
+grep -Fq 'run_as_r2 test -r "$path"' "$BOOTSTRAP" ||
+    fail "bootstrap no longer verifies workspace readability as r2."
+grep -Fq 'run_as_r2 test -w "$path"' "$BOOTSTRAP" ||
+    fail "bootstrap no longer verifies workspace writability as r2."
+grep -Fq 'root_run install -o root -g root -m 0644 "$UNIT_STAGING_DIR/r2-ollama.service"' "$BOOTSTRAP" ||
+    fail "bootstrap no longer installs the embedded trusted Ollama unit."
+grep -Fq 'root_run install -o root -g root -m 0644 "$UNIT_STAGING_DIR/r2-3po.service"' "$BOOTSTRAP" ||
+    fail "bootstrap no longer installs the embedded trusted R2 unit."
+
+# The source-tree wrapper is never a privileged deployment entrypoint.
+grep -Fq 'do not execute this mutable source-tree script as root' "$WRAPPER" ||
+    fail "source-tree notice no longer warns against privileged execution."
+grep -Fq '/usr/local/sbin/r2-3po-install' "$WRAPPER" ||
+    fail "source-tree notice no longer points to the protected bootstrap."
+! grep -Fq 'root_run ' "$WRAPPER" ||
+    fail "source-tree notice contains privileged deployment operations."
 
 # The long-running service must independently re-check the same persistent
 # paths on every start, including the diary and existing database files.
@@ -40,4 +58,4 @@ grep -Fq 'refusing symlinked R2 database' "$RUNNER" ||
 grep -Fq 'existing database is not a readable/writable regular file' "$RUNNER" ||
     fail "service runner no longer validates existing database permissions."
 
-echo "Overnight installer permission/readiness regression checks passed."
+echo "Trusted bootstrap and overnight permission/readiness regression checks passed."
