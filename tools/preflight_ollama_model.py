@@ -70,7 +70,7 @@ def _vision_probe_image_base64() -> str:
             else:
                 scanlines.extend((255, 255, 255, 255))  # white background
     png = (
-        b"\\x89PNG\\r\\n\\x1a\\n"
+        b"\x89PNG\r\n\x1a\n"
         + _png_chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0))
         + _png_chunk(b"IDAT", zlib.compress(bytes(scanlines), level=6))
         + _png_chunk(b"IEND", b"")
@@ -189,7 +189,7 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
 
     vision_message = vision_reply.get("message")
     vision_content = vision_message.get("content") if isinstance(vision_message, dict) else None
-    if not isinstance(vision_content, str) or not re.search(r"\\bblue\\b", vision_content, re.IGNORECASE):
+    if not isinstance(vision_content, str) or not re.search(r"\bblue\b", vision_content, re.IGNORECASE):
         print(
             f"ERROR: {MODEL} passed text generation but failed the known-color vision probe "
             "(expected the image-bearing reply to identify the blue square).",
