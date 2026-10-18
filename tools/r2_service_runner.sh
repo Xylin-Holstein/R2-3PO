@@ -81,7 +81,7 @@ fi
 [[ -d "$R2_SOURCE" && ! -L "$R2_SOURCE" && -r "$R2_SOURCE" && -x "$R2_SOURCE" ]] || fail "source/runtime directory is missing, symlinked, or unreadable: $R2_SOURCE"
 [[ -w "$R2_ROOT" && -k "$R2_ROOT" ]] || fail "R2 workspace must be writable by r2 and sticky-protected against source-directory replacement: $R2_ROOT"
 [[ "$(stat -c '%u' "$R2_SOURCE")" == "0" && -k "$R2_SOURCE" && -w "$R2_SOURCE" ]] || fail "R2 source root must be root-owned, sticky, and writable for SQLite data: $R2_SOURCE"
-writable_source_directory="$(find "$R2_SOURCE" -mindepth 1 -type d -writable -print -quit)"
+untrusted_source_directory="$(find "$R2_SOURCE" -mindepth 1 -type d \\( ! -user root -o -writable \\) -print -quit)"
 [[ -z "$writable_source_directory" ]] || fail "runtime-writable nested source directory could permit code replacement: $writable_source_directory"
 writable_code_file="$(find "$R2_SOURCE" -type f -writable \
     ! -name 'r2_memory.db' ! -name 'r2_reality.db' ! -name 'r2_fridge.db' \
