@@ -132,3 +132,10 @@ The full GitHub Actions workflow passed for candidate code head `67ac3f345143d76
 - **Fix:** Preflight now sends a small generated PNG with a known blue square through the same `/api/chat` image payload and the same GPU/context options, then requires the answer to identify the blue square. An image request failure or incorrect result blocks readiness, allowing the existing default-only 20/8192 → 12/4096 fallback to run.
 - **Regression coverage:** `tests/ollama_preflight_smoke.py` verifies PNG construction, policy propagation to the image request, endpoint selection, known-color response checking, and rejection of simulated CUDA OOM.
 - **Status:** Source fix and focused regression tests passed in the 86-step workflow for the reviewed code head; the exact documentation-updated head needs its own final workflow result. Real camera inference still belongs to target-host acceptance.
+
+### AUDIT-014 — broken NVIDIA runtime detection could silently select CPU-only inference
+- **Files:** `R2_Launch_Code.sh`, `tools/r2_service_runner.sh`, `tools/r2_install_root_bootstrap.sh`, `tools/preflight_r2_hardware.sh`, `tests/build_configuration_smoke.py`
+- **Severity:** High / target hardware correctness
+- **Evidence:** GPU layer defaults and the strict mixed-placement requirement were previously enabled only when `nvidia-smi` successfully named the GTX 1050 Ti. If the card remained on the PCI bus but the driver/runtime query failed, the launch paths could fall back to automatic/CPU placement and pass a text/vision generation without proving GPU use.
+- **Fix:** Detect NVIDIA PCI vendor IDs independently. If NVIDIA hardware is present but `nvidia-smi` cannot query a GPU, the interactive launcher, service runner, installer, and read-only hardware preflight now fail closed. Any detected NVIDIA hardware also requires the mixed-placement report; the target GTX 1050 Ti gets the 20-layer/8192-context default and 12-layer/4096-context fallback.
+- **Status:** Implemented in source with static regression assertions; target hardware must still demonstrate the actual driver query and mixed-placement values.
