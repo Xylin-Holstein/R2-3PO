@@ -43,7 +43,7 @@ Follow [the overnight service guide](overnight-service.md) for dependency prepar
 
 The model-copy step validates the Ollama model reference and manifest structure before writing, rejects symlinked source manifests/blob files and source/destination parent components, checks every blob digest and source blob hash, verifies copied content, and uses exclusively-created temporary files for atomic replacement.
 
-On the 4 GiB GTX 1050 Ti, both the interactive launcher and overnight runner first probe the default 20-GPU-layer / 8192-context policy. If real generation fails and both settings were defaults—not explicit operator overrides—they retry once at 12 GPU layers / 4096 context to reduce VRAM/KV-cache pressure. A successful fallback becomes the policy used by the core; if it also fails, startup remains blocked and the failure is reported. It must reject malformed references/manifests and must not follow pre-planted destination or temporary-file symlinks. These checks protect the copy operation; they do not replace the target-host model-generation and GPU-placement checks below.
+On the 4 GiB GTX 1050 Ti, both the interactive launcher and overnight runner first probe the default 20-GPU-layer / 8192-context policy. If real generation fails and both settings were defaults—not explicit operator overrides—they retry once at 12 GPU layers / 4096 context to reduce VRAM/KV-cache pressure. A successful fallback becomes the policy used by the core; if it also fails, startup remains blocked and the failure is reported. On the GTX 1050 Ti path, a generation reply alone is insufficient: preflight must report positive VRAM allocation and total model memory greater than VRAM to confirm mixed CPU/GPU placement. It must reject malformed references/manifests and must not follow pre-planted destination or temporary-file symlinks. These checks protect the copy operation; they do not replace the target-host model-generation and GPU-placement checks below.
 
 **Trusted bootstrap requirement:** the repository now includes `tools/r2_install_root_bootstrap.sh`, which is intended to be installed once as the root-owned `/usr/local/sbin/r2-3po-install`. It contains the systemd unit definitions and does not execute or install privileged unit content from `R2_SOURCE`; the mutable model copier, database audit, preflight, and build all run as `r2`. `tools/install_r2_overnight.sh` is only a nonprivileged notice and must not be run with `sudo`. The trust boundary is addressed only when the root-owned bootstrap has actually been installed from a reviewed release and verified to be root-owned and not group/world-writable. Do not run the mutable source-tree installer as root.
 
@@ -57,7 +57,7 @@ sudo systemctl is-active r2-3po.service
 sudo journalctl -u r2-3po.service -n 100 --no-pager
 ```
 
-A successful service status is only the beginning: confirm the logs show a successful model preflight and no database, permission, or shutdown errors.
+A successful service status is only the beginning: confirm the logs show a successful mixed CPU/GPU model preflight and no database, permission, or shutdown errors.
 
 ## 4. Run real-device acceptance tests
 
