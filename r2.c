@@ -4482,7 +4482,7 @@ static char *ollama_chat_with_limit(
     if (!ollama_response_contract_valid(response_role, response_done)) {
         fprintf(stderr,
                 "[R2 Ollama] rejected response with invalid completion contract: "
-                "role=%s done=%d stage=%s.\\n",
+                "role=%s done=%d stage=%s.\n",
                 response_role, response_done,
                 ollama_audit_stage ? ollama_audit_stage : "unspecified");
         if (r2_log_is_initialized()) {
