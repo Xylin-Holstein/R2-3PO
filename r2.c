@@ -3663,6 +3663,14 @@ static size_t r2_safe_prompt_prefix_length(const char *content,
     return r2_utf8_safe_prefix_length(content, cap);
 }
 
+/* Ollama's non-streaming /api/chat contract must represent one complete
+   assistant turn. Keep this predicate isolated so malformed-response cases
+   can be exercised without a live model server. */
+static int ollama_response_contract_valid(const char *role, int done)
+{
+    return role && strcmp(role, "assistant") == 0 && done == 1;
+}
+
 static char *ollama_chat_with_limit(
     Message *msgs,
     size_t count,
@@ -4408,7 +4416,8 @@ static char *ollama_chat_with_limit(
     size_t thinking_chars = 0;
     int response_done = -1;
     if (json_object_object_get_ex(resp, "message", &msg) && msg) {
-        if (json_object_object_get_ex(msg, "role", &role_obj) && role_obj) {
+        if (json_object_object_get_ex(msg, "role", &role_obj) && role_obj &&
+            json_object_is_type(role_obj, json_type_string)) {
             const char *role = json_object_get_string(role_obj);
             if (role) response_role = role;
         }
@@ -4426,7 +4435,8 @@ static char *ollama_chat_with_limit(
             }
         }
     }
-    if (json_object_object_get_ex(resp, "done", &done_obj) && done_obj)
+    if (json_object_object_get_ex(resp, "done", &done_obj) && done_obj &&
+        json_object_is_type(done_obj, json_type_boolean))
         response_done = json_object_get_boolean(done_obj) ? 1 : 0;
     if (json_object_object_get_ex(resp, "done_reason", &done_reason_obj) &&
         done_reason_obj) {
@@ -4464,6 +4474,31 @@ static char *ollama_chat_with_limit(
             total_ns > 0 ? (double)total_ns / 1e9 : 0.0, num_ctx,
             (gpu_policy && *gpu_policy) ? gpu_policy : "ollama-auto",
             available_bytes ? (double)available_bytes / (1024.0 * 1024.0 * 1024.0) : 0.0);
+
+    /* A non-streaming Ollama chat response is complete only when the
+       assistant role and boolean done=true contract are both present. A
+       valid JSON body containing a partial or wrong-role message must never
+       be accepted as R2's final answer. */
+    if (!ollama_response_contract_valid(response_role, response_done)) {
+        fprintf(stderr,
+                "[R2 Ollama] rejected response with invalid completion contract: "
+                "role=%s done=%d stage=%s.\\n",
+                response_role, response_done,
+                ollama_audit_stage ? ollama_audit_stage : "unspecified");
+        if (r2_log_is_initialized()) {
+            char details[256];
+            snprintf(details, sizeof(details),
+                     "model=%s; role=%s; done=%d; stage=%s",
+                     MODEL, response_role, response_done,
+                     ollama_audit_stage ? ollama_audit_stage : "unspecified");
+            r2_log_event(R2_LOG_ERROR, "ollama_invalid_completion_contract",
+                         "Ollama returned a chat response that was not a complete assistant turn.",
+                         details, MODEL);
+        }
+        free(result);
+        json_object_put(resp);
+        return NULL;
+    }
 
     if (!result) {
         /*
