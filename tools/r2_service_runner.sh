@@ -64,7 +64,8 @@ log "Ollama GPU layer policy: R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU"
 # On the target GTX 1050 Ti, a successful CPU-only response is not sufficient
 # to declare the requested mixed CPU/GPU policy ready.
 R2_OLLAMA_REQUIRE_GPU_OFFLOAD=0
-if command -v nvidia-smi >/dev/null 2>&1 &&
+if [[ "$R2_OLLAMA_NUM_GPU" != "0" ]] &&
+   command -v nvidia-smi >/dev/null 2>&1 &&
    nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi 'GTX 1050 Ti'; then
     R2_OLLAMA_REQUIRE_GPU_OFFLOAD=1
 fi
