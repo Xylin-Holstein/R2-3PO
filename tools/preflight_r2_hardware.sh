@@ -166,7 +166,7 @@ if [[ -d "$R2_ROOT" && -d "$R2_SOURCE" ]]; then
         fail "r2 must have read/write/traverse access to $path for runtime directories, SQLite, and persistent memory; correct ownership/permissions before launch"
       fi
     done
-    if [[ -k "$R2_ROOT" && -k "$R2_SOURCE" && "$(stat -c '%u' "$R2_SOURCE")" == "0" ]]; then
+    if [[ -k "$R2_ROOT" && "$(stat -c '%u' "$R2_ROOT")" != "$(id -u)" && -k "$R2_SOURCE" && "$(stat -c '%u' "$R2_SOURCE")" == "0" ]]; then
       pass "workspace/source sticky-bit ownership protects trusted code from r2 replacement"
     else
       fail "workspace and root-owned source directories must have sticky-bit protection before privileged installation"
