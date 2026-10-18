@@ -3598,6 +3598,23 @@ static R2SystemContextBudget r2_compute_system_context_budget(size_t system_budg
     return budget;
 }
 
+/* Return a byte prefix ending at a UTF-8 code-point boundary. Prompt
+   budgets are measured in bytes, but model context must remain valid UTF-8. */
+static size_t r2_utf8_safe_prefix_length(const char *content, size_t cap)
+{
+    if (!content || cap == 0)
+        return 0;
+
+    size_t length = strlen(content);
+    if (cap >= length)
+        return length;
+
+    while (cap > 0 &&
+           (((unsigned char)content[cap] & 0xC0U) == 0x80U))
+        --cap;
+    return cap;
+}
+
 static size_t r2_safe_prompt_prefix_length(const char *content,
                                             size_t cap,
                                             int preserve_records)
@@ -3609,20 +3626,20 @@ static size_t r2_safe_prompt_prefix_length(const char *content,
     if (preserve_records) {
         while (boundary > 0 && content[boundary - 1] != '\n')
             --boundary;
-        return boundary > 0 ? boundary : cap;
+        return r2_utf8_safe_prefix_length(content, boundary > 0 ? boundary : cap);
     }
 
     size_t floor = cap * 3 / 4;
     while (boundary > floor) {
         char ch = content[boundary - 1];
         if (ch == '\n')
-            return boundary;
+            return r2_utf8_safe_prefix_length(content, boundary);
         if ((ch == '.' || ch == '!' || ch == '?') &&
             (boundary == cap || isspace((unsigned char)content[boundary])))
-            return boundary;
+            return r2_utf8_safe_prefix_length(content, boundary);
         --boundary;
     }
-    return cap;
+    return r2_utf8_safe_prefix_length(content, cap);
 }
 
 static char *ollama_chat_with_limit(
@@ -3987,7 +4004,7 @@ static char *ollama_chat_with_limit(
                     length = r2_safe_prompt_prefix_length(content, capability_remaining, 0);
             }
             size_t remaining = system_budget > total_chars ? system_budget - total_chars : 0;
-            if (length > remaining) length = remaining;
+            if (length > remaining) length = r2_utf8_safe_prefix_length(content, remaining);
             if (length == 0) continue;
             include[i] = 1;
             limits[i] = length;
@@ -4011,7 +4028,7 @@ static char *ollama_chat_with_limit(
         if (length > OLLAMA_MAX_MESSAGE_CHARS)
             length = OLLAMA_MAX_MESSAGE_CHARS;
         size_t remaining = input_budget - total_chars;
-        if (length > remaining) length = remaining;
+        if (length > remaining) length = r2_utf8_safe_prefix_length(content, remaining);
         if (length > 0) {
             include[current_user_index] = 1;
             limits[current_user_index] = length;
@@ -4031,7 +4048,7 @@ static char *ollama_chat_with_limit(
             length = OLLAMA_MAX_MESSAGE_CHARS;
         if (total_chars >= input_budget) break;
         size_t remaining = input_budget - total_chars;
-        if (length > remaining) length = remaining;
+        if (length > remaining) length = r2_utf8_safe_prefix_length(content, remaining);
         if (length == 0) continue;
         include[index] = 1;
         limits[index] = length;
