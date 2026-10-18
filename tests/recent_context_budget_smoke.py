@@ -47,4 +47,12 @@ require(
     and "pthread_mutex_unlock(&messages_lock);" in builder,
     "history selection and formatting remain protected by the message-history mutex",
 )
+require(
+    "override_length = r2_utf8_safe_prefix_length(" in core
+    and "content, OLLAMA_MAX_SYSTEM_MESSAGE_CHARS);" in core
+    and core.count("content, OLLAMA_MAX_MESSAGE_CHARS);") == 2
+    and "length = OLLAMA_MAX_MESSAGE_CHARS;" not in core
+    and "length = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;" not in core,
+    "Ollama hard byte caps clip system overrides and message bodies at UTF-8 boundaries",
+)
 print("Recent conversation context budget smoke passed.")
