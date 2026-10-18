@@ -58,3 +58,10 @@ The current review is tracing the changed launcher, chat serialization/context a
 - **Evidence:** The runner detects that 20 GPU layers and 8192 context were defaults, then re-execs itself under `systemd-inhibit`. The re-exec inherited the resolved values but the old code reset both `*_DEFAULTED` flags to zero because the values were no longer empty. A failed first preflight therefore skipped the intended 12-layer/4096-context fallback.
 - **Fix:** Initialize the flags from inherited values and export them across the inhibitor re-exec. Updated `tests/gpu_context_budget_smoke.py` to assert that default provenance is preserved and explicit operator settings remain distinguishable.
 - **Status:** Fixed in source; exact-head workflow still pending.
+
+### AUDIT-009 — overnight core lacked camera device group access
+- **Files:** `deploy/r2-3po.service`, embedded unit in `tools/r2_install_root_bootstrap.sh`, `tests/r2_overnight_service_smoke.py`
+- **Severity:** High / vision integration
+- **Evidence:** The isolated Ollama service had `video render` supplementary groups, but the R2 core service only had `audio`. The core's camera/Eyes path runs under the core service UID, so device nodes restricted to the `video` group would remain inaccessible even while the model server had GPU access.
+- **Fix:** Added `video render` to the R2 core service's supplementary groups, synchronized the embedded trusted unit, and added a regression assertion. The embedded unit consistency check ensures both deployed definitions stay aligned.
+- **Status:** Fixed in source; requires confirmation on the target machine that the groups exist and camera devices are accessible.
