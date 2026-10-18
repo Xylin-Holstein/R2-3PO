@@ -95,6 +95,7 @@ cleanup_on_exit() {
         else
             log "ERROR: installer failed after replacing R2, but no prior executable exists to restore."
             root_run systemctl stop r2-3po.service >/dev/null 2>&1 || true
+            root_run systemctl disable r2-3po.service >/dev/null 2>&1 || true
             run_as_r2 rm -f -- "$R2_EXEC" ||
                 log "ERROR: could not remove the failed first-install executable: $R2_EXEC"
             NEW_EXEC_INSTALLED=0
