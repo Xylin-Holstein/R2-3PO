@@ -102,6 +102,21 @@ class OllamaPreflightSmoke(unittest.TestCase):
             self.assertFalse(probe.preflight(timeout=1, require_gpu_offload=True))
         self.assertIn("mixed CPU/GPU placement was required", errors.getvalue())
 
+    def test_automatic_layer_placement_passes_only_with_verified_mixed_use(self) -> None:
+        replies = [
+            {"models": [{"name": "qwen3.5:9b"}]},
+            {"message": {"content": "R2_READY"}},
+            {"message": {"content": "The square is blue."}},
+            {"models": [{"name": "qwen3.5:9b", "size": 500000, "size_vram": 123456}]},
+        ]
+        with patch.dict(probe.os.environ, {"R2_OLLAMA_NUM_GPU": "0", "R2_OLLAMA_NUM_CTX": "8192"}), \
+             patch.object(probe, "_read_json", side_effect=replies) as read, \
+             patch.object(probe.subprocess, "run", return_value=SimpleNamespace(
+                 returncode=0, stdout="NVIDIA GeForce GTX 1050 Ti, 4096 MiB, 128 MiB", stderr=""
+             )):
+            self.assertTrue(probe.preflight(timeout=1, require_gpu_offload=True))
+        self.assertNotIn("num_gpu", read.call_args_list[1].kwargs["payload"]["options"])
+
     def test_unapproved_non_loopback_endpoint_is_rejected(self) -> None:
         errors = io.StringIO()
         with patch.dict(probe.os.environ, {"R2_OLLAMA_BASE_URL": "http://example.com:11435"}), \
