@@ -225,8 +225,10 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn('if [[ "$INSTALL_SUCCEEDED" != "1"', installer)
         self.assertIn('R2_ROLLBACK_RESTARTED=1', installer)
         self.assertIn('INSTALL_SUCCEEDED=1', installer)
+        stop_at = installer.index('root_run systemctl stop r2-ollama.service >/dev/null 2>&1 || true')
+        self.assertLess(installer.index("OLLAMA_STATE_CAPTURED=1"), stop_at)
         self.assertLess(
-            installer.index('root_run systemctl stop r2-ollama.service'),
+            stop_at,
             installer.index('run_as_r2 python3 "$MODEL_COPY_SCRIPT"'),
         )
 
