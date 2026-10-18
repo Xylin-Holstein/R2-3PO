@@ -37,6 +37,8 @@ require(
     '[[ "$EUID" -eq 0 ]]' in installer
     and 'PATH="/usr/sbin:/usr/bin:/sbin:/bin"' in installer
     and 'umask 077' in installer
+    and 'BOOTSTRAP_PATH="/usr/local/sbin/r2-3po-install"' in installer
+    and 'refusing privileged execution outside the root-owned bootstrap path' in installer
     and "R2_OLLAMA_UNIT_EOF" in installer
     and "R2_SERVICE_UNIT_EOF" in installer
     and 'root_run install -o root -g root -m 0644 "$UNIT_STAGING_DIR/r2-ollama.service"' in installer
