@@ -64,7 +64,8 @@ UNIT_STAGING_DIR=""
 
 cleanup_unit_staging() {
     if [[ -n "${UNIT_STAGING_DIR:-}" && -d "$UNIT_STAGING_DIR" ]]; then
-        rm -rf -- "$UNIT_STAGING_DIR"
+        rm -rf -- "$UNIT_STAGING_DIR" ||
+            log "WARNING: could not remove temporary unit staging directory: $UNIT_STAGING_DIR"
     fi
 }
 
