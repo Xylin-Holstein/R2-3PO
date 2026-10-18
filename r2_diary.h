@@ -10,13 +10,17 @@
  *
  * /home/x/R2_Home/
  *
- * ├── R2/
+ * ├── R2/                 (trusted, non-runtime-writable source)
  * │   ├── r2.c
  * │   ├── r2_diary.c
- * │   ├── r2_diary.h
+ * │   └── r2_diary.h
+ * ├── R2_Data/db/          (runtime-writable SQLite data)
  * │   ├── r2_memory.db
+ * │   ├── r2_reality.db
+ * │   ├── r2_fridge.db
+ * │   ├── r2_rewards.db
+ * │   ├── r2_addictions.db
  * │   └── r2_original_conversation.txt
- * │
  * └── R2_Diary/
  *     └── YYYY-MM-DD.md
  *
@@ -38,8 +42,11 @@
 #define R2_WORKSPACE R2_ROOT
 #endif
 
+#ifndef R2_DATA_DIR
+#define R2_DATA_DIR R2_ROOT "/R2_Data/db"
+#endif
 #ifndef R2_DIARY_DATABASE
-#define R2_DIARY_DATABASE R2_HOME "/r2_memory.db"
+#define R2_DIARY_DATABASE R2_DATA_DIR "/r2_memory.db"
 #endif
 #ifndef R2_DIARY_DIR
 #define R2_DIARY_DIR R2_ROOT "/R2_Diary"
