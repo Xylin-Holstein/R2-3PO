@@ -379,7 +379,7 @@ static int make_room_dirs(void)
     snprintf(old_fridge,sizeof(old_fridge),"%s/room/fridge",R2_ROOT);
     snprintf(old_toy_box,sizeof(old_toy_box),"%s/room/toy_box",R2_ROOT);
     snprintf(diary,sizeof(diary),"%s",R2_DIARY_DIR);
-    if(ensure_dir_tree(R2_ROOT)||access(R2_HOME,R_OK|X_OK)!=0||access(R2_DATA_DIR,R_OK|W_OK|X_OK)!=0||ensure_dir_tree(diary)||ensure_dir_tree(room)||
+    if(ensure_dir_tree(R2_ROOT)||access(R2_HOME,R_OK|W_OK|X_OK)!=0||ensure_dir_tree(diary)||ensure_dir_tree(room)||
        ensure_dir_tree(shelf)||ensure_dir_tree(box)||ensure_dir_tree(pockets)||ensure_dir_tree(wallet)||
        ensure_dir_tree(fridge)||ensure_dir_tree(piggybank)) {
         fprintf(stderr, "[R2 Reality] Could not create room/shelf/box directories under %s\n", R2_ROOT);
@@ -984,7 +984,7 @@ static int fridge_migrate_schema(void)
 static int fridge_init(void)
 {
     char path[1200];
-    snprintf(path, sizeof(path), "%s/r2_fridge.db", R2_DATA_DIR);
+    snprintf(path, sizeof(path), "%s/r2_fridge.db", R2_HOME);
     pthread_mutex_lock(&fridge_lock);
     int rc = sqlite3_open_v2(path, &fridge_db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, NULL);
     if (rc != SQLITE_OK) {
@@ -1874,7 +1874,7 @@ int r2_reality_init(void)
     if (make_room_dirs() != 0) { pthread_mutex_unlock(&reality_lock); return -1; }
 
     char reality_path[1200];
-    snprintf(reality_path, sizeof(reality_path), "%s/r2_reality.db", R2_DATA_DIR);
+    snprintf(reality_path, sizeof(reality_path), "%s/r2_reality.db", R2_HOME);
     int rc = sqlite3_open_v2(reality_path, &reality_db,
         SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, NULL);
     if (rc != SQLITE_OK) {
@@ -2392,7 +2392,7 @@ static sqlite3_int64 real_epoch_seconds(void)
 
 static char *origin_age_context(void)
 {
-    char path[1400]; snprintf(path,sizeof(path),"%s/r2_original_conversation.txt",R2_DATA_DIR);
+    char path[1400]; snprintf(path,sizeof(path),"%s/r2_original_conversation.txt",R2_HOME);
     sqlite3_int64 started=0; pthread_mutex_lock(&reality_lock); sqlite3_stmt *st=NULL;
     if(reality_db&&sqlite3_prepare_v2(reality_db,"SELECT value FROM r2_reality_meta WHERE key='original_conversation_birth_time'",-1,&st,NULL)==SQLITE_OK&&sqlite3_step(st)==SQLITE_ROW){
         const unsigned char *v=sqlite3_column_text(st,0);if(v)started=(sqlite3_int64)strtoll((const char*)v,NULL,10);}
