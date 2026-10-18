@@ -238,10 +238,18 @@ class OvernightServiceTests(unittest.TestCase):
             model_copy_section,
         )
         self.assertLess(installer.index("OLLAMA_STATE_CAPTURED=1"), stop_at)
-        self.assertLess(
+        state_check_at = installer.index(
+            'OLLAMA_UNIT_STATE="$(root_run systemctl is-active r2-ollama.service',
             stop_at,
-            installer.index('run_as_r2 python3 "$MODEL_COPY_SCRIPT"', model_copy_section),
         )
+        model_copy_at = installer.index('run_as_r2 python3 "$MODEL_COPY_SCRIPT"', model_copy_section)
+        self.assertLess(stop_at, state_check_at)
+        self.assertLess(state_check_at, model_copy_at)
+        self.assertIn("pgrep -u r2 -x ollama", installer)
+        self.assertIn("OLLAMA_ACTIVE_STATE=", installer)
+        self.assertIn("OLLAMA_ENABLED_STATE=", installer)
+        self.assertIn("could not verify that the private Ollama service stopped", installer)
+        self.assertIn("could not verify that no r2-owned Ollama process remains", installer)
 
 if __name__ == "__main__":
     unittest.main()

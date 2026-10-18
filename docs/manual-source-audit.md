@@ -148,3 +148,12 @@ The full 86-step GitHub Actions workflow passed for candidate code head `5bb6ff4
 - **Fix:** Check the existing known-failure phrase set before the minimum-length and word-count guards, while retaining the audio/transcription-topic exemption and the separate acknowledgment path for user feedback about R2's own output.
 - **Regression coverage:** Added a short-turn test that requires the explicit misclassification phrase to trigger recovery; existing short-conversation and audio/transcription tests remain in place.
 - **Status:** Source fix and focused regression test passed in the full workflow at code head `5bb6ff4f2e2b6b95b04dcd5bc2285d0c75941b42`; target-host acceptance remains required.
+
+
+### AUDIT-017 — model-store copy could proceed without proving the private server had stopped
+- **File:** `tools/r2_install_root_bootstrap.sh`
+- **Severity:** High / persistent model-store integrity
+- **Evidence:** The installer ignored `systemctl stop` failure and treated any nonzero `systemctl is-active --quiet` result as proof the service was inactive. A systemd/D-Bus query error or an orphaned `ollama` process could therefore be mistaken for a stopped server, allowing the copier to mutate the live private model store.
+- **Fix:** Capture the prior active/enabled states as explicit strings and fail on unrecognized/query-error states. After requesting stop, accept only inactive/failed/unknown unit states, then verify there is no `ollama` process owned by `r2`; any ambiguous state blocks copying.
+- **Regression coverage:** The overnight service smoke test asserts that post-stop state and orphan-process checks occur before `copy_ollama_model.py` is invoked.
+- **Status:** Source fix and regression assertion are committed; target-host installation still must demonstrate that systemd stops the private model server cleanly.

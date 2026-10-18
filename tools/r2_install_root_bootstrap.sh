@@ -215,12 +215,18 @@ fi
 # Record the private Ollama service's pre-install state before any stop/enable
 # operation. A failed model copy/build/preflight must not strand an existing
 # service in a different state from the one the operator had before installing.
-if root_run systemctl is-active --quiet r2-ollama.service 2>/dev/null; then
-    OLLAMA_WAS_ACTIVE=1
-fi
-if root_run systemctl is-enabled --quiet r2-ollama.service 2>/dev/null; then
-    OLLAMA_WAS_ENABLED=1
-fi
+OLLAMA_ACTIVE_STATE="$(root_run systemctl is-active r2-ollama.service 2>/dev/null || true)"
+case "$OLLAMA_ACTIVE_STATE" in
+    active) OLLAMA_WAS_ACTIVE=1 ;;
+    inactive|failed|unknown) OLLAMA_WAS_ACTIVE=0 ;;
+    *) fail "could not establish the private Ollama service's prior active state; refusing installation." ;;
+esac
+OLLAMA_ENABLED_STATE="$(root_run systemctl is-enabled r2-ollama.service 2>/dev/null || true)"
+case "$OLLAMA_ENABLED_STATE" in
+    enabled|enabled-runtime|linked|linked-runtime) OLLAMA_WAS_ENABLED=1 ;;
+    disabled|static|indirect|masked|masked-runtime|generated|transient|alias|not-found) OLLAMA_WAS_ENABLED=0 ;;
+    *) fail "could not establish the private Ollama service's prior enabled state; refusing installation." ;;
+esac
 OLLAMA_STATE_CAPTURED=1
 
 # The existing design stores five SQLite databases inside R2/ alongside source code.
@@ -265,8 +271,22 @@ log "Database snapshot and integrity audit passed: $SNAPSHOT_DIR"
 # Keep the desktop user's Ollama service untouched. Copy only the already
 # installed model into the dedicated r2-owned model store; never download it.
 root_run systemctl stop r2-ollama.service >/dev/null 2>&1 || true
-if root_run systemctl is-active --quiet r2-ollama.service 2>/dev/null; then
-    fail "the private Ollama service remains active after the stop request; refusing to mutate its live model store."
+OLLAMA_UNIT_STATE="$(root_run systemctl is-active r2-ollama.service 2>/dev/null || true)"
+case "$OLLAMA_UNIT_STATE" in
+    inactive|failed|unknown) ;;
+    active|activating|deactivating|reloading)
+        fail "the private Ollama service remains active or transitioning after the stop request; refusing to mutate its live model store."
+        ;;
+    *)
+        fail "could not verify that the private Ollama service stopped; refusing to mutate its model store."
+        ;;
+esac
+if root_run pgrep -u r2 -x ollama >/dev/null 2>&1; then
+    fail "an r2-owned Ollama process remains after the stop request; refusing to mutate its live model store."
+else
+    OLLAMA_PGREP_STATUS=$?
+    [[ "$OLLAMA_PGREP_STATUS" -eq 1 ]] ||
+        fail "could not verify that no r2-owned Ollama process remains; refusing to mutate its model store."
 fi
 log "Copying the already-installed $R2_MODEL into R2's private model store..."
 # The model store belongs to r2. Run the copier without privilege: the source
