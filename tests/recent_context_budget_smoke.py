@@ -52,8 +52,8 @@ require(
     "override_length = r2_utf8_safe_prefix_length(" in core
     and "content, OLLAMA_MAX_SYSTEM_MESSAGE_CHARS);" in core
     and core.count("content, OLLAMA_MAX_MESSAGE_CHARS);") == 2
-    and not re.search(r"^\\s+length = OLLAMA_MAX_MESSAGE_CHARS;$", core, re.MULTILINE)
-    and not re.search(r"^\\s+length = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;$", core, re.MULTILINE),
+    and not re.search(r"^\s+length = OLLAMA_MAX_MESSAGE_CHARS;$", core, re.MULTILINE)
+    and not re.search(r"^\s+length = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;$", core, re.MULTILINE),
     "Ollama hard byte caps clip system overrides and message bodies at UTF-8 boundaries",
 )
 require(
