@@ -59,6 +59,12 @@ The current review is tracing the changed launcher, chat serialization/context a
 - **Fix:** Initialize the flags from inherited values and export them across the inhibitor re-exec. Updated `tests/gpu_context_budget_smoke.py` to assert that default provenance is preserved and explicit operator settings remain distinguishable.
 - **Status:** Fixed in source; exact-head workflow still pending.
 
+### AUDIT-008 — permission regression test still targeted the retired installer implementation
+- **File:** `tests/test_overnight_permission_checks.sh`
+- **Severity:** CI regression (not a runtime defect)
+- **Evidence:** After the privileged logic moved into the root-owned bootstrap, the test still searched `tools/install_r2_overnight.sh` for the old privileged build/access-check implementation. The source-tree file is now intentionally only a nonprivileged notice, so the stale test failed even though the implementation had moved.
+- **Fix:** Repointed the test to `tools/r2_install_root_bootstrap.sh`, assert the protected-path/root-only contract and embedded unit installation, and keep independent checks on the service runner's writable database paths.
+- **Status:** Test updated; exact-head workflow still needs to confirm the regression is gone.
 ### AUDIT-009 — overnight core lacked camera device group access
 - **Files:** `deploy/r2-3po.service`, embedded unit in `tools/r2_install_root_bootstrap.sh`, `tests/r2_overnight_service_smoke.py`
 - **Severity:** High / vision integration
@@ -75,9 +81,3 @@ The current review is tracing the changed launcher, chat serialization/context a
 - **Regression coverage:** Added a focused installer lifecycle assertion to `tests/r2_overnight_service_smoke.py`.
 - **Status:** Source fix and regression assertion committed on the candidate branch; the exact new head still needs a full manual review and workflow result. This does not close target-host acceptance.
 
-### AUDIT-008 — permission regression test still targeted the retired installer implementation
-- **File:** `tests/test_overnight_permission_checks.sh`
-- **Severity:** CI regression (not a runtime defect)
-- **Evidence:** After the privileged logic moved into the root-owned bootstrap, the test still searched `tools/install_r2_overnight.sh` for the old privileged build/access-check implementation. The source-tree file is now intentionally only a nonprivileged notice, so the stale test failed even though the implementation had moved.
-- **Fix:** Repointed the test to `tools/r2_install_root_bootstrap.sh`, assert the protected-path/root-only contract and embedded unit installation, and keep independent checks on the service runner's writable database paths.
-- **Status:** Test updated; exact-head workflow still needs to confirm the regression is gone.
