@@ -60,13 +60,13 @@ def _png_chunk(kind: bytes, payload: bytes) -> bytes:
 
 
 def _vision_probe_image_base64() -> str:
-    """Build a small known-color PNG using only the standard library."""
-    width = height = 256
+    """Build a camera-sized 640x480 known-color PNG using only the standard library."""
+    width, height = 640, 480
     scanlines = bytearray()
     for y in range(height):
         scanlines.append(0)  # PNG filter: None
         for x in range(width):
-            if 32 <= x < 224 and 32 <= y < 224:
+            if 170 <= x < 470 and 90 <= y < 390:
                 scanlines.extend((0, 0, 255, 255))  # solid blue square
             else:
                 scanlines.extend((255, 255, 255, 255))  # white background
@@ -164,24 +164,34 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
         print(f"ERROR: Ollama listed {MODEL} but chat generation produced no usable final answer. {detail}", file=sys.stderr)
         return False
 
-    # Text-only readiness does not exercise Qwen's image encoder or the memory
-    # path that previously OOMed on this host. Require a real image-bearing
-    # request under the same GPU/context policy before declaring R2 ready.
+    # Exercise the same 640x480 image dimensions, JSON response mode, GPU/context
+    # policy and context-dependent output cap used by Visual.c. This catches
+    # image-encoder/KV-cache OOMs that text-only readiness can miss.
+    vision_context = int(options.get("num_ctx", 4096))
+    vision_options = dict(options)
+    vision_options["num_predict"] = 512 if vision_context >= 8192 else 256
     try:
         vision_reply = _read_json(
             f"{api_base}/api/chat",
             timeout=timeout,
             payload={
                 "model": MODEL,
-                "messages": [{
-                    "role": "user",
-                    "content": "Look at the image. What color is the large square? Reply with one color word.",
-                    "images": [_vision_probe_image_base64()],
-                }],
+                "format": "json",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "Return only a JSON object with a string field named color. Identify the visible color of the large square.",
+                    },
+                    {
+                        "role": "user",
+                        "content": "What color is the large square? Return JSON with the key color.",
+                        "images": [_vision_probe_image_base64()],
+                    },
+                ],
                 "stream": False,
                 "think": False,
                 "keep_alive": "10m",
-                "options": options,
+                "options": vision_options,
             },
         )
     except (OSError, ValueError, urllib.error.URLError, TimeoutError) as exc:
@@ -190,10 +200,15 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
 
     vision_message = vision_reply.get("message")
     vision_content = vision_message.get("content") if isinstance(vision_message, dict) else None
-    if not isinstance(vision_content, str) or not re.search(r"\bblue\b", vision_content, re.IGNORECASE):
+    try:
+        vision_data = json.loads(vision_content) if isinstance(vision_content, str) else {}
+    except json.JSONDecodeError:
+        vision_data = {}
+    vision_color = vision_data.get("color") if isinstance(vision_data, dict) else None
+    if not isinstance(vision_color, str) or not re.search(r"\bblue\b", vision_color, re.IGNORECASE):
         print(
-            f"ERROR: {MODEL} passed text generation but failed the known-color vision probe "
-            "(expected the image-bearing reply to identify the blue square).",
+            f"ERROR: {MODEL} passed text generation but failed the JSON known-color vision probe "
+            "(expected the image-bearing reply to report color=blue).",
             file=sys.stderr,
         )
         return False
