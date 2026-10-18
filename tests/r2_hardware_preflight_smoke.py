@@ -26,6 +26,7 @@ required = (
     'existing runtime directory is not read/write/traverse accessible to r2',
     'existing database must be a readable/writable regular file for r2',
     'workspace and root-owned source directories must have sticky-bit protection',
+    'must not be owned by r2',
     'source/tool file is not root-owned or is runtime-writable',
     'r2_diary.c r2_diary.h',
     'Reality.c Reality.h',
