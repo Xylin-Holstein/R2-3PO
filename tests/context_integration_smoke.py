@@ -93,8 +93,8 @@ if 'strstr(content, "R2 PERSISTENT MEMORY - STARTUP CONTEXT")' not in priority o
     raise SystemExit("Startup persistent memory is not explicitly prioritized.")
 if "for (int priority = 0; priority < 8" not in core:
     raise SystemExit("Inference serialization does not iterate all six context priorities.")
-if 'else if (strstr(content, "R2 PERSISTENT MEMORY - STARTUP CONTEXT"))' not in core:
-    raise SystemExit("Serialized context budgeting does not use the startup-memory priority.")
+if "int message_priority = r2_inference_system_priority(" not in core or "if (message_priority != priority) continue;" not in core:
+    raise SystemExit("Serialized context budgeting does not apply the shared context-priority function.")
 
 # Every real request should report whether the exact current user text and
 # the key context blocks actually survived serialization, without logging text.
