@@ -119,8 +119,8 @@ fi
 # The workspace's sticky bit also prevents r2 from renaming/replacing R2/.
 [[ -d "$R2_ROOT" && -d "$R2_SOURCE" && ! -L "$R2_SOURCE" ]] ||
     fail "workspace/source directory missing or source is a symlink."
-[[ -k "$R2_ROOT" ]] ||
-    fail "$R2_ROOT must have the sticky bit set so r2 cannot replace the trusted source directory."
+[[ -k "$R2_ROOT" && "$(stat -c '%u' "$R2_ROOT")" != "$(id -u r2)" ]] ||
+    fail "$R2_ROOT must be sticky-protected and must not be owned by r2, or r2 could replace the trusted source directory."
 [[ "$(stat -c '%u' "$R2_SOURCE")" == "0" && -k "$R2_SOURCE" ]] ||
     fail "$R2_SOURCE must be root-owned with its sticky bit set."
 run_as_r2 test -x "$R2_ROOT" && run_as_r2 test -w "$R2_ROOT" ||
