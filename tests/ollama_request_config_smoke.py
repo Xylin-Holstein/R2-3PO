@@ -41,4 +41,16 @@ require("json_object_object_add(root, \"model\", json_object_new_string(MODEL))"
         and "if (options) {" not in function,
         "old unchecked metadata/options paths are absent")
 
+progress_start = source.find("static int ollama_progress(")
+progress_end = source.find("\\nint r2_ollama_vision_request_begin", progress_start)
+if progress_start < 0 or progress_end <= progress_start:
+    raise SystemExit("FAIL: could not isolate foreground inference progress callback")
+progress = source[progress_start:progress_end]
+require("CLOCK_MONOTONIC" in progress
+        and "Still processing stage=%s" in progress
+        and "since_notice >= 15" in progress
+        and "!ollama_background_mode" in progress
+        and "ollama_progress_clock_valid = 0;" in function,
+        "long foreground inference reports bounded progress while background requests remain quiet")
+
 print("Ollama request configuration smoke test passed.")
