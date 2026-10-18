@@ -215,5 +215,20 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertNotIn('grep -Fq "Starting R2 with private clock"', source)
 
 
+    def test_installer_restores_private_ollama_state_after_early_failure(self):
+        installer = (ROOT / "tools/r2_install_root_bootstrap.sh").read_text(encoding="utf-8")
+        self.assertIn("OLLAMA_WAS_ACTIVE=0", installer)
+        self.assertIn("OLLAMA_WAS_ENABLED=0", installer)
+        self.assertIn("systemctl is-active --quiet r2-ollama.service", installer)
+        self.assertIn("systemctl is-enabled --quiet r2-ollama.service", installer)
+        self.assertIn("OLLAMA_STATE_CAPTURED=1", installer)
+        self.assertIn('if [[ "$INSTALL_SUCCEEDED" != "1"', installer)
+        self.assertIn('R2_ROLLBACK_RESTARTED=1', installer)
+        self.assertIn('INSTALL_SUCCEEDED=1', installer)
+        self.assertLess(
+            installer.index('root_run systemctl stop r2-ollama.service'),
+            installer.index('run_as_r2 python3 "$MODEL_COPY_SCRIPT"'),
+        )
+
 if __name__ == "__main__":
     unittest.main()
