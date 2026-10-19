@@ -211,3 +211,12 @@ This remains a bounded manual review, not a claim that every subsystem has been 
 - **Finding:** the installation procedure still downloaded from the former `Xylin-Holstein` raw-content namespace after the repository account changed to `Xylin48`. The pinned old-owner URL did not resolve to file content through the GitHub retrieval path, so a clean install could fail before hash verification.
 - **Fix:** changed only the documented raw-content URL to the current `Xylin48/R2-3PO` namespace. The immutable commit and expected Git blob SHA remain unchanged.
 - **Validation:** fetched the bootstrap from the new raw-content URL at immutable commit `2aec6cee84ed1274a6c7324ec6ac5560d8088240`; GitHub reported blob SHA `6e9906e6ac3e7299b368585fc7e842f32ceb2646`, exactly matching the documented and installer-enforced expected SHA. The old URL failed to return file content. No trusted bootstrap code or runtime behavior was changed.
+
+### R2-AUD-023 — Startup thread-creation cleanup was only source-checked
+
+- **Area:** `r2.c` startup lifecycle and `.github/workflows/build.yml`.
+- **Finding:** the existing regression inspected both thread-creation failure branches and verified that `main()` calls centralized shutdown, but it did not execute the partial-startup cleanup path.
+- **Fix/test:** added `tests/startup_failure_unwind_runtime.c`, compiled `r2.c` with the test-only `R2_TEST_STARTUP_FAILURE_INJECTION` flag, and ran separate isolated processes for failed Hands-thread creation and failed autonomous-thinking/diary-thread creation. Each case requires `r2_init()` to fail and then calls `r2_shutdown()`; the production build remains without active injection hooks. The existing source-contract test now asserts the runtime harness is wired into CI.
+- **Validation:** exact code/test head `ed013aac011f0ea238ab56af1f92ad054c22fa40` passed the full GitHub Actions workflow, including both runtime fault-injection cases and the strict production compile: [workflow run 39229363923](https://github.com/Xylin48/R2-3PO/actions/runs/39229363923), 91/91 steps successful.
+- **Scope:** this closes the identified CI coverage gap; it does not replace host-side acceptance of live Qwen inference, measured GPU/RAM behavior, persistent databases, or physical devices.
+
