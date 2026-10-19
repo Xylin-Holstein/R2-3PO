@@ -467,6 +467,11 @@ jobs:
           python3 -m py_compile tests/startup_failure_unwind_smoke.py
           python3 tests/startup_failure_unwind_smoke.py
 
+      - name: Verify failed background task enqueue is not reported as success
+        run: |
+          python3 -m py_compile tests/hand_enqueue_failure_smoke.py
+          python3 tests/hand_enqueue_failure_smoke.py
+
       - name: Compile R2 with the same sources and flags as the launcher
         run: make clean all CFLAGS="-std=c11 -Wall -Wextra -Werror -O2"
 
