@@ -256,7 +256,7 @@ def copy_model(source_root: Path, destination_root: Path, model: str, owner: str
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", default=os.environ.get("R2_MODEL", "gemma3:4b"))
+    parser.add_argument("--model", default=os.environ.get("R2_MODEL", "qwen3.5:9b"))
     parser.add_argument("--source-root", type=Path)
     parser.add_argument("--destination-root", type=Path, default=Path("/home/x/R2_Home/.ollama/models"))
     parser.add_argument("--owner", default="r2")
