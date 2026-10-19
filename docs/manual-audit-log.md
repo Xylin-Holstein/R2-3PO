@@ -42,7 +42,9 @@ This log records source-level findings and their verification status. A green wo
 - **Area:** `Reality.c`, `money_set_dir_balance()`, used by cash receipt, deposit/withdrawal, purchase, and migration paths.
 - **Finding:** the function validates current bill/change entries, then unlinks all existing authoritative bill files and `change.txt` before creating the requested replacement bill files. A failure during replacement (for example, a later file creation/write failure after earlier new bills were created) returns an error after the prior authoritative balance has already been destroyed. Callers attempt rollback by recreating the old balance, but that rollback can fail for the same underlying filesystem condition. The current “preflight” only catches malformed existing entries; it does not make the multi-file update transactional.
 - **Impact:** a disk/write failure during a wallet or piggybank mutation can leave the physical money files at a partial or lost balance, despite the operation reporting failure. This conflicts with the explicit rule that physical files are authoritative and can affect purchases and transfers.
-- **Status:** confirmed by source tracing; not yet fixed. Next batch should implement a staged replacement/rollback strategy and add a deterministic failure-injection regression proving the old balance remains intact when staging fails. Do not treat the current candidate as fully audited while this remains open.
+- **Fix in this branch:** replacement bills/change are staged before authoritative files move. A phase marker and same-filesystem backup let startup recovery distinguish staging-only, partial backup movement, partial installation, and committed replacement. Wallet and piggybank recovery runs before balances are read at startup; synchronous failures use the same recovery path.
+- **Regression coverage added:** test-only compile-time failure injection forces staging to fail and checks the original $5 balance is unchanged. A restart fixture simulates a crash during installation and checks recovery restores the original bill set.
+- **Status:** implementation and regressions are on the release branch; the current workflows must pass before this finding can be closed. Target-host power-loss and filesystem behavior remain unverified.
 
 ## Manual source-review checkpoint: conversation and memory pipeline
 
@@ -59,7 +61,7 @@ No additional reproducible defect was established in this review slice. This is 
 
 ## Release gates still open
 
-- The exact current release head `0159635cd31b0b1b2a5dfd49a90846d2b7b59e1c` passed the push-triggered full workflow and the pull-request-triggered workflow (87/87 steps each). Continue validating each later source change against its own head.
+- Release workflows must be checked against the exact final head after the money transaction change. Earlier commit `2068f6973488956636365024e8945dd8333f3ea6` passed both workflows (87/87 each), but that does not validate later source changes.
 - On the target machine, verify real Qwen 3.5 9B multi-turn chat, retry/fallback behavior, measured CPU/GPU placement and RAM headroom, and connected devices. CI cannot perform these checks.
 - Before installation, verify that the trusted root bootstrap is installed at `/usr/local/sbin/r2-3po-install`, root-owned, and not group/world-writable. The documented immutable source commit and Git blob SHA are checked against the current branch; this repository check does not prove the host has installed that copy.
 - Keep PR #161 draft and `main` untouched until repository validation and target-host acceptance are complete.
