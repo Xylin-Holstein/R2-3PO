@@ -82,6 +82,14 @@ require(
     and "free(results);" not in growth_failure,
     "tool-result allocation failure preserves a no-retry warning after possible side effects",
 )
+direct_tool_oom = impl.find("if (strncmp(tools, tool_capture_failure_prefix")
+require(
+    direct_tool_oom >= 0
+    and "I ran out of memory while recording an action result." in impl
+    and "Please verify the current state before retrying." in impl
+    and "goto finalize_reply;" in impl[direct_tool_oom:],
+    "tool-result OOM warning is shown directly instead of being paraphrased by another model call",
+)
 
 # The public entry point must serialize entire turns, while announcing intent
 # before waiting so autonomous background work can yield to queued user input.
