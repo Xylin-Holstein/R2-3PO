@@ -4133,8 +4133,8 @@ int r2_reality_buy_item(const char *name, const char *description,
     }
     money_mirror_write(cash,bank);
     char summary[512], details[1024];
-    snprintf(summary,sizeof(summary),"R2 purchased %s for $%.2f.",name,cents/100.0);
-    snprintf(details,sizeof(details),"Item=%s; price=$%.2f; destination=%s; wallet cash paid first, then piggybank.",name,cents/100.0,destination);
+    snprintf(summary,sizeof(summary),"R2 purchased %.350s for $%.2f.",name,cents/100.0);
+    snprintf(details,sizeof(details),"Item=%.400s; price=$%.2f; destination=%.200s; wallet cash paid first, then piggybank.",name,cents/100.0,destination);
     bridge_event("purchase",summary,details,1,1);
     return 0;
 }
