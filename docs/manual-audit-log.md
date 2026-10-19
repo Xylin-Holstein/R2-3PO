@@ -163,7 +163,7 @@ This remains a bounded manual review, not a claim that every subsystem has been 
 - **Finding:** the growth loop doubled `cap` in place before calling `realloc()`. If `realloc()` failed, the existing `results` allocation still had its original size, but the failure warning used the already-increased `cap` as the `snprintf()` bound. Under memory pressure, this could write beyond the original allocation.
 - **Fix:** compute the desired capacity in a separate `_new_cap` variable; leave `cap` unchanged until `realloc()` succeeds. The warning is now formatted with the actual original allocation size. Capacity doubling also checks against `SIZE_MAX` before multiplying.
 - **Regression coverage:** updated `tests/conversation_recovery_smoke.py` to assert the failure path formats the warning using the original `cap`, does not commit `_new_cap` before successful reallocation, and updates `cap` only after adopting the new buffer.
-- **Status:** fix and regression committed on the release branch. CI for this commit is pending; no claim of target-machine execution.
+- **Status:** fix and regression committed on the release branch and validated in full workflow [4890](https://github.com/Xylin48/R2-3PO/actions/runs/39216933930), which passed all 90/90 steps, including the action-result OOM contract, strict production build, and overnight lifecycle integration. No target-machine execution is implied.
 
 ### R2-AUD-017 — Fridge context copied beyond the formatted line buffer
 
