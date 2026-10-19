@@ -184,5 +184,20 @@ The full 86-step GitHub Actions workflow passed for candidate code head `5bb6ff4
 - **Validation:** Both injected runtime cases, the source-contract regression, and the strict production compile passed on code/test head `ed013aac011f0ea238ab56af1f92ad054c22fa40`; full workflow [39229363923](https://github.com/Xylin48/R2-3PO/actions/runs/39229363923) completed 91/91 steps successfully.
 - **Remaining limitation:** This verifies the CI/Linux cleanup path, not fault injection on the target host or hardware-dependent startup.
 
-## Current verification snapshot
-The current code/test candidate passed all 91 workflow steps at `ed013aac011f0ea238ab56af1f92ad054c22fa40` (run [39229363923](https://github.com/Xylin48/R2-3PO/actions/runs/39229363923)). The subsequent commits update only audit documentation; the target-host acceptance checklist remains open. This audit remains deliberately bounded: source review and CI do not establish actual Qwen 3.5 9B behavior, GTX 1050 Ti allocation, physical device access, or the installed root-bootstrap state.
+### AUDIT-021 — corrective retry discarded the broad startup-memory snapshot
+- **File:** `r2.c`; regression coverage in `tests/nonresponsive_reply_retry_smoke.py` and `tests/r2_reply_misclassification_smoke.c`.
+- **Severity:** High / Mother relationship continuity on recovery.
+- **Evidence:** The corrective retry retained the static identity/memory *instructions*, live Reality, and focused current-turn retrieval, but omitted the separate pinned `R2 PERSISTENT MEMORY - STARTUP CONTEXT` message. A learned relationship could therefore be available in startup memory during the original turn and then disappear from the recovery attempt if focused retrieval did not return it.
+- **Fix:** Expand the bounded retry window to three relevant system-context messages plus the exact current user turn. Preserve the startup-memory snapshot when present, alongside Reality and focused retrieval; do not replay old dialogue or unrelated reward summaries. Startup memory remains historical evidence, not instructions, and still passes through the existing context-budget ordering/clamping.
+- **Regression coverage:** The source smoke test requires the startup-memory marker in the retry-selection path; the C context-ordering fixture now includes startup memory and checks its semantic priority after current-turn retrieval.
+- **Status:** Source and regression changes committed; exact-head CI must pass before this finding is marked verified. The target machine must still test the actual Mother exchange.
+
+### AUDIT-022 — affect regression coverage still reflected the retired fixed sound mapping
+- **File:** `tests/r2_sound_wiring_smoke.py`; prompt guidance in `r2.c`.
+- **Severity:** Medium / regression-test correctness.
+- **Evidence:** The older smoke assertions required fixed need-to-sound mappings that the requested contextual-affect design intentionally removes.
+- **Fix:** The prompt now asks R2 to infer affect from the current exchange, relevant memory and Reality, distinguish observations from uncertain interpretations, and choose nonverbal expression contextually without a forced reaction table. The smoke test now asserts that contract and that sounds remain optional.
+- **Status:** Updated and passed in workflow run #5040 at the prior candidate head; exact-head CI is required for later changes.
+
+## Verification record
+This document keeps historical audit snapshots; it is not a live CI dashboard. The last fully passing pre-startup-memory-fix run was [run #5040](https://github.com/Xylin48/R2-3PO/actions/runs/39244434014) at commit `3e6dd948440e4fc5b88b164f5364cdeed64cbf86` (89 workflow steps, all passed). The startup-memory retry fix and its new regression coverage were added after that run, so consult the exact-head workflow linked from [PR #162](https://github.com/Xylin48/R2-3PO/pull/162) for current repository validation. Neither source review nor CI establishes actual Qwen 3.5 9B behavior, GTX 1050 Ti allocation, physical device access, or the installed root-bootstrap state.
