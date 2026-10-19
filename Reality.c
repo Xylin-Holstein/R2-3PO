@@ -1968,7 +1968,7 @@ static int inventory_transfer_restore_reality_locked(const InventoryTransferSnap
         if (st) sqlite3_finalize(st);
         st = NULL;
     }
-    if (rc == SQLITE_DONE && snapshot->self_snapshot_valid) {
+    if (rc == SQLITE_DONE && snapshot->self_snapshot_valid && !strcmp(snapshot->operation, "eat_from_fridge")) {
         rc = sqlite3_prepare_v2(reality_db,
             "INSERT INTO r2_reality_self(id,hunger,satisfaction,seconds_since_meal,sleepiness,energy,last_tick,updated_at) "
             "VALUES(1,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET hunger=excluded.hunger,"
@@ -1988,7 +1988,7 @@ static int inventory_transfer_restore_reality_locked(const InventoryTransferSnap
         if (st) sqlite3_finalize(st);
         st = NULL;
     }
-    if (rc == SQLITE_DONE && snapshot->self_snapshot_valid) {
+    if (rc == SQLITE_DONE && snapshot->self_snapshot_valid && !strcmp(snapshot->operation, "eat_from_fridge")) {
         if (snapshot->starvation_fact_exists) {
             rc = sqlite3_prepare_v2(reality_db,
                 "INSERT INTO r2_reality_self_facts(key,value,evidence) "
@@ -2009,7 +2009,7 @@ static int inventory_transfer_restore_reality_locked(const InventoryTransferSnap
         if (st) sqlite3_finalize(st);
         st = NULL;
     }
-    if (rc == SQLITE_DONE && snapshot->self_snapshot_valid) {
+    if (rc == SQLITE_DONE && snapshot->self_snapshot_valid && !strcmp(snapshot->operation, "eat_from_fridge")) {
         rc = sqlite3_prepare_v2(reality_db,
             "DELETE FROM r2_food_experiences WHERE id>? AND food_name=? COLLATE NOCASE",
             -1, &st, NULL);
