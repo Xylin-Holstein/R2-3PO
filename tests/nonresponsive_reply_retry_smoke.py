@@ -20,7 +20,7 @@ require(start >= 0 and end > start, "primary conversation contract exists before
 prompt = core[start:end]
 for phrase, message in (
     ("Answer the user's actual current message from your own perspective", "prompt keeps R2 and user speaker roles distinct"),
-    ("Interpret social meaning, tone, relationships, and emotional cues from context", "prompt teaches contextual social understanding without a canned emotional response"),
+    ("Treat each message as a turn in an ongoing conversation", "prompt preserves conversational continuity without prescriptive emotional responses"),
     ("The current message takes priority over retrieved history", "current user turn takes priority over historical memory"),
     ("Use the relationship information learned from persistent memory and the current conversation", "relationships come from learned context rather than stock phrase matching"),
     ("Preserve who said what", "prompt preserves attribution across conversation history"),
