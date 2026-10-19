@@ -144,10 +144,48 @@ static int money_create_bill(const char *dir)
     }
     return -1;
 }
+
+static int money_recover_transactions(const char *dir)
+{
+    DIR *root=opendir(dir); if(!root)return -1;
+    struct dirent *e; int result=0;
+    while((e=readdir(root))) {
+        if(strncmp(e->d_name,".r2-money-txn.",14))continue;
+        char txn[2300],stage[2300],backup[2300],phase[2300],state[32]={0};struct stat st;
+        int n=snprintf(txn,sizeof(txn),"%s/%s",dir,e->d_name);
+        if(n<=0||(size_t)n>=sizeof(txn)||lstat(txn,&st)||!S_ISDIR(st.st_mode)){result=-1;break;}
+        snprintf(stage,sizeof(stage),"%s/new",txn);snprintf(backup,sizeof(backup),"%s/backup",txn);snprintf(phase,sizeof(phase),"%s/phase",txn);
+        FILE *fp=fopen(phase,"r");if(fp){if(!fgets(state,sizeof(state),fp))result=-1;if(fclose(fp))result=-1;}
+        else if(errno!=ENOENT){result=-1;break;}
+        if(result)break;
+        state[strcspn(state,"\r\n")]=0;
+        if(!strcmp(state,"moving")||!strcmp(state,"installing")) {
+            if(!strcmp(state,"installing")) {
+                DIR *d=opendir(dir);if(!d){result=-1;break;}struct dirent *x;
+                while((x=readdir(d)))if(money_name_is_bill(x->d_name)||!strcmp(x->d_name,"change.txt")){
+                    char p[2300];struct stat fs;int z=snprintf(p,sizeof(p),"%s/%s",dir,x->d_name);
+                    if(z<=0||(size_t)z>=sizeof(p)||lstat(p,&fs)||!S_ISREG(fs.st_mode)||unlink(p)){result=-1;break;}}
+                closedir(d);if(result)break;
+            } else if(strcmp(state,"moving")) {result=-1;break;}
+            DIR *d=opendir(backup);if(!d){result=-1;break;}struct dirent *x;
+            while((x=readdir(d)))if(money_name_is_bill(x->d_name)||!strcmp(x->d_name,"change.txt")){
+                char from[2300],to[2300];struct stat fs;int u=snprintf(from,sizeof(from),"%s/%s",backup,x->d_name),v=snprintf(to,sizeof(to),"%s/%s",dir,x->d_name);
+                if(u<=0||(size_t)u>=sizeof(from)||v<=0||(size_t)v>=sizeof(to)||lstat(from,&fs)||!S_ISREG(fs.st_mode)||
+                   (unlink(to)&&errno!=ENOENT)||rename(from,to)){result=-1;break;}}
+            closedir(d);if(result)break;
+        } else if(*state && strcmp(state,"committed")) {result=-1;break;}
+        const char *dirs[2]={stage,backup};
+        for(int i=0;i<2;i++){DIR*d=opendir(dirs[i]);if(d){struct dirent*x;while((x=readdir(d)))if(money_name_is_bill(x->d_name)||!strcmp(x->d_name,"change.txt")){
+            char p[2300];snprintf(p,sizeof(p),"%s/%s",dirs[i],x->d_name);(void)unlink(p);}closedir(d);} (void)rmdir(dirs[i]);}
+        (void)unlink(phase);if(rmdir(txn)!=0&&errno!=ENOENT){result=-1;break;}
+    }
+    closedir(root);return result;
+}
+
 static int money_set_dir_balance(const char *dir, sqlite3_int64 cents, int *changed)
 {
     if (changed) *changed = 0;
-    if (cents < 0 || cents > 100000000LL || ensure_dir_tree(dir) != 0) return -1;
+    if (cents < 0 || cents > 100000000LL || ensure_dir_tree(dir) != 0 || money_recover_transactions(dir) != 0) return -1;
     DIR *dp = opendir(dir);
     if (!dp) return -1;
     struct dirent *entry;
@@ -269,6 +307,7 @@ static int money_initialize_files(int previously_seeded)
     money_dir_path(0, wallet, sizeof(wallet));
     money_dir_path(1, piggybank, sizeof(piggybank));
     if (ensure_dir_tree(wallet) != 0 || ensure_dir_tree(piggybank) != 0) return -1;
+    if (money_recover_transactions(wallet) != 0 || money_recover_transactions(piggybank) != 0) return -1;
 
     int wb = money_bill_count(wallet), bb = money_bill_count(piggybank);
     int wc = money_change_cents(wallet), bc = money_change_cents(piggybank);
