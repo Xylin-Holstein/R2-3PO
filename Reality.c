@@ -219,7 +219,9 @@ static int money_set_dir_balance(const char *dir, sqlite3_int64 cents, int *chan
         if(n<=0||(size_t)n>=sizeof(p))rc=-1;
         else {int fd=open(p,O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC,0600);
             if(fd<0)rc=-1;else{int z=snprintf(v,sizeof(v),"cents=%d\n",change);
-                if(write(fd,v,(size_t)z)!=z||fsync(fd))rc=-1;if(close(fd))rc=-1;if(rc)unlink(p);}}
+                if (write(fd, v, (size_t)z) != z || fsync(fd) != 0) rc = -1;
+                if (close(fd) != 0) rc = -1;
+                if (rc) (void)unlink(p);}}
     }
     if(rc)goto cleanup;
     {int fd=open(phase,O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC,0600);
@@ -243,7 +245,7 @@ static int money_set_dir_balance(const char *dir, sqlite3_int64 cents, int *chan
     goto cleanup;
 rollback:
     /* If installation began, remove the partial new set before restoring the backup. */
-    {FILE *fp=fopen(phase,"r");char state[32]={0};if(fp){(void)fgets(state,sizeof(state),fp);fclose(fp);}
+    {FILE *fp=fopen(phase,"r");char state[32]={0};if(fp){if (!fgets(state,sizeof(state),fp)) state[0] = '\0'; fclose(fp);}
      if(strstr(state,"installing")){
         dp=opendir(dir);if(dp){while((entry=readdir(dp)))if(money_name_is_bill(entry->d_name)||!strcmp(entry->d_name,"change.txt")){
             char p[4096];struct stat st;snprintf(p,sizeof(p),"%s/%s",dir,entry->d_name);
