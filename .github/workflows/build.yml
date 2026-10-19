@@ -332,7 +332,7 @@ jobs:
           rm -rf "$ROOT" /tmp/r2-wallet-smoke-r2.o /tmp/r2-wallet-smoke-test
           FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\"$ROOT\" -DR2_HOME=\"$ROOT/R2\" -DR2_WORKSPACE=\"$ROOT\" -DR2_DIARY_DATABASE=\"$ROOT/R2/r2_memory.db\" -DR2_DIARY_DIR=\"$ROOT/R2_Diary\""
           cc $FLAGS -Dmain=r2_program_main -c r2.c -o /tmp/r2-wallet-smoke-r2.o
-          cc $FLAGS tests/money_wallet_smoke.c shell.c r2_diary.c Log.c SensoryJournal.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c R2Sounds.c R2Reply.c Imagination.c /tmp/r2-wallet-smoke-r2.o -o /tmp/r2-wallet-smoke-test -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
+          cc $FLAGS -DR2_MONEY_TEST_FAILURE_INJECTION tests/money_wallet_smoke.c shell.c r2_diary.c Log.c SensoryJournal.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c R2Sounds.c R2Reply.c Imagination.c /tmp/r2-wallet-smoke-r2.o -o /tmp/r2-wallet-smoke-test -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
           /tmp/r2-wallet-smoke-test
 
       - name: Exercise shared Ollama request-gate serialization
