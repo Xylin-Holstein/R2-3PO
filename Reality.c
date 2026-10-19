@@ -522,12 +522,110 @@ static int money_read_locked(sqlite3_int64 *cash, sqlite3_int64 *bank)
     if (bank) *bank=b;
     return 0;
 }
+static int money_journal_clear(void)
+{
+    if (sqlite3_exec(reality_db, "BEGIN IMMEDIATE; DELETE FROM r2_money_transfer_journal WHERE id=1; COMMIT;", NULL, NULL, NULL) != SQLITE_OK) {
+        (void)sqlite3_exec(reality_db, "ROLLBACK;", NULL, NULL, NULL);
+        return -1;
+    }
+    return 0;
+}
+
+static int money_journal_begin(sqlite3_int64 old_cash, sqlite3_int64 old_bank,
+                               sqlite3_int64 new_cash, sqlite3_int64 new_bank,
+                               const char *operation)
+{
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_exec(reality_db, "BEGIN IMMEDIATE", NULL, NULL, NULL) != SQLITE_OK) return -1;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "INSERT INTO r2_money_transfer_journal(id,old_cash_cents,old_bank_cents,new_cash_cents,new_bank_cents,operation,phase) "
+        "VALUES(1,?,?,?,?,?,'pending')", -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        sqlite3_bind_int64(st, 1, old_cash);
+        sqlite3_bind_int64(st, 2, old_bank);
+        sqlite3_bind_int64(st, 3, new_cash);
+        sqlite3_bind_int64(st, 4, new_bank);
+        sqlite3_bind_text(st, 5, operation ? operation : "transfer", -1, SQLITE_TRANSIENT);
+        rc = sqlite3_step(st);
+    }
+    if (st) sqlite3_finalize(st);
+    if (rc == SQLITE_DONE) rc = sqlite3_exec(reality_db, "COMMIT", NULL, NULL, NULL);
+    if (rc != SQLITE_OK) {
+        (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
+        return -1;
+    }
+    return 0;
+}
+
+static int money_journal_mark_committed(void)
+{
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_exec(reality_db, "BEGIN IMMEDIATE", NULL, NULL, NULL) != SQLITE_OK) return -1;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "UPDATE r2_money_transfer_journal SET phase='committed' WHERE id=1 AND phase='pending'",
+        -1, &st, NULL);
+    if (rc == SQLITE_OK) rc = sqlite3_step(st);
+    if (st) sqlite3_finalize(st);
+    if (rc == SQLITE_DONE && sqlite3_changes(reality_db) == 1)
+        rc = sqlite3_exec(reality_db, "COMMIT", NULL, NULL, NULL);
+    else rc = SQLITE_ERROR;
+    if (rc != SQLITE_OK) {
+        (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
+        return -1;
+    }
+    return 0;
+}
+
+/* Resolve a durable two-directory transfer intent before trusting balances. */
+static int money_journal_recover(int *was_committed)
+{
+    sqlite3_stmt *st = NULL;
+    sqlite3_int64 old_cash = 0, old_bank = 0, new_cash = 0, new_bank = 0;
+    char phase[24] = {0};
+    if (was_committed) *was_committed = 0;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "SELECT old_cash_cents,old_bank_cents,new_cash_cents,new_bank_cents,phase "
+        "FROM r2_money_transfer_journal WHERE id=1", -1, &st, NULL);
+    if (rc != SQLITE_OK) return -1;
+    rc = sqlite3_step(st);
+    if (rc == SQLITE_DONE) { sqlite3_finalize(st); return 0; }
+    if (rc != SQLITE_ROW) { sqlite3_finalize(st); return -1; }
+    old_cash = sqlite3_column_int64(st, 0);
+    old_bank = sqlite3_column_int64(st, 1);
+    new_cash = sqlite3_column_int64(st, 2);
+    new_bank = sqlite3_column_int64(st, 3);
+    const unsigned char *p = sqlite3_column_text(st, 4);
+    snprintf(phase, sizeof(phase), "%s", p ? (const char *)p : "");
+    sqlite3_finalize(st);
+
+    if (!strcmp(phase, "pending")) {
+        char wallet[1200], piggybank[1200];
+        money_dir_path(0, wallet, sizeof(wallet));
+        money_dir_path(1, piggybank, sizeof(piggybank));
+        if (money_set_dir_balance(wallet, old_cash, NULL) != 0 ||
+            money_set_dir_balance(piggybank, old_bank, NULL) != 0 ||
+            money_read_locked(NULL, NULL) != 0) {
+            fprintf(stderr, "[R2 Money] Pending transfer recovery failed; durable journal retained for retry.\n");
+            return -1;
+        }
+        return money_journal_clear();
+    }
+    if (strcmp(phase, "committed")) return -1;
+    if (was_committed) *was_committed = 1;
+    /* Physical files remain authoritative; this refreshes the derived SQLite summary. */
+    if (money_read_locked(NULL, NULL) != 0) return -1;
+    (void)new_cash;
+    (void)new_bank;
+    return money_journal_clear();
+}
+
 static int money_initialize_files(int previously_seeded)
 {
     char wallet[1200], piggybank[1200];
     money_dir_path(0, wallet, sizeof(wallet));
     money_dir_path(1, piggybank, sizeof(piggybank));
     if (ensure_dir_tree(wallet) != 0 || ensure_dir_tree(piggybank) != 0) return -1;
+    if (money_journal_recover(NULL) != 0) return -1;
     if (money_recover_transactions(wallet) != 0 || money_recover_transactions(piggybank) != 0) return -1;
 
     int wb = money_bill_count(wallet), bb = money_bill_count(piggybank);
@@ -2166,6 +2264,7 @@ int r2_reality_init(void)
         "CREATE TABLE IF NOT EXISTS r2_reality_self_facts (key TEXT PRIMARY KEY, value TEXT NOT NULL, evidence TEXT, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "CREATE TABLE IF NOT EXISTS r2_money_account (id INTEGER PRIMARY KEY CHECK(id=1),cash_cents INTEGER NOT NULL DEFAULT 0 CHECK(cash_cents>=0),bank_cents INTEGER NOT NULL DEFAULT 0 CHECK(bank_cents>=0),updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "INSERT OR IGNORE INTO r2_money_account(id,cash_cents,bank_cents) VALUES(1,0,0);"
+        "CREATE TABLE IF NOT EXISTS r2_money_transfer_journal (id INTEGER PRIMARY KEY CHECK(id=1),old_cash_cents INTEGER NOT NULL,old_bank_cents INTEGER NOT NULL,new_cash_cents INTEGER NOT NULL,new_bank_cents INTEGER NOT NULL,operation TEXT NOT NULL,phase TEXT NOT NULL CHECK(phase IN ('pending','committed')),created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "CREATE TABLE IF NOT EXISTS r2_tv_state (id INTEGER PRIMARY KEY CHECK(id=1), power INTEGER NOT NULL DEFAULT 0 CHECK(power IN (0,1)), source_kind TEXT NOT NULL DEFAULT 'input', source_value INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "INSERT OR IGNORE INTO r2_tv_state(id,power,source_kind,source_value) VALUES(1,0,'input',1);"
         "CREATE TABLE IF NOT EXISTS r2_tv_devices (name TEXT PRIMARY KEY COLLATE NOCASE, connection_kind TEXT NOT NULL CHECK(connection_kind IN ('input','rf')), port INTEGER NOT NULL, connected INTEGER NOT NULL DEFAULT 1 CHECK(connected IN (0,1)), updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, CHECK((connection_kind='input' AND port BETWEEN 2 AND 4) OR (connection_kind='rf' AND port BETWEEN 2 AND 13)));"
