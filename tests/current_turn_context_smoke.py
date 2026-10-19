@@ -91,8 +91,9 @@ if system_start < 0 or system_end < 0:
     raise SystemExit("Could not isolate the shared conversation system prompt.")
 system_prompt = core[system_start:system_end]
 require(
-    "Do not call an intelligible message gibberish" in system_prompt
-    and "Do not replace a normal question or invitation with an analysis of the wording" in system_prompt,
+    "claim their message is unclear when it is understandable" in system_prompt
+    and "Read their words as meaningful ordinary language and respond to their intent" in system_prompt
+    and "Answer the user's actual current message from your own perspective" in system_prompt,
     "the shared inference instructions prioritize ordinary conversational intent",
 )
 require(
