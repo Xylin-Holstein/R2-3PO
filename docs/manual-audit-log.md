@@ -97,3 +97,11 @@ No additional reproducible defect was established in this review slice. This is 
 - **Impact:** OS process teardown will close ordinary process-owned descriptors, but R2's own orderly subsystem shutdown, consistent failure reporting, and in-process retry/unwind contract are not guaranteed for these startup failures.
 - **Status:** confirmed by manual source tracing; open. Do not replace `die()` calls mechanically. Fix requires explicit per-subsystem initialization state (including libcurl and sound lifecycle), one idempotent unwind path, and injected failures at each required-init boundary; preserve fatal behavior for unrelated runtime helper calls.
 
+### R2-AUD-010 — Background command dispatch could report success when no task was queued
+
+- **Area:** `r2.c`, structured `[HAND_REQUEST]`, explicit `[RUN]`, and direct `[HAND]` tool dispatch.
+- **Finding:** `start_background_task()` returns `NULL` when allocation fails or shutdown has already begun. All three callers previously printed “Background task successfully started” anyway, with an empty task ID, which could tell R2 and the user that a command was running when no work had entered the queue.
+- **Fix:** each caller now branches on the returned task ID and emits an explicit enqueue-failure result when the queue operation fails. It does not claim execution or invent a task ID.
+- **Regression coverage:** added `tests/hand_enqueue_failure_smoke.py` and wired it into `.github/workflows/build.yml` to check all three dispatch sites.
+- **Status:** source fix and regression wiring committed on the release branch. The regression and full build workflow still need to pass on the resulting head; no target-machine execution is implied.
+
