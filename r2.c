@@ -4847,7 +4847,12 @@ static int r2_reply_contains_known_failure_phrase(const char *reply)
         "random string of words",
         "that's a bit garbled",
         "that’s a bit garbled",
-        "that is a bit garbled"
+        "that is a bit garbled",
+        "receiving unclear input",
+        "unclear input",
+        "input seems unclear",
+        "your message is unclear",
+        "your input is unclear"
     };
     for (size_t i = 0; i < sizeof(failure_phrases) / sizeof(failure_phrases[0]); ++i) {
         if (strcasestr(reply, failure_phrases[i]))
