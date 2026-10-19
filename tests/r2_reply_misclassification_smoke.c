@@ -266,6 +266,14 @@ int main(void)
                     "retry appends the corrective instruction");
         ok &= check(strstr(retry_prompt, "acknowledge that social meaning") != NULL,
                     "retry preserves guidance for social and emotional meaning");
+        ok &= check(strstr(retry_prompt, "RELATIONSHIP AND NAME CONTINUITY") != NULL &&
+                        strstr(retry_prompt, "SPEAKER AND RELATIONSHIP LEARNING:") != NULL,
+                    "retry preserves identity-based relationship continuity and learned speaker roles");
+        ok &= check(strstr(retry_prompt,
+                           "do not rely on a hard-coded emotion-to-response table") != NULL,
+                    "retry retains contextual affect interpretation rather than a fixed reaction map");
+        ok &= check(strlen(retry_prompt) < OLLAMA_MAX_SYSTEM_MESSAGE_CHARS,
+                    "complete corrective prompt fits the system-message limit without truncating its final instruction");
         free(retry_prompt);
     }
 
