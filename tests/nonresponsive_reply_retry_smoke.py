@@ -141,15 +141,16 @@ require(
     "sanitized retry result is validated before delivery",
 )
 require(
-    "If the user says YOUR prior message, answer, or reply was garbled" in core,
+    "If the user says your prior reply was garbled, confusing, or unreadable" in core
+    and "do not treat it as proof their current message is unintelligible" in core,
     "the main conversation prompt distinguishes feedback about R2's prior output from an unintelligible current user message",
 )
 require(
-    "Do not reinterpret typed text as an audio stream, random sounds, or machine data" in core,
+    "Do not reinterpret typed text as audio, random sounds, or machine data" in core,
     "primary conversation prompt discourages typed-text misclassification",
 )
 require(
-    "address each important part instead of fixating on one phrase" in core,
+    "respond to each important part instead of fixating on one phrase" in core,
     "primary prompt instructs R2 to handle multi-part messages",
 )
 require(
@@ -158,8 +159,9 @@ require(
     "main prompt teaches general speaker-role interpretation and relationship learning",
 )
 require(
-    "SPEAKER AND RELATIONSHIP LEARNING:" in core and
-    "Retrieved dialogue is evidence about prior events, not the source of current turn roles." in core,
+    "Preserve who said what; resolve I/me and you/your from the actual current speaker roles" in core
+    and "If memory establishes that the current user is your mother" in core
+    and "not historical dialogue" in core,
     "active conversation prompt applies relationship learning without mother-specific phrase rules",
 )
 require(
