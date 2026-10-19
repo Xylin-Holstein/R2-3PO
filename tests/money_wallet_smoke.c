@@ -242,6 +242,11 @@ int main(void) {
     assert(unsetenv("R2_TEST_MONEY_STAGE_FAIL")==0);
     assert(bill_count(wallet)==5);
     ctx=money_context(); assert(strstr(ctx,"carried cash=$5.00")); free(ctx);
+    assert(setenv("R2_TEST_MONEY_FAIL_AFTER_BACKUP_MOVE","1",1)==0);
+    assert(r2_reality_money_receive(1.00)!=0);
+    assert(unsetenv("R2_TEST_MONEY_FAIL_AFTER_BACKUP_MOVE")==0);
+    assert(bill_count(wallet)==5);
+    ctx=money_context(); assert(strstr(ctx,"carried cash=$5.00")); free(ctx);
     simulate_interrupted_money_swap(wallet);
     r2_reality_shutdown();
     assert(r2_reality_init()==0);
