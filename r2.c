@@ -7681,6 +7681,67 @@ static int sync_gameboy_verified_events(void)
     return synced;
 }
 
+static int r2_parse_control_positive_id(const char *text, long long *id_out)
+{
+    if (!text || !id_out)
+        return -1;
+
+    const char *start = text;
+    while (*start == ' ' || *start == '\t' || *start == '\r')
+        ++start;
+
+    errno = 0;
+    char *end = NULL;
+    long long value = strtoll(start, &end, 10);
+    if (errno != 0 || end == start || value <= 0)
+        return -1;
+    while (*end == ' ' || *end == '\t' || *end == '\r')
+        ++end;
+    if (*end != '\n' && *end != '\0')
+        return -1;
+
+    *id_out = value;
+    return 0;
+}
+
+static int r2_parse_control_positive_id_pair(const char *text,
+                                             long long *first_out,
+                                             long long *second_out)
+{
+    if (!text || !first_out || !second_out)
+        return -1;
+
+    const char *cursor = text;
+    while (*cursor == ' ' || *cursor == '\t' || *cursor == '\r')
+        ++cursor;
+
+    errno = 0;
+    char *end = NULL;
+    long long first = strtoll(cursor, &end, 10);
+    if (errno != 0 || end == cursor || first <= 0 ||
+        (*end != ' ' && *end != '\t' && *end != '\r'))
+        return -1;
+
+    cursor = end;
+    while (*cursor == ' ' || *cursor == '\t' || *cursor == '\r')
+        ++cursor;
+    if (*cursor == '\n' || *cursor == '\0')
+        return -1;
+
+    errno = 0;
+    long long second = strtoll(cursor, &end, 10);
+    if (errno != 0 || end == cursor || second <= 0)
+        return -1;
+    while (*end == ' ' || *end == '\t' || *end == '\r')
+        ++end;
+    if (*end != '\n' && *end != '\0')
+        return -1;
+
+    *first_out = first;
+    *second_out = second;
+    return 0;
+}
+
 static char *process_tools_with_status(
     const char *reply,
     int *world_action_succeeded)
@@ -7812,7 +7873,8 @@ static char *process_tools_with_status(
     const char *alt_marker = find_control_marker_line(reply, "[ALTERNATE_SHOW]", 0);
     if (alt_marker) {
         long long branch_id = 0;
-        if (sscanf(alt_marker + strlen("[ALTERNATE_SHOW]"), "%lld", &branch_id) == 1 && branch_id > 0) {
+        if (r2_parse_control_positive_id(
+                alt_marker + strlen("[ALTERNATE_SHOW]"), &branch_id) == 0) {
             char *branch = r2_altself_show((int64_t)branch_id);
             if (branch) {
                 APPEND("ALTERNATE-SELF BRANCH (hypothetical only):\n%s\n", branch);
@@ -7824,9 +7886,9 @@ static char *process_tools_with_status(
     alt_marker = find_control_marker_line(reply, "[ALTERNATE_COMPARE]", 0);
     if (alt_marker) {
         long long first_id = 0, second_id = 0;
-        char extra = '\0';
-        if (sscanf(alt_marker + strlen("[ALTERNATE_COMPARE]"), "%lld %lld %c", &first_id, &second_id, &extra) == 2 &&
-            first_id > 0 && second_id > 0) {
+        if (r2_parse_control_positive_id_pair(
+                alt_marker + strlen("[ALTERNATE_COMPARE]"),
+                &first_id, &second_id) == 0) {
             char *branches = r2_altself_compare((int64_t)first_id, (int64_t)second_id);
             if (branches) {
                 APPEND("ALTERNATE-SELF COMPARISON INPUT (hypothetical branches; not factual events):\n%s\n", branches);
@@ -7838,8 +7900,9 @@ static char *process_tools_with_status(
     alt_marker = find_control_marker_line(reply, "[ALTERNATE_RETAIN]", 0);
     if (alt_marker) {
         long long branch_id = 0;
-        if (sscanf(alt_marker + strlen("[ALTERNATE_RETAIN]"), "%lld", &branch_id) == 1 &&
-            branch_id > 0 && r2_altself_retain_hypothesis((int64_t)branch_id) == 0)
+        if (r2_parse_control_positive_id(
+                alt_marker + strlen("[ALTERNATE_RETAIN]"), &branch_id) == 0 &&
+            r2_altself_retain_hypothesis((int64_t)branch_id) == 0)
             APPEND("ALTERNATE-SELF LAB RESULT: branch #%lld retained as a hypothesis, not factual memory.\n", branch_id);
         else
             APPEND("ALTERNATE-SELF LAB ERROR: branch could not be retained; expected an existing positive ID.\n");
@@ -7848,8 +7911,9 @@ static char *process_tools_with_status(
     alt_marker = find_control_marker_line(reply, "[ALTERNATE_DISCARD]", 0);
     if (alt_marker) {
         long long branch_id = 0;
-        if (sscanf(alt_marker + strlen("[ALTERNATE_DISCARD]"), "%lld", &branch_id) == 1 &&
-            branch_id > 0 && r2_altself_discard((int64_t)branch_id) == 0)
+        if (r2_parse_control_positive_id(
+                alt_marker + strlen("[ALTERNATE_DISCARD]"), &branch_id) == 0 &&
+            r2_altself_discard((int64_t)branch_id) == 0)
             APPEND("ALTERNATE-SELF LAB RESULT: branch #%lld marked discarded; its history remains preserved.\n", branch_id);
         else
             APPEND("ALTERNATE-SELF LAB ERROR: branch could not be discarded; expected an existing positive ID.\n");
