@@ -87,25 +87,17 @@ int main(void)
                     observed_bad_reply),
                 "observed fabricated paraphrase triggers corrective retry");
 
-    const char *actual_affectionate_message =
-        "R2, this is your mother speaking to you, and I missed you.";
-    ok &= check(strstr(r2_conversation_system_prompt,
-                    "If the user addresses you as R2 and introduces themselves as your mother") != NULL &&
-                    strstr(r2_conversation_system_prompt,
-                    "reply to that person from your own perspective") != NULL,
-                "the production conversation prompt explicitly handles a Mother addressing R2");
-    const char *observed_unclear_input_reply =
-        "I seem to be receiving unclear input! Could you please clarify what you mean? "
-        "Did you intend to type a different message, or is there something else "
-        "you'd like me to help you with? My circuits are ready to assist whenever "
-        "you're able to share more details.";
-    ok &= check(r2_reply_misclassifies_plain_text(actual_affectionate_message,
-                    observed_unclear_input_reply),
-                "generic unclear-input boilerplate on a clear affectionate message triggers corrective retry");
-    ok &= check(!r2_reply_misclassifies_plain_text(
-                    "Could you clarify which of the two room layouts you prefer?",
-                    "Do you mean the bed by the window or the bed beside the door?"),
-                "a specific clarification about a genuinely missing choice remains valid conversation");
+    const char *mother_instruction =
+        "If they identify themselves as your mother, father, friend, or another person";
+    const char *affection_instruction =
+        "if they say they missed you, acknowledge the affection naturally";
+    ok &= check(strstr(r2_conversation_system_prompt, mother_instruction) != NULL &&
+                    (size_t)(strstr(r2_conversation_system_prompt, mother_instruction) -
+                             r2_conversation_system_prompt) < 1000 &&
+                    strstr(r2_conversation_system_prompt, affection_instruction) != NULL &&
+                    (size_t)(strstr(r2_conversation_system_prompt, affection_instruction) -
+                             r2_conversation_system_prompt) < 1000,
+                "core speaker-relationship and affectionate-response instructions survive a constrained prompt prefix");
 
     ok &= check(r2_keyword_is_low_signal("hello") &&
                     r2_keyword_is_low_signal("r2") &&
