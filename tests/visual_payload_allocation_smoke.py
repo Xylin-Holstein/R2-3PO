@@ -24,9 +24,9 @@ for helper, next_marker in (
     require("json_object_put(value)" in block, "failed insertion releases the untransferred JSON value")
     require("!= 0" in block, "JSON insertion return code is checked")
 
-start = source.find("static void publish_focus_region(")
-end = source.find("\n/* Return the natural-language description", start)
-require(start >= 0 and end > start, "focus metadata writer exists")
+start = source.find("static void publish_focus_region_impl(")
+end = source.find("\nstatic void publish_focus_region(json_object *focus)", start)
+require(start >= 0 and end > start, "focus metadata implementation exists")
 focus = source[start:end]
 for key in ('"x"', '"y"', '"width"', '"height"', '"label"'):
     require(f"visual_json_object_add_checked(root, {key}" in focus,
