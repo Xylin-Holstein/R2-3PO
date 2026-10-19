@@ -44,7 +44,7 @@ This log records source-level findings and their verification status. A green wo
 - **Impact:** a disk/write failure during a wallet or piggybank mutation can leave the physical money files at a partial or lost balance, despite the operation reporting failure. This conflicts with the explicit rule that physical files are authoritative and can affect purchases and transfers.
 - **Fix in this branch:** replacement bills/change are staged before authoritative files move. A phase marker and same-filesystem backup let startup recovery distinguish staging-only, partial backup movement, partial installation, and committed replacement. Wallet and piggybank recovery runs before balances are read at startup; synchronous failures use the same recovery path.
 - **Regression coverage added:** test-only compile-time failure injection forces staging to fail and checks the original $5 balance is unchanged. A restart fixture simulates a crash during installation and checks recovery restores the original bill set.
-- **Status:** implementation and regressions are on the release branch; the current workflows must pass before this finding can be closed. Target-host power-loss and filesystem behavior remain unverified.
+- **Status:** implementation and regressions passed both full GitHub Actions workflows on code commit `82e14b3e07460bf8b15778d2ac63dd2b2355ab59` (87/87 steps in each; push run [39185665132](https://github.com/Xylin-Holstein/R2-3PO/actions/runs/39185665132), pull-request run [39185660924](https://github.com/Xylin-Holstein/R2-3PO/actions/runs/39185660924)). Target-host power-loss and filesystem behavior remain unverified.
 
 ## Manual source-review checkpoint: conversation and memory pipeline
 
@@ -61,7 +61,7 @@ No additional reproducible defect was established in this review slice. This is 
 
 ## Release gates still open
 
-- Release workflows must be checked against the exact final head after the money transaction change. Earlier commit `2068f6973488956636365024e8945dd8333f3ea6` passed both workflows (87/87 each), but that does not validate later source changes.
+- Money transaction source and regression tests passed both full workflows on `82e14b3e07460bf8b15778d2ac63dd2b2355ab59` (87/87 steps each). The later audit-log-only commit records that result; it does not change runtime source.
 - On the target machine, verify real Qwen 3.5 9B multi-turn chat, retry/fallback behavior, measured CPU/GPU placement and RAM headroom, and connected devices. CI cannot perform these checks.
 - Before installation, verify that the trusted root bootstrap is installed at `/usr/local/sbin/r2-3po-install`, root-owned, and not group/world-writable. The documented immutable source commit and Git blob SHA are checked against the current branch; this repository check does not prove the host has installed that copy.
 - Keep PR #161 draft and `main` untouched until repository validation and target-host acceptance are complete.
