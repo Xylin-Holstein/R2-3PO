@@ -145,118 +145,324 @@ static int money_create_bill(const char *dir)
     return -1;
 }
 
-static int money_recover_transactions(const char *dir)
+static int money_sync_directory(const char *path)
 {
-    DIR *root=opendir(dir); if(!root)return -1;
-    struct dirent *e; int result=0;
-    while((e=readdir(root))) {
-        if(strncmp(e->d_name,".r2-money-txn.",14))continue;
-        char txn[2300],stage[4096],backup[4096],phase[4096],state[32]={0};struct stat st;
-        int n=snprintf(txn,sizeof(txn),"%s/%s",dir,e->d_name);
-        if(n<=0||(size_t)n>=sizeof(txn)||lstat(txn,&st)||!S_ISDIR(st.st_mode)){result=-1;break;}
-        snprintf(stage,sizeof(stage),"%s/new",txn);snprintf(backup,sizeof(backup),"%s/backup",txn);snprintf(phase,sizeof(phase),"%s/phase",txn);
-        FILE *fp=fopen(phase,"r");if(fp){if(!fgets(state,sizeof(state),fp))result=-1;if(fclose(fp))result=-1;}
-        else if(errno!=ENOENT){result=-1;break;}
-        if(result)break;
-        state[strcspn(state,"\r\n")]=0;
-        if(!strcmp(state,"moving")||!strcmp(state,"installing")) {
-            if(!strcmp(state,"installing")) {
-                DIR *d=opendir(dir);if(!d){result=-1;break;}struct dirent *x;
-                while((x=readdir(d)))if(money_name_is_bill(x->d_name)||!strcmp(x->d_name,"change.txt")){
-                    char p[4096];struct stat fs;int z=snprintf(p,sizeof(p),"%s/%s",dir,x->d_name);
-                    if(z<=0||(size_t)z>=sizeof(p)||lstat(p,&fs)||!S_ISREG(fs.st_mode)||unlink(p)){result=-1;break;}}
-                closedir(d);if(result)break;
-            } else if(strcmp(state,"moving")) {result=-1;break;}
-            DIR *d=opendir(backup);if(!d){result=-1;break;}struct dirent *x;
-            while((x=readdir(d)))if(money_name_is_bill(x->d_name)||!strcmp(x->d_name,"change.txt")){
-                char from[8192],to[8192];struct stat fs;int u=snprintf(from,sizeof(from),"%s/%s",backup,x->d_name),v=snprintf(to,sizeof(to),"%s/%s",dir,x->d_name);
-                if(u<=0||(size_t)u>=sizeof(from)||v<=0||(size_t)v>=sizeof(to)||lstat(from,&fs)||!S_ISREG(fs.st_mode)||
-                   (unlink(to)&&errno!=ENOENT)||rename(from,to)){result=-1;break;}}
-            closedir(d);if(result)break;
-        } else if(*state && strcmp(state,"committed")) {result=-1;break;}
-        const char *dirs[2]={stage,backup};
-        for(int i=0;i<2;i++){DIR*d=opendir(dirs[i]);if(d){struct dirent*x;while((x=readdir(d)))if(money_name_is_bill(x->d_name)||!strcmp(x->d_name,"change.txt")){
-            char p[4096];snprintf(p,sizeof(p),"%s/%s",dirs[i],x->d_name);(void)unlink(p);}closedir(d);} (void)rmdir(dirs[i]);}
-        (void)unlink(phase);if(rmdir(txn)!=0&&errno!=ENOENT){result=-1;break;}
-    }
-    closedir(root);return result;
+    int fd = open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (fd < 0) return -1;
+    int rc = fsync(fd);
+    if (close(fd) != 0) rc = -1;
+    return rc == 0 ? 0 : -1;
 }
 
-static int money_set_dir_balance(const char *dir, sqlite3_int64 cents, int *changed)
+static int money_write_all(int fd, const char *data, size_t length)
 {
-    if (changed) *changed = 0;
-    if (cents < 0 || cents > 100000000LL || ensure_dir_tree(dir) != 0 || money_recover_transactions(dir) != 0) return -1;
+    size_t offset = 0;
+    while (offset < length) {
+        ssize_t n = write(fd, data + offset, length - offset);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) return -1;
+        offset += (size_t)n;
+    }
+    return 0;
+}
+
+static int money_txn_path(char *out, size_t cap, const char *txn, const char *leaf)
+{
+    int n = snprintf(out, cap, "%s/%s", txn, leaf);
+    return n > 0 && (size_t)n < cap ? 0 : -1;
+}
+
+static int money_write_phase(const char *txn, const char *state)
+{
+    char phase[4096], temp[4096];
+    if (money_txn_path(phase, sizeof(phase), txn, "phase") != 0 ||
+        money_txn_path(temp, sizeof(temp), txn, ".phase.tmp") != 0) return -1;
+    int fd = open(temp, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (fd < 0) return -1;
+    size_t length = strlen(state);
+    int rc = money_write_all(fd, state, length);
+    if (rc == 0 && fsync(fd) != 0) rc = -1;
+    if (close(fd) != 0) rc = -1;
+    if (rc == 0 && rename(temp, phase) != 0) rc = -1;
+    if (rc == 0 && money_sync_directory(txn) != 0) rc = -1;
+    if (rc != 0) (void)unlink(temp);
+    return rc;
+}
+
+static int money_remove_auth_files(const char *dir)
+{
     DIR *dp = opendir(dir);
     if (!dp) return -1;
     struct dirent *entry;
     int rc = 0;
     while ((entry = readdir(dp)) != NULL) {
         if (!money_name_is_bill(entry->d_name) && strcmp(entry->d_name, "change.txt")) continue;
-        char p[4096]; struct stat st;
-        int n = snprintf(p, sizeof(p), "%s/%s", dir, entry->d_name);
-        if (n <= 0 || (size_t)n >= sizeof(p) || lstat(p, &st) != 0 || !S_ISREG(st.st_mode)) { rc=-1; break; }
+        char path[8192];
+        int n = snprintf(path, sizeof(path), "%s/%s", dir, entry->d_name);
+        struct stat st;
+        if (n <= 0 || (size_t)n >= sizeof(path) ||
+            lstat(path, &st) != 0 || !S_ISREG(st.st_mode) || unlink(path) != 0) {
+            rc = -1;
+            break;
+        }
     }
-    closedir(dp);
+    if (closedir(dp) != 0) rc = -1;
+    return rc;
+}
+
+static int money_restore_backup(const char *dir, const char *backup)
+{
+    DIR *dp = opendir(backup);
+    if (!dp) return -1;
+    struct dirent *entry;
+    int rc = 0;
+    while ((entry = readdir(dp)) != NULL) {
+        if (!money_name_is_bill(entry->d_name) && strcmp(entry->d_name, "change.txt")) continue;
+        char from[8192], to[8192];
+        struct stat st;
+        int a = snprintf(from, sizeof(from), "%s/%s", backup, entry->d_name);
+        int b = snprintf(to, sizeof(to), "%s/%s", dir, entry->d_name);
+        if (a <= 0 || (size_t)a >= sizeof(from) || b <= 0 || (size_t)b >= sizeof(to) ||
+            lstat(from, &st) != 0 || !S_ISREG(st.st_mode)) {
+            rc = -1;
+            break;
+        }
+        if (lstat(to, &st) == 0 || errno != ENOENT || rename(from, to) != 0) {
+            rc = -1;
+            break;
+        }
+    }
+    if (closedir(dp) != 0) rc = -1;
+    if (rc == 0 && money_sync_directory(backup) != 0) rc = -1;
+    if (rc == 0 && money_sync_directory(dir) != 0) rc = -1;
+    return rc;
+}
+
+static int money_clean_txn_dir(const char *txn)
+{
+    char stage[4096], backup[4096], phase[4096], temp[4096];
+    if (money_txn_path(stage, sizeof(stage), txn, "new") != 0 ||
+        money_txn_path(backup, sizeof(backup), txn, "backup") != 0 ||
+        money_txn_path(phase, sizeof(phase), txn, "phase") != 0 ||
+        money_txn_path(temp, sizeof(temp), txn, ".phase.tmp") != 0) return -1;
+    const char *dirs[] = {stage, backup};
+    for (size_t i = 0; i < sizeof(dirs) / sizeof(dirs[0]); ++i) {
+        DIR *dp = opendir(dirs[i]);
+        if (!dp) {
+            if (errno == ENOENT) continue;
+            return -1;
+        }
+        struct dirent *entry;
+        int rc = 0;
+        while ((entry = readdir(dp)) != NULL) {
+            if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
+            if (!money_name_is_bill(entry->d_name) && strcmp(entry->d_name, "change.txt")) {
+                rc = -1;
+                break;
+            }
+            char path[8192];
+            struct stat st;
+            int n = snprintf(path, sizeof(path), "%s/%s", dirs[i], entry->d_name);
+            if (n <= 0 || (size_t)n >= sizeof(path) || lstat(path, &st) != 0 ||
+                !S_ISREG(st.st_mode) || unlink(path) != 0) {
+                rc = -1;
+                break;
+            }
+        }
+        if (closedir(dp) != 0) rc = -1;
+        if (rc != 0) return -1;
+        if (rmdir(dirs[i]) != 0 && errno != ENOENT) return -1;
+    }
+    if (unlink(phase) != 0 && errno != ENOENT) return -1;
+    if (unlink(temp) != 0 && errno != ENOENT) return -1;
+    if (money_sync_directory(txn) != 0) return -1;
+    if (rmdir(txn) != 0 && errno != ENOENT) return -1;
+    return 0;
+}
+
+static int money_recover_one_transaction(const char *dir, const char *txn)
+{
+    char stage[4096], backup[4096], phase[4096], state[32] = {0};
+    if (money_txn_path(stage, sizeof(stage), txn, "new") != 0 ||
+        money_txn_path(backup, sizeof(backup), txn, "backup") != 0 ||
+        money_txn_path(phase, sizeof(phase), txn, "phase") != 0) return -1;
+
+    int fd = open(phase, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    if (fd < 0 && errno != ENOENT) return -1;
+    if (fd >= 0) {
+        ssize_t n;
+        do { n = read(fd, state, sizeof(state) - 1); } while (n < 0 && errno == EINTR);
+        int close_rc = close(fd);
+        if (n <= 0 || close_rc != 0) return -1;
+        if (n == (ssize_t)(sizeof(state) - 1)) return -1;
+        state[n] = '\0';
+        state[strcspn(state, "\r\n")] = '\0';
+    } else {
+        /* No phase marker is safe only before any authoritative file moved. */
+        DIR *dp = opendir(backup);
+        if (!dp) return -1;
+        struct dirent *entry;
+        int has_backup = 0;
+        while ((entry = readdir(dp)) != NULL) {
+            if (money_name_is_bill(entry->d_name) || !strcmp(entry->d_name, "change.txt")) {
+                has_backup = 1;
+                break;
+            }
+        }
+        if (closedir(dp) != 0 || has_backup) return -1;
+        return money_clean_txn_dir(txn);
+    }
+
+    if (!strcmp(state, "moving")) {
+        /* Some old bills may still be in place; restore only names already backed up. */
+        if (money_restore_backup(dir, backup) != 0) return -1;
+    } else if (!strcmp(state, "installing")) {
+        if (money_remove_auth_files(dir) != 0 ||
+            money_restore_backup(dir, backup) != 0) return -1;
+    } else if (strcmp(state, "committed")) {
+        /* Unknown/truncated state is not permission to discard the backup. */
+        return -1;
+    }
+    if (money_sync_directory(dir) != 0) return -1;
+    return money_clean_txn_dir(txn);
+}
+
+static int money_recover_transactions(const char *dir)
+{
+    DIR *root = opendir(dir);
+    if (!root) return -1;
+    struct dirent *entry;
+    int result = 0;
+    while ((entry = readdir(root)) != NULL) {
+        if (strncmp(entry->d_name, ".r2-money-txn.", 14)) continue;
+        char txn[4096];
+        struct stat st;
+        int n = snprintf(txn, sizeof(txn), "%s/%s", dir, entry->d_name);
+        if (n <= 0 || (size_t)n >= sizeof(txn) ||
+            lstat(txn, &st) != 0 || !S_ISDIR(st.st_mode) ||
+            money_recover_one_transaction(dir, txn) != 0) {
+            result = -1;
+            break;
+        }
+    }
+    if (closedir(root) != 0) result = -1;
+    return result;
+}
+
+static int money_set_dir_balance(const char *dir, sqlite3_int64 cents, int *changed)
+{
+    if (changed) *changed = 0;
+    if (cents < 0 || cents > 100000000LL || ensure_dir_tree(dir) != 0 ||
+        money_recover_transactions(dir) != 0) return -1;
+
+    DIR *dp = opendir(dir);
+    if (!dp) return -1;
+    struct dirent *entry;
+    int rc = 0;
+    while ((entry = readdir(dp)) != NULL) {
+        if (!money_name_is_bill(entry->d_name) && strcmp(entry->d_name, "change.txt")) continue;
+        char path[4096];
+        struct stat st;
+        int n = snprintf(path, sizeof(path), "%s/%s", dir, entry->d_name);
+        if (n <= 0 || (size_t)n >= sizeof(path) ||
+            lstat(path, &st) != 0 || !S_ISREG(st.st_mode)) { rc = -1; break; }
+    }
+    if (closedir(dp) != 0) rc = -1;
     if (rc) return -1;
 
-    char templ[2200], txn[2300], stage[4096], backup[4096], phase[4096];
-    int n=snprintf(templ,sizeof(templ),"%s/.r2-money-txn.XXXXXX",dir);
-    if(n<=0||(size_t)n>=sizeof(templ))return -1;
-    char *made=mkdtemp(templ); if(!made)return -1;
-    snprintf(txn,sizeof(txn),"%s",made); snprintf(stage,sizeof(stage),"%s/new",txn);
-    snprintf(backup,sizeof(backup),"%s/backup",txn); snprintf(phase,sizeof(phase),"%s/phase",txn);
-    if(mkdir(stage,0700)||mkdir(backup,0700)){(void)rmdir(stage);(void)rmdir(backup);(void)rmdir(txn);return -1;}
+    char templ[2200], txn[4096], stage[4096], backup[4096];
+    int n = snprintf(templ, sizeof(templ), "%s/.r2-money-txn.XXXXXX", dir);
+    if (n <= 0 || (size_t)n >= sizeof(templ)) return -1;
+    char *made = mkdtemp(templ);
+    if (!made) return -1;
+    snprintf(txn, sizeof(txn), "%s", made);
+    if (money_sync_directory(dir) != 0 ||
+        money_txn_path(stage, sizeof(stage), txn, "new") != 0 ||
+        money_txn_path(backup, sizeof(backup), txn, "backup") != 0 ||
+        mkdir(stage, 0700) != 0 || mkdir(backup, 0700) != 0 ||
+        money_sync_directory(txn) != 0) {
+        (void)money_clean_txn_dir(txn);
+        return -1;
+    }
 
-    for(sqlite3_int64 i=0;i<cents/100;i++) {
-        if(money_create_bill(stage)){rc=-1;break;}
+    for (sqlite3_int64 i = 0; i < cents / 100; ++i) {
+        if (money_create_bill(stage) != 0) { rc = -1; break; }
 #ifdef R2_MONEY_TEST_FAILURE_INJECTION
-        if(i==0&&getenv("R2_TEST_MONEY_STAGE_FAIL")){rc=-1;break;}
+        if (i == 0 && getenv("R2_TEST_MONEY_STAGE_FAIL")) { rc = -1; break; }
 #endif
     }
-    int change=(int)(cents%100);
-    if(!rc&&change){
-        char p[4096],v[32];n=snprintf(p,sizeof(p),"%s/change.txt",stage);
-        if(n<=0||(size_t)n>=sizeof(p))rc=-1;
-        else {int fd=open(p,O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC,0600);
-            if(fd<0)rc=-1;else{int z=snprintf(v,sizeof(v),"cents=%d\n",change);
-                if (write(fd, v, (size_t)z) != z || fsync(fd) != 0) rc = -1;
+    int change = (int)(cents % 100);
+    if (!rc && change) {
+        char path[4096], value[32];
+        n = snprintf(path, sizeof(path), "%s/change.txt", stage);
+        if (n <= 0 || (size_t)n >= sizeof(path)) rc = -1;
+        else {
+            int fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
+            if (fd < 0) rc = -1;
+            else {
+                int length = snprintf(value, sizeof(value), "cents=%d\n", change);
+                if (money_write_all(fd, value, (size_t)length) != 0 || fsync(fd) != 0) rc = -1;
                 if (close(fd) != 0) rc = -1;
-                if (rc) (void)unlink(p);}}
+                if (rc) (void)unlink(path);
+            }
+        }
     }
-    if(rc)goto cleanup;
-    {int fd=open(phase,O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC,0600);
-     if(fd<0){rc=-1;goto cleanup;}const char state[]="moving\n";
-     if(write(fd,state,sizeof(state)-1)!=(ssize_t)(sizeof(state)-1)||fsync(fd)||close(fd)){rc=-1;goto cleanup;}}
-    dp=opendir(dir);if(!dp){rc=-1;goto rollback;}
-    while((entry=readdir(dp)))if(money_name_is_bill(entry->d_name)||!strcmp(entry->d_name,"change.txt")){
-        char from[8192],to[8192];int x=snprintf(from,sizeof(from),"%s/%s",dir,entry->d_name),y=snprintf(to,sizeof(to),"%s/%s",backup,entry->d_name);
-        if(x<=0||(size_t)x>=sizeof(from)||y<=0||(size_t)y>=sizeof(to)||rename(from,to)){rc=-1;break;}}
-    closedir(dp);if(rc)goto rollback;
-    {int fd=open(phase,O_WRONLY|O_TRUNC|O_CLOEXEC,0600);const char state[]="installing\n";
-     if(fd<0){rc=-1;goto rollback;}if(write(fd,state,sizeof(state)-1)!=(ssize_t)(sizeof(state)-1)||fsync(fd)||close(fd)){rc=-1;goto rollback;}}
-    dp=opendir(stage);if(!dp){rc=-1;goto rollback;}
-    while((entry=readdir(dp)))if(money_name_is_bill(entry->d_name)||!strcmp(entry->d_name,"change.txt")){
-        char from[8192],to[8192];int x=snprintf(from,sizeof(from),"%s/%s",stage,entry->d_name),y=snprintf(to,sizeof(to),"%s/%s",dir,entry->d_name);
-        if(x<=0||(size_t)x>=sizeof(from)||y<=0||(size_t)y>=sizeof(to)||rename(from,to)){rc=-1;break;}}
-    closedir(dp);if(rc)goto rollback;
-    {int fd=open(phase,O_WRONLY|O_TRUNC|O_CLOEXEC,0600);const char state[]="committed\n";
-     if(fd<0){rc=-1;goto rollback;}if(write(fd,state,sizeof(state)-1)!=(ssize_t)(sizeof(state)-1)||fsync(fd)||close(fd)){rc=-1;goto rollback;}}
-    if(changed)*changed=1;
-    goto cleanup;
+    if (rc == 0 && money_sync_directory(stage) != 0) rc = -1;
+    if (rc != 0) {
+        (void)money_clean_txn_dir(txn);
+        return -1;
+    }
+
+    if (money_write_phase(txn, "moving\n") != 0) {
+        (void)money_clean_txn_dir(txn);
+        return -1;
+    }
+    dp = opendir(dir);
+    if (!dp) { rc = -1; goto rollback; }
+    while ((entry = readdir(dp)) != NULL) {
+        if (!money_name_is_bill(entry->d_name) && strcmp(entry->d_name, "change.txt")) continue;
+        char from[8192], to[8192];
+        int a = snprintf(from, sizeof(from), "%s/%s", dir, entry->d_name);
+        int b = snprintf(to, sizeof(to), "%s/%s", backup, entry->d_name);
+        if (a <= 0 || (size_t)a >= sizeof(from) || b <= 0 ||
+            (size_t)b >= sizeof(to) || rename(from, to) != 0) { rc = -1; break; }
+#ifdef R2_MONEY_TEST_FAILURE_INJECTION
+        if (getenv("R2_TEST_MONEY_FAIL_AFTER_BACKUP_MOVE")) { rc = -1; break; }
+#endif
+    }
+    if (closedir(dp) != 0) rc = -1;
+    if (rc != 0 || money_sync_directory(dir) != 0 || money_sync_directory(backup) != 0) {
+        rc = -1;
+        goto rollback;
+    }
+
+    if (money_write_phase(txn, "installing\n") != 0) { rc = -1; goto rollback; }
+    dp = opendir(stage);
+    if (!dp) { rc = -1; goto rollback; }
+    while ((entry = readdir(dp)) != NULL) {
+        if (!money_name_is_bill(entry->d_name) && strcmp(entry->d_name, "change.txt")) continue;
+        char from[8192], to[8192];
+        int a = snprintf(from, sizeof(from), "%s/%s", stage, entry->d_name);
+        int b = snprintf(to, sizeof(to), "%s/%s", dir, entry->d_name);
+        if (a <= 0 || (size_t)a >= sizeof(from) || b <= 0 ||
+            (size_t)b >= sizeof(to) || rename(from, to) != 0) { rc = -1; break; }
+    }
+    if (closedir(dp) != 0) rc = -1;
+    if (rc != 0 || money_sync_directory(dir) != 0 || money_sync_directory(stage) != 0) {
+        rc = -1;
+        goto rollback;
+    }
+
+    if (money_write_phase(txn, "committed\n") != 0) { rc = -1; goto rollback; }
+    if (changed) *changed = 1;
+    (void)money_recover_one_transaction(dir, txn); /* committed cleanup can be retried at startup */
+    return 0;
+
 rollback:
-    /* If installation began, remove the partial new set before restoring the backup. */
-    {FILE *fp=fopen(phase,"r");char state[32]={0};if(fp){if (!fgets(state,sizeof(state),fp)) state[0] = '\0'; fclose(fp);}
-     if(strstr(state,"installing")){
-        dp=opendir(dir);if(dp){while((entry=readdir(dp)))if(money_name_is_bill(entry->d_name)||!strcmp(entry->d_name,"change.txt")){
-            char p[4096];struct stat st;snprintf(p,sizeof(p),"%s/%s",dir,entry->d_name);
-            if(lstat(p,&st)==0&&S_ISREG(st.st_mode))(void)unlink(p);}closedir(dp);}}
-     dp=opendir(backup);if(dp){while((entry=readdir(dp)))if(money_name_is_bill(entry->d_name)||!strcmp(entry->d_name,"change.txt")){
-        char from[8192],to[8192];snprintf(from,sizeof(from),"%s/%s",backup,entry->d_name);snprintf(to,sizeof(to),"%s/%s",dir,entry->d_name);(void)rename(from,to);}closedir(dp);}}
-cleanup:
-    {const char *dirs[2]={stage,backup};for(int i=0;i<2;i++){dp=opendir(dirs[i]);if(dp){while((entry=readdir(dp)))if(money_name_is_bill(entry->d_name)||!strcmp(entry->d_name,"change.txt")){
-        char p[4096];snprintf(p,sizeof(p),"%s/%s",dirs[i],entry->d_name);(void)unlink(p);}closedir(dp);} (void)rmdir(dirs[i]);}}
-    (void)unlink(phase);(void)rmdir(txn);
-    return rc;
+    /* Never delete a backup unless restoration completed successfully. */
+    if (money_recover_one_transaction(dir, txn) != 0)
+        fprintf(stderr, "[R2 Reality] Money transaction recovery deferred; backup retained at %s\n", txn);
+    return -1;
 }
 
 static int money_dir_balance(const char *dir, sqlite3_int64 *balance)
