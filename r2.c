@@ -5194,17 +5194,18 @@ static char *r2_retry_direct_answer(Message *messages_copy,
      * A corrective retry must not re-send the entire stale dialogue: the
      * previous response may have been pulled off-topic by that history, and
      * on CPU-only hardware a multi-thousand-token retry can take minutes.
-     * Keep only live Reality and focused retrieved evidence, if present,
-     * plus the exact authoritative user turn. The full R2 identity/privacy/
-     * style instructions remain in the system override.
+     * Keep live Reality, focused retrieved evidence, and the bounded startup
+     * memory snapshot when present, plus the exact authoritative user turn.
+     * Startup memory is separate from the static identity policy; dropping it
+     * can erase the evidence for learned relationships on the retry path.
      */
     char *retry_system_prompt = r2_build_retry_system_prompt();
     if (!retry_system_prompt)
         return NULL;
 
-    Message compact_messages[3];
+    Message compact_messages[4];
     size_t compact_count = 0;
-    for (size_t i = 0; i < message_count && compact_count < 2; ++i) {
+    for (size_t i = 0; i < message_count && compact_count < 3; ++i) {
         const char *content = messages_copy[i].content;
         if (!messages_copy[i].role || strcmp(messages_copy[i].role, "system") != 0 ||
             !content)
@@ -5212,7 +5213,12 @@ static char *r2_retry_direct_answer(Message *messages_copy,
         if (!strncmp(content, "PERSISTENT REALITY CONTEXT",
                       strlen("PERSISTENT REALITY CONTEXT")) ||
             !strncmp(content, "CURRENT TURN RETRIEVED CONTEXT",
-                      strlen("CURRENT TURN RETRIEVED CONTEXT"))) {
+                      strlen("CURRENT TURN RETRIEVED CONTEXT")) ||
+            !strncmp(content,
+                      "============================================================\n"
+                      "R2 PERSISTENT MEMORY - STARTUP CONTEXT",
+                      strlen("============================================================\n"
+                             "R2 PERSISTENT MEMORY - STARTUP CONTEXT"))) {
             compact_messages[compact_count++] = messages_copy[i];
         }
     }
