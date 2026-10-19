@@ -98,8 +98,8 @@ for phrase, message in (
 
 builder_start = core.find("static char *r2_build_retry_system_prompt(void)")
 builder_end = core.find("\nstatic char *r2_retry_direct_answer(", builder_start)
-const context_start = core.find("static int r2_is_retry_context_message(")
-context_end = core.find("\\nstatic char *r2_retry_direct_answer(", context_start)
+context_start = core.find("static int r2_is_retry_context_message(")
+context_end = core.find("\nstatic char *r2_retry_direct_answer(", context_start)
 require(context_start >= 0 and context_end > context_start,
         "retry context selector exists")
 retry_context = core[context_start:context_end]
