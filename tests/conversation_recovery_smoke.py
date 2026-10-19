@@ -54,6 +54,16 @@ require(
 )
 
 # A model response containing only internal markers must not trigger an action.
+visible_start = core.find("static int reply_has_visible_text(")
+visible_end = core.find("\\n}\\n", visible_start)
+visible_helper = core[visible_start:visible_end + 3] if visible_start >= 0 and visible_end > visible_start else ""
+require(
+    "control_blocks[]" in visible_helper
+    and '"[RUN]"' in visible_helper
+    and '"[WORLD]"' in visible_helper
+    and "Malformed control output is never user-facing text" in visible_helper,
+    "action-control blocks and lines do not count as visible user-facing text",
+)
 visible_gate = impl.find("if (!reply_has_visible_text(stripped_reply))")
 tool_execution = impl.find("char *tools = process_tools(stripped_reply)")
 require(
