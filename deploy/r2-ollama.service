@@ -1,6 +1,6 @@
 [Unit]
 Description=R2-3PO isolated Ollama inference server (runs as r2)
-Documentation=https://github.com/Xylin-Holstein/R2-3PO
+Documentation=https://github.com/Xylin48/R2-3PO
 After=network.target
 Before=r2-3po.service
 StartLimitIntervalSec=0
