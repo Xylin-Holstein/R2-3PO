@@ -2469,6 +2469,9 @@ int r2_reality_init(void)
 
 void r2_reality_shutdown(void)
 {
+    /* Wait for any purchase to finish its cross-database commit before
+       closing either Reality or fridge handles. Lock order matches mutators. */
+    pthread_mutex_lock(&purchase_lock);
     pthread_mutex_lock(&reality_lock);
     if (reality_db) {
         sqlite3_wal_checkpoint_v2(reality_db, NULL, SQLITE_CHECKPOINT_PASSIVE, NULL, NULL);
@@ -2478,6 +2481,7 @@ void r2_reality_shutdown(void)
     r2_fridge_shutdown();
     reality_ready = 0;
     pthread_mutex_unlock(&reality_lock);
+    pthread_mutex_unlock(&purchase_lock);
     r2_addiction_shutdown();
 }
 
