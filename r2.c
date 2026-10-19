@@ -5825,8 +5825,7 @@ static char *chat_with_relevant_memories(
         free(reply);
         reply = user_facing;
         if (!reply || !*reply) {
-            retry_after_sanitize_failure = 1;
-            fprintf(stderr, "[R2 Ollama] Reply contained no safe user-facing text after sanitization; a corrective retry will be attempted.\n");
+            fprintf(stderr, "[R2 Ollama] Reply contained no user-facing text after sanitization.\\n");
         }
     }
 
