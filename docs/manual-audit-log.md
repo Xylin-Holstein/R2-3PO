@@ -177,6 +177,6 @@ This remains a bounded manual review, not a claim that every subsystem has been 
 
 - **Area:** `Reality.c`, `money_change_cents()`.
 - **Finding:** parsing `change.txt` with `fscanf(..., "%ld", ...)` can invoke undefined behavior when a corrupted or manually edited file contains an integer outside the range of `long`. The old `lstat()` followed by `fopen()` also left a symlink replacement window between checking and opening the authoritative file.
-- **Fix:** open with `O_NOFOLLOW | O_CLOEXEC`, validate the opened descriptor with `fstat()`, read at most a small fixed buffer, parse with `strtol()` and range checks, and reject oversized input, trailing junk, or non-regular files. A genuinely missing file still means zero cents, preserving the wallet's existing semantics.
-- **Regression coverage:** extended `tests/money_wallet_smoke.c` to place an integer far beyond `LONG_MAX` in the physical change file and verify that a money operation fails closed without changing the authoritative bill count.
-- **Status:** fix and runtime regression are committed on the release branch; the full workflow is pending. No target-machine execution is implied.
+- **Fix:** open with `O_NOFOLLOW | O_CLOEXEC`, validate the opened descriptor with `fstat()`, read at most a small fixed buffer, parse with `strtol()` and range checks, and reject oversized input, trailing junk, embedded NULs, or non-regular files. A genuinely missing file still means zero cents, preserving the wallet's existing semantics.
+- **Regression coverage:** extended `tests/money_wallet_smoke.c` to place an integer far beyond `LONG_MAX` and an embedded-NUL payload in the physical change file, verifying that money operations fail closed without changing the authoritative bill count.
+- **Status:** fix and runtime regressions are committed on the release branch; the full workflow is pending. No target-machine execution is implied.
