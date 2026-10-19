@@ -87,21 +87,21 @@ int main(void)
 
     /* Model-generated Alternate-Self IDs must reject scanf-style overflow. */
     long long parsed_id = 0, first_id = 0, second_id = 0;
-    assert(r2_parse_control_positive_id(" 123\\nnext marker", &parsed_id) == 0);
+    assert(r2_parse_control_positive_id(" 123\nnext marker", &parsed_id) == 0);
     assert(parsed_id == 123);
     assert(r2_parse_control_positive_id(
-        " 999999999999999999999999999999999999\\n", &parsed_id) != 0);
-    assert(r2_parse_control_positive_id(" 12junk\\n", &parsed_id) != 0);
-    assert(r2_parse_control_positive_id(" -1\\n", &parsed_id) != 0);
-    assert(r2_parse_control_positive_id_pair(" 12 34\\nnext marker",
+        " 999999999999999999999999999999999999\n", &parsed_id) != 0);
+    assert(r2_parse_control_positive_id(" 12junk\n", &parsed_id) != 0);
+    assert(r2_parse_control_positive_id(" -1\n", &parsed_id) != 0);
+    assert(r2_parse_control_positive_id_pair(" 12 34\nnext marker",
         &first_id, &second_id) == 0);
     assert(first_id == 12 && second_id == 34);
     assert(r2_parse_control_positive_id_pair(
-        " 999999999999999999999999999999 2\\n",
+        " 999999999999999999999999999999 2\n",
         &first_id, &second_id) != 0);
-    assert(r2_parse_control_positive_id_pair(" 12 34 extra\\n",
+    assert(r2_parse_control_positive_id_pair(" 12 34 extra\n",
         &first_id, &second_id) != 0);
-    assert(r2_parse_control_positive_id_pair(" 12\\n",
+    assert(r2_parse_control_positive_id_pair(" 12\n",
         &first_id, &second_id) != 0);
 
     /* Executable control turns are history metadata, not human-facing dialogue. */
