@@ -51,6 +51,38 @@ static void clear_money_files(const char *dir) {
     closedir(dp);
 }
 
+static void write_test_bills(const char *dir, int count)
+{
+    for (int i = 0; i < count; ++i) {
+        char path[1500];
+        if (i == 0) snprintf(path, sizeof(path), "%s/money", dir);
+        else snprintf(path, sizeof(path), "%s/money(%d)", dir, i);
+        FILE *fp = fopen(path, "w");
+        assert(fp);
+        assert(fputs("denomination=1.00\n", fp) >= 0);
+        assert(fclose(fp) == 0);
+    }
+}
+
+static void simulate_interrupted_transfer(const char *wallet, const char *bank)
+{
+    char dbpath[1500];
+    snprintf(dbpath, sizeof(dbpath), "%s/R2/r2_reality.db", R2_ROOT);
+    sqlite3 *db = NULL;
+    assert(sqlite3_open(dbpath, &db) == SQLITE_OK);
+    assert(sqlite3_exec(db,
+        "INSERT OR REPLACE INTO r2_money_transfer_journal"
+        "(id,old_cash_cents,old_bank_cents,new_cash_cents,new_bank_cents,operation,phase)"
+        " VALUES(1,500,0,400,100,'crash-fixture','pending');",
+        NULL, NULL, NULL) == SQLITE_OK);
+    assert(sqlite3_close(db) == SQLITE_OK);
+
+    clear_money_files(wallet);
+    clear_money_files(bank);
+    write_test_bills(wallet, 4);
+    write_test_bills(bank, 1);
+}
+
 static void simulate_interrupted_money_swap(const char *wallet)
 {
     char txn[1400], fresh[1500], backup[1500], phase[1500], path[1600];
@@ -247,11 +279,21 @@ int main(void) {
     assert(unsetenv("R2_TEST_MONEY_FAIL_AFTER_BACKUP_MOVE")==0);
     assert(bill_count(wallet)==5);
     ctx=money_context(); assert(strstr(ctx,"carried cash=$5.00")); free(ctx);
+    assert(setenv("R2_TEST_MONEY_TRANSFER_FAIL_AFTER_WALLET","1",1)==0);
+    assert(r2_reality_money_deposit(1.00)!=0);
+    assert(unsetenv("R2_TEST_MONEY_TRANSFER_FAIL_AFTER_WALLET")==0);
+    assert(bill_count(wallet)==5 && bill_count(bank)==0);
+    ctx=money_context(); assert(strstr(ctx,"carried cash=$5.00") && strstr(ctx,"piggybank=$0.00")); free(ctx);
     simulate_interrupted_money_swap(wallet);
     r2_reality_shutdown();
     assert(r2_reality_init()==0);
     assert(bill_count(wallet)==5);
     ctx=money_context(); assert(strstr(ctx,"carried cash=$5.00")); free(ctx);
+    simulate_interrupted_transfer(wallet,bank);
+    r2_reality_shutdown();
+    assert(r2_reality_init()==0);
+    assert(bill_count(wallet)==5 && bill_count(bank)==0);
+    ctx=money_context(); assert(strstr(ctx,"carried cash=$5.00") && strstr(ctx,"piggybank=$0.00")); free(ctx);
     /* An unexpected non-regular authoritative path must be rejected before
        any valid cash bills are removed or recreated. */
     char bad_money_path[1400];
