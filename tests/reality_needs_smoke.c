@@ -687,9 +687,15 @@ int main(void)
         sqlite3_column_int(transfer_st, 1) != 2)
         fail("restart did not restore the original pocket stack after interrupted fridge move");
     sqlite3_finalize(transfer_st);
+    transfer_st = NULL;
+    if (sqlite3_prepare_v2(transfer_db,
+        "SELECT COUNT(*) FROM r2_inventory_transfer_journal", -1, &transfer_st, NULL) != SQLITE_OK ||
+        sqlite3_step(transfer_st) != SQLITE_ROW || sqlite3_column_int(transfer_st, 0) != 0)
+        fail("move-to-fridge recovery did not clear its durable journal");
+    sqlite3_finalize(transfer_st);
+    transfer_st = NULL;
     sqlite3_close(transfer_db);
     transfer_db = NULL;
-    transfer_st = NULL;
     if (sqlite3_open(transfer_fridge_path, &transfer_db) != SQLITE_OK)
         fail("could not query recovered fridge item transfer");
     if (sqlite3_prepare_v2(transfer_db,
@@ -734,6 +740,16 @@ int main(void)
         sqlite3_step(transfer_st) != SQLITE_ROW ||
         sqlite3_column_int(transfer_st, 0) != 0)
         fail("restart left a pocket item from an interrupted fridge take");
+    sqlite3_finalize(transfer_st);
+    transfer_st = NULL;
+    sqlite3_close(transfer_db);
+    transfer_db = NULL;
+    if (sqlite3_open(R2_HOME "/r2_reality.db", &transfer_db) != SQLITE_OK)
+        fail("could not verify cleared fridge-take recovery journal");
+    if (sqlite3_prepare_v2(transfer_db,
+        "SELECT COUNT(*) FROM r2_inventory_transfer_journal", -1, &transfer_st, NULL) != SQLITE_OK ||
+        sqlite3_step(transfer_st) != SQLITE_ROW || sqlite3_column_int(transfer_st, 0) != 0)
+        fail("fridge-take recovery did not clear its durable journal");
     sqlite3_finalize(transfer_st);
     sqlite3_close(transfer_db);
     transfer_db = NULL;
