@@ -1,6 +1,6 @@
 [Unit]
 Description=R2-3PO overnight companion
-Documentation=https://github.com/Xylin-Holstein/R2-3PO
+Documentation=https://github.com/Xylin48/R2-3PO
 Wants=network-online.target r2-ollama.service
 After=network-online.target r2-ollama.service sound.target
 BindsTo=r2-ollama.service
