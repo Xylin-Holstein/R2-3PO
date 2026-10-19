@@ -156,7 +156,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         with patch.object(probe, "_read_json", side_effect=[
             {"models": [{"name": "qwen3.5:9b"}]},
             {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
-            {"message": {"content": red_literal}},
+            {"done": True, "message": {"role": "assistant", "content": red_literal}},
         ]) as read, patch.object(probe.subprocess, "run", return_value=SimpleNamespace(
             returncode=0, stdout="Test GPU, 4096 MiB, 123 MiB", stderr=""
         )), contextlib.redirect_stderr(errors):
