@@ -55,7 +55,7 @@ require(
 
 # A model response containing only internal markers must not trigger an action.
 visible_start = core.find("static int reply_has_visible_text(")
-visible_end = core.find("\\n}\\n", visible_start)
+visible_end = core.find("\n}\n", visible_start)
 visible_helper = core[visible_start:visible_end + 3] if visible_start >= 0 and visible_end > visible_start else ""
 require(
     "control_blocks[]" in visible_helper
