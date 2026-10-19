@@ -1,7 +1,7 @@
 # Manual source audit — rollout candidate
 
-Candidate branch: `release/r2-workable-chat-integration-2026-10-18`
-PR: #161 (draft; do not merge while blockers remain)
+Candidate branch: `integrate/affect-and-mother-chat-root-fix-2026-10-19`
+PR: #162 (draft; do not merge while rollout blockers remain)
 
 This is a code-review log, not a CI report. Each finding must be tied to the actual source behavior and marked fixed only after the implementation and its regression coverage are updated. A passing workflow does not close a finding by itself.
 
