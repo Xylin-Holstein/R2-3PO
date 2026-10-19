@@ -220,3 +220,17 @@ This remains a bounded manual review, not a claim that every subsystem has been 
 - **Validation:** exact code/test head `ed013aac011f0ea238ab56af1f92ad054c22fa40` passed the full GitHub Actions workflow, including both runtime fault-injection cases and the strict production compile: [workflow run 39229363923](https://github.com/Xylin48/R2-3PO/actions/runs/39229363923), 91/91 steps successful.
 - **Scope:** this closes the identified CI coverage gap; it does not replace host-side acceptance of live Qwen inference, measured GPU/RAM behavior, persistent databases, or physical devices.
 
+### R2-AUD-024 — repository identity drift across service units and trusted bootstrap pin
+
+- **Area:** `tools/r2_install_root_bootstrap.sh`, `deploy/r2-3po.service`, `deploy/r2-ollama.service`, and the immutable bootstrap instructions in `docs/overnight-service.md` / `docs/rollout-readiness.md`.
+- **Finding:** the embedded service templates and checked-in private Ollama unit still documented the former `Xylin-Holstein` repository URL. Correcting the trusted bootstrap changed its Git blob ID, so leaving the previous immutable commit/blob pair in the install instructions would make verification fail.
+- **Fix:** synchronized both embedded systemd unit URLs and both checked-in service unit URLs to `https://github.com/Xylin48/R2-3PO`; refreshed the install instructions to pin immutable commit `e682a401de678f64bfdc009245307f91fa282a5b` and Git blob SHA `789ab0b5247317628f8ba14e5f08312a500b1fb8`.
+- **Verification:** fetched the bootstrap at that exact immutable commit and confirmed its GitHub blob SHA equals the documented SHA. The unit synchronization regression initially caught the untouched `deploy/r2-ollama.service` URL; that file was corrected, and the full workflow then passed at `51a63db04d86d1d27115535770b119921f444575`: [run 39231518205](https://github.com/Xylin48/R2-3PO/actions/runs/39231518205), 91/91 steps successful.
+
+### R2-AUD-025 — private model copier default did not match R2's required model
+
+- **Area:** `tools/copy_ollama_model.py` and `tests/copy_ollama_model_integrity.py`.
+- **Finding:** when invoked without an explicit model or `R2_MODEL`, the private model copier selected `gemma3:4b`, while the launcher, private service, and vision path require `qwen3.5:9b`. The service passed the model explicitly, but a direct invocation could silently prepare the wrong model.
+- **Fix/test:** changed the default to `qwen3.5:9b` and added a CLI regression that verifies default model discovery and copy selection without modifying a real model store.
+- **Validation:** the same full workflow at `51a63db04d86d1d27115535770b119921f444575` passed all 91/91 steps, including the new default-model test and the service-unit synchronization check. Live inference and GPU placement still require the target host.
+
