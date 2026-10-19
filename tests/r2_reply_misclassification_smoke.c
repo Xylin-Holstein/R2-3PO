@@ -270,9 +270,9 @@ int main(void)
     if (retry_prompt) {
         ok &= check(strstr(retry_prompt, "You are R2-3PO.") != NULL,
                     "retry retains R2's core identity instructions");
-        ok &= check(strstr(retry_prompt, "REALITY CONTEXT RULES:") != NULL,
+        ok &= check(strstr(retry_prompt, "REALITY: Use the current structured Reality snapshot internally.") != NULL,
                     "retry retains live Reality/action constraints");
-        ok &= check(strstr(retry_prompt, "REPLY STYLE:") != NULL,
+        ok &= check(strstr(retry_prompt, "Be natural, warm, specific, and concise.") != NULL,
                     "retry retains user-facing response-style instructions");
         ok &= check(strstr(retry_prompt, "RESPONSE CORRECTION:") != NULL,
                     "retry appends the corrective instruction");
