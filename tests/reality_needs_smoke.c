@@ -653,9 +653,104 @@ int main(void)
           "\n  <food name=\"zero_fullness\" fullness=\"0\" energy=\"0\" />"
           "\n  <food name=\"nan_fullness\" fullness=\"nan\" energy=\"10\" />"
           "\n  <food name=\"nan_energy\" fullness=\"20\" energy=\"nan\" />"
-          "\n  <food name=\"fridge_move_failure\" fullness=\"45\" energy=\"4\" ingredients=\"new ingredient\" taste=\"new taste\" />\n",
+          "\n  <food name=\"fridge_move_failure\" fullness=\"45\" energy=\"4\" ingredients=\"new ingredient\" taste=\"new taste\" />"
+          "\n  <food name=\"inventory_crash_move\" fullness=\"45\" energy=\"4\" ingredients=\"transfer ingredient\" taste=\"transfer taste\" />\n",
           metrics);
     if (fclose(metrics) != 0) fail("could not close temporary food metrics fixture");
+
+    /* Simulate a process crash after the fridge write but before the Reality
+       object is removed. Restart must restore both databases to the old state. */
+    if (r2_reality_add_item("inventory_crash_move", "Original pocket stack", "pockets", 2) != 0 ||
+        r2_fridge_add_item("inventory_crash_move", "Original fridge stack", 3,
+                           12.0, 1.0, "old ingredients", "old taste") != 0)
+        fail("could not seed interrupted move-to-fridge fixture");
+    if (setenv("R2_TEST_INVENTORY_CRASH_AFTER_FRIDGE_ADD", "1", 1) != 0)
+        fail("could not enable move-to-fridge crash injection");
+    if (r2_reality_move_item("inventory_crash_move", "fridge") == 0)
+        fail("injected move-to-fridge interruption must be reported as incomplete");
+    unsetenv("R2_TEST_INVENTORY_CRASH_AFTER_FRIDGE_ADD");
+    r2_reality_shutdown();
+    if (r2_reality_init() != 0)
+        fail("Reality restart could not recover interrupted move-to-fridge transfer");
+
+    char transfer_fridge_path[1024];
+    snprintf(transfer_fridge_path, sizeof(transfer_fridge_path), "%s/r2_fridge.db", R2_HOME);
+    sqlite3 *transfer_db = NULL;
+    sqlite3_stmt *transfer_st = NULL;
+    if (sqlite3_open(R2_HOME "/r2_reality.db", &transfer_db) != SQLITE_OK)
+        fail("could not query recovered Reality item transfer");
+    if (sqlite3_prepare_v2(transfer_db,
+        "SELECT container,quantity FROM r2_reality_objects WHERE name='inventory_crash_move'",
+        -1, &transfer_st, NULL) != SQLITE_OK ||
+        sqlite3_step(transfer_st) != SQLITE_ROW ||
+        strcmp((const char *)sqlite3_column_text(transfer_st, 0), "pockets") != 0 ||
+        sqlite3_column_int(transfer_st, 1) != 2)
+        fail("restart did not restore the original pocket stack after interrupted fridge move");
+    sqlite3_finalize(transfer_st);
+    sqlite3_close(transfer_db);
+    transfer_db = NULL;
+    transfer_st = NULL;
+    if (sqlite3_open(transfer_fridge_path, &transfer_db) != SQLITE_OK)
+        fail("could not query recovered fridge item transfer");
+    if (sqlite3_prepare_v2(transfer_db,
+        "SELECT description,quantity,fullness,energy FROM r2_fridge_items WHERE name='inventory_crash_move'",
+        -1, &transfer_st, NULL) != SQLITE_OK ||
+        sqlite3_step(transfer_st) != SQLITE_ROW ||
+        strcmp((const char *)sqlite3_column_text(transfer_st, 0), "Original fridge stack") != 0 ||
+        sqlite3_column_int(transfer_st, 1) != 3 ||
+        fabs(sqlite3_column_double(transfer_st, 2) - 12.0) > 0.001 ||
+        fabs(sqlite3_column_double(transfer_st, 3) - 1.0) > 0.001)
+        fail("restart did not restore the original fridge stock metadata and quantity");
+    sqlite3_finalize(transfer_st);
+    sqlite3_close(transfer_db);
+    if (r2_reality_remove_item("inventory_crash_move") != 0)
+        fail("could not remove recovered pocket transfer fixture");
+    for (int i = 0; i < 3; ++i)
+        if (r2_fridge_take("inventory_crash_move") != 0)
+            fail("could not clear recovered fridge transfer fixture");
+    if (r2_reality_remove_item("inventory_crash_move") != 0)
+        fail("could not clear pocket copies from recovered fridge transfer fixture");
+
+    /* Simulate a process crash after decrementing fridge stock but before the
+       pocket addition. Restart must restore the fridge and keep pockets empty. */
+    if (r2_fridge_add_item("inventory_crash_take", "Original take stock", 2,
+                           12.0, 1.0, "take ingredients", "take taste") != 0)
+        fail("could not seed interrupted fridge-take fixture");
+    if (setenv("R2_TEST_INVENTORY_CRASH_AFTER_FRIDGE_TAKE", "1", 1) != 0)
+        fail("could not enable fridge-take crash injection");
+    if (r2_fridge_take("inventory_crash_take") == 0)
+        fail("injected fridge-take interruption must be reported as incomplete");
+    unsetenv("R2_TEST_INVENTORY_CRASH_AFTER_FRIDGE_TAKE");
+    r2_reality_shutdown();
+    if (r2_reality_init() != 0)
+        fail("Reality restart could not recover interrupted fridge take");
+    if (sqlite3_open(R2_HOME "/r2_reality.db", &transfer_db) != SQLITE_OK)
+        fail("could not query recovered pocket take fixture");
+    if (sqlite3_prepare_v2(transfer_db,
+        "SELECT COUNT(*) FROM r2_reality_objects WHERE name='inventory_crash_take'",
+        -1, &transfer_st, NULL) != SQLITE_OK ||
+        sqlite3_step(transfer_st) != SQLITE_ROW ||
+        sqlite3_column_int(transfer_st, 0) != 0)
+        fail("restart left a pocket item from an interrupted fridge take");
+    sqlite3_finalize(transfer_st);
+    sqlite3_close(transfer_db);
+    transfer_db = NULL;
+    transfer_st = NULL;
+    if (sqlite3_open(transfer_fridge_path, &transfer_db) != SQLITE_OK)
+        fail("could not query recovered fridge take fixture");
+    if (sqlite3_prepare_v2(transfer_db,
+        "SELECT description,quantity FROM r2_fridge_items WHERE name='inventory_crash_take'",
+        -1, &transfer_st, NULL) != SQLITE_OK ||
+        sqlite3_step(transfer_st) != SQLITE_ROW ||
+        strcmp((const char *)sqlite3_column_text(transfer_st, 0), "Original take stock") != 0 ||
+        sqlite3_column_int(transfer_st, 1) != 2)
+        fail("restart did not restore the original fridge stock after interrupted take");
+    sqlite3_finalize(transfer_st);
+    sqlite3_close(transfer_db);
+    if (r2_fridge_take("inventory_crash_take") != 0 ||
+        r2_fridge_take("inventory_crash_take") != 0 ||
+        r2_reality_remove_item("inventory_crash_take") != 0)
+        fail("could not clean up recovered fridge-take fixture");
     if (r2_fridge_add_item("invalid_negative_metric", "invalid test stock", 1,
                            -1.0, 10.0, NULL, NULL) == 0)
         fail("fridge API must reject negative fullness instead of substituting defaults");
