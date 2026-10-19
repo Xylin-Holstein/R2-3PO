@@ -87,7 +87,10 @@ direct_tool_oom = impl.find("if (strncmp(tools, tool_capture_failure_prefix")
 require(
     direct_tool_oom >= 0
     and "I ran out of memory while recording an action result." in impl
-    and "Please verify the current state before retrying." in impl
+    and "Verify the current state " in impl[direct_tool_oom:]
+    and "before retrying the request." in impl[direct_tool_oom:]
+    and "reply = tools; /* Transfer the existing buffer" in impl[direct_tool_oom:]
+    and "xstrdup(" not in impl[direct_tool_oom:impl.find("/* Tool-routing replies", direct_tool_oom)]
     and "goto finalize_reply;" in impl[direct_tool_oom:],
     "tool-result OOM warning is shown directly instead of being paraphrased by another model call",
 )
