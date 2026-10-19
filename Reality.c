@@ -1956,7 +1956,7 @@ static int inventory_transfer_recover_locked(void)
     if (inventory_transfer_journal_clear_locked() != 0) return -1;
     char summary[512], details[1024];
     snprintf(summary, sizeof(summary),
-             "Recovered interrupted inventory transfer for %s; the previous state was restored.",
+             "Recovered interrupted inventory transfer for %.300s; the previous state was restored.",
              snapshot.name);
     snprintf(details, sizeof(details),
              "Operation=%s; recovery=rollback to the persisted pre-transfer snapshot; "
@@ -1980,7 +1980,7 @@ static int inventory_transfer_recover(void)
 int r2_fridge_take(const char *food)
 {
     if (!food || !*food || strlen(food) > REALITY_MAX_TEXT ||
-        !fridge_db || !r2_reality_is_initialized() || !reality_is_home())
+        !r2_reality_is_initialized() || !reality_is_home())
         return -1;
 
     pthread_mutex_lock(&purchase_lock);
