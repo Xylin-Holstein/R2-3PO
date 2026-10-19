@@ -248,7 +248,7 @@ jobs:
       - name: Refuse silently truncated active user turns
         run: python3 tests/no_truncated_current_turn_smoke.py
 
-      - name: Retry obvious nonresponsive text misclassification once
+      - name: Verify root conversation contract and removal of heuristic retry
         run: python3 tests/nonresponsive_reply_retry_smoke.py
       - name: Guard task pipe and child waits against interrupted system calls
         run: |
