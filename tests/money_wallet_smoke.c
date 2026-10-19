@@ -277,7 +277,7 @@ int main(void) {
              "%s/change.txt", wallet);
     FILE *malformed_change = fopen(malformed_change_path, "w");
     assert(malformed_change);
-    assert(fputs("cents=999999999999999999999999999999999999999999999999999999\\n",
+    assert(fputs("cents=999999999999999999999999999999999999999999999999999999\n",
                  malformed_change) >= 0);
     assert(fclose(malformed_change) == 0);
     assert(r2_reality_money_receive(1.00) != 0);
