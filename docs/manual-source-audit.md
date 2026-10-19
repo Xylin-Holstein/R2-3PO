@@ -184,5 +184,18 @@ The full 86-step GitHub Actions workflow passed for candidate code head `5bb6ff4
 - **Validation:** Both injected runtime cases, the source-contract regression, and the strict production compile passed on code/test head `ed013aac011f0ea238ab56af1f92ad054c22fa40`; full workflow [39229363923](https://github.com/Xylin48/R2-3PO/actions/runs/39229363923) completed 91/91 steps successfully.
 - **Remaining limitation:** This verifies the CI/Linux cleanup path, not fault injection on the target host or hardware-dependent startup.
 
+
+### AUDIT-021 — repository URL and bootstrap pin consistency
+- **Files:** `tools/r2_install_root_bootstrap.sh`, `deploy/r2-3po.service`, `deploy/r2-ollama.service`, `docs/overnight-service.md`, and `docs/rollout-readiness.md`.
+- **Finding:** embedded and checked-in systemd unit documentation URLs had diverged after the GitHub owner rename. Updating the trusted bootstrap also invalidated the old documented Git blob pin/commit pair.
+- **Fix:** synchronized the unit URLs to `Xylin48/R2-3PO`, then updated the documented immutable bootstrap commit and blob SHA. The pinned commit `e682a401de678f64bfdc009245307f91fa282a5b` was fetched independently and returned blob SHA `789ab0b5247317628f8ba14e5f08312a500b1fb8`, matching the documented value.
+- **Regression:** `tests/r2_overnight_service_smoke.py` compares the embedded service-unit text byte-for-byte against both checked-in deployment units; this caught the stale URL in `deploy/r2-ollama.service` before final verification.
+
+### AUDIT-022 — default private model selection disagreed with R2 runtime
+- **File:** `tools/copy_ollama_model.py`; `tests/copy_ollama_model_integrity.py`.
+- **Finding:** a direct copier invocation without `--model` or `R2_MODEL` selected `gemma3:4b` even though R2's configured multimodal model is `qwen3.5:9b`.
+- **Fix:** changed the CLI default to `qwen3.5:9b` and added a regression proving default discovery and copy selection.
+- **Validation:** full workflow [39231518205](https://github.com/Xylin48/R2-3PO/actions/runs/39231518205) passed 91/91 steps on code/test head `51a63db04d86d1d27115535770b119921f444575`, including the model-default regression, embedded/deployed unit parity, startup failure injection, and strict production build.
+
 ## Current verification snapshot
-The current code/test candidate passed all 91 workflow steps at `ed013aac011f0ea238ab56af1f92ad054c22fa40` (run [39229363923](https://github.com/Xylin48/R2-3PO/actions/runs/39229363923)). The subsequent commits update only audit documentation; the target-host acceptance checklist remains open. This audit remains deliberately bounded: source review and CI do not establish actual Qwen 3.5 9B behavior, GTX 1050 Ti allocation, physical device access, or the installed root-bootstrap state.
+The final integrated branch is `release/r2-final-integrated-audit-2026-10-19`. Its code/test head `51a63db04d86d1d27115535770b119921f444575` passed all 91 workflow steps in [run 39231518205](https://github.com/Xylin48/R2-3PO/actions/runs/39231518205). The subsequent commits update the audit record only. Compared with `release/r2-rollout-readiness-2026-10-17`, the branch contains the integrated candidate plus the final audit fixes, with no base commits missing. CI validates build and automated regressions; it does not establish actual Qwen 3.5 9B behavior, GTX 1050 Ti allocation, persistent state on the target machine, physical-device interaction, or installation of the protected root bootstrap.
