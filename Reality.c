@@ -165,6 +165,8 @@ static int money_change_cents(const char *dir)
     }
     if (close(fd) != 0)
         return -1;
+    if (memchr(buffer, '\0', used) != NULL)
+        return -1; /* Embedded NUL must not hide trailing file contents. */
     buffer[used] = '\0';
 
     if (strncmp(buffer, "cents=", 6) != 0)
@@ -172,7 +174,7 @@ static int money_change_cents(const char *dir)
     errno = 0;
     char *end = NULL;
     long cents = strtol(buffer + 6, &end, 10);
-    if (errno == ERANGE || end == buffer + 6)
+    if (errno != 0 || end == buffer + 6)
         return -1;
     while (end && (*end == ' ' || *end == '\t' ||
                    *end == '\r' || *end == '\n'))
