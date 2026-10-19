@@ -8206,15 +8206,23 @@ static char *process_tools_with_status(
                         cmd
                     );
 
-                APPEND(
-                    "REAL HAND RESULT:\n"
-                    "Background task successfully started.\n"
-                    "Task ID: %s\n"
-                    "Command: %s\n"
-                    "The task is running independently.\n",
-                    id ? id : "",
-                    cmd
-                );
+                if (id) {
+                    APPEND(
+                        "REAL HAND RESULT:\n"
+                        "Background task successfully started.\n"
+                        "Task ID: %s\n"
+                        "Command: %s\n"
+                        "The task is running independently.\n",
+                        id,
+                        cmd
+                    );
+                } else {
+                    APPEND(
+                        "REAL HAND ERROR:\n"
+                        "The command passed validation, but the task could not be queued. "
+                        "No task was started.\n"
+                    );
+                }
 
                 free(id);
 
@@ -8288,15 +8296,23 @@ static char *process_tools_with_status(
                     char *id =
                         start_background_task(t);
 
-                    APPEND(
-                        "REAL HAND RESULT:\n"
-                        "Background task successfully started.\n"
-                        "Task ID: %s\n"
-                        "Command: %s\n"
-                        "The task is running independently.\n",
-                        id ? id : "",
-                        t
-                    );
+                    if (id) {
+                        APPEND(
+                            "REAL HAND RESULT:\n"
+                            "Background task successfully started.\n"
+                            "Task ID: %s\n"
+                            "Command: %s\n"
+                            "The task is running independently.\n",
+                            id,
+                            t
+                        );
+                    } else {
+                        APPEND(
+                            "REAL HAND ERROR:\n"
+                            "The command passed validation, but the task could not be queued. "
+                            "No task was started.\n"
+                        );
+                    }
 
                     free(id);
 
