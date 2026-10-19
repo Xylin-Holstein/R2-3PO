@@ -144,79 +144,76 @@ static int money_create_bill(const char *dir)
     }
     return -1;
 }
-static int money_set_dir_balance(const char *dir, sqlite3_int64 cents,
-                                  int *changed)
+static int money_set_dir_balance(const char *dir, sqlite3_int64 cents, int *changed)
 {
     if (changed) *changed = 0;
     if (cents < 0 || cents > 100000000LL || ensure_dir_tree(dir) != 0) return -1;
-
-    /* Preflight every authoritative money path before deleting anything.
-       In particular, a symlink or unexpected directory named "money" must
-       not make us delete valid bills and then fail halfway through cleanup. */
     DIR *dp = opendir(dir);
     if (!dp) return -1;
     struct dirent *entry;
-    int result = 0;
+    int rc = 0;
     while ((entry = readdir(dp)) != NULL) {
-        if (!money_name_is_bill(entry->d_name) && strcmp(entry->d_name, "change.txt"))
-            continue;
-        char path[2048];
-        struct stat st;
-        int n = snprintf(path, sizeof(path), "%s/%s", dir, entry->d_name);
-        if (n <= 0 || (size_t)n >= sizeof(path)) { result = -1; break; }
-        if (lstat(path, &st) != 0) {
-            if (errno != ENOENT) { result = -1; break; }
-            continue;
-        }
-        if (!S_ISREG(st.st_mode)) { result = -1; break; }
+        if (!money_name_is_bill(entry->d_name) && strcmp(entry->d_name, "change.txt")) continue;
+        char p[2300]; struct stat st;
+        int n = snprintf(p, sizeof(p), "%s/%s", dir, entry->d_name);
+        if (n <= 0 || (size_t)n >= sizeof(p) || lstat(p, &st) != 0 || !S_ISREG(st.st_mode)) { rc=-1; break; }
     }
     closedir(dp);
-    if (result != 0) return -1;
+    if (rc) return -1;
 
-    dp = opendir(dir);
-    if (!dp) return -1;
-    while ((entry = readdir(dp)) != NULL) {
-        if (!money_name_is_bill(entry->d_name) && strcmp(entry->d_name, "change.txt"))
-            continue;
-        char path[2048];
-        struct stat st;
-        int n = snprintf(path, sizeof(path), "%s/%s", dir, entry->d_name);
-        if (n <= 0 || (size_t)n >= sizeof(path)) { result = -1; break; }
-        if (lstat(path, &st) != 0) {
-            if (errno != ENOENT) { result = -1; break; }
-            continue;
-        }
-        if (!S_ISREG(st.st_mode) || unlink(path) != 0) { result = -1; break; }
-        if (changed) *changed = 1;
-    }
-    closedir(dp);
-    if (result != 0) return -1;
+    char templ[2200], txn[2300], stage[2300], backup[2300], phase[2300];
+    int n=snprintf(templ,sizeof(templ),"%s/.r2-money-txn.XXXXXX",dir);
+    if(n<=0||(size_t)n>=sizeof(templ))return -1;
+    char *made=mkdtemp(templ); if(!made)return -1;
+    snprintf(txn,sizeof(txn),"%s",made); snprintf(stage,sizeof(stage),"%s/new",txn);
+    snprintf(backup,sizeof(backup),"%s/backup",txn); snprintf(phase,sizeof(phase),"%s/phase",txn);
+    if(mkdir(stage,0700)||mkdir(backup,0700)){(void)rmdir(stage);(void)rmdir(backup);(void)rmdir(txn);return -1;}
 
-    for (sqlite3_int64 i = 0; i < cents / 100; ++i) {
-        if (money_create_bill(dir) != 0) return -1;
-        if (changed) *changed = 1;
+    for(sqlite3_int64 i=0;i<cents/100;i++) if(money_create_bill(stage)){rc=-1;break;}
+    int change=(int)(cents%100);
+    if(!rc&&change){
+        char p[2300],v[32];n=snprintf(p,sizeof(p),"%s/change.txt",stage);
+        if(n<=0||(size_t)n>=sizeof(p))rc=-1;
+        else {int fd=open(p,O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC,0600);
+            if(fd<0)rc=-1;else{int z=snprintf(v,sizeof(v),"cents=%d\n",change);
+                if(write(fd,v,(size_t)z)!=z||fsync(fd))rc=-1;if(close(fd))rc=-1;if(rc)unlink(p);}}
     }
-    int change = (int)(cents % 100);
-    if (change) {
-        char path[2048], tmp[2100];
-        int n = snprintf(path, sizeof(path), "%s/change.txt", dir);
-        if (n <= 0 || (size_t)n >= sizeof(path)) return -1;
-        n = snprintf(tmp, sizeof(tmp), "%s.tmp.%ld", path, (long)getpid());
-        if (n <= 0 || (size_t)n >= sizeof(tmp)) return -1;
-        int fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
-        if (fd < 0) return -1;
-        FILE *fp = fdopen(fd, "w");
-        if (!fp) { close(fd); (void)unlink(tmp); return -1; }
-        int bad = fprintf(fp, "cents=%d\n", change) < 0;
-        if (fflush(fp) != 0) bad = 1;
-        if (fsync(fileno(fp)) != 0) bad = 1;
-        if (fclose(fp) != 0) bad = 1;
-        if (!bad && rename(tmp, path) != 0) bad = 1;
-        if (bad) { (void)unlink(tmp); return -1; }
-        if (changed) *changed = 1;
-    }
-    return 0;
+    if(rc)goto cleanup;
+    {int fd=open(phase,O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC,0600);
+     if(fd<0){rc=-1;goto cleanup;}const char state[]="moving\n";
+     if(write(fd,state,sizeof(state)-1)!=(ssize_t)(sizeof(state)-1)||fsync(fd)||close(fd)){rc=-1;goto cleanup;}}
+    dp=opendir(dir);if(!dp){rc=-1;goto rollback;}
+    while((entry=readdir(dp)))if(money_name_is_bill(entry->d_name)||!strcmp(entry->d_name,"change.txt")){
+        char from[2300],to[2300];int x=snprintf(from,sizeof(from),"%s/%s",dir,entry->d_name),y=snprintf(to,sizeof(to),"%s/%s",backup,entry->d_name);
+        if(x<=0||(size_t)x>=sizeof(from)||y<=0||(size_t)y>=sizeof(to)||rename(from,to)){rc=-1;break;}}
+    closedir(dp);if(rc)goto rollback;
+    {int fd=open(phase,O_WRONLY|O_TRUNC|O_CLOEXEC,0600);const char state[]="installing\n";
+     if(fd<0){rc=-1;goto rollback;}if(write(fd,state,sizeof(state)-1)!=(ssize_t)(sizeof(state)-1)||fsync(fd)||close(fd)){rc=-1;goto rollback;}}
+    dp=opendir(stage);if(!dp){rc=-1;goto rollback;}
+    while((entry=readdir(dp)))if(money_name_is_bill(entry->d_name)||!strcmp(entry->d_name,"change.txt")){
+        char from[2300],to[2300];int x=snprintf(from,sizeof(from),"%s/%s",stage,entry->d_name),y=snprintf(to,sizeof(to),"%s/%s",dir,entry->d_name);
+        if(x<=0||(size_t)x>=sizeof(from)||y<=0||(size_t)y>=sizeof(to)||rename(from,to)){rc=-1;break;}}
+    closedir(dp);if(rc)goto rollback;
+    {int fd=open(phase,O_WRONLY|O_TRUNC|O_CLOEXEC,0600);const char state[]="committed\n";
+     if(fd<0){rc=-1;goto rollback;}if(write(fd,state,sizeof(state)-1)!=(ssize_t)(sizeof(state)-1)||fsync(fd)||close(fd)){rc=-1;goto rollback;}}
+    if(changed)*changed=1;
+    goto cleanup;
+rollback:
+    /* If installation began, remove the partial new set before restoring the backup. */
+    {FILE *fp=fopen(phase,"r");char state[32]={0};if(fp){(void)fgets(state,sizeof(state),fp);fclose(fp);}
+     if(strstr(state,"installing")){
+        dp=opendir(dir);if(dp){while((entry=readdir(dp)))if(money_name_is_bill(entry->d_name)||!strcmp(entry->d_name,"change.txt")){
+            char p[2300];struct stat st;snprintf(p,sizeof(p),"%s/%s",dir,entry->d_name);
+            if(lstat(p,&st)==0&&S_ISREG(st.st_mode))(void)unlink(p);}closedir(dp);}}
+     dp=opendir(backup);if(dp){while((entry=readdir(dp)))if(money_name_is_bill(entry->d_name)||!strcmp(entry->d_name,"change.txt")){
+        char from[2300],to[2300];snprintf(from,sizeof(from),"%s/%s",backup,entry->d_name);snprintf(to,sizeof(to),"%s/%s",dir,entry->d_name);(void)rename(from,to);}closedir(dp);}}
+cleanup:
+    {const char *dirs[2]={stage,backup};for(int i=0;i<2;i++){dp=opendir(dirs[i]);if(dp){while((entry=readdir(dp)))if(money_name_is_bill(entry->d_name)||!strcmp(entry->d_name,"change.txt")){
+        char p[2300];snprintf(p,sizeof(p),"%s/%s",dirs[i],entry->d_name);(void)unlink(p);}closedir(dp);} (void)rmdir(dirs[i]);}}
+    (void)unlink(phase);(void)rmdir(txn);
+    return rc;
 }
+
 static int money_dir_balance(const char *dir, sqlite3_int64 *balance)
 {
     int bills=money_bill_count(dir), change=money_change_cents(dir);
