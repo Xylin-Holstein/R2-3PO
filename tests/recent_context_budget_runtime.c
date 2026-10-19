@@ -78,11 +78,11 @@ int main(void)
     clear_test_messages();
 
     /* Internal action syntax alone must not pass the pre-action visible-answer gate. */
-    assert(!reply_has_visible_text("[RUN] echo unsafe\\n[END RUN]"));
+    assert(!reply_has_visible_text("[RUN] echo unsafe\n[END RUN]"));
     assert(!reply_has_visible_text("[WORLD] activity_start|session|details"));
-    assert(!reply_has_visible_text("[DIARY] diary entry\\n[END DIARY]"));
+    assert(!reply_has_visible_text("[DIARY] diary entry\n[END DIARY]"));
     assert(!reply_has_visible_text("[RUN] echo unsafe")); /* unterminated controls fail closed */
-    assert(reply_has_visible_text("I can do that.\\n[WORLD] activity_start|session|details"));
+    assert(reply_has_visible_text("I can do that.\n[WORLD] activity_start|session|details"));
     assert(reply_has_visible_text("Ordinary conversational text."));
 
     /* Executable control turns are history metadata, not human-facing dialogue. */
