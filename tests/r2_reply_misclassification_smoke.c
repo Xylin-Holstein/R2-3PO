@@ -276,7 +276,7 @@ int main(void)
                     "retry retains user-facing response-style instructions");
         ok &= check(strstr(retry_prompt, "RESPONSE CORRECTION:") != NULL,
                     "retry appends the corrective instruction");
-        ok &= check(strstr(retry_prompt, "acknowledge that social meaning") != NULL,
+        ok &= check(strstr(retry_prompt, "including its social or emotional meaning when present") != NULL,
                     "retry preserves guidance for social and emotional meaning");
         free(retry_prompt);
     }
