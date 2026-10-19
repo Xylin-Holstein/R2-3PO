@@ -148,3 +148,11 @@ This remains a bounded manual review, not a claim that every subsystem has been 
 - **Fix:** preflight now rejects text and image replies unless the assistant role and explicit boolean completion flag are present. Visual inference applies the same contract and logs `vision_invalid_completion_contract` when it rejects a malformed response.
 - **Regression coverage:** extended `tests/ollama_preflight_smoke.py` with incomplete text/image response cases and extended `tests/vision_watch_cancellation_smoke.py` to guard the live vision contract.
 - **Status:** code and regression changes are on the current release branch. GitHub Actions run 4831 was pending at the time of this entry; final CI status will be recorded after completion. No target-machine model or camera test is implied.
+
+### R2-AUD-015 — Control-only model replies could pass the visible-answer gate
+
+- **Area:** `r2.c`, `reply_has_visible_text()` before `process_tools()`.
+- **Finding:** the visibility predicate only checked for non-whitespace bytes. A reply containing only a command block such as `[RUN]... [END RUN]` or a one-line action marker such as `[WORLD]` was therefore treated as a visible answer, despite the surrounding recovery logic intending to retry marker-only output before any action executes.
+- **Fix:** the visibility check now ignores recognized action-control blocks and command lines, and fails closed on an unterminated control block. A reply must contain actual non-control text before tool processing is allowed.
+- **Regression coverage:** extended `tests/conversation_recovery_smoke.py` to guard the control-marker filtering and its placement before action execution.
+- **Status:** fix and regression are committed on the current release branch. CI is running against the latest candidate; no target-machine execution is implied.
