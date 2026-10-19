@@ -329,7 +329,7 @@ chmod 0700 "$UNIT_STAGING_DIR"
 cat > "$UNIT_STAGING_DIR/r2-ollama.service" <<'R2_OLLAMA_UNIT_EOF'
 [Unit]
 Description=R2-3PO isolated Ollama inference server (runs as r2)
-Documentation=https://github.com/Xylin-Holstein/R2-3PO
+Documentation=https://github.com/Xylin48/R2-3PO
 After=network.target
 Before=r2-3po.service
 StartLimitIntervalSec=0
@@ -368,7 +368,7 @@ R2_OLLAMA_UNIT_EOF
 cat > "$UNIT_STAGING_DIR/r2-3po.service" <<'R2_SERVICE_UNIT_EOF'
 [Unit]
 Description=R2-3PO overnight companion
-Documentation=https://github.com/Xylin-Holstein/R2-3PO
+Documentation=https://github.com/Xylin48/R2-3PO
 Wants=network-online.target r2-ollama.service
 After=network-online.target r2-ollama.service sound.target
 BindsTo=r2-ollama.service
