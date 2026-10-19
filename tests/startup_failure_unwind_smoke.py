@@ -48,6 +48,21 @@ class StartupFailureUnwindTests(unittest.TestCase):
             self.assertNotIn("curl_global_cleanup()", branch)
         self.assertIn("pthread_join(hands_thread, NULL);", diary_failure)
 
+    def test_required_init_failures_return_through_central_cleanup(self):
+        init = SOURCE[SOURCE.index("int r2_init(void)") : SOURCE.index("void r2_shutdown(void)")]
+        shutdown = SOURCE[SOURCE.index("void r2_shutdown(void)") : SOURCE.index("int main(void)")]
+        self.assertIn("#define R2_INIT_FAIL", SOURCE)
+        self.assertNotRegex(init, r"\\bdie\\s*\\(",
+                            "r2_init must not exit around main's cleanup owner")
+        self.assertIn("init_attempt_active = 1;", init)
+        self.assertIn("if (!init_attempt_active && !core_initialized", shutdown)
+        diary_failure = init.split("r2_diary_init() != 0", 1)[1].split(
+            "diary_initialized = 1;", 1
+        )[0]
+        self.assertIn("r2_diary_shutdown();", diary_failure)
+        self.assertIn("if (curl_global_initialized)", shutdown)
+        self.assertIn("curl_global_initialized = 0;", shutdown)
+
     def test_main_unwinds_when_initialization_fails(self):
         main = SOURCE[SOURCE.index("int main(void)") :]
         failure = main.index("if (r2_init() != 0)")
