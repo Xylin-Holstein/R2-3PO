@@ -7713,13 +7713,19 @@ static char *process_tools_with_status(
                 _append_n += sizeof(_truncated) - 1;                  \
             }                                                         \
             if (len + _append_n + 1 > cap) {                         \
-                while (cap < len + _append_n + 1)                    \
-                    cap *= 2;                                        \
-                char *_grown = realloc(results, cap);                \
+                size_t _needed = len + _append_n + 1;                  \
+                size_t _new_cap = cap;                                \
+                while (_new_cap < _needed) {                          \
+                    if (_new_cap > SIZE_MAX / 2) {                    \
+                        _new_cap = _needed;                           \
+                        break;                                        \
+                    }                                                 \
+                    _new_cap *= 2;                                    \
+                }                                                     \
+                char *_grown = realloc(results, _new_cap);            \
                 if (!_grown) {                                       \
-                    /* A preceding tool may already have changed the world. \
-                       Preserve a visible no-retry warning instead of making \
-                       the whole turn look like an unperformed action. */ \
+                    /* Keep cap unchanged: results still has only cap bytes. */ \
+                    /* A preceding tool may already have changed the world. */ \
                     static const char _capture_failure[] =             \
                         "I ran out of memory while recording an action result. " \
                         "An action may already have completed, so I will not " \
@@ -7729,6 +7735,7 @@ static char *process_tools_with_status(
                     return results;                                   \
                 }                                                     \
                 results = _grown;                                    \
+                cap = _new_cap;                                      \
             }                                                         \
             memcpy(results + len, _b, _append_n);                     \
             len += _append_n;                                         \
