@@ -56,6 +56,17 @@ require(
     "affect and nonverbal expression are learned from context rather than fixed state-to-reaction rules",
 )
 
+retry_builder = function_slice(
+    "static char *r2_build_retry_system_prompt(void)",
+    "static char *r2_validate_corrective_reply(",
+)
+require(
+    "SYSTEM_PROMPT" in retry_builder
+    and "r2_conversation_system_prompt" in retry_builder
+    and "RESPONSE CORRECTION" in retry_builder,
+    "corrective retry preserves the full identity/relationship policy instead of replacing it with a narrow prompt",
+)
+
 require(
     impl.count("chat_with_relevant_memories(message)") >= 3
     and "first contextual response attempt failed" in impl
