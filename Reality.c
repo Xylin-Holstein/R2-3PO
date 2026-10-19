@@ -3437,6 +3437,68 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
     return 0;
 }
 
+static int reality_move_item_to_fridge(const char *name)
+{
+    if (!name || !*name || !r2_reality_is_initialized() || !reality_is_home() ||
+        !container_accessible("fridge"))
+        return -1;
+
+    double fullness = 0.0, energy = 0.0;
+    char ingredients[1024] = {0}, taste[1024] = {0};
+    if (food_metric(name, &fullness, &energy) != 0) return -1;
+    food_attributes(name, ingredients, sizeof(ingredients), taste, sizeof(taste));
+
+    InventoryTransferSnapshot snapshot;
+    pthread_mutex_lock(&reality_lock);
+    int rc = inventory_transfer_recover_locked();
+    if (rc == 0) rc = inventory_transfer_snapshot_locked(name, &snapshot);
+    if (rc == 0 && (!snapshot.reality_exists || snapshot.reality_quantity < 1 ||
+                    !*snapshot.reality_container ||
+                    !strcasecmp(snapshot.reality_container, "fridge") ||
+                    !container_accessible(snapshot.reality_container)))
+        rc = -1;
+    if (rc == 0)
+        rc = inventory_transfer_journal_begin_locked("move_to_fridge", &snapshot);
+    pthread_mutex_unlock(&reality_lock);
+    if (rc != 0) return -1;
+
+    if (r2_fridge_add_item(name, snapshot.reality_description,
+                           snapshot.reality_quantity, fullness, energy,
+                           ingredients, taste) != 0) {
+        if (inventory_transfer_recover() != 0)
+            fprintf(stderr, "[R2 Reality] CRITICAL: failed fridge-add rollback for '%s' is pending recovery.\n", name);
+        return -1;
+    }
+
+#ifdef R2_INVENTORY_TEST_FAILURE_INJECTION
+    if (getenv("R2_TEST_INVENTORY_CRASH_AFTER_FRIDGE_ADD")) {
+        /* Leave the pending journal exactly as a process crash would. */
+        return -1;
+    }
+#endif
+
+    if (r2_reality_remove_item(name) != 0) {
+        if (inventory_transfer_recover() != 0)
+            fprintf(stderr, "[R2 Reality] CRITICAL: failed move rollback for '%s' is pending recovery.\n", name);
+        return -1;
+    }
+    if (inventory_transfer_journal_mark_committed() != 0) {
+        if (inventory_transfer_recover() != 0)
+            fprintf(stderr, "[R2 Reality] CRITICAL: move commit recovery for '%s' is pending.\n", name);
+        return -1;
+    }
+    if (inventory_transfer_journal_clear() != 0)
+        fprintf(stderr, "[R2 Reality] Committed transfer journal retained for startup cleanup ('%s').\n", name);
+
+    char summary[512], details[1024];
+    snprintf(summary, sizeof(summary), "R2 stored %s in the fridge.", name);
+    snprintf(details, sizeof(details),
+             "Object=%.300s; source container=%.200s; quantity=%d; destination=separate fridge database.",
+             name, snapshot.reality_container, snapshot.reality_quantity);
+    bridge_event("fridge_item_stored", summary, details, 1, 0);
+    return 0;
+}
+
 int r2_reality_move_item(const char *name,const char *container)
 {
     if(!name||!*name||!container||!*container||strlen(name)>REALITY_MAX_TEXT||strlen(container)>REALITY_MAX_TEXT||!r2_reality_is_initialized()) return -1;
@@ -3444,135 +3506,10 @@ int r2_reality_move_item(const char *name,const char *container)
     canonical_container_name(container, canonical_container, sizeof(canonical_container));
     container = canonical_container;
     if (!strcasecmp(container, "fridge")) {
-        char description[REALITY_MAX_TEXT + 1] = {0}, old_container[REALITY_MAX_TEXT + 1] = {0};
-        int quantity = 0;
-        pthread_mutex_lock(&reality_lock);
-        sqlite3_stmt *item = NULL;
-        if (sqlite3_prepare_v2(reality_db, "SELECT description,container,quantity FROM r2_reality_objects WHERE name=? COLLATE NOCASE", -1, &item, NULL) == SQLITE_OK) {
-            bind_text(item, 1, name);
-            if (sqlite3_step(item) == SQLITE_ROW) {
-                const unsigned char *d = sqlite3_column_text(item, 0), *c = sqlite3_column_text(item, 1);
-                if (d) snprintf(description, sizeof(description), "%s", (const char *)d);
-                if (c) snprintf(old_container, sizeof(old_container), "%s", (const char *)c);
-                quantity = sqlite3_column_int(item, 2);
-            }
-        }
-        if (item) sqlite3_finalize(item);
-        pthread_mutex_unlock(&reality_lock);
-        if (quantity < 1 || !container_accessible(old_container) || !container_accessible(container)) return -1;
-        char ingredients[1024] = {0}, taste[1024] = {0};
-        double fullness = 0.0, energy = 0.0;
-        if (food_metric(name, &fullness, &energy) != 0) return -1;
-        food_attributes(name, ingredients, sizeof(ingredients), taste, sizeof(taste));
-        int prior_fridge_quantity = 0, prior_fridge_exists = 0;
-        char prior_fridge_description[REALITY_MAX_TEXT + 1] = {0};
-        char prior_fridge_ingredients[1024] = {0}, prior_fridge_taste[1024] = {0};
-        double prior_fridge_fullness = 0.0, prior_fridge_energy = 0.0;
-        pthread_mutex_lock(&fridge_lock);
-        sqlite3_stmt *prior_fridge = NULL;
-        int prior_rc = sqlite3_prepare_v2(fridge_db,
-            "SELECT description,quantity,fullness,energy,ingredients,taste FROM r2_fridge_items WHERE name=? COLLATE NOCASE",
-            -1, &prior_fridge, NULL);
-        if (prior_rc == SQLITE_OK) {
-            bind_text(prior_fridge, 1, name);
-            prior_rc = sqlite3_step(prior_fridge);
-            if (prior_rc == SQLITE_ROW) {
-                const unsigned char *pd = sqlite3_column_text(prior_fridge, 0);
-                const unsigned char *pi = sqlite3_column_text(prior_fridge, 4);
-                const unsigned char *pt = sqlite3_column_text(prior_fridge, 5);
-                snprintf(prior_fridge_description, sizeof(prior_fridge_description), "%s", pd ? (const char *)pd : "");
-                prior_fridge_quantity = sqlite3_column_int(prior_fridge, 1);
-                prior_fridge_fullness = sqlite3_column_double(prior_fridge, 2);
-                prior_fridge_energy = sqlite3_column_double(prior_fridge, 3);
-                snprintf(prior_fridge_ingredients, sizeof(prior_fridge_ingredients), "%s", pi ? (const char *)pi : "");
-                snprintf(prior_fridge_taste, sizeof(prior_fridge_taste), "%s", pt ? (const char *)pt : "");
-                prior_fridge_exists = 1;
-                prior_rc = SQLITE_DONE;
-            }
-        }
-        if (prior_fridge) sqlite3_finalize(prior_fridge);
-        pthread_mutex_unlock(&fridge_lock);
-        if (prior_rc != SQLITE_DONE) return -1;
-        if (r2_fridge_add_item(name, description, quantity, fullness, energy, ingredients, taste) != 0) return -1;
-        if (r2_reality_remove_item(name) != 0) {
-            pthread_mutex_lock(&fridge_lock);
-            sqlite3_stmt *rollback = NULL;
-            char rollback_sql[1024];
-            if (prior_fridge_exists) {
-                size_t used = 0;
-                int n = snprintf(rollback_sql, sizeof(rollback_sql),
-                    "UPDATE r2_fridge_items SET description=?,quantity=?,fullness=?,energy=?,ingredients=?,taste=?");
-                if (n < 0 || (size_t)n >= sizeof(rollback_sql)) {
-                    pthread_mutex_unlock(&fridge_lock);
-                    return -1;
-                }
-                used = (size_t)n;
-                if (fridge_column_exists("qty")) {
-                    n = snprintf(rollback_sql + used, sizeof(rollback_sql) - used, ",qty=?");
-                    if (n < 0 || (size_t)n >= sizeof(rollback_sql) - used) {
-                        pthread_mutex_unlock(&fridge_lock);
-                        return -1;
-                    }
-                    used += (size_t)n;
-                }
-                if (fridge_column_exists("amount")) {
-                    n = snprintf(rollback_sql + used, sizeof(rollback_sql) - used, ",amount=?");
-                    if (n < 0 || (size_t)n >= sizeof(rollback_sql) - used) {
-                        pthread_mutex_unlock(&fridge_lock);
-                        return -1;
-                    }
-                    used += (size_t)n;
-                }
-                n = snprintf(rollback_sql + used, sizeof(rollback_sql) - used,
-                    ",updated_at=CURRENT_TIMESTAMP WHERE name=? COLLATE NOCASE");
-                if (n < 0 || (size_t)n >= sizeof(rollback_sql) - used) {
-                    pthread_mutex_unlock(&fridge_lock);
-                    return -1;
-                }
-            } else {
-                snprintf(rollback_sql, sizeof(rollback_sql),
-                    "DELETE FROM r2_fridge_items WHERE name=? COLLATE NOCASE");
-            }
-            int rollback_rc = sqlite3_prepare_v2(fridge_db, rollback_sql, -1, &rollback, NULL);
-            if (rollback_rc == SQLITE_OK) {
-                if (prior_fridge_exists) {
-                    int bind_index = 1;
-                    bind_text(rollback, bind_index++, prior_fridge_description);
-                    sqlite3_bind_int(rollback, bind_index++, prior_fridge_quantity);
-                    sqlite3_bind_double(rollback, bind_index++, prior_fridge_fullness);
-                    sqlite3_bind_double(rollback, bind_index++, prior_fridge_energy);
-                    bind_text(rollback, bind_index++, prior_fridge_ingredients);
-                    bind_text(rollback, bind_index++, prior_fridge_taste);
-                    if (fridge_column_exists("qty"))
-                        sqlite3_bind_int(rollback, bind_index++, prior_fridge_quantity);
-                    if (fridge_column_exists("amount"))
-                        sqlite3_bind_int(rollback, bind_index++, prior_fridge_quantity);
-                    bind_text(rollback, bind_index, name);
-                } else {
-                    bind_text(rollback, 1, name);
-                }
-                rollback_rc = sqlite3_step(rollback);
-                if (rollback_rc == SQLITE_DONE) rollback_rc = SQLITE_OK;
-            }
-            if (rollback) sqlite3_finalize(rollback);
-            if (rollback_rc == SQLITE_OK && prior_fridge_exists) {
-                if (fridge_mirror_write(name, prior_fridge_description, prior_fridge_quantity,
-                                        prior_fridge_fullness, prior_fridge_energy) != 0)
-                    fprintf(stderr, "[R2 Fridge] Database rollback succeeded but mirror restoration failed for '%s'.\n", name);
-            } else if (rollback_rc == SQLITE_OK) {
-                fridge_mirror_remove(name);
-            } else {
-                fprintf(stderr, "[R2 Fridge] CRITICAL: failed to roll back fridge stock after failed move of '%s'; inspect fridge inventory.\n", name);
-            }
-            (void)fridge_seed_if_empty_locked();
-            pthread_mutex_unlock(&fridge_lock);
-            return -1;
-        }
-        char summary[512], details[1024];
-        snprintf(summary, sizeof(summary), "R2 stored %s in the fridge.", name);
-        snprintf(details, sizeof(details), "Object=%.300s; source container=%.200s; quantity=%d; destination=separate fridge database.", name, old_container, quantity);
-        bridge_event("fridge_item_stored", summary, details, 1, 0);
-        return 0;
+        pthread_mutex_lock(&purchase_lock);
+        int transfer_rc = reality_move_item_to_fridge(name);
+        pthread_mutex_unlock(&purchase_lock);
+        return transfer_rc;
     }
     char old_container[REALITY_MAX_TEXT + 1] = {0};
     char old_description[REALITY_MAX_TEXT + 1] = {0};
