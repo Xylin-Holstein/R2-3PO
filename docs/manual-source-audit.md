@@ -173,4 +173,16 @@ The full 86-step GitHub Actions workflow passed for candidate code head `5bb6ff4
 - **Evidence:** The vision request builder and focus-region writer previously inserted JSON fields without checking json-c allocation or insertion return values. A partial request or focus record could proceed to serialization.
 - **Fix:** Added checked object/array insertion helpers, routed request and focus fields through them, and made failed construction release only objects still owned by the builder before returning.
 - **Regression coverage:** Added `tests/visual_payload_allocation_smoke.py` and wired it into the build workflow. It checks the expected payload fields, checked insertion helpers, failure cleanup, and absence of unchecked direct insertions.
-- **Status:** Source fix and focused regression coverage are committed; the exact-head workflow is running. Physical camera inference still requires target-host acceptance.
+- **Status:** Source fix and focused regression coverage passed in the full workflow at code/test head `ed013aac011f0ea238ab56af1f92ad054c22fa40` (91/91 steps; run [39229363923](https://github.com/Xylin48/R2-3PO/actions/runs/39229363923)). Physical camera inference still requires target-host acceptance.
+
+
+### AUDIT-020 — startup-thread failure unwind was not exercised at runtime
+- **File:** `r2.c`; regression harness and `.github/workflows/build.yml`.
+- **Severity:** Medium / lifecycle reliability
+- **Evidence:** The source-level regression checked that both thread-creation failure paths return to `main()`'s centralized cleanup, but did not actually trigger either failure after partial subsystem initialization.
+- **Fix:** Added a dedicated test harness compiled with `R2_TEST_STARTUP_FAILURE_INJECTION`. CI now runs separate isolated processes for Hands-thread creation failure and autonomous-thinking/diary-thread creation failure; each requires initialization to fail and then invokes centralized shutdown. The production binary is compiled without the test-only injection define.
+- **Validation:** Both injected runtime cases, the source-contract regression, and the strict production compile passed on code/test head `ed013aac011f0ea238ab56af1f92ad054c22fa40`; full workflow [39229363923](https://github.com/Xylin48/R2-3PO/actions/runs/39229363923) completed 91/91 steps successfully.
+- **Remaining limitation:** This verifies the CI/Linux cleanup path, not fault injection on the target host or hardware-dependent startup.
+
+## Current verification snapshot
+The current code/test candidate passed all 91 workflow steps at `ed013aac011f0ea238ab56af1f92ad054c22fa40` (run [39229363923](https://github.com/Xylin48/R2-3PO/actions/runs/39229363923)). The subsequent commits update only audit documentation; the target-host acceptance checklist remains open. This audit remains deliberately bounded: source review and CI do not establish actual Qwen 3.5 9B behavior, GTX 1050 Ti allocation, physical device access, or the installed root-bootstrap state.
