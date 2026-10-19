@@ -2628,6 +2628,7 @@ int r2_reality_init(void)
         "INSERT OR IGNORE INTO r2_money_account(id,cash_cents,bank_cents) VALUES(1,0,0);"
         "CREATE TABLE IF NOT EXISTS r2_money_transfer_journal (id INTEGER PRIMARY KEY CHECK(id=1),old_cash_cents INTEGER NOT NULL,old_bank_cents INTEGER NOT NULL,new_cash_cents INTEGER NOT NULL,new_bank_cents INTEGER NOT NULL,operation TEXT NOT NULL,phase TEXT NOT NULL CHECK(phase IN ('pending','committed')),created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "CREATE TABLE IF NOT EXISTS r2_purchase_journal (id INTEGER PRIMARY KEY CHECK(id=1),old_cash_cents INTEGER NOT NULL,old_bank_cents INTEGER NOT NULL,new_cash_cents INTEGER NOT NULL,new_bank_cents INTEGER NOT NULL,item_name TEXT NOT NULL,item_description TEXT NOT NULL,destination TEXT NOT NULL,pre_quantity INTEGER NOT NULL,pre_container TEXT NOT NULL,phase TEXT NOT NULL CHECK(phase IN ('pending','committed')),created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
+         "CREATE TABLE IF NOT EXISTS r2_inventory_transfer_journal (id INTEGER PRIMARY KEY CHECK(id=1),operation TEXT NOT NULL,item_name TEXT NOT NULL COLLATE NOCASE,reality_exists INTEGER NOT NULL,reality_description TEXT NOT NULL,reality_quantity INTEGER NOT NULL,reality_container TEXT NOT NULL,reality_owner TEXT NOT NULL,item_memory_max_id INTEGER NOT NULL,fridge_exists INTEGER NOT NULL,fridge_description TEXT NOT NULL,fridge_quantity INTEGER NOT NULL,fridge_fullness REAL NOT NULL,fridge_energy REAL NOT NULL,fridge_ingredients TEXT NOT NULL,fridge_taste TEXT NOT NULL,phase TEXT NOT NULL CHECK(phase IN ('pending','committed')),created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "CREATE TABLE IF NOT EXISTS r2_tv_state (id INTEGER PRIMARY KEY CHECK(id=1), power INTEGER NOT NULL DEFAULT 0 CHECK(power IN (0,1)), source_kind TEXT NOT NULL DEFAULT 'input', source_value INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "INSERT OR IGNORE INTO r2_tv_state(id,power,source_kind,source_value) VALUES(1,0,'input',1);"
         "CREATE TABLE IF NOT EXISTS r2_tv_devices (name TEXT PRIMARY KEY COLLATE NOCASE, connection_kind TEXT NOT NULL CHECK(connection_kind IN ('input','rf')), port INTEGER NOT NULL, connected INTEGER NOT NULL DEFAULT 1 CHECK(connected IN (0,1)), updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, CHECK((connection_kind='input' AND port BETWEEN 2 AND 4) OR (connection_kind='rf' AND port BETWEEN 2 AND 13)));"
@@ -2734,6 +2735,13 @@ int r2_reality_init(void)
         pthread_mutex_unlock(&reality_lock); return -1;
     }
     fridge_sync_mirrors();
+    /* Restore both sides of any interrupted fridge/pocket transfer before exposing inventory. */
+    if (inventory_transfer_recover_locked() != 0) {
+        fprintf(stderr, "[R2 Reality] Pending inventory transfer recovery failed; refusing to start with ambiguous ownership.\n");
+        r2_fridge_shutdown();
+        sqlite3_close(reality_db); reality_db = NULL;
+        pthread_mutex_unlock(&reality_lock); return -1;
+    }
     /* Resolve any purchase interrupted between physical payment and inventory persistence. */
     if (purchase_journal_recover() != 0) {
         fprintf(stderr, "[R2 Reality] Pending purchase recovery failed; refusing to start with ambiguous ownership.\\n");
