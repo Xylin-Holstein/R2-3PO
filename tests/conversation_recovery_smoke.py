@@ -68,6 +68,21 @@ require(
     "tool-processing failure is converted into a visible response instead of a silent turn",
 )
 
+tool_processor = function_slice(
+    "static char *process_tools_with_status(",
+    "/* Preserve the existing result-only interface for ordinary callers. */",
+)
+growth_start = tool_processor.find("char *_grown = realloc(results, cap);")
+growth_end = tool_processor.find("results = _grown;", growth_start)
+growth_failure = tool_processor[growth_start:growth_end] if growth_start >= 0 and growth_end >= 0 else ""
+require(
+    "Some action may already have completed" in growth_failure
+    and "Verify the current state before retrying the request." in growth_failure
+    and "return results;" in growth_failure
+    and "free(results);" not in growth_failure,
+    "tool-result allocation failure preserves a no-retry warning after possible side effects",
+)
+
 # The public entry point must serialize entire turns, while announcing intent
 # before waiting so autonomous background work can yield to queued user input.
 lock = public.find("pthread_mutex_lock(&conversation_turn_lock)")
