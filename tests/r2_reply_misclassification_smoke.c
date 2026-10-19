@@ -87,6 +87,21 @@ int main(void)
                     observed_bad_reply),
                 "observed fabricated paraphrase triggers corrective retry");
 
+    const char *actual_affectionate_message =
+        "This is your mother speaking to you, and I missed you.";
+    const char *observed_unclear_input_reply =
+        "I seem to be receiving unclear input! Could you please clarify what you mean? "
+        "Did you intend to type a different message, or is there something else "
+        "you'd like me to help you with? My circuits are ready to assist whenever "
+        "you're able to share more details.";
+    ok &= check(r2_reply_misclassifies_plain_text(actual_affectionate_message,
+                    observed_unclear_input_reply),
+                "generic unclear-input boilerplate on a clear affectionate message triggers corrective retry");
+    ok &= check(!r2_reply_misclassifies_plain_text(
+                    "Could you clarify which of the two room layouts you prefer?",
+                    "Do you mean the bed by the window or the bed beside the door?"),
+                "a specific clarification about a genuinely missing choice remains valid conversation");
+
     ok &= check(r2_keyword_is_low_signal("hello") &&
                     r2_keyword_is_low_signal("r2") &&
                     r2_keyword_is_low_signal("speaking") &&
