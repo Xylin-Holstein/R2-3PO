@@ -41,21 +41,23 @@ int main(void)
         { .role = "system", .content = "CURRENT TURN RETRIEVED CONTEXT", .pinned = 0 },
         { .role = "system", .content = "PERSISTENT REALITY CONTEXT", .pinned = 0 },
         { .role = "system", .content = "============================================================\nIDENTITY AND PERSISTENT MEMORY", .pinned = 0 },
+        { .role = "system", .content = "============================================================\nR2 PERSISTENT MEMORY - STARTUP CONTEXT", .pinned = 0 },
         { .role = "user", .content = "current user turn", .pinned = 0 }
     };
-    const unsigned char include_all[] = { 1, 1, 1, 1, 1, 1, 1, 1 };
-    size_t message_order[8] = { 0 };
+    const unsigned char include_all[] = { 1, 1, 1, 1, 1, 1, 1, 1, 1 };
+    size_t message_order[9] = { 0 };
     size_t ordered_count = r2_order_inference_messages(
-        interleaved_messages, include_all, 8, message_order, 8);
-    int order_ok = ordered_count == 8 &&
+        interleaved_messages, include_all, 9, message_order, 9);
+    int order_ok = ordered_count == 9 &&
                    message_order[0] == 6 &&
                    message_order[1] == 5 &&
                    message_order[2] == 4 &&
-                   message_order[3] == 2 &&
-                   message_order[4] == 1 &&
-                   message_order[5] == 0 &&
-                   message_order[6] == 3 &&
-                   message_order[7] == 7;
+                   message_order[3] == 7 &&
+                   message_order[4] == 2 &&
+                   message_order[5] == 1 &&
+                   message_order[6] == 0 &&
+                   message_order[7] == 3 &&
+                   message_order[8] == 8;
     ok &= check(order_ok,
                 "system context follows semantic priority before chronological dialogue");
 
