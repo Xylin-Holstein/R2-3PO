@@ -703,6 +703,8 @@ int main(void)
         fail("restart did not restore the original fridge stock metadata and quantity");
     sqlite3_finalize(transfer_st);
     sqlite3_close(transfer_db);
+    transfer_db = NULL;
+    transfer_st = NULL;
     if (r2_reality_remove_item("inventory_crash_move") != 0)
         fail("could not remove recovered pocket transfer fixture");
     for (int i = 0; i < 3; ++i)
