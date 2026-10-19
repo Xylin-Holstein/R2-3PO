@@ -86,14 +86,14 @@ Reviewed the current implementations and call flow in `r2.c`, `r2.h`, `R2Reply.c
 - Traced all three background command dispatch paths through `start_background_task()`; fixed false-success reporting and added a regression.
 - Traced the Game Boy control-plane response contract against `GameBoyAdvance.py`; fixed fail-open JSON handling and added a regression.
 - Reviewed filesystem tool path resolution: workspace paths are canonicalized and checked for workspace containment; fenced/HTML code examples are excluded by the control-marker parser. This pass did not establish a reproducible path-escape defect, though filesystem writes are not a full descriptor-relative defense against a hostile concurrent symlink swap.
-- Traced Reality add/move/remove paths and the existing money/purchase journals, including cross-database rollback paths. No additional reproducible inventory-persistence defect was established in this slice.
+- Traced Reality add/move/remove paths and the existing money/purchase journals. The separate fridge/pockets crash window was fixed under R2-AUD-012 with a durable snapshot journal and restart-injection tests.
 - Continued the startup/shutdown review and fixed direct `r2_init()` fatal exits so required initialization failures route through centralized cleanup, with state-aware libcurl and diary cleanup.
 
 This remains a bounded manual review, not a claim that every subsystem has been audited. The current release branch's full source workflow passed on commit `d9c1ff5e3d4f4d48f735ee03374260fde3d0e503` (89/89 steps). Next code-review batch should cover remaining subsystem lifecycle and cross-thread interactions. Target-host acceptance remains open.
 
 ## Release gates still open
 
-- The current release branch's full workflow passed on code commit `d9c1ff5e3d4f4d48f735ee03374260fde3d0e503` (89/89 steps; run [39194830081](https://github.com/Xylin-Holstein/R2-3PO/actions/runs/39194830081)), including the current startup-unwind, background enqueue, Game Boy JSON, money/purchase recovery, and strict-build checks.
+- Full workflow passed on transfer-journal code commit `10748b9f1c976a8ed99dc906792e4e7e505ff345` (90/90 steps; run [39196249829](https://github.com/Xylin-Holstein/R2-3PO/actions/runs/39196249829)), including startup unwind, background enqueue, Game Boy JSON, money/purchase recovery, crash-injected fridge transfer recovery, and strict build. A subsequent factual-log formatting addition exposed a strict compile warning, which was fixed in `e651299452c83585a75de40bd391115f54282ae0`; latest-head validation is pending.
 - On the target machine, verify real Qwen 3.5 9B multi-turn chat, retry/fallback behavior, measured CPU/GPU placement and RAM headroom, and connected devices. CI cannot perform these checks.
 - Before installation, verify that the trusted root bootstrap is installed at `/usr/local/sbin/r2-3po-install`, root-owned, and not group/world-writable. The documented immutable source commit and Git blob SHA are checked against the current branch; this repository check does not prove the host has installed that copy.
 - Keep PR #161 draft and `main` untouched until repository validation and target-host acceptance are complete.
@@ -122,4 +122,12 @@ This remains a bounded manual review, not a claim that every subsystem has been 
 - **Fix:** JSON boolean fields now require the actual JSON boolean type. The command bridge accepts the documented array shape for `list`, the object shape for `status`, and requires an explicit boolean `ok: true` for action responses; process exit code alone is insufficient.
 - **Regression coverage:** added `tests/gameboy_json_contract_smoke.py` and wired it into `.github/workflows/build.yml`. This is a source-contract regression, not a live emulator/hardware test.
 - **Status:** fixed and validated on commit `d9c1ff5e3d4f4d48f735ee03374260fde3d0e503`; the response-contract regression, strict build, and full workflow [39194830081](https://github.com/Xylin-Holstein/R2-3PO/actions/runs/39194830081) passed (89/89 steps). This is not a live emulator/hardware test.
+
+### R2-AUD-012 — Cross-database fridge transfers lacked crash recovery
+
+- **Area:** `Reality.c`, moving a tracked stack into the separate fridge database and taking food from the fridge into pockets.
+- **Finding:** both directions updated the fridge database and Reality database in separate operations with only in-process rollback. A process crash between writes could duplicate a stored item or lose a taken food item.
+- **Fix:** added backward-compatible `r2_inventory_transfer_journal` in the Reality database. Before either side changes, it persists a snapshot of the prior Reality object, item-memory high-water mark, and fridge row metadata/quantity. Both transfer directions mark the journal committed only after both database changes succeed. Startup and subsequent transfer/purchase paths recover a pending journal by restoring both databases and mirrors; committed journals are cleared without undoing a completed transfer. Interrupted recovery is recorded in the factual log.
+- **Regression coverage:** extended `tests/reality_needs_smoke.c` with test-only crash injection after the fridge write in each direction. The test restarts Reality and checks both authoritative databases, prior fridge metadata, and journal clearance.
+- **Validation history:** the transfer-recovery tests and strict build passed in workflow [39196249829](https://github.com/Xylin-Holstein/R2-3PO/actions/runs/39196249829) (90/90 steps) before the later recovery-log line was added. The next full run caught a strict `-Wformat-truncation` warning in that log line; the string is now bounded and a pre-lock fridge pointer read was removed. Final validation of this latest head is pending.
 
