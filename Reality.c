@@ -207,7 +207,12 @@ static int money_set_dir_balance(const char *dir, sqlite3_int64 cents, int *chan
     snprintf(backup,sizeof(backup),"%s/backup",txn); snprintf(phase,sizeof(phase),"%s/phase",txn);
     if(mkdir(stage,0700)||mkdir(backup,0700)){(void)rmdir(stage);(void)rmdir(backup);(void)rmdir(txn);return -1;}
 
-    for(sqlite3_int64 i=0;i<cents/100;i++) if(money_create_bill(stage)){rc=-1;break;}
+    for(sqlite3_int64 i=0;i<cents/100;i++) {
+        if(money_create_bill(stage)){rc=-1;break;}
+#ifdef R2_MONEY_TEST_FAILURE_INJECTION
+        if(i==0&&getenv("R2_TEST_MONEY_STAGE_FAIL")){rc=-1;break;}
+#endif
+    }
     int change=(int)(cents%100);
     if(!rc&&change){
         char p[2300],v[32];n=snprintf(p,sizeof(p),"%s/change.txt",stage);
