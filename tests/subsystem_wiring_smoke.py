@@ -48,9 +48,13 @@ assert "Imagination.c" in workflow
 assert 'extract_marker(reply, "[WORLD]"' in core
 assert "r2_reality_move_item" in core and "r2_eat_and_learn" in core
 
-# Ensure this integration doesn't discard the current-turn and reply safeguards.
+# Preserve turn serialization and the root conversation contract without
+# heuristic reply-classification/rewrite guards.
 assert "conversation_turn_lock" in core
-assert "r2_reply_reverses_speaker_roles" in core
+assert "static const char r2_conversation_system_prompt[]" in core
+assert "Interpret social meaning, tone, relationships, and emotional cues from context" in core
+assert "r2_reply_reverses_speaker_roles" not in core
+assert "r2_reply_misclassifies_plain_text" not in core
 assert 'if (strcmp(m->role, "user") == 0 &&\n            r2_recent_message_is_tool_payload(m->content))' not in core
 
 print("Imagination, Sensory Journal, Reality, and conversation wiring smoke passed.")
