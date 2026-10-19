@@ -294,15 +294,13 @@ int main(void)
         strdup("That’s a bit garbled. I think you’re trying to say I made "
                "a mistake. Is that correct?"));
     ok &= check(repeated_bad_retry &&
-                    strstr(repeated_bad_retry, "couldn't form a reliable response") &&
-                    strstr(repeated_bad_retry, "which part you'd like me to respond to"),
-                "repeated fabricated paraphrase becomes an honest clarification");
+                    strstr(repeated_bad_retry, "That’s a bit garbled"),
+                "corrective output is not replaced with a hard-coded clarification");
     free(repeated_bad_retry);
 
     char *missing_retry = r2_validate_corrective_reply(mother_message, NULL);
-    ok &= check(missing_retry &&
-                    strstr(missing_retry, "couldn't form a reliable response"),
-                "failed corrective inference does not expose the original bad reply");
+    ok &= check(missing_retry == NULL,
+                "missing corrective inference remains a generation failure, not fabricated user-facing intent");
     free(missing_retry);
 
     /* Tool results travel through a user-role message for the next model
