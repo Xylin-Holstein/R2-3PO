@@ -36,6 +36,14 @@ This log records source-level findings and their verification status. A green wo
 - **Status:** mode corrected in commit `501e101279622310d82ae5c0184d50aba73b7580`; full workflow passed on descendant commit `0159635cd31b0b1b2a5dfd49a90846d2b7b59e1c` (87/87 steps).
 
 
+
+### R2-AUD-005 — Physical money balance replacement is not failure-atomic
+
+- **Area:** `Reality.c`, `money_set_dir_balance()`, used by cash receipt, deposit/withdrawal, purchase, and migration paths.
+- **Finding:** the function validates current bill/change entries, then unlinks all existing authoritative bill files and `change.txt` before creating the requested replacement bill files. A failure during replacement (for example, a later file creation/write failure after earlier new bills were created) returns an error after the prior authoritative balance has already been destroyed. Callers attempt rollback by recreating the old balance, but that rollback can fail for the same underlying filesystem condition. The current “preflight” only catches malformed existing entries; it does not make the multi-file update transactional.
+- **Impact:** a disk/write failure during a wallet or piggybank mutation can leave the physical money files at a partial or lost balance, despite the operation reporting failure. This conflicts with the explicit rule that physical files are authoritative and can affect purchases and transfers.
+- **Status:** confirmed by source tracing; not yet fixed. Next batch should implement a staged replacement/rollback strategy and add a deterministic failure-injection regression proving the old balance remains intact when staging fails. Do not treat the current candidate as fully audited while this remains open.
+
 ## Manual source-review checkpoint: conversation and memory pipeline
 
 Reviewed the current implementations and call flow in `r2.c`, `r2.h`, `R2Reply.c`, `Visual.c`, and the production-backed conversation regression tests.
