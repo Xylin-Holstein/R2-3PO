@@ -5145,6 +5145,24 @@ static char *r2_validate_corrective_reply(const char *query, char *retry_reply)
         "Could you tell me which part you'd like me to respond to?");
 }
 
+static int r2_is_retry_context_message(const Message *message)
+{
+    if (!message || !message->role ||
+        strcmp(message->role, "system") != 0 || !message->content)
+        return 0;
+
+    const char *content = message->content;
+    return !strncmp(content, "PERSISTENT REALITY CONTEXT",
+                    strlen("PERSISTENT REALITY CONTEXT")) ||
+           !strncmp(content, "CURRENT TURN RETRIEVED CONTEXT",
+                    strlen("CURRENT TURN RETRIEVED CONTEXT")) ||
+           !strncmp(content,
+                     "============================================================\n"
+                     "R2 PERSISTENT MEMORY - STARTUP CONTEXT",
+                     strlen("============================================================\n"
+                            "R2 PERSISTENT MEMORY - STARTUP CONTEXT"));
+}
+
 static char *r2_retry_direct_answer(Message *messages_copy,
                                     size_t message_count,
                                     const char *query)
@@ -5206,21 +5224,8 @@ static char *r2_retry_direct_answer(Message *messages_copy,
     Message compact_messages[4];
     size_t compact_count = 0;
     for (size_t i = 0; i < message_count && compact_count < 3; ++i) {
-        const char *content = messages_copy[i].content;
-        if (!messages_copy[i].role || strcmp(messages_copy[i].role, "system") != 0 ||
-            !content)
-            continue;
-        if (!strncmp(content, "PERSISTENT REALITY CONTEXT",
-                      strlen("PERSISTENT REALITY CONTEXT")) ||
-            !strncmp(content, "CURRENT TURN RETRIEVED CONTEXT",
-                      strlen("CURRENT TURN RETRIEVED CONTEXT")) ||
-            !strncmp(content,
-                      "============================================================\n"
-                      "R2 PERSISTENT MEMORY - STARTUP CONTEXT",
-                      strlen("============================================================\n"
-                             "R2 PERSISTENT MEMORY - STARTUP CONTEXT"))) {
+        if (r2_is_retry_context_message(&messages_copy[i]))
             compact_messages[compact_count++] = messages_copy[i];
-        }
     }
     compact_messages[compact_count++] = (Message) {
         .role = "user",
