@@ -7720,10 +7720,11 @@ static char *process_tools_with_status(
                     /* A preceding tool may already have changed the world. \
                        Preserve a visible no-retry warning instead of making \
                        the whole turn look like an unperformed action. */ \
-                    static const char _capture_failure[] =             \
-                        "Tool-result memory ran out after processing began. " \
-                        "Some action may already have completed; I will not " \
-                        "repeat it automatically. Verify the current state " \
+                    static const char _capture_failure[] =
+                        "I ran out of memory while recording an action result. "
+                        "An action may already have completed, so I will not "
+                        "repeat it automatically. Verify the current state "
+                        "before retrying the request.";
                         "before retrying the request.";                \
                     snprintf(results, cap, "%s", _capture_failure);    \
                     return results;                                   \
@@ -11063,7 +11064,7 @@ static char *r2_talk_impl(const char *message)
            warning directly. A model follow-up could otherwise paraphrase it
            away or incorrectly claim the action definitely succeeded. */
         static const char tool_capture_failure_prefix[] =
-            "Tool-result memory ran out after processing began.";
+            "I ran out of memory while recording an action result.";
         if (strncmp(tools, tool_capture_failure_prefix,
                     sizeof(tool_capture_failure_prefix) - 1) == 0) {
             free(reply);
@@ -11071,14 +11072,8 @@ static char *r2_talk_impl(const char *message)
             stripped_reply = NULL;
             free(tools);
             tools = NULL;
-            reply = xstrdup(
-                "I ran out of memory while recording an action result. "
-                "An action may already have completed, so I won't repeat it "
-                "automatically. Please verify the current state before retrying.");
-            if (!reply) {
-                fprintf(stderr, "[R2] Could not allocate the direct no-retry warning after tool-result memory failure.\n");
-                return NULL;
-            }
+            reply = tools; /* Transfer the existing buffer; do not allocate during OOM. */
+            tools = NULL;
             goto finalize_reply;
         }
 
