@@ -156,3 +156,11 @@ This remains a bounded manual review, not a claim that every subsystem has been 
 - **Fix:** the visibility check now ignores recognized action-control blocks and command lines, and fails closed on an unterminated control block. A reply must contain actual non-control text before tool processing is allowed.
 - **Regression coverage:** extended `tests/conversation_recovery_smoke.py` to guard the control-marker filtering and its placement before action execution, and added runtime assertions to `tests/recent_context_budget_runtime.c` for marker-only, malformed, and ordinary replies.
 - **Status:** fixed and validated on the release candidate tested by GitHub Actions run [4847](https://github.com/Xylin-Holstein/R2-3PO/actions/runs/39204350398), which passed all 90/90 steps, including the runtime reply-visibility checks and strict production build. No target-machine execution is implied.
+
+### R2-AUD-016 — Tool-result OOM warning could overrun the original allocation
+
+- **Area:** `r2.c`, `process_tools_with_status()`, tool-result buffer growth failure.
+- **Finding:** the growth loop doubled `cap` in place before calling `realloc()`. If `realloc()` failed, the existing `results` allocation still had its original size, but the failure warning used the already-increased `cap` as the `snprintf()` bound. Under memory pressure, this could write beyond the original allocation.
+- **Fix:** compute the desired capacity in a separate `_new_cap` variable; leave `cap` unchanged until `realloc()` succeeds. The warning is now formatted with the actual original allocation size. Capacity doubling also checks against `SIZE_MAX` before multiplying.
+- **Regression coverage:** updated `tests/conversation_recovery_smoke.py` to assert the failure path formats the warning using the original `cap`, does not commit `_new_cap` before successful reallocation, and updates `cap` only after adopting the new buffer.
+- **Status:** fix and regression committed on the release branch. CI for this commit is pending; no claim of target-machine execution.
