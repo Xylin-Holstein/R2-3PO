@@ -74,6 +74,12 @@ class StartupFailureUnwindTests(unittest.TestCase):
         self.assertIn("python3 tests/startup_failure_unwind_smoke.py", WORKFLOW)
         self.assertIn("Compile R2 with the same sources and flags as the launcher", WORKFLOW)
 
+    def test_runtime_fault_injection_is_wired_into_full_workflow(self):
+        self.assertIn("tests/startup_failure_unwind_runtime.c", WORKFLOW)
+        self.assertIn("-DR2_TEST_STARTUP_FAILURE_INJECTION", WORKFLOW)
+        self.assertIn("/tmp/r2-startup-unwind-test hands", WORKFLOW)
+        self.assertIn("/tmp/r2-startup-unwind-test diary", WORKFLOW)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
