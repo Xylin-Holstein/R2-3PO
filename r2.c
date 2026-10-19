@@ -11350,6 +11350,24 @@ int r2_conversation(void)
    CORE INITIALIZATION / SHUTDOWN
    ============================================================ */
 
+/* Test-only startup fault injection lets CI exercise both partial-startup
+   unwind paths without depending on scheduler timing. Production builds call
+   pthread_create directly and ignore these environment-variable names. */
+static int r2_startup_thread_create(pthread_t *thread,
+                                   void *(*start_routine)(void *),
+                                   void *arg,
+                                   const char *failure_env)
+{
+#ifdef R2_TEST_STARTUP_FAILURE_INJECTION
+    const char *inject = failure_env ? getenv(failure_env) : NULL;
+    if (inject && strcmp(inject, "1") == 0)
+        return -1;
+#else
+    (void)failure_env;
+#endif
+    return pthread_create(thread, NULL, start_routine, arg);
+}
+
 int r2_init(void)
 {
     shutting_down = 0;
@@ -11775,54 +11793,28 @@ int r2_init(void)
        START BACKGROUND THREADS
        ======================================================== */
 
-    if (
-        pthread_create(
-            &hands_thread,
-            NULL,
-            hands_worker,
-            NULL
-        ) != 0
-    ) {
-
-        r2_diary_shutdown();
-        sqlite3_close(db);
-        db = NULL;
-        curl_global_cleanup();
-
+    if (r2_startup_thread_create(&hands_thread, hands_worker, NULL,
+                                    "R2_TEST_FAIL_HANDS_THREAD_CREATE") != 0) {
+        /* main() owns the single complete unwind through r2_shutdown(). */
         return -1;
     }
 
     hands_thread_started = 1;
 
     atomic_store(&diary_running, 1);
-    if (
-        pthread_create(
-            &diary_thread,
-            NULL,
-            autonomous_thinking,
-            NULL
-        ) != 0
-    ) {
+    if (r2_startup_thread_create(&diary_thread, autonomous_thinking, NULL,
+                                    "R2_TEST_FAIL_DIARY_THREAD_CREATE") != 0) {
         atomic_store(&diary_running, 0);
 
-        /* Keep failed-startup shutdown atomic with the worker's predicate. */
+        /* Stop and join Hands here; main() then performs the complete
+           subsystem/database unwind through r2_shutdown(). */
         pthread_mutex_lock(&task_queue_lock);
         shutting_down = 1;
         pthread_cond_broadcast(&task_queue_cond);
         pthread_mutex_unlock(&task_queue_lock);
 
-        pthread_join(
-            hands_thread,
-            NULL
-        );
-
+        pthread_join(hands_thread, NULL);
         hands_thread_started = 0;
-
-        r2_diary_shutdown();
-        sqlite3_close(db);
-        db = NULL;
-        curl_global_cleanup();
-
         return -1;
     }
 
@@ -12056,8 +12048,12 @@ int main(void)
         }
     }
 
-    if (r2_init() != 0)
+    if (r2_init() != 0) {
+        /* r2_init can fail after opening multiple persistent subsystems.
+           Centralize partial-startup cleanup instead of leaking their handles. */
+        r2_shutdown();
         return 1;
+    }
 
     /* Installer readiness must prove the core initialized, not merely that the
        shell runner passed dependency checks before exec'ing this process. */
