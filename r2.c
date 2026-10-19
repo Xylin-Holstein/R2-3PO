@@ -5076,6 +5076,14 @@ static const char r2_conversation_system_prompt[] =
 
 static char *r2_build_retry_system_prompt(void)
 {
+    static const char identity_start_marker[] =
+        "============================================================\\n"
+        "IDENTITY AND PERSISTENT MEMORY\\n"
+        "============================================================\\n";
+    static const char identity_end_marker[] =
+        "============================================================\\n"
+        "REALITY CONTEXT: USE IT, DO NOT RECITE IT\\n"
+        "============================================================\\n";
     static const char retry_instruction[] =
         "RESPONSE CORRECTION: The previous draft did not answer the user's actual message. "
         "If the user reports that YOUR prior message, reply, or answer was garbled, confusing, unreadable, or nonsensical, acknowledge that their complaint is about your output and repair it; do not call their current message garbled. Do not describe ordinary typed language as unintelligible, audio, noise, random sounds, "
@@ -5091,29 +5099,38 @@ static char *r2_build_retry_system_prompt(void)
         "Return only the user-facing answer.";
 
     /*
-     * Root cause of relationship-sensitive retry drift: the corrective retry
-     * used only the narrow conversation prompt, replacing the full R2 identity,
-     * memory-learning, and relationship policy from SYSTEM_PROMPT. Preserve
-     * the complete base prompt and layer the conversation-specific guidance
-     * and one-turn correction on top; do not hard-code a particular identity.
+     * Keep the root-cause fix without overflowing the single-system-message
+     * limit: the full SYSTEM_PROMPT contains many unrelated tool contracts and
+     * is larger than the retry window. Extract its complete identity/memory
+     * section, then add the conversation policy (including learned relationship
+     * and contextual affect guidance) and the one-turn correction. This keeps
+     * the policy that was missing from the old retry while avoiding silent
+     * truncation of the correction at the end of an oversized override.
      */
-    size_t prompt_size = strlen(SYSTEM_PROMPT) +
+    const char *identity_start = strstr(SYSTEM_PROMPT, identity_start_marker);
+    const char *identity_end = identity_start
+        ? strstr(identity_start + strlen(identity_start_marker), identity_end_marker)
+        : NULL;
+    if (!identity_start || identity_start != SYSTEM_PROMPT || !identity_end ||
+        identity_end <= identity_start) {
+        fprintf(stderr,
+                "[R2 Conversation] Could not isolate the base identity/memory prompt for correction.\\n");
+        return NULL;
+    }
+
+    size_t identity_length = (size_t)(identity_end - identity_start);
+    size_t prompt_size = identity_length +
                          sizeof(r2_conversation_system_prompt) +
                          sizeof(retry_instruction) + 8;
     char *retry_system_prompt = malloc(prompt_size);
     if (!retry_system_prompt)
         return NULL;
-    snprintf(retry_system_prompt, prompt_size, "%s\n\n%s\n\n%s",
-             SYSTEM_PROMPT, r2_conversation_system_prompt, retry_instruction);
+    snprintf(retry_system_prompt, prompt_size, "%.*s\\n\\n%s\\n\\n%s",
+             (int)identity_length, identity_start,
+             r2_conversation_system_prompt, retry_instruction);
     return retry_system_prompt;
 }
 
-/*
- * Never deliver the same known misclassification after the one permitted
- * retry. If the retry fails or repeats the failure, return a brief, honest
- * clarification instead of presenting fabricated intent as fact.
- * Takes ownership of retry_reply.
- */
 static char *r2_validate_corrective_reply(const char *query, char *retry_reply)
 {
     if (retry_reply && *retry_reply &&
