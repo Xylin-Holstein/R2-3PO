@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Safety/coverage contract for the non-destructive hardware preflight."""
 from pathlib import Path
+import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 script = (ROOT / "tools/preflight_r2_hardware.sh").read_text(encoding="utf-8")
@@ -115,4 +116,20 @@ for marker in (
 ):
     if launcher.index(marker) < preflight_at:
         raise SystemExit(f"startup preflight must precede {marker!r}")
+# Verify the exact awk predicate treats the standard header-only output
+# from `ollama ps` as empty, but recognizes a real model row.
+model_row_predicate = 'NR > 1 && NF && $1 != "NAME" { found=1 } END { exit found ? 0 : 1 }'
+empty_ps = subprocess.run(
+    ["awk", model_row_predicate],
+    input="NAME ID SIZE PROCESSOR CONTEXT UNTIL\n",
+    text=True, capture_output=True, check=False,
+)
+loaded_ps = subprocess.run(
+    ["awk", model_row_predicate],
+    input="NAME ID SIZE PROCESSOR CONTEXT UNTIL\nqwen3.5:9b abc 6.0 GiB 20%/80% 4096 5m\n",
+    text=True, capture_output=True, check=False,
+)
+if empty_ps.returncode != 1 or loaded_ps.returncode != 0:
+    raise SystemExit("ollama ps row detection must ignore the header and detect actual model rows")
+
 print("R2 hardware preflight safety, coverage, and launcher-order smoke test passed")
