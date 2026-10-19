@@ -242,8 +242,24 @@ if TAGS="$(curl --silent --show-error --fail --max-time 4 "$OLLAMA_URL" 2>/dev/n
     pass "local Ollama API responds and qwen3.5:9b is installed"
   else fail "Ollama responds but qwen3.5:9b is not installed"; fi
 else fail "Ollama API unreachable at $OLLAMA_URL"; fi
-if have ollama; then printf 'Ollama placement (when a model is loaded):\n'; ollama ps 2>&1 | sed 's/^/  /' || warn "ollama ps could not report placement."
-else warn "ollama CLI not found on PATH."; fi
+if have ollama; then
+  printf 'Ollama placement (when a model is loaded):\n'
+  OLLAMA_PS_OUTPUT="$(ollama ps 2>&1)"
+  OLLAMA_PS_RC=$?
+  printf '%s\n' "$OLLAMA_PS_OUTPUT" | sed 's/^/  /'
+  if [[ "$OLLAMA_PS_RC" -ne 0 ]]; then
+    warn "ollama ps could not report placement."
+  fi
+  # A llama-server runner holding VRAM while this endpoint reports no loaded
+  # model is an inconsistent state (often another endpoint or a stale runner).
+  # Do not kill it blindly; stop the owning service after identifying it.
+  if have pgrep && pgrep -af '[l]lama-server' >/dev/null 2>&1 &&
+     ! printf '%s\n' "$OLLAMA_PS_OUTPUT" | awk 'NR > 1 && NF { found=1 } END { exit found ? 0 : 1 }'; then
+    fail "llama-server process exists but ollama ps reports no loaded model on the interactive endpoint; a separate or stale runner may be consuming GPU memory. Inspect: systemctl status ollama.service r2-ollama.service"
+  fi
+else
+  warn "ollama CLI not found on PATH."
+fi
 
 section "Read-only SQLite integrity"
 python3 - "$R2_SOURCE" <<'PY'
