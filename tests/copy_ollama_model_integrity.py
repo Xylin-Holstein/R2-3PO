@@ -9,6 +9,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
@@ -259,6 +260,16 @@ class CopyOllamaModelIntegrityTests(unittest.TestCase):
         self.assertEqual(status, 1)
         discover.assert_not_called()
         self.assertIn("invalid Ollama model reference", errors.getvalue())
+
+    def test_cli_defaults_to_qwen35_9b(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp)
+            with patch.object(sys, "argv", ["copy_ollama_model.py"]), \
+                 patch.object(copier, "service_model_root", return_value=source) as locate, \
+                 patch.object(copier, "copy_model") as copy:
+                self.assertEqual(copier.main(), 0)
+            locate.assert_called_once_with("qwen3.5:9b")
+            self.assertEqual(copy.call_args.args[2], "qwen3.5:9b")
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
