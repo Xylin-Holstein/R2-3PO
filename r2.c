@@ -7717,8 +7717,16 @@ static char *process_tools_with_status(
                     cap *= 2;                                        \
                 char *_grown = realloc(results, cap);                \
                 if (!_grown) {                                       \
-                    free(results);                                   \
-                    return NULL;                                     \
+                    /* A preceding tool may already have changed the world. \
+                       Preserve a visible no-retry warning instead of making \
+                       the whole turn look like an unperformed action. */ \
+                    static const char _capture_failure[] =             \
+                        "Tool-result memory ran out after processing began. " \
+                        "Some action may already have completed; I will not " \
+                        "repeat it automatically. Verify the current state " \
+                        "before retrying the request.";                \
+                    snprintf(results, cap, "%s", _capture_failure);    \
+                    return results;                                   \
                 }                                                     \
                 results = _grown;                                    \
             }                                                         \
