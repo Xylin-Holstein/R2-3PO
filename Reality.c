@@ -34,6 +34,8 @@ static pthread_mutex_t reality_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t fridge_lock = PTHREAD_MUTEX_INITIALIZER;
 /* Serializes a purchase from durable intent through inventory commit, including all other money mutations. */
 static pthread_mutex_t purchase_lock = PTHREAD_MUTEX_INITIALIZER;
+static _Thread_local int fridge_eat_transfer_in_progress = 0;
+
 static int reality_ready = 0;
 static int reality_eat_internal(const char *food, double fullness, int consume_tracked_item, double energy_override);
 static int purchase_journal_recover(void);
@@ -1635,6 +1637,15 @@ typedef struct {
     double fridge_energy;
     char fridge_ingredients[1024];
     char fridge_taste[1024];
+    int self_snapshot_valid;
+    double self_hunger, self_satisfaction, self_seconds_since_meal;
+    double self_sleepiness, self_energy;
+    sqlite3_int64 self_last_tick;
+    char self_updated_at[64];
+    int starvation_fact_exists;
+    char starvation_fact_value[128];
+    char starvation_fact_evidence[1024];
+    sqlite3_int64 food_experience_max_id;
     char phase[24];
 } InventoryTransferSnapshot;
 
@@ -1686,6 +1697,64 @@ static int inventory_transfer_snapshot_locked(const char *name,
     if (st) sqlite3_finalize(st);
     if (rc != SQLITE_OK) return -1;
 
+    st = NULL;
+    rc = sqlite3_prepare_v2(reality_db,
+        "SELECT hunger,satisfaction,seconds_since_meal,sleepiness,energy,last_tick,updated_at "
+        "FROM r2_reality_self WHERE id=1", -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        rc = sqlite3_step(st);
+        if (rc == SQLITE_ROW) {
+            snapshot->self_hunger = sqlite3_column_double(st, 0);
+            snapshot->self_satisfaction = sqlite3_column_double(st, 1);
+            snapshot->self_seconds_since_meal = sqlite3_column_double(st, 2);
+            snapshot->self_sleepiness = sqlite3_column_double(st, 3);
+            snapshot->self_energy = sqlite3_column_double(st, 4);
+            snapshot->self_last_tick = sqlite3_column_int64(st, 5);
+            const unsigned char *updated = sqlite3_column_text(st, 6);
+            snprintf(snapshot->self_updated_at, sizeof(snapshot->self_updated_at),
+                     "%s", updated ? (const char *)updated : "");
+            snapshot->self_snapshot_valid = 1;
+            rc = SQLITE_OK;
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    if (rc != SQLITE_OK) return -1;
+
+    st = NULL;
+    rc = sqlite3_prepare_v2(reality_db,
+        "SELECT value,evidence FROM r2_reality_self_facts "
+        "WHERE key='starvation_72h_logged'", -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        rc = sqlite3_step(st);
+        if (rc == SQLITE_ROW) {
+            const unsigned char *fact_value = sqlite3_column_text(st, 0);
+            const unsigned char *fact_evidence = sqlite3_column_text(st, 1);
+            snapshot->starvation_fact_exists = 1;
+            snprintf(snapshot->starvation_fact_value, sizeof(snapshot->starvation_fact_value),
+                     "%s", fact_value ? (const char *)fact_value : "");
+            snprintf(snapshot->starvation_fact_evidence, sizeof(snapshot->starvation_fact_evidence),
+                     "%s", fact_evidence ? (const char *)fact_evidence : "");
+            rc = SQLITE_OK;
+        } else if (rc == SQLITE_DONE) {
+            rc = SQLITE_OK;
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    if (rc != SQLITE_OK) return -1;
+
+    st = NULL;
+    rc = sqlite3_prepare_v2(reality_db,
+        "SELECT COALESCE(MAX(id),0) FROM r2_food_experiences", -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        rc = sqlite3_step(st);
+        if (rc == SQLITE_ROW) {
+            snapshot->food_experience_max_id = sqlite3_column_int64(st, 0);
+            rc = SQLITE_OK;
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    if (rc != SQLITE_OK) return -1;
+
     pthread_mutex_lock(&fridge_lock);
     st = NULL;
     rc = sqlite3_prepare_v2(fridge_db,
@@ -1730,8 +1799,11 @@ static int inventory_transfer_journal_begin_locked(const char *operation,
         "INSERT INTO r2_inventory_transfer_journal("
         "id,operation,item_name,reality_exists,reality_description,reality_quantity,"
         "reality_container,reality_owner,item_memory_max_id,fridge_exists,fridge_description,"
-        "fridge_quantity,fridge_fullness,fridge_energy,fridge_ingredients,fridge_taste,phase) "
-        "VALUES(1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending')", -1, &st, NULL);
+        "fridge_quantity,fridge_fullness,fridge_energy,fridge_ingredients,fridge_taste,"
+        "self_snapshot_valid,self_hunger,self_satisfaction,self_seconds_since_meal,"
+        "self_sleepiness,self_energy,self_last_tick,self_updated_at,starvation_fact_exists,"
+        "starvation_fact_value,starvation_fact_evidence,food_experience_max_id,phase) "
+        "VALUES(1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending')", -1, &st, NULL);
     if (rc == SQLITE_OK) {
         int i = 1;
         sqlite3_bind_text(st, i++, operation, -1, SQLITE_TRANSIENT);
@@ -1749,6 +1821,18 @@ static int inventory_transfer_journal_begin_locked(const char *operation,
         sqlite3_bind_double(st, i++, snapshot->fridge_energy);
         bind_text(st, i++, snapshot->fridge_ingredients);
         bind_text(st, i++, snapshot->fridge_taste);
+        sqlite3_bind_int(st, i++, snapshot->self_snapshot_valid);
+        sqlite3_bind_double(st, i++, snapshot->self_hunger);
+        sqlite3_bind_double(st, i++, snapshot->self_satisfaction);
+        sqlite3_bind_double(st, i++, snapshot->self_seconds_since_meal);
+        sqlite3_bind_double(st, i++, snapshot->self_sleepiness);
+        sqlite3_bind_double(st, i++, snapshot->self_energy);
+        sqlite3_bind_int64(st, i++, snapshot->self_last_tick);
+        bind_text(st, i++, snapshot->self_updated_at);
+        sqlite3_bind_int(st, i++, snapshot->starvation_fact_exists);
+        bind_text(st, i++, snapshot->starvation_fact_value);
+        bind_text(st, i++, snapshot->starvation_fact_evidence);
+        sqlite3_bind_int64(st, i++, snapshot->food_experience_max_id);
         rc = sqlite3_step(st);
     }
     if (st) sqlite3_finalize(st);
@@ -1882,6 +1966,59 @@ static int inventory_transfer_restore_reality_locked(const InventoryTransferSnap
             rc = sqlite3_step(st);
         }
         if (st) sqlite3_finalize(st);
+        st = NULL;
+    }
+    if (rc == SQLITE_DONE && snapshot->self_snapshot_valid) {
+        rc = sqlite3_prepare_v2(reality_db,
+            "INSERT INTO r2_reality_self(id,hunger,satisfaction,seconds_since_meal,sleepiness,energy,last_tick,updated_at) "
+            "VALUES(1,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET hunger=excluded.hunger,"
+            "satisfaction=excluded.satisfaction,seconds_since_meal=excluded.seconds_since_meal,"
+            "sleepiness=excluded.sleepiness,energy=excluded.energy,last_tick=excluded.last_tick,"
+            "updated_at=excluded.updated_at", -1, &st, NULL);
+        if (rc == SQLITE_OK) {
+            sqlite3_bind_double(st, 1, snapshot->self_hunger);
+            sqlite3_bind_double(st, 2, snapshot->self_satisfaction);
+            sqlite3_bind_double(st, 3, snapshot->self_seconds_since_meal);
+            sqlite3_bind_double(st, 4, snapshot->self_sleepiness);
+            sqlite3_bind_double(st, 5, snapshot->self_energy);
+            sqlite3_bind_int64(st, 6, snapshot->self_last_tick);
+            bind_text(st, 7, snapshot->self_updated_at);
+            rc = sqlite3_step(st);
+        }
+        if (st) sqlite3_finalize(st);
+        st = NULL;
+    }
+    if (rc == SQLITE_DONE && snapshot->self_snapshot_valid) {
+        if (snapshot->starvation_fact_exists) {
+            rc = sqlite3_prepare_v2(reality_db,
+                "INSERT INTO r2_reality_self_facts(key,value,evidence) "
+                "VALUES('starvation_72h_logged',?,?) ON CONFLICT(key) DO UPDATE SET "
+                "value=excluded.value,evidence=excluded.evidence,updated_at=CURRENT_TIMESTAMP",
+                -1, &st, NULL);
+            if (rc == SQLITE_OK) {
+                bind_text(st, 1, snapshot->starvation_fact_value);
+                bind_text(st, 2, snapshot->starvation_fact_evidence);
+                rc = sqlite3_step(st);
+            }
+        } else {
+            rc = sqlite3_prepare_v2(reality_db,
+                "DELETE FROM r2_reality_self_facts WHERE key='starvation_72h_logged'",
+                -1, &st, NULL);
+            if (rc == SQLITE_OK) rc = sqlite3_step(st);
+        }
+        if (st) sqlite3_finalize(st);
+        st = NULL;
+    }
+    if (rc == SQLITE_DONE && snapshot->self_snapshot_valid) {
+        rc = sqlite3_prepare_v2(reality_db,
+            "DELETE FROM r2_food_experiences WHERE id>? AND food_name=? COLLATE NOCASE",
+            -1, &st, NULL);
+        if (rc == SQLITE_OK) {
+            sqlite3_bind_int64(st, 1, snapshot->food_experience_max_id);
+            bind_text(st, 2, snapshot->name);
+            rc = sqlite3_step(st);
+        }
+        if (st) sqlite3_finalize(st);
     }
     if (rc == SQLITE_DONE) rc = sqlite3_exec(reality_db, "COMMIT", NULL, NULL, NULL);
     else (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
@@ -1906,7 +2043,10 @@ static int inventory_transfer_recover_locked(void)
     int rc = sqlite3_prepare_v2(reality_db,
         "SELECT operation,item_name,reality_exists,reality_description,reality_quantity,"
         "reality_container,reality_owner,item_memory_max_id,fridge_exists,fridge_description,"
-        "fridge_quantity,fridge_fullness,fridge_energy,fridge_ingredients,fridge_taste,phase "
+        "fridge_quantity,fridge_fullness,fridge_energy,fridge_ingredients,fridge_taste,"
+        "self_snapshot_valid,self_hunger,self_satisfaction,self_seconds_since_meal,self_sleepiness,"
+        "self_energy,self_last_tick,self_updated_at,starvation_fact_exists,starvation_fact_value,"
+        "starvation_fact_evidence,food_experience_max_id,phase "
         "FROM r2_inventory_transfer_journal WHERE id=1", -1, &st, NULL);
     if (rc != SQLITE_OK) return -1;
     rc = sqlite3_step(st);
@@ -1943,7 +2083,22 @@ static int inventory_transfer_recover_locked(void)
     snprintf(snapshot.fridge_ingredients, sizeof(snapshot.fridge_ingredients), "%s", value ? (const char *)value : "");
     value = sqlite3_column_text(st, 14);
     snprintf(snapshot.fridge_taste, sizeof(snapshot.fridge_taste), "%s", value ? (const char *)value : "");
-    value = sqlite3_column_text(st, 15);
+    snapshot.self_snapshot_valid = sqlite3_column_int(st, 15);
+    snapshot.self_hunger = sqlite3_column_double(st, 16);
+    snapshot.self_satisfaction = sqlite3_column_double(st, 17);
+    snapshot.self_seconds_since_meal = sqlite3_column_double(st, 18);
+    snapshot.self_sleepiness = sqlite3_column_double(st, 19);
+    snapshot.self_energy = sqlite3_column_double(st, 20);
+    snapshot.self_last_tick = sqlite3_column_int64(st, 21);
+    value = sqlite3_column_text(st, 22);
+    snprintf(snapshot.self_updated_at, sizeof(snapshot.self_updated_at), "%s", value ? (const char *)value : "");
+    snapshot.starvation_fact_exists = sqlite3_column_int(st, 23);
+    value = sqlite3_column_text(st, 24);
+    snprintf(snapshot.starvation_fact_value, sizeof(snapshot.starvation_fact_value), "%s", value ? (const char *)value : "");
+    value = sqlite3_column_text(st, 25);
+    snprintf(snapshot.starvation_fact_evidence, sizeof(snapshot.starvation_fact_evidence), "%s", value ? (const char *)value : "");
+    snapshot.food_experience_max_id = sqlite3_column_int64(st, 26);
+    value = sqlite3_column_text(st, 27);
     snprintf(snapshot.phase, sizeof(snapshot.phase), "%s", value ? (const char *)value : "");
     sqlite3_finalize(st);
 
@@ -2671,7 +2826,7 @@ int r2_reality_init(void)
         "INSERT OR IGNORE INTO r2_money_account(id,cash_cents,bank_cents) VALUES(1,0,0);"
         "CREATE TABLE IF NOT EXISTS r2_money_transfer_journal (id INTEGER PRIMARY KEY CHECK(id=1),old_cash_cents INTEGER NOT NULL,old_bank_cents INTEGER NOT NULL,new_cash_cents INTEGER NOT NULL,new_bank_cents INTEGER NOT NULL,operation TEXT NOT NULL,phase TEXT NOT NULL CHECK(phase IN ('pending','committed')),created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "CREATE TABLE IF NOT EXISTS r2_purchase_journal (id INTEGER PRIMARY KEY CHECK(id=1),old_cash_cents INTEGER NOT NULL,old_bank_cents INTEGER NOT NULL,new_cash_cents INTEGER NOT NULL,new_bank_cents INTEGER NOT NULL,item_name TEXT NOT NULL,item_description TEXT NOT NULL,destination TEXT NOT NULL,pre_quantity INTEGER NOT NULL,pre_container TEXT NOT NULL,phase TEXT NOT NULL CHECK(phase IN ('pending','committed')),created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
-         "CREATE TABLE IF NOT EXISTS r2_inventory_transfer_journal (id INTEGER PRIMARY KEY CHECK(id=1),operation TEXT NOT NULL,item_name TEXT NOT NULL COLLATE NOCASE,reality_exists INTEGER NOT NULL,reality_description TEXT NOT NULL,reality_quantity INTEGER NOT NULL,reality_container TEXT NOT NULL,reality_owner TEXT NOT NULL,item_memory_max_id INTEGER NOT NULL,fridge_exists INTEGER NOT NULL,fridge_description TEXT NOT NULL,fridge_quantity INTEGER NOT NULL,fridge_fullness REAL NOT NULL,fridge_energy REAL NOT NULL,fridge_ingredients TEXT NOT NULL,fridge_taste TEXT NOT NULL,phase TEXT NOT NULL CHECK(phase IN ('pending','committed')),created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
+         "CREATE TABLE IF NOT EXISTS r2_inventory_transfer_journal (id INTEGER PRIMARY KEY CHECK(id=1),operation TEXT NOT NULL,item_name TEXT NOT NULL COLLATE NOCASE,reality_exists INTEGER NOT NULL,reality_description TEXT NOT NULL,reality_quantity INTEGER NOT NULL,reality_container TEXT NOT NULL,reality_owner TEXT NOT NULL,item_memory_max_id INTEGER NOT NULL,fridge_exists INTEGER NOT NULL,fridge_description TEXT NOT NULL,fridge_quantity INTEGER NOT NULL,fridge_fullness REAL NOT NULL,fridge_energy REAL NOT NULL,fridge_ingredients TEXT NOT NULL,fridge_taste TEXT NOT NULL,self_snapshot_valid INTEGER NOT NULL DEFAULT 0,self_hunger REAL NOT NULL DEFAULT 0,self_satisfaction REAL NOT NULL DEFAULT 100,self_seconds_since_meal REAL NOT NULL DEFAULT 0,self_sleepiness REAL NOT NULL DEFAULT 0,self_energy REAL NOT NULL DEFAULT 100,self_last_tick INTEGER NOT NULL DEFAULT 0,self_updated_at TEXT NOT NULL DEFAULT '',starvation_fact_exists INTEGER NOT NULL DEFAULT 0,starvation_fact_value TEXT NOT NULL DEFAULT '',starvation_fact_evidence TEXT NOT NULL DEFAULT '',food_experience_max_id INTEGER NOT NULL DEFAULT 0,phase TEXT NOT NULL CHECK(phase IN ('pending','committed')),created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "CREATE TABLE IF NOT EXISTS r2_tv_state (id INTEGER PRIMARY KEY CHECK(id=1), power INTEGER NOT NULL DEFAULT 0 CHECK(power IN (0,1)), source_kind TEXT NOT NULL DEFAULT 'input', source_value INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "INSERT OR IGNORE INTO r2_tv_state(id,power,source_kind,source_value) VALUES(1,0,'input',1);"
         "CREATE TABLE IF NOT EXISTS r2_tv_devices (name TEXT PRIMARY KEY COLLATE NOCASE, connection_kind TEXT NOT NULL CHECK(connection_kind IN ('input','rf')), port INTEGER NOT NULL, connected INTEGER NOT NULL DEFAULT 1 CHECK(connected IN (0,1)), updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, CHECK((connection_kind='input' AND port BETWEEN 2 AND 4) OR (connection_kind='rf' AND port BETWEEN 2 AND 13)));"
@@ -2699,6 +2854,29 @@ int r2_reality_init(void)
     if (exec_sql(schema) != 0) {
         sqlite3_close(reality_db); reality_db = NULL;
         pthread_mutex_unlock(&reality_lock); return -1;
+    }
+    static const struct { const char *column; const char *definition; } transfer_journal_columns[] = {
+        {"self_snapshot_valid", "INTEGER NOT NULL DEFAULT 0"},
+        {"self_hunger", "REAL NOT NULL DEFAULT 0"},
+        {"self_satisfaction", "REAL NOT NULL DEFAULT 100"},
+        {"self_seconds_since_meal", "REAL NOT NULL DEFAULT 0"},
+        {"self_sleepiness", "REAL NOT NULL DEFAULT 0"},
+        {"self_energy", "REAL NOT NULL DEFAULT 100"},
+        {"self_last_tick", "INTEGER NOT NULL DEFAULT 0"},
+        {"self_updated_at", "TEXT NOT NULL DEFAULT ''"},
+        {"starvation_fact_exists", "INTEGER NOT NULL DEFAULT 0"},
+        {"starvation_fact_value", "TEXT NOT NULL DEFAULT ''"},
+        {"starvation_fact_evidence", "TEXT NOT NULL DEFAULT ''"},
+        {"food_experience_max_id", "INTEGER NOT NULL DEFAULT 0"}
+    };
+    for (size_t i = 0; i < sizeof(transfer_journal_columns) / sizeof(transfer_journal_columns[0]); ++i) {
+        if (reality_ensure_existing_column("r2_inventory_transfer_journal",
+                transfer_journal_columns[i].column, transfer_journal_columns[i].definition) != 0) {
+            fprintf(stderr, "[R2 Reality] Could not migrate inventory journal column %s.\n",
+                    transfer_journal_columns[i].column);
+            sqlite3_close(reality_db); reality_db = NULL;
+            pthread_mutex_unlock(&reality_lock); return -1;
+        }
     }
     if (backfill_reality_timestamps() != 0) {
         fprintf(stderr, "[R2 Reality] Could not backfill timestamps for upgraded tables.\n");
