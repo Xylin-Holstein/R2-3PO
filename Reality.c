@@ -3786,37 +3786,64 @@ static int money_transfer(double amount, int deposit)
     money_dir_path(0, wallet, sizeof(wallet));
     money_dir_path(1, piggybank, sizeof(piggybank));
     pthread_mutex_lock(&reality_lock);
+
     sqlite3_int64 cash = 0, bank = 0;
-    int rc = money_read_locked(&cash, &bank);
-    sqlite3_int64 old_cash = cash, old_bank = bank;
-    int wallet_changed = 0, bank_changed = 0;
+    sqlite3_int64 old_cash = 0, old_bank = 0;
+    int rc = money_journal_recover(NULL);
+    if (rc == 0) rc = money_read_locked(&cash, &bank);
+    old_cash = cash;
+    old_bank = bank;
     if (rc == 0 && ((deposit && cash < cents) || (!deposit && bank < cents)))
         rc = -1;
 
+    sqlite3_int64 new_cash = cash, new_bank = bank;
     if (rc == 0) {
-        sqlite3_int64 new_cash = deposit ? cash - cents : cash + cents;
-        sqlite3_int64 new_bank = deposit ? bank + cents : bank - cents;
-        if (money_set_dir_balance(wallet, new_cash, &wallet_changed) != 0 ||
-            money_set_dir_balance(piggybank, new_bank, &bank_changed) != 0 ||
-            money_read_locked(&cash, &bank) != 0) {
-            rc = -1;
+        new_cash = deposit ? cash - cents : cash + cents;
+        new_bank = deposit ? bank + cents : bank - cents;
+        if (new_cash < 0 || new_bank < 0 ||
+            new_cash > 100000000LL || new_bank > 100000000LL) rc = -1;
+    }
+
+    int journal_started = 0;
+    if (rc == 0) {
+        rc = money_journal_begin(old_cash, old_bank, new_cash, new_bank,
+                                 deposit ? "deposit" : "withdrawal");
+        journal_started = rc == 0;
+    }
+    if (rc == 0 && money_set_dir_balance(wallet, new_cash, NULL) != 0) rc = -1;
+#ifdef R2_MONEY_TEST_FAILURE_INJECTION
+    if (rc == 0 && getenv("R2_TEST_MONEY_TRANSFER_FAIL_AFTER_WALLET")) rc = -1;
+#endif
+    if (rc == 0 && money_set_dir_balance(piggybank, new_bank, NULL) != 0) rc = -1;
+    if (rc == 0 && money_read_locked(&cash, &bank) != 0) rc = -1;
+
+    if (rc == 0) {
+        if (money_journal_mark_committed() == 0) {
+            /* A committed journal is safe to leave behind; startup can clean it. */
+            (void)money_journal_clear();
+        } else {
+            int was_committed = 0;
+            if (money_journal_recover(&was_committed) != 0 || !was_committed) rc = -1;
+            else rc = 0; /* The durable commit marker won despite an ambiguous return. */
+        }
+    } else if (journal_started) {
+        int was_committed = 0;
+        if (money_journal_recover(&was_committed) != 0) {
+            fprintf(stderr, "[R2 Money] CRITICAL: transfer rollback is pending; durable journal retained for startup recovery.\n");
+        } else if (was_committed) {
+            rc = 0;
         }
     }
-    int mutation_started = wallet_changed || bank_changed;
-    if (rc != 0 && mutation_started) {
-        int wallet_restore = wallet_changed
-            ? money_set_dir_balance(wallet, old_cash, NULL) : 0;
-        int bank_restore = bank_changed
-            ? money_set_dir_balance(piggybank, old_bank, NULL) : 0;
-        int mirror_restore = money_read_locked(&cash, &bank);
-        if (wallet_restore != 0 || bank_restore != 0 || mirror_restore != 0)
-            fprintf(stderr, "[R2 Money] CRITICAL: deposit/withdraw failed and balance rollback was incomplete; inspect Wallet and piggybank files.\n");
+
+    if (money_read_locked(&cash, &bank) != 0) {
+        if (rc == 0) rc = -1;
+        fprintf(stderr, "[R2 Money] Could not refresh derived account summary after transfer.\n");
     }
     pthread_mutex_unlock(&reality_lock);
-    if (rc == 0) money_mirror_write(cash, bank);
-    else if (mutation_started) money_mirror_write(cash, bank);
+    if (rc == 0 || journal_started) money_mirror_write(cash, bank);
     return rc == 0 ? 0 : -1;
 }
+
 int r2_reality_money_receive(double amount)
 {
     if (!r2_reality_is_initialized() || !isfinite(amount) ||
