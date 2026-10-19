@@ -226,8 +226,8 @@ require(
 require(
     "Answer the user's actual current message from your own perspective." in core
     and "Be natural, warm, specific, and concise." in core
-    and "Do not become terse at the cost of correctness" in core,
-    "reply guidance prioritizes direct, natural conversation without sacrificing correctness",
+    and "ask one focused question only when a genuinely necessary detail is missing" in core,
+    "reply guidance prioritizes direct, natural conversation and focused clarification only when needed",
 )
 require(
     "REALITY CONTEXT: USE IT, DO NOT RECITE IT" in core
