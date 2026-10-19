@@ -163,14 +163,6 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
         print(f"ERROR: Ollama listed {MODEL} but real chat generation failed: {exc}", file=sys.stderr)
         return False
 
-    if not _is_complete_assistant_turn(reply):
-        print(
-            f"ERROR: Ollama listed {MODEL} but text generation did not return a complete assistant turn "
-            "(expected message.role=assistant and done=true).",
-            file=sys.stderr,
-        )
-        return False
-
     message = reply.get("message")
     content = message.get("content") if isinstance(message, dict) else None
     if not isinstance(content, str) or not content.strip():
@@ -180,6 +172,15 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
         else:
             detail = "Ollama returned an empty final answer field."
         print(f"ERROR: Ollama listed {MODEL} but chat generation produced no usable final answer. {detail}", file=sys.stderr)
+        return False
+
+
+    if not _is_complete_assistant_turn(reply):
+        print(
+            f"ERROR: Ollama listed {MODEL} but text generation did not return a complete assistant turn "
+            "(expected message.role=assistant and done=true).",
+            file=sys.stderr,
+        )
         return False
 
     # Exercise the same 640x480 image dimensions, JSON response mode, GPU/context
