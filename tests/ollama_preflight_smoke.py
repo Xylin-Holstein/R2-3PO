@@ -8,6 +8,7 @@ import io
 import json
 import sys
 import unittest
+import urllib.error
 from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import patch
@@ -216,6 +217,41 @@ class OllamaPreflightSmoke(unittest.TestCase):
             self.assertFalse(probe.preflight(timeout=1))
         self.assertEqual(read.call_count, 3)
         self.assertIn("incomplete or invalid assistant turn", errors.getvalue())
+
+    def test_http_500_body_is_preserved_for_text_generation(self) -> None:
+        errors = io.StringIO()
+        failure = urllib.error.HTTPError(
+            "http://127.0.0.1:11434/api/chat",
+            500,
+            "Internal Server Error",
+            hdrs=None,
+            fp=io.BytesIO(b'{"error":"CUDA out of memory while allocating KV cache"}'),
+        )
+        with patch.object(probe, "_read_json", side_effect=[
+            {"models": [{"name": "qwen3.5:9b"}]},
+            failure,
+        ]), contextlib.redirect_stderr(errors):
+            self.assertFalse(probe.preflight(timeout=1))
+        self.assertIn("HTTP 500 Internal Server Error", errors.getvalue())
+        self.assertIn("CUDA out of memory while allocating KV cache", errors.getvalue())
+
+    def test_http_500_body_is_preserved_for_vision_generation(self) -> None:
+        errors = io.StringIO()
+        failure = urllib.error.HTTPError(
+            "http://127.0.0.1:11434/api/chat",
+            500,
+            "Internal Server Error",
+            hdrs=None,
+            fp=io.BytesIO(b'{"error":"runner process has terminated"}'),
+        )
+        with patch.object(probe, "_read_json", side_effect=[
+            {"models": [{"name": "qwen3.5:9b"}]},
+            {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
+            failure,
+        ]), contextlib.redirect_stderr(errors):
+            self.assertFalse(probe.preflight(timeout=1))
+        self.assertIn("image-bearing chat failed", errors.getvalue())
+        self.assertIn("runner process has terminated", errors.getvalue())
 
     def test_api_failure_is_reported_without_network_access(self) -> None:
         errors = io.StringIO()
