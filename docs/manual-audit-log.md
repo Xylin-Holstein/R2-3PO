@@ -93,7 +93,7 @@ This remains a bounded manual review, not a claim that every subsystem has been 
 
 ## Release gates still open
 
-- Last completed full workflow passed on commit `7ba1cdac72d0e244f19db1de831b398ed4f40dbc` (90/90 steps; run [39197843416](https://github.com/Xylin-Holstein/R2-3PO/actions/runs/39197843416)). After that run, a manual chat/tool-routing review found and fixed an allocation-failure reporting issue in `process_tools_with_status`; the updated head is awaiting its new full workflow.
+- Full workflow passed on code/test commit `cc375fe440407ef87b7576e2fe7a4840994c6218` (90/90 steps; run [39198701049](https://github.com/Xylin-Holstein/R2-3PO/actions/runs/39198701049)). It includes the tool-result allocation-failure warning contract and direct no-retry response. This audit-log update is documentation-only; the target-machine acceptance gates below remain open.
 - On the target machine, verify real Qwen 3.5 9B multi-turn chat, retry/fallback behavior, measured CPU/GPU placement and RAM headroom, and connected devices. CI cannot perform these checks.
 - Before installation, verify that the trusted root bootstrap is installed at `/usr/local/sbin/r2-3po-install`, root-owned, and not group/world-writable. The documented immutable source commit and Git blob SHA are checked against the current branch; this repository check does not prove the host has installed that copy.
 - Keep PR #161 draft and `main` untouched until repository validation and target-host acceptance are complete.
@@ -139,4 +139,4 @@ This remains a bounded manual review, not a claim that every subsystem has been 
 - **Finding:** the `APPEND` macro returned `NULL` if `realloc(results, cap)` failed. That allocation can happen after a tool has already changed persistent state. The caller would then receive a generic tool-processing failure instead of a warning that an action may have completed, making a manual retry risky.
 - **Fix:** on result-buffer growth failure, preserve the existing allocation and return an explicit warning that processing had begun, an action may already have completed, and R2 will not repeat it automatically. Returning from the tool processor also stops subsequent tool markers from executing.
 - **Regression coverage:** extended `tests/conversation_recovery_smoke.py` to check this allocation-failure contract. This is a source-contract regression; the failure is not injected at runtime.
-- **Status:** code and regression added on the current branch; full workflow validation pending.
+- **Status:** fixed and validated on code/test commit `cc375fe440407ef87b7576e2fe7a4840994c6218`; full workflow [39198701049](https://github.com/Xylin-Holstein/R2-3PO/actions/runs/39198701049) passed all 90/90 steps, including the updated conversation-recovery regression and strict production build. The allocation-failure branch is protected by a source-contract test, not an injected runtime OOM test.
