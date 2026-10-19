@@ -2241,6 +2241,44 @@ static long long shell_parse_id(const char *text)
     return value;
 }
 
+static int shell_parse_pair_ids(const char *text,
+                                long long *first_out,
+                                long long *second_out)
+{
+    if (!text || !first_out || !second_out)
+        return -1;
+
+    const char *cursor = text;
+    while (isspace((unsigned char)*cursor))
+        ++cursor;
+
+    errno = 0;
+    char *end = NULL;
+    long long first = strtoll(cursor, &end, 10);
+    if (errno != 0 || end == cursor || first <= 0 ||
+        !isspace((unsigned char)*end))
+        return -1;
+
+    cursor = end;
+    while (isspace((unsigned char)*cursor))
+        ++cursor;
+    if (!*cursor)
+        return -1;
+
+    errno = 0;
+    long long second = strtoll(cursor, &end, 10);
+    if (errno != 0 || end == cursor || second <= 0)
+        return -1;
+    while (isspace((unsigned char)*end))
+        ++end;
+    if (*end)
+        return -1;
+
+    *first_out = first;
+    *second_out = second;
+    return 0;
+}
+
 static void shell_alternate(const char *argument)
 {
     if (!argument || !*argument || !strcasecmp(argument, "list")) {
@@ -2272,9 +2310,7 @@ static void shell_alternate(const char *argument)
     }
     if (shell_starts_with(argument, "compare ")) {
         long long first = -1, second = -1;
-        char extra = '\0';
-        if (sscanf(argument + 8, "%lld %lld %c", &first, &second, &extra) == 2 &&
-            first > 0 && second > 0) {
+        if (shell_parse_pair_ids(argument + 8, &first, &second) == 0) {
             char *result = r2_altself_compare(first, second);
             if (result) { printf("%s", result); free(result); }
             else printf("[Could not compare those branches.]\n");
