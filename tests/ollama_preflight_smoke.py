@@ -21,7 +21,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
     def test_model_and_real_chat_completion_are_required(self) -> None:
         replies = [
             {"models": [{"name": "qwen3.5:9b"}]},
-            {"message": {"content": "R2_READY"}},
+            {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
             {"message": {"content": "{\"color\":\"blue\"}"}},
             {"models": [{"name": "qwen3.5:9b", "size_vram": 123456}]},
         ]
@@ -54,7 +54,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
     def test_explicit_gpu_and_context_policy_reaches_real_chat_request(self) -> None:
         replies = [
             {"models": [{"name": "qwen3.5:9b"}]},
-            {"message": {"content": "R2_READY"}},
+            {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
             {"message": {"content": "{\"color\":\"blue\"}"}},
             {"models": [{"name": "qwen3.5:9b", "size": 500000, "size_vram": 123456}]},
         ]
@@ -78,7 +78,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
     def test_overnight_endpoint_is_used_for_tags_chat_and_process_checks(self) -> None:
         replies = [
             {"models": [{"name": "qwen3.5:9b"}]},
-            {"message": {"content": "R2_READY"}},
+            {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
             {"message": {"content": "{\"color\":\"blue\"}"}},
             {"models": [{"name": "qwen3.5:9b", "size_vram": 123456}]},
         ]
@@ -102,7 +102,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         with patch.dict(probe.os.environ, {"R2_OLLAMA_NUM_GPU": "20"}), \
              patch.object(probe, "_read_json", side_effect=[
                  {"models": [{"name": "qwen3.5:9b"}]},
-                 {"message": {"content": "R2_READY"}},
+                 {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
                  {"message": {"content": "{\"color\":\"blue\"}"}},
                  {"models": [{"name": "qwen3.5:9b", "size_vram": 0}]},
              ]), patch.object(probe.subprocess, "run", return_value=SimpleNamespace(
@@ -114,7 +114,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
     def test_automatic_layer_placement_passes_only_with_verified_mixed_use(self) -> None:
         replies = [
             {"models": [{"name": "qwen3.5:9b"}]},
-            {"message": {"content": "R2_READY"}},
+            {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
             {"message": {"content": "{\"color\":\"blue\"}"}},
             {"models": [{"name": "qwen3.5:9b", "size": 500000, "size_vram": 123456}]},
         ]
@@ -142,7 +142,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         errors = io.StringIO()
         with patch.object(probe, "_read_json", side_effect=[
             {"models": [{"name": "qwen3.5:9b"}]},
-            {"message": {"content": "R2_READY"}},
+            {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
             {"message": {"content": "{\"color\":\"blue\"}"}},
             OSError("simulated /api/ps unavailable"),
         ]), patch.object(probe.subprocess, "run", side_effect=FileNotFoundError("nvidia-smi")):
@@ -155,7 +155,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         red_literal = json.dumps({"color": "red"})
         with patch.object(probe, "_read_json", side_effect=[
             {"models": [{"name": "qwen3.5:9b"}]},
-            {"message": {"content": "R2_READY"}},
+            {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
             {"message": {"content": red_literal}},
         ]) as read, patch.object(probe.subprocess, "run", return_value=SimpleNamespace(
             returncode=0, stdout="Test GPU, 4096 MiB, 123 MiB", stderr=""
@@ -168,7 +168,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         errors = io.StringIO()
         with patch.object(probe, "_read_json", side_effect=[
             {"models": [{"name": "qwen3.5:9b"}]},
-            {"message": {"content": "R2_READY"}},
+            {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
             OSError("simulated CUDA out of memory during image inference"),
         ]) as read, patch.object(probe.subprocess, "run", return_value=SimpleNamespace(
             returncode=0, stdout="Test GPU, 4096 MiB, 123 MiB", stderr=""
