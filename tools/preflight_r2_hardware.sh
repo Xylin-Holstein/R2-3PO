@@ -254,7 +254,7 @@ if have ollama; then
   # model is an inconsistent state (often another endpoint or a stale runner).
   # Do not kill it blindly; stop the owning service after identifying it.
   if have pgrep && pgrep -af '[l]lama-server' >/dev/null 2>&1 &&
-     ! printf '%s\n' "$OLLAMA_PS_OUTPUT" | awk 'NR > 1 && NF { found=1 } END { exit found ? 0 : 1 }'; then
+     ! printf '%s\n' "$OLLAMA_PS_OUTPUT" | awk 'NR > 1 && NF && $1 != "NAME" { found=1 } END { exit found ? 0 : 1 }'; then
     fail "llama-server process exists but ollama ps reports no loaded model on the interactive endpoint; a separate or stale runner may be consuming GPU memory. Inspect: systemctl status ollama.service r2-ollama.service"
   fi
 else
