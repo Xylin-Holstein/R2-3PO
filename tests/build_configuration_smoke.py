@@ -181,4 +181,9 @@ require(
     pinned_bootstrap_sha is not None and pinned_bootstrap_sha.group(1) == git_blob_sha,
     "one-time trusted bootstrap pin matches the exact reviewed source blob",
 )
+require(
+    'https://raw.githubusercontent.com/Xylin48/R2-3PO/${BOOTSTRAP_COMMIT}/tools/r2_install_root_bootstrap.sh' in overnight_docs
+    and "raw.githubusercontent.com/Xylin-Holstein/R2-3PO/" not in overnight_docs,
+    "trusted bootstrap instructions use the current canonical raw-content namespace",
+)
 print("R2 build configuration smoke test passed.")
