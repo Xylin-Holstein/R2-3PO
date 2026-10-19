@@ -164,3 +164,11 @@ This remains a bounded manual review, not a claim that every subsystem has been 
 - **Fix:** compute the desired capacity in a separate `_new_cap` variable; leave `cap` unchanged until `realloc()` succeeds. The warning is now formatted with the actual original allocation size. Capacity doubling also checks against `SIZE_MAX` before multiplying.
 - **Regression coverage:** updated `tests/conversation_recovery_smoke.py` to assert the failure path formats the warning using the original `cap`, does not commit `_new_cap` before successful reallocation, and updates `cap` only after adopting the new buffer.
 - **Status:** fix and regression committed on the release branch. CI for this commit is pending; no claim of target-machine execution.
+
+### R2-AUD-017 — Fridge context copied beyond the formatted line buffer
+
+- **Area:** `Reality.c`, `r2_fridge_list()`.
+- **Finding:** `snprintf(line, sizeof(line), ...)` returns the number of bytes that would have been written, which can exceed `sizeof(line)-1` when a stored item name or description is unusually long. The old code used that required length directly in `memcpy(out + len, line, add)`, reading past the 2,048-byte stack buffer.
+- **Fix:** clamp copied bytes to the bytes actually stored in `line`, mark truncated entries with an explicit suffix, and guard the output-length addition before allocation/copy.
+- **Regression coverage:** extended `tests/fridge_context_smoke.py` to require the truncation clamp and overflow guard before the copy.
+- **Status:** fix and regression committed on the release branch. CI is running; no target-machine execution is implied.
