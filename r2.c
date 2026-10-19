@@ -11076,7 +11076,7 @@ static char *r2_talk_impl(const char *message)
                 "An action may already have completed, so I won't repeat it "
                 "automatically. Please verify the current state before retrying.");
             if (!reply) {
-                fprintf(stderr, "[R2] Could not allocate the direct no-retry warning after tool-result memory failure.\\n");
+                fprintf(stderr, "[R2] Could not allocate the direct no-retry warning after tool-result memory failure.\n");
                 return NULL;
             }
             goto finalize_reply;
