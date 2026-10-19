@@ -82,16 +82,20 @@ tool_processor = function_slice(
     "static char *process_tools_with_status(",
     "/* Preserve the existing result-only interface for ordinary callers. */",
 )
-growth_start = tool_processor.find("char *_grown = realloc(results, cap);")
+growth_start = tool_processor.find("char *_grown = realloc(results, _new_cap);")
 growth_end = tool_processor.find("results = _grown;", growth_start)
 growth_failure = tool_processor[growth_start:growth_end] if growth_start >= 0 and growth_end >= 0 else ""
+growth_commit = tool_processor[growth_end:growth_end + 120] if growth_end >= 0 else ""
 require(
     "An action may already have completed" in growth_failure
     and "Verify the current state " in growth_failure
     and "before retrying the request." in growth_failure
     and "return results;" in growth_failure
-    and "free(results);" not in growth_failure,
-    "tool-result allocation failure preserves a no-retry warning after possible side effects",
+    and "free(results);" not in growth_failure
+    and "snprintf(results, cap, \"%s\", _capture_failure)" in growth_failure
+    and "cap = _new_cap;" not in growth_failure
+    and "cap = _new_cap;" in growth_commit,
+    "tool-result allocation failure keeps warning bounded by the original allocation",
 )
 direct_tool_oom = impl.find("if (strncmp(tools, tool_capture_failure_prefix")
 require(
