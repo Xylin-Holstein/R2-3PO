@@ -86,8 +86,8 @@ int main(void)
     ok &= check(strstr(r2_conversation_system_prompt,
                     "If they identify themselves as your mother, father, friend, or another person") != NULL &&
                     strstr(r2_conversation_system_prompt,
-                    "if they say they missed you, acknowledge the affection naturally") != NULL,
-                "primary conversation contract directly handles relationship and affection without a heuristic retry");
+                    "Interpret social meaning, tone, relationships, and emotional cues from context") != NULL,
+                "primary conversation contract teaches contextual social understanding without canned relationship responses");
     ok &= check(strstr(r2_conversation_system_prompt,
                     "Answer the user's actual current message from your own perspective") != NULL &&
                     strstr(r2_conversation_system_prompt,
