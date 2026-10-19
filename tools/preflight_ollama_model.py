@@ -50,6 +50,27 @@ def _read_json(url: str, timeout: float, payload: dict[str, Any] | None = None) 
     return result
 
 
+def _http_error_detail(exc: urllib.error.HTTPError) -> str:
+    """Preserve Ollama's useful JSON error instead of reporting only HTTP 500."""
+    try:
+        raw = exc.read(4096).decode("utf-8", errors="replace").strip()
+    except (OSError, ValueError):
+        raw = ""
+    if raw:
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            detail = raw
+        else:
+            detail = payload.get("error", raw) if isinstance(payload, dict) else raw
+        # Keep terminal output useful without dumping an arbitrarily large server body.
+        detail = str(detail).replace("\r", " ").replace("\n", " ").strip()
+        if len(detail) > 1200:
+            detail = detail[:1197] + "..."
+        return f"HTTP {exc.code} {exc.reason}: {detail}"
+    return f"HTTP {exc.code} {exc.reason} (Ollama returned no error body)"
+
+
 def _is_complete_assistant_turn(reply: dict[str, Any]) -> bool:
     """Match the core's non-streaming Ollama completion contract."""
     message = reply.get("message")
@@ -159,6 +180,12 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
                 "options": options,
             },
         )
+    except urllib.error.HTTPError as exc:
+        print(
+            f"ERROR: Ollama listed {MODEL} but real chat generation failed: {_http_error_detail(exc)}",
+            file=sys.stderr,
+        )
+        return False
     except (OSError, ValueError, urllib.error.URLError, TimeoutError) as exc:
         print(f"ERROR: Ollama listed {MODEL} but real chat generation failed: {exc}", file=sys.stderr)
         return False
@@ -213,6 +240,12 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
                 "options": vision_options,
             },
         )
+    except urllib.error.HTTPError as exc:
+        print(
+            f"ERROR: {MODEL} passed text generation but image-bearing chat failed: {_http_error_detail(exc)}",
+            file=sys.stderr,
+        )
+        return False
     except (OSError, ValueError, urllib.error.URLError, TimeoutError) as exc:
         print(f"ERROR: {MODEL} passed text generation but image-bearing chat failed: {exc}", file=sys.stderr)
         return False
