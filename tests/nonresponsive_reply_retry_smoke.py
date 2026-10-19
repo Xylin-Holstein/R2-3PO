@@ -128,13 +128,9 @@ require(
 )
 fallback = core[fallback_start:fallback_end]
 require(
-    "r2_reply_misclassifies_plain_text(query, retry_reply)" in fallback,
-    "a repeated misclassification is rejected after the retry",
-)
-require(
-    "couldn't form a reliable response" in fallback and
-    "which part you'd like me to respond to" in fallback,
-    "failed correction uses an honest clarification rather than repeating fabricated intent",
+    "return retry_reply;" in fallback and
+    "Do not replace R2's generated response with a hard-coded clarification" in fallback,
+    "corrective output is not replaced with a hard-coded clarification safeguard",
 )
 require(
     "r2_validate_corrective_reply(query, retry_user_facing)" in core,
