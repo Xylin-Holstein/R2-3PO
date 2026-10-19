@@ -10946,9 +10946,83 @@ static int refresh_reality_context_message(void)
 
 static int reply_has_visible_text(const char *text)
 {
+    /*
+     * Tool control syntax is not a user-facing answer. A reply consisting
+     * only of [RUN]/[WORLD]/etc. markers must be retried before any action is
+     * executed; checking merely for non-whitespace would treat the command
+     * itself as visible text and bypass that gate.
+     */
+    static const struct {
+        const char *open;
+        const char *close;
+    } control_blocks[] = {
+        {"[ALTERNATE_CREATE]", "[END ALTERNATE_CREATE]"},
+        {"[DIARY]", "[END DIARY]"},
+        {"[WRITE]", "[END WRITE]"},
+        {"[HAND_REQUEST]", "[END HAND_REQUEST]"},
+        {"[RUN]", "[END RUN]"},
+        {"[IMAGINE]", "[END IMAGINE]"},
+        {"[IMAGINE_FEEDBACK]", "[END IMAGINE_FEEDBACK]"}
+    };
+    static const char *const control_lines[] = {
+        "[ALTERNATE_LIST]", "[ALTERNATE_SHOW]", "[ALTERNATE_COMPARE]",
+        "[ALTERNATE_RETAIN]", "[ALTERNATE_DISCARD]", "[READ_DIARY]",
+        "[READ]", "[LIST]", "[DELETE]", "[SENSORY_JOURNAL]", "[WORLD]",
+        "[HAND]", "[END ALTERNATE_CREATE]", "[END DIARY]", "[END WRITE]",
+        "[END HAND_REQUEST]", "[END RUN]", "[END IMAGINE]",
+        "[END IMAGINE_FEEDBACK]"
+    };
+
     if (!text) return 0;
-    for (const unsigned char *p = (const unsigned char *)text; *p; ++p) {
-        if (!isspace(*p)) return 1;
+    const char *p = text;
+    while (*p) {
+        const char *line_end = strchr(p, '\\n');
+        if (!line_end) line_end = p + strlen(p);
+        const char *first = p;
+        while (first < line_end &&
+               (*first == ' ' || *first == '\\t' || *first == '\\r'))
+            ++first;
+
+        if (first == line_end) {
+            p = *line_end ? line_end + 1 : line_end;
+            continue;
+        }
+
+        int skipped = 0;
+        for (size_t i = 0; i < sizeof(control_blocks) / sizeof(control_blocks[0]); ++i) {
+            size_t open_len = strlen(control_blocks[i].open);
+            if ((size_t)(line_end - first) < open_len ||
+                memcmp(first, control_blocks[i].open, open_len) != 0)
+                continue;
+
+            const char *close = strstr(first + open_len, control_blocks[i].close);
+            if (!close)
+                return 0; /* Malformed control output is never user-facing text. */
+            p = close + strlen(control_blocks[i].close);
+            skipped = 1;
+            break;
+        }
+        if (skipped)
+            continue;
+
+        for (size_t i = 0; i < sizeof(control_lines) / sizeof(control_lines[0]); ++i) {
+            size_t marker_len = strlen(control_lines[i]);
+            if ((size_t)(line_end - first) >= marker_len &&
+                memcmp(first, control_lines[i], marker_len) == 0) {
+                p = *line_end ? line_end + 1 : line_end;
+                skipped = 1;
+                break;
+            }
+        }
+        if (skipped)
+            continue;
+
+        for (const unsigned char *q = (const unsigned char *)first;
+             q < (const unsigned char *)line_end; ++q) {
+            if (!isspace(*q))
+                return 1;
+        }
+        p = *line_end ? line_end + 1 : line_end;
     }
     return 0;
 }
