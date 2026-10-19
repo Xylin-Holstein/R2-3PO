@@ -88,7 +88,12 @@ int main(void)
                 "observed fabricated paraphrase triggers corrective retry");
 
     const char *actual_affectionate_message =
-        "This is your mother speaking to you, and I missed you.";
+        "R2, this is your mother speaking to you, and I missed you.";
+    ok &= check(strstr(r2_conversation_system_prompt,
+                    "If the user addresses you as R2 and introduces themselves as your mother") != NULL &&
+                    strstr(r2_conversation_system_prompt,
+                    "reply to that person from your own perspective") != NULL,
+                "the production conversation prompt explicitly handles a Mother addressing R2");
     const char *observed_unclear_input_reply =
         "I seem to be receiving unclear input! Could you please clarify what you mean? "
         "Did you intend to type a different message, or is there something else "
