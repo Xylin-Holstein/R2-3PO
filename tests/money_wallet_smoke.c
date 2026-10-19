@@ -364,6 +364,7 @@ int main(void) {
     char *purchase_inventory=r2_reality_list("pockets");
     assert(purchase_inventory && strstr(purchase_inventory,"crash after item"));
     free(purchase_inventory);
+    assert(r2_reality_money_receive(1.00)==0); /* Restore the later fridge-purchase fixture balance. */
     /* A food purchase destined for the fridge must use an explicit metric,
        just like any other fridge addition; the test supplies its own fixture. */
     char metrics_path[1400];
