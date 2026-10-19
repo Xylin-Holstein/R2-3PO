@@ -309,6 +309,11 @@ jobs:
           python3 -m py_compile GameBoyAdvance.py tests/gameboy_console_smoke.py
           python3 tests/gameboy_console_smoke.py
 
+      - name: Require fail-closed Game Boy JSON response contracts
+        run: |
+          python3 -m py_compile tests/gameboy_json_contract_smoke.py
+          python3 tests/gameboy_json_contract_smoke.py
+
       - name: Exercise Game Boy installer and desktop entry
         run: bash tests/gameboy_install_smoke.sh
 
