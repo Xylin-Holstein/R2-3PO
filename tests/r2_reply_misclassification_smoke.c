@@ -60,6 +60,14 @@ int main(void)
                    message_order[8] == 8;
     ok &= check(order_ok,
                 "system context follows semantic priority before chronological dialogue");
+    ok &= check(
+        r2_is_retry_context_message(&interleaved_messages[4]) &&
+        r2_is_retry_context_message(&interleaved_messages[5]) &&
+        r2_is_retry_context_message(&interleaved_messages[7]) &&
+        !r2_is_retry_context_message(&interleaved_messages[2]) &&
+        !r2_is_retry_context_message(&interleaved_messages[1]) &&
+        !r2_is_retry_context_message(&interleaved_messages[0]),
+        "corrective retry preserves Reality, focused retrieval, and startup memory but excludes learning summaries, archive, and stale dialogue");
 
     const char *mother_message =
         "Hello r2, this is your mother speaking to you. i miss you. "
