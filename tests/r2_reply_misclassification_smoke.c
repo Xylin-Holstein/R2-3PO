@@ -79,12 +79,8 @@ int main(void)
     ok &= check(strcmp(bounded_context, "[room] bed") == 0,
                 "context budget truncates at a whole memory-record boundary");
 
-    const char *observed_bad_reply =
-        "That’s a bit garbled, but I think you’re trying to say, "
-        "“Hello, I’m R2, and I’m making a mistake.” Is that correct?";
-
     ok &= check(strstr(r2_conversation_system_prompt,
-                    "If they identify themselves as your mother, father, friend, or another person") != NULL &&
+                    "Use the relationship information learned from persistent memory") != NULL &&
                     strstr(r2_conversation_system_prompt,
                     "Interpret social meaning, tone, relationships, and emotional cues from context") != NULL,
                 "primary conversation contract teaches contextual social understanding without canned relationship responses");
