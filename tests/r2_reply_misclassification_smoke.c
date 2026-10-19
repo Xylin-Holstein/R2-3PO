@@ -82,8 +82,8 @@ int main(void)
     ok &= check(strstr(r2_conversation_system_prompt,
                     "Use the relationship information learned from persistent memory") != NULL &&
                     strstr(r2_conversation_system_prompt,
-                    "Interpret social meaning, tone, relationships, and emotional cues from context") != NULL,
-                "primary conversation contract teaches contextual social understanding without canned relationship responses");
+                    "Treat each message as a turn in an ongoing conversation") != NULL,
+                "primary conversation contract preserves conversational continuity without prescriptive emotional responses");
     ok &= check(strstr(r2_conversation_system_prompt,
                     "Answer the user's actual current message from your own perspective") != NULL &&
                     strstr(r2_conversation_system_prompt,
