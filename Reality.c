@@ -2216,6 +2216,17 @@ int r2_reality_fridge_eat(const char *food, double fullness)
         pthread_mutex_unlock(&purchase_lock);
         return -1;
     }
+    /* Resolve any retained transfer journal before ticking. Otherwise a failed
+       prior recovery could be followed by a clock update that the old snapshot
+       then rolls back, silently losing elapsed time. */
+    pthread_mutex_lock(&reality_lock);
+    int recovery_rc = inventory_transfer_recover_locked();
+    pthread_mutex_unlock(&reality_lock);
+    if (recovery_rc != 0) {
+        pthread_mutex_unlock(&purchase_lock);
+        return -1;
+    }
+
     /* Advance the clock before taking the rollback snapshot. The inner meal
        transaction skips its usual tick and commits the journal phase together
        with needs and food-experience writes. */
