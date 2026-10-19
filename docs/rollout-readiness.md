@@ -22,7 +22,7 @@ For a read-only database inventory and integrity report:
 
 ```sh
 python3 /home/x/R2_Home/R2/tools/audit_r2_databases.py \
-  --root /home/x/R2_Home
+  --root /home/x/R2_Home/R2
 ```
 
 For non-overwriting snapshots, choose a new destination directory for each run. For a cross-database-consistent set, first exit the interactive launcher cleanly if it is running. If R2 is running as the overnight service, stop that service before continuing. Do not proceed while either R2 core is active.
