@@ -40,11 +40,25 @@ This log records source-level findings and their verification status. A green wo
 ### R2-AUD-005 — Physical money balance replacement is not failure-atomic
 
 - **Area:** `Reality.c`, `money_set_dir_balance()`, used by cash receipt, deposit/withdrawal, purchase, and migration paths.
-- **Finding:** the function validates current bill/change entries, then unlinks all existing authoritative bill files and `change.txt` before creating the requested replacement bill files. A failure during replacement (for example, a later file creation/write failure after earlier new bills were created) returns an error after the prior authoritative balance has already been destroyed. Callers attempt rollback by recreating the old balance, but that rollback can fail for the same underlying filesystem condition. The current “preflight” only catches malformed existing entries; it does not make the multi-file update transactional.
-- **Impact:** a disk/write failure during a wallet or piggybank mutation can leave the physical money files at a partial or lost balance, despite the operation reporting failure. This conflicts with the explicit rule that physical files are authoritative and can affect purchases and transfers.
-- **Fix in this branch:** replacement bills/change are staged before authoritative files move. A phase marker and same-filesystem backup let startup recovery distinguish staging-only, partial backup movement, partial installation, and committed replacement. Wallet and piggybank recovery runs before balances are read at startup; synchronous failures use the same recovery path.
-- **Regression coverage added:** test-only compile-time failure injection forces staging to fail and checks the original $5 balance is unchanged. A restart fixture simulates a crash during installation and checks recovery restores the original bill set.
-- **Status:** implementation and regressions passed both full GitHub Actions workflows on code commit `82e14b3e07460bf8b15778d2ac63dd2b2355ab59` (87/87 steps in each; push run [39185665132](https://github.com/Xylin-Holstein/R2-3PO/actions/runs/39185665132), pull-request run [39185660924](https://github.com/Xylin-Holstein/R2-3PO/actions/runs/39185660924)). Target-host power-loss and filesystem behavior remain unverified.
+- **Finding:** the former implementation removed authoritative bills before replacement files were safely available. A write failure could therefore destroy the prior balance.
+- **Fix:** replacement files are staged before the authoritative set moves. Phase transitions are written through a temporary marker and atomic rename; transaction and money directories are synced at key boundaries. Backups are retained whenever rollback cannot be completed. Startup recovery distinguishes partial backup movement, partial installation, and committed replacement.
+- **Regression coverage:** deterministic staging failure preserves the original $5 balance; a failure after the first backup move exercises synchronous rollback; a simulated restart during installation verifies the original authoritative bills are restored.
+- **Status:** source and regressions passed both complete workflows on code commit `9fe05d0e000243b4b1ba9b515c39f68259e287bd` (87/87 steps each; push [39187194766](https://github.com/Xylin-Holstein/R2-3PO/actions/runs/39187194766), pull request [39187198480](https://github.com/Xylin-Holstein/R2-3PO/actions/runs/39187198480)). Actual host power-loss/filesystem durability remains unverified.
+
+### R2-AUD-006 — Wallet-to-piggybank transfers were not recoverable as one operation
+
+- **Area:** `Reality.c`, `money_transfer()`, covering deposits and withdrawals.
+- **Finding:** wallet and piggybank each had an individually recoverable file replacement, but the overall transfer changed two separate directories sequentially. A crash after the first replacement and before the second could leave the transfer half-applied.
+- **Fix:** added a durable SQLite transfer journal recording both old and proposed balances before either physical balance changes. A pending journal restores both old balances on synchronous failure or startup; a committed journal keeps the completed transfer and can be cleaned on a later start. The journal remains until recovery/cleanup succeeds.
+- **Regression coverage:** deterministic failure after wallet replacement verifies both balances return to their original values; a restart fixture inserts a pending journal and partial new physical balances, then verifies startup restores the original $5 cash/$0 bank state.
+- **Status:** implementation and regression passed both complete workflows on code commit `9fe05d0e000243b4b1ba9b515c39f68259e287bd` (87/87 steps each). Target-host power-loss behavior remains unverified.
+
+### R2-AUD-007 — Purchase money and inventory persistence are not crash-atomic
+
+- **Area:** `Reality.c`, `r2_reality_buy_item()`, spanning physical Wallet/piggybank files and Reality/fridge inventory storage.
+- **Finding:** the purchase first persists the money deduction, then separately calls `r2_reality_add_item()`. Synchronous inventory failure attempts to restore the old balance, but a process crash after the deduction and before the item insertion can leave R2 charged without receiving the item. The transfer journal added for deposits/withdrawals does not yet cover purchases.
+- **Status:** confirmed by source tracing; not fixed in this batch. Next batch should make the purchase intent recoverable across physical money and the item database, with regression cases for interruption before and after the inventory commit. Do not describe purchase crash consistency as solved.
+
 
 ## Manual source-review checkpoint: conversation and memory pipeline
 
@@ -61,7 +75,7 @@ No additional reproducible defect was established in this review slice. This is 
 
 ## Release gates still open
 
-- Money transaction source and regression tests passed both full workflows on `82e14b3e07460bf8b15778d2ac63dd2b2355ab59` (87/87 steps each). The later audit-log-only commit records that result; it does not change runtime source.
+- Money replacement, recovery, and transfer journal source/tests passed both full workflows on code commit `9fe05d0e000243b4b1ba9b515c39f68259e287bd` (87/87 steps each). The later audit-log-only commit records those results but does not change runtime source.
 - On the target machine, verify real Qwen 3.5 9B multi-turn chat, retry/fallback behavior, measured CPU/GPU placement and RAM headroom, and connected devices. CI cannot perform these checks.
 - Before installation, verify that the trusted root bootstrap is installed at `/usr/local/sbin/r2-3po-install`, root-owned, and not group/world-writable. The documented immutable source commit and Git blob SHA are checked against the current branch; this repository check does not prove the host has installed that copy.
 - Keep PR #161 draft and `main` untouched until repository validation and target-host acceptance are complete.
