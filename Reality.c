@@ -1414,11 +1414,32 @@ char *r2_fridge_list(void)
             sqlite3_column_double(st, 3), sqlite3_column_double(st, 4));
         if (n <= 0) continue;
         size_t add = (size_t)n;
-        if (len + add + 1 > cap) {
-            size_t next = cap * 2; while (next < len + add + 1) next *= 2;
-            char *grown = realloc(out, next); if (!grown) break; out = grown; cap = next;
+        if (add >= sizeof(line)) {
+            /* snprintf's return value is the required length, not stored bytes. */
+            static const char truncation[] = " [entry truncated]\n";
+            add = sizeof(line) - 1;
+            size_t suffix_len = sizeof(truncation) - 1;
+            memcpy(line + add - suffix_len, truncation, suffix_len);
         }
-        memcpy(out + len, line, add); len += add; out[len] = '\0';
+        if (add > SIZE_MAX - len - 1) break;
+        size_t needed = len + add + 1;
+        if (needed > cap) {
+            size_t next = cap;
+            while (next < needed) {
+                if (next > SIZE_MAX / 2) {
+                    next = needed;
+                    break;
+                }
+                next *= 2;
+            }
+            char *grown = realloc(out, next);
+            if (!grown) break;
+            out = grown;
+            cap = next;
+        }
+        memcpy(out + len, line, add);
+        len += add;
+        out[len] = '\0';
     }
     if (st) sqlite3_finalize(st);
     pthread_mutex_unlock(&fridge_lock);
