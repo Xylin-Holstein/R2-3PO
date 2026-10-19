@@ -269,6 +269,21 @@ int main(void) {
     assert(access(migrated,F_OK)==0);
     char *ctx=NULL;
     assert(bill_count(wallet)==5);
+
+    /* A corrupted cents file must fail closed even when its integer cannot
+       fit in long; do not invoke scanf's out-of-range conversion behavior. */
+    char malformed_change_path[1400];
+    snprintf(malformed_change_path, sizeof(malformed_change_path),
+             "%s/change.txt", wallet);
+    FILE *malformed_change = fopen(malformed_change_path, "w");
+    assert(malformed_change);
+    assert(fputs("cents=999999999999999999999999999999999999999999999999999999\\n",
+                 malformed_change) >= 0);
+    assert(fclose(malformed_change) == 0);
+    assert(r2_reality_money_receive(1.00) != 0);
+    assert(bill_count(wallet) == 5);
+    assert(unlink(malformed_change_path) == 0);
+
     assert(setenv("R2_TEST_MONEY_STAGE_FAIL","1",1)==0);
     assert(r2_reality_money_receive(1.00)!=0);
     assert(unsetenv("R2_TEST_MONEY_STAGE_FAIL")==0);
