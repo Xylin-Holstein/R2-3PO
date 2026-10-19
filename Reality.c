@@ -3798,7 +3798,8 @@ static int money_transfer(double amount, int deposit)
 
     sqlite3_int64 cash = 0, bank = 0;
     sqlite3_int64 old_cash = 0, old_bank = 0;
-    int rc = money_journal_recover(NULL);
+    int rc = purchase_journal_recover();
+    if (rc == 0) rc = money_journal_recover(NULL);
     if (rc == 0) rc = money_read_locked(&cash, &bank);
     old_cash = cash;
     old_bank = bank;
@@ -3864,7 +3865,8 @@ int r2_reality_money_receive(double amount)
     money_dir_path(0, wallet, sizeof(wallet));
     pthread_mutex_lock(&reality_lock);
     sqlite3_int64 cash = 0, bank = 0;
-    int rc = money_read_locked(&cash, &bank);
+    int rc = purchase_journal_recover();
+    if (rc == 0) rc = money_read_locked(&cash, &bank);
     sqlite3_int64 old_cash = cash;
     int wallet_changed = 0;
     if (rc == 0 && cash <= 100000000LL - cents) {
