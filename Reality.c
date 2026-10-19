@@ -32,6 +32,8 @@ static sqlite3 *reality_db = NULL;
 static sqlite3 *fridge_db = NULL;
 static pthread_mutex_t reality_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t fridge_lock = PTHREAD_MUTEX_INITIALIZER;
+/* Serializes a purchase from durable intent through inventory commit, including all other money mutations. */
+static pthread_mutex_t purchase_lock = PTHREAD_MUTEX_INITIALIZER;
 static int reality_ready = 0;
 static int reality_eat_internal(const char *food, double fullness, int consume_tracked_item, double energy_override);
 static int purchase_journal_recover(void);
@@ -3794,6 +3796,7 @@ static int money_transfer(double amount, int deposit)
     char wallet[1200], piggybank[1200];
     money_dir_path(0, wallet, sizeof(wallet));
     money_dir_path(1, piggybank, sizeof(piggybank));
+    pthread_mutex_lock(&purchase_lock);
     pthread_mutex_lock(&reality_lock);
 
     sqlite3_int64 cash = 0, bank = 0;
@@ -3851,6 +3854,7 @@ static int money_transfer(double amount, int deposit)
     }
     pthread_mutex_unlock(&reality_lock);
     if (rc == 0 || journal_started) money_mirror_write(cash, bank);
+    pthread_mutex_unlock(&purchase_lock);
     return rc == 0 ? 0 : -1;
 }
 
@@ -3863,6 +3867,7 @@ int r2_reality_money_receive(double amount)
 
     char wallet[1200];
     money_dir_path(0, wallet, sizeof(wallet));
+    pthread_mutex_lock(&purchase_lock);
     pthread_mutex_lock(&reality_lock);
     sqlite3_int64 cash = 0, bank = 0;
     int rc = purchase_journal_recover();
@@ -3883,6 +3888,7 @@ int r2_reality_money_receive(double amount)
     }
     pthread_mutex_unlock(&reality_lock);
     if (rc == 0 || wallet_changed) money_mirror_write(cash, bank);
+    pthread_mutex_unlock(&purchase_lock);
     return rc == 0 ? 0 : -1;
 }
 int r2_reality_money_deposit(double amount){return money_transfer(amount,1);}
@@ -4067,15 +4073,18 @@ int r2_reality_buy_item(const char *name, const char *description,
     char wallet[1200], piggybank[1200];
     money_dir_path(0,wallet,sizeof(wallet));
     money_dir_path(1,piggybank,sizeof(piggybank));
+    pthread_mutex_lock(&purchase_lock);
     pthread_mutex_lock(&reality_lock);
     if (purchase_journal_recover()!=0 || money_journal_recover(NULL)!=0) {
         pthread_mutex_unlock(&reality_lock);
+        pthread_mutex_unlock(&purchase_lock);
         return -1;
     }
     sqlite3_int64 pre_quantity=0;
     char pre_container[REALITY_MAX_TEXT+1]={0};
     if (purchase_inventory_state(name,destination,&pre_quantity,pre_container,sizeof(pre_container))!=0) {
         pthread_mutex_unlock(&reality_lock);
+        pthread_mutex_unlock(&purchase_lock);
         return -1;
     }
     sqlite3_int64 cash=0, bank=0;
@@ -4101,12 +4110,14 @@ int r2_reality_buy_item(const char *name, const char *description,
         if (purchase_journal_recover()!=0)
             fprintf(stderr,"[R2 Money] Purchase failed and recovery remains pending; journal retained.\\n");
         pthread_mutex_unlock(&reality_lock);
+        pthread_mutex_unlock(&purchase_lock);
         return -1;
     }
 #ifdef R2_MONEY_TEST_FAILURE_INJECTION
     if (getenv("R2_TEST_PURCHASE_INTERRUPT_BEFORE_ITEM")) {
         /* Leave durable intent and deducted money exactly as a crash would. */
         pthread_mutex_unlock(&reality_lock);
+        pthread_mutex_unlock(&purchase_lock);
         return -1;
     }
 #endif
@@ -4118,10 +4129,11 @@ int r2_reality_buy_item(const char *name, const char *description,
         pthread_mutex_unlock(&reality_lock);
         if (recovery_rc!=0)
             fprintf(stderr,"[R2 Money] Item creation failed; purchase recovery remains pending.\\n");
+        pthread_mutex_unlock(&purchase_lock);
         return -1;
     }
 #ifdef R2_MONEY_TEST_FAILURE_INJECTION
-    if (getenv("R2_TEST_PURCHASE_INTERRUPT_AFTER_ITEM")) return -1;
+    if (getenv("R2_TEST_PURCHASE_INTERRUPT_AFTER_ITEM")) { pthread_mutex_unlock(&purchase_lock); return -1; }
 #endif
     pthread_mutex_lock(&reality_lock);
     rc=purchase_journal_set_phase("committed");
@@ -4131,9 +4143,11 @@ int r2_reality_buy_item(const char *name, const char *description,
     if (rc!=0) {
         /* The item exists. Startup recovery can infer delivery and finish charging. */
         fprintf(stderr,"[R2 Money] Purchase delivered but journal finalization failed; recovery will reconcile it.\\n");
+        pthread_mutex_unlock(&purchase_lock);
         return -1;
     }
     money_mirror_write(cash,bank);
+    pthread_mutex_unlock(&purchase_lock);
     char summary[512], details[1024];
     snprintf(summary,sizeof(summary),"R2 purchased %.350s for $%.2f.",name,cents/100.0);
     snprintf(details,sizeof(details),"Item=%.400s; price=$%.2f; destination=%.200s; wallet cash paid first, then piggybank.",name,cents/100.0,destination);
