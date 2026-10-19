@@ -4,7 +4,7 @@ This checklist separates repository/CI evidence from checks that must run on the
 
 ## 1. Confirm the candidate and CI
 
-- Use `release/r2-workable-chat-integration-2026-10-18` as the current consolidated candidate (draft PR #161), based on `release/r2-rollout-readiness-2026-10-17` plus the latest conversation, prompt-budget, and Ollama model-copy integrity fixes. It carries the integrated conversation, speech, vision, database compatibility, Game Boy, TV, and lifecycle work.
+- Use `integrate/affect-and-mother-chat-root-fix-2026-10-19` as the current consolidated candidate (draft PR #162), based on `release/r2-workable-chat-integration-2026-10-18` plus the corrective-retry identity/memory fix, contextual affect guidance, and regression coverage. It carries the integrated conversation, speech, vision, database compatibility, Game Boy, TV, and lifecycle work.
 - Require the full `R2 build` GitHub Actions workflow to pass on the exact candidate commit. The release branch is explicitly included in the workflow's push filters.
 - Do not merge to `main` or call the candidate hardware-verified based on static smoke tests alone.
 
