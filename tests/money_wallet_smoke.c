@@ -376,6 +376,28 @@ int main(void) {
           "  <food name=\"soda\" fullness=\"25\" energy=\"3\" ingredients=\"carbonated water,sugar\" taste=\"sweet,fizzy\" />\n"
           "</foods>\n", metrics);
     assert(fclose(metrics) == 0);
+    /* Exercise the same recovery protocol against the separate fridge DB. */
+    assert(setenv("R2_TEST_PURCHASE_INTERRUPT_BEFORE_ITEM","1",1)==0);
+    assert(r2_reality_buy_item("soda","Interrupted fridge purchase",0.25,"fridge")!=0);
+    assert(unsetenv("R2_TEST_PURCHASE_INTERRUPT_BEFORE_ITEM")==0);
+    assert(bill_count(wallet)==2 && change_cents(wallet)==75);
+    r2_reality_shutdown();
+    assert(r2_reality_init()==0);
+    assert(bill_count(wallet)==3 && change_cents(wallet)==0);
+    assert(bill_count(bank)==1 && change_cents(bank)==0);
+
+    assert(setenv("R2_TEST_PURCHASE_INTERRUPT_AFTER_ITEM","1",1)==0);
+    assert(r2_reality_buy_item("soda","Interrupted fridge purchase",0.25,"fridge")!=0);
+    assert(unsetenv("R2_TEST_PURCHASE_INTERRUPT_AFTER_ITEM")==0);
+    assert(bill_count(wallet)==2 && change_cents(wallet)==75);
+    r2_reality_shutdown();
+    assert(r2_reality_init()==0);
+    assert(bill_count(wallet)==2 && change_cents(wallet)==75);
+    char *fridge_after_recovery=r2_fridge_list();
+    assert(fridge_after_recovery && strstr(fridge_after_recovery,"soda"));
+    free(fridge_after_recovery);
+    assert(r2_reality_money_receive(0.25)==0); /* Restore the expected $3 cash fixture. */
+
     assert(r2_reality_buy_item("soda","A purchased drink",3.50,"fridge")==0);
     /* Pockets travel with R2; room storage and the fixed fridge do not. */
     assert(r2_reality_set_location(0)==0);

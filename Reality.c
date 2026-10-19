@@ -4137,8 +4137,10 @@ int r2_reality_buy_item(const char *name, const char *description,
 #endif
     pthread_mutex_lock(&reality_lock);
     rc=purchase_journal_set_phase("committed");
+    /* Keep the committed intent until physical balances have been re-read;
+       if SQLite summary refresh fails, startup can still finish reconciliation. */
+    if (rc==0 && money_read_locked(&cash,&bank)!=0) rc=-1;
     if (rc==0) rc=purchase_journal_clear();
-    if (money_read_locked(&cash,&bank)!=0) rc=-1;
     pthread_mutex_unlock(&reality_lock);
     if (rc!=0) {
         /* The item exists. Startup recovery can infer delivery and finish charging. */
