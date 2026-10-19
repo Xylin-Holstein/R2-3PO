@@ -5077,13 +5077,13 @@ static const char r2_conversation_system_prompt[] =
 static char *r2_build_retry_system_prompt(void)
 {
     static const char identity_start_marker[] =
-        "============================================================\\n"
-        "IDENTITY AND PERSISTENT MEMORY\\n"
-        "============================================================\\n";
+        "============================================================\n"
+        "IDENTITY AND PERSISTENT MEMORY\n"
+        "============================================================\n";
     static const char identity_end_marker[] =
-        "============================================================\\n"
-        "REALITY CONTEXT: USE IT, DO NOT RECITE IT\\n"
-        "============================================================\\n";
+        "============================================================\n"
+        "REALITY CONTEXT: USE IT, DO NOT RECITE IT\n"
+        "============================================================\n";
     static const char retry_instruction[] =
         "RESPONSE CORRECTION: The previous draft did not answer the user's actual message. "
         "If the user reports that YOUR prior message, reply, or answer was garbled, confusing, unreadable, or nonsensical, acknowledge that their complaint is about your output and repair it; do not call their current message garbled. Do not describe ordinary typed language as unintelligible, audio, noise, random sounds, "
@@ -5114,7 +5114,7 @@ static char *r2_build_retry_system_prompt(void)
     if (!identity_start || identity_start != SYSTEM_PROMPT || !identity_end ||
         identity_end <= identity_start) {
         fprintf(stderr,
-                "[R2 Conversation] Could not isolate the base identity/memory prompt for correction.\\n");
+                "[R2 Conversation] Could not isolate the base identity/memory prompt for correction.\n");
         return NULL;
     }
 
@@ -5125,7 +5125,7 @@ static char *r2_build_retry_system_prompt(void)
     char *retry_system_prompt = malloc(prompt_size);
     if (!retry_system_prompt)
         return NULL;
-    snprintf(retry_system_prompt, prompt_size, "%.*s\\n\\n%s\\n\\n%s",
+    snprintf(retry_system_prompt, prompt_size, "%.*s\n\n%s\n\n%s",
              (int)identity_length, identity_start,
              r2_conversation_system_prompt, retry_instruction);
     return retry_system_prompt;
