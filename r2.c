@@ -7720,11 +7720,10 @@ static char *process_tools_with_status(
                     /* A preceding tool may already have changed the world. \
                        Preserve a visible no-retry warning instead of making \
                        the whole turn look like an unperformed action. */ \
-                    static const char _capture_failure[] =
-                        "I ran out of memory while recording an action result. "
-                        "An action may already have completed, so I will not "
-                        "repeat it automatically. Verify the current state "
-                        "before retrying the request.";
+                    static const char _capture_failure[] =             \
+                        "I ran out of memory while recording an action result. " \
+                        "An action may already have completed, so I will not " \
+                        "repeat it automatically. Verify the current state " \
                         "before retrying the request.";                \
                     snprintf(results, cap, "%s", _capture_failure);    \
                     return results;                                   \
@@ -11070,8 +11069,6 @@ static char *r2_talk_impl(const char *message)
             free(reply);
             free(stripped_reply);
             stripped_reply = NULL;
-            free(tools);
-            tools = NULL;
             reply = tools; /* Transfer the existing buffer; do not allocate during OOM. */
             tools = NULL;
             goto finalize_reply;
