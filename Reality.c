@@ -3893,8 +3893,10 @@ static int purchase_inventory_state(const char *name, const char *destination,
     if (!name || !destination) return -1;
     sqlite3 *db = !strcasecmp(destination, "fridge") ? fridge_db : reality_db;
     if (!db) return -1;
-    pthread_mutex_t *lock = !strcasecmp(destination, "fridge") ? &fridge_lock : &reality_lock;
-    pthread_mutex_lock(lock);
+    /* Callers hold reality_lock while inspecting the purchase journal.
+       Fridge has its own database/lock; the Reality DB must not be relocked. */
+    int is_fridge = !strcasecmp(destination, "fridge");
+    if (is_fridge) pthread_mutex_lock(&fridge_lock);
     sqlite3_stmt *st = NULL;
     int rc;
     if (!strcasecmp(destination, "fridge")) {
@@ -3923,7 +3925,7 @@ static int purchase_inventory_state(const char *name, const char *destination,
         }
     }
     if (st) sqlite3_finalize(st);
-    pthread_mutex_unlock(lock);
+    if (is_fridge) pthread_mutex_unlock(&fridge_lock);
     return rc == SQLITE_DONE ? 0 : -1;
 }
 
