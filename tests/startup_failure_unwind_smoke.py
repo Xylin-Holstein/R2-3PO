@@ -52,7 +52,7 @@ class StartupFailureUnwindTests(unittest.TestCase):
         init = SOURCE[SOURCE.index("int r2_init(void)") : SOURCE.index("void r2_shutdown(void)")]
         shutdown = SOURCE[SOURCE.index("void r2_shutdown(void)") : SOURCE.index("int main(void)")]
         self.assertIn("#define R2_INIT_FAIL", SOURCE)
-        self.assertNotRegex(init, r"\\bdie\\s*\\(",
+        self.assertNotRegex(init, r"\bdie\s*\(",
                             "r2_init must not exit around main's cleanup owner")
         self.assertIn("init_attempt_active = 1;", init)
         self.assertIn("if (!init_attempt_active && !core_initialized", shutdown)
