@@ -88,9 +88,7 @@ for phrase, message in (
     ("r2_build_retry_system_prompt()", "retry obtains the complete combined system prompt"),
     ("Message compact_messages[4];", "retry reserves a bounded compact window for context and the exact active turn"),
     ("compact_count < 3", "retry can preserve up to three relevant system contexts without replaying stale dialogue"),
-    ("PERSISTENT REALITY CONTEXT", "retry preserves live Reality when available"),
-    ("CURRENT TURN RETRIEVED CONTEXT", "retry preserves focused retrieved evidence when available"),
-    ("R2 PERSISTENT MEMORY - STARTUP CONTEXT", "retry preserves the dynamic startup-memory snapshot so learned relationship facts remain available"),
+    ("r2_is_retry_context_message(&messages_copy[i])", "retry delegates context selection to the tested relevance predicate"),
     ("compact_messages[compact_count++] = (Message)", "retry appends the exact current user message as the authoritative turn"),
     ("ollama_authoritative_user_query = query;", "retry preserves active-turn identity"),
     ("conversation_reply_token_budget(query)", "retry respects the normal response budget"),
@@ -100,6 +98,18 @@ for phrase, message in (
 
 builder_start = core.find("static char *r2_build_retry_system_prompt(void)")
 builder_end = core.find("\nstatic char *r2_retry_direct_answer(", builder_start)
+const context_start = core.find("static int r2_is_retry_context_message(")
+context_end = core.find("\\nstatic char *r2_retry_direct_answer(", context_start)
+require(context_start >= 0 and context_end > context_start,
+        "retry context selector exists")
+retry_context = core[context_start:context_end]
+for phrase, message in (
+    ("PERSISTENT REALITY CONTEXT", "retry context selector retains live Reality"),
+    ("CURRENT TURN RETRIEVED CONTEXT", "retry context selector retains focused active-turn evidence"),
+    ("R2 PERSISTENT MEMORY - STARTUP CONTEXT", "retry context selector retains broad persistent relationship memory"),
+):
+    require(phrase in retry_context, message)
+
 require(builder_start >= 0 and builder_end > builder_start,
         "combined corrective system-prompt builder exists")
 builder = core[builder_start:builder_end]
