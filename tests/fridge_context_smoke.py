@@ -29,7 +29,7 @@ fridge_list = reality[fridge_list_start:fridge_list_end] if fridge_list_start >=
 if (
     "if (add >= sizeof(line))" not in fridge_list
     or "add = sizeof(line) - 1;" not in fridge_list
-    or '" [entry truncated]\\n"' not in fridge_list
+    or '" [entry truncated]\n"' not in fridge_list
     or "if (add > SIZE_MAX - len - 1) break;" not in fridge_list
     or "memcpy(out + len, line, add);" not in fridge_list
 ):
