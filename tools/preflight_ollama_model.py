@@ -64,7 +64,7 @@ def _http_error_detail(exc: urllib.error.HTTPError) -> str:
         else:
             detail = payload.get("error", raw) if isinstance(payload, dict) else raw
         # Keep terminal output useful without dumping an arbitrarily large server body.
-        detail = str(detail).replace("\\r", " ").replace("\\n", " ").strip()
+        detail = str(detail).replace("\r", " ").replace("\n", " ").strip()
         if len(detail) > 1200:
             detail = detail[:1197] + "..."
         return f"HTTP {exc.code} {exc.reason}: {detail}"
