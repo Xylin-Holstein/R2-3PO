@@ -3008,7 +3008,7 @@ int r2_reality_init(void)
     }
     /* Resolve any purchase interrupted between physical payment and inventory persistence. */
     if (purchase_journal_recover() != 0) {
-        fprintf(stderr, "[R2 Reality] Pending purchase recovery failed; refusing to start with ambiguous ownership.\\n");
+        fprintf(stderr, "[R2 Reality] Pending purchase recovery failed; refusing to start with ambiguous ownership.\n");
         r2_fridge_shutdown();
         sqlite3_close(reality_db); reality_db = NULL;
         pthread_mutex_unlock(&reality_lock); return -1;
