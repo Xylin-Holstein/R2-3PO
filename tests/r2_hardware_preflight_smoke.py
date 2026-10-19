@@ -127,12 +127,12 @@ for marker in (
 model_row_predicate = 'NR > 1 && NF && $1 != "NAME" { found=1 } END { exit found ? 0 : 1 }'
 empty_ps = subprocess.run(
     ["awk", model_row_predicate],
-    input="NAME ID SIZE PROCESSOR CONTEXT UNTIL\\n",
+    input="NAME ID SIZE PROCESSOR CONTEXT UNTIL\n",
     text=True, capture_output=True, check=False,
 )
 loaded_ps = subprocess.run(
     ["awk", model_row_predicate],
-    input="NAME ID SIZE PROCESSOR CONTEXT UNTIL\\nqwen3.5:9b abc 6.0 GiB 20%/80% 4096 5m\\n",
+    input="NAME ID SIZE PROCESSOR CONTEXT UNTIL\nqwen3.5:9b abc 6.0 GiB 20%/80% 4096 5m\n",
     text=True, capture_output=True, check=False,
 )
 if empty_ps.returncode != 1 or loaded_ps.returncode != 0:
