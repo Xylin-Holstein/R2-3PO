@@ -34,6 +34,7 @@ static pthread_mutex_t reality_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t fridge_lock = PTHREAD_MUTEX_INITIALIZER;
 static int reality_ready = 0;
 static int reality_eat_internal(const char *food, double fullness, int consume_tracked_item, double energy_override);
+static int purchase_journal_recover(void);
 
 /* The hunger field is a 0..100 fullness meter: it drains to zero over three
  * modeled hours without food and rises when R2 eats. The separate 72-hour
@@ -2265,6 +2266,7 @@ int r2_reality_init(void)
         "CREATE TABLE IF NOT EXISTS r2_money_account (id INTEGER PRIMARY KEY CHECK(id=1),cash_cents INTEGER NOT NULL DEFAULT 0 CHECK(cash_cents>=0),bank_cents INTEGER NOT NULL DEFAULT 0 CHECK(bank_cents>=0),updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "INSERT OR IGNORE INTO r2_money_account(id,cash_cents,bank_cents) VALUES(1,0,0);"
         "CREATE TABLE IF NOT EXISTS r2_money_transfer_journal (id INTEGER PRIMARY KEY CHECK(id=1),old_cash_cents INTEGER NOT NULL,old_bank_cents INTEGER NOT NULL,new_cash_cents INTEGER NOT NULL,new_bank_cents INTEGER NOT NULL,operation TEXT NOT NULL,phase TEXT NOT NULL CHECK(phase IN ('pending','committed')),created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
+        "CREATE TABLE IF NOT EXISTS r2_purchase_journal (id INTEGER PRIMARY KEY CHECK(id=1),old_cash_cents INTEGER NOT NULL,old_bank_cents INTEGER NOT NULL,new_cash_cents INTEGER NOT NULL,new_bank_cents INTEGER NOT NULL,item_name TEXT NOT NULL,item_description TEXT NOT NULL,destination TEXT NOT NULL,pre_quantity INTEGER NOT NULL,pre_container TEXT NOT NULL,phase TEXT NOT NULL CHECK(phase IN ('pending','committed')),created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "CREATE TABLE IF NOT EXISTS r2_tv_state (id INTEGER PRIMARY KEY CHECK(id=1), power INTEGER NOT NULL DEFAULT 0 CHECK(power IN (0,1)), source_kind TEXT NOT NULL DEFAULT 'input', source_value INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "INSERT OR IGNORE INTO r2_tv_state(id,power,source_kind,source_value) VALUES(1,0,'input',1);"
         "CREATE TABLE IF NOT EXISTS r2_tv_devices (name TEXT PRIMARY KEY COLLATE NOCASE, connection_kind TEXT NOT NULL CHECK(connection_kind IN ('input','rf')), port INTEGER NOT NULL, connected INTEGER NOT NULL DEFAULT 1 CHECK(connected IN (0,1)), updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, CHECK((connection_kind='input' AND port BETWEEN 2 AND 4) OR (connection_kind='rf' AND port BETWEEN 2 AND 13)));"
@@ -2371,6 +2373,13 @@ int r2_reality_init(void)
         pthread_mutex_unlock(&reality_lock); return -1;
     }
     fridge_sync_mirrors();
+    /* Resolve any purchase interrupted between physical payment and inventory persistence. */
+    if (purchase_journal_recover() != 0) {
+        fprintf(stderr, "[R2 Reality] Pending purchase recovery failed; refusing to start with ambiguous ownership.\\n");
+        r2_fridge_shutdown();
+        sqlite3_close(reality_db); reality_db = NULL;
+        pthread_mutex_unlock(&reality_lock); return -1;
+    }
 
     /* Catch up persistent world time as one checked transaction. */
     sqlite3_stmt *st = NULL;
@@ -3876,68 +3885,255 @@ int r2_reality_money_receive(double amount)
 }
 int r2_reality_money_deposit(double amount){return money_transfer(amount,1);}
 int r2_reality_money_withdraw(double amount){return money_transfer(amount,0);}
+static int purchase_inventory_state(const char *name, const char *destination,
+                                   sqlite3_int64 *quantity, char *container, size_t cap)
+{
+    if (quantity) *quantity = 0;
+    if (container && cap) container[0] = '\0';
+    if (!name || !destination) return -1;
+    sqlite3 *db = !strcasecmp(destination, "fridge") ? fridge_db : reality_db;
+    if (!db) return -1;
+    pthread_mutex_t *lock = !strcasecmp(destination, "fridge") ? &fridge_lock : &reality_lock;
+    pthread_mutex_lock(lock);
+    sqlite3_stmt *st = NULL;
+    int rc;
+    if (!strcasecmp(destination, "fridge")) {
+        rc = sqlite3_prepare_v2(db,
+            "SELECT quantity FROM r2_fridge_items WHERE name=? COLLATE NOCASE",
+            -1, &st, NULL);
+    } else {
+        rc = sqlite3_prepare_v2(db,
+            "SELECT quantity,container FROM r2_reality_objects WHERE name=? COLLATE NOCASE",
+            -1, &st, NULL);
+    }
+    if (rc == SQLITE_OK) {
+        bind_text(st, 1, name);
+        rc = sqlite3_step(st);
+        if (rc == SQLITE_ROW) {
+            if (quantity) *quantity = sqlite3_column_int64(st, 0);
+            if (container && cap) {
+                const unsigned char *c = !strcasecmp(destination, "fridge")
+                    ? (const unsigned char *)"fridge" : sqlite3_column_text(st, 1);
+                snprintf(container, cap, "%s", c ? (const char *)c : "");
+            }
+            rc = SQLITE_DONE;
+        } else if (rc == SQLITE_DONE) {
+            if (quantity) *quantity = 0;
+            if (container && cap) container[0] = '\0';
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(lock);
+    return rc == SQLITE_DONE ? 0 : -1;
+}
+
+static int purchase_journal_begin(sqlite3_int64 old_cash, sqlite3_int64 old_bank,
+                                  sqlite3_int64 new_cash, sqlite3_int64 new_bank,
+                                  const char *name, const char *description,
+                                  const char *destination, sqlite3_int64 pre_quantity,
+                                  const char *pre_container)
+{
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_exec(reality_db, "BEGIN IMMEDIATE", NULL, NULL, NULL) != SQLITE_OK) return -1;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "INSERT INTO r2_purchase_journal(id,old_cash_cents,old_bank_cents,new_cash_cents,new_bank_cents,item_name,item_description,destination,pre_quantity,pre_container,phase) "
+        "VALUES(1,?,?,?,?,?,?,?,?,?,'pending')",
+        -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        sqlite3_bind_int64(st, 1, old_cash);
+        sqlite3_bind_int64(st, 2, old_bank);
+        sqlite3_bind_int64(st, 3, new_cash);
+        sqlite3_bind_int64(st, 4, new_bank);
+        bind_text(st, 5, name);
+        bind_text(st, 6, description);
+        bind_text(st, 7, destination);
+        sqlite3_bind_int64(st, 8, pre_quantity);
+        bind_text(st, 9, pre_container);
+        rc = sqlite3_step(st);
+    }
+    if (st) sqlite3_finalize(st);
+    if (rc == SQLITE_DONE) rc = sqlite3_exec(reality_db, "COMMIT", NULL, NULL, NULL);
+    if (rc != SQLITE_OK) {
+        (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
+        return -1;
+    }
+    return 0;
+}
+
+static int purchase_journal_set_phase(const char *phase)
+{
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_exec(reality_db, "BEGIN IMMEDIATE", NULL, NULL, NULL) != SQLITE_OK) return -1;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "UPDATE r2_purchase_journal SET phase=? WHERE id=1",
+        -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        bind_text(st, 1, phase);
+        rc = sqlite3_step(st);
+    }
+    if (st) sqlite3_finalize(st);
+    if (rc == SQLITE_DONE && sqlite3_changes(reality_db) == 1)
+        rc = sqlite3_exec(reality_db, "COMMIT", NULL, NULL, NULL);
+    else rc = SQLITE_ERROR;
+    if (rc != SQLITE_OK) {
+        (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
+        return -1;
+    }
+    return 0;
+}
+
+static int purchase_journal_clear(void)
+{
+    if (sqlite3_exec(reality_db,
+        "BEGIN IMMEDIATE; DELETE FROM r2_purchase_journal WHERE id=1; COMMIT;",
+        NULL, NULL, NULL) != SQLITE_OK) {
+        (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
+        return -1;
+    }
+    return 0;
+}
+
+/* A pending purchase is committed only when the intended inventory stack
+   visibly advanced in the intended container. Otherwise recovery refunds it. */
+static int purchase_journal_recover(void)
+{
+    sqlite3_stmt *st = NULL;
+    sqlite3_int64 old_cash=0, old_bank=0, new_cash=0, new_bank=0, pre_quantity=0;
+    char name[REALITY_MAX_TEXT+1]={0}, destination[REALITY_MAX_TEXT+1]={0};
+    char pre_container[REALITY_MAX_TEXT+1]={0}, phase[24]={0};
+    int rc = sqlite3_prepare_v2(reality_db,
+        "SELECT old_cash_cents,old_bank_cents,new_cash_cents,new_bank_cents,item_name,destination,pre_quantity,pre_container,phase "
+        "FROM r2_purchase_journal WHERE id=1", -1, &st, NULL);
+    if (rc != SQLITE_OK) return -1;
+    rc = sqlite3_step(st);
+    if (rc == SQLITE_DONE) { sqlite3_finalize(st); return 0; }
+    if (rc != SQLITE_ROW) { sqlite3_finalize(st); return -1; }
+    old_cash=sqlite3_column_int64(st,0); old_bank=sqlite3_column_int64(st,1);
+    new_cash=sqlite3_column_int64(st,2); new_bank=sqlite3_column_int64(st,3);
+    snprintf(name,sizeof(name),"%s",sqlite3_column_text(st,4) ? (const char *)sqlite3_column_text(st,4) : "");
+    snprintf(destination,sizeof(destination),"%s",sqlite3_column_text(st,5) ? (const char *)sqlite3_column_text(st,5) : "");
+    pre_quantity=sqlite3_column_int64(st,6);
+    snprintf(pre_container,sizeof(pre_container),"%s",sqlite3_column_text(st,7) ? (const char *)sqlite3_column_text(st,7) : "");
+    snprintf(phase,sizeof(phase),"%s",sqlite3_column_text(st,8) ? (const char *)sqlite3_column_text(st,8) : "");
+    sqlite3_finalize(st);
+
+    sqlite3_int64 current_quantity=0;
+    char current_container[REALITY_MAX_TEXT+1]={0};
+    if (purchase_inventory_state(name,destination,&current_quantity,current_container,sizeof(current_container)) != 0)
+        return -1;
+    int delivered = current_quantity > pre_quantity &&
+        !strcasecmp(current_container,destination);
+    int keep_charge = delivered || !strcmp(phase,"committed");
+    if (!keep_charge && strcmp(phase,"pending")) return -1;
+
+    char wallet[1200], piggybank[1200];
+    money_dir_path(0,wallet,sizeof(wallet));
+    money_dir_path(1,piggybank,sizeof(piggybank));
+    if (money_set_dir_balance(wallet,keep_charge ? new_cash : old_cash,NULL) != 0 ||
+        money_set_dir_balance(piggybank,keep_charge ? new_bank : old_bank,NULL) != 0 ||
+        money_read_locked(NULL,NULL) != 0) {
+        fprintf(stderr,"[R2 Money] Purchase recovery could not reconcile physical balances; journal retained.\\n");
+        return -1;
+    }
+    if (purchase_journal_clear() != 0) return -1;
+    money_mirror_write(keep_charge ? new_cash : old_cash,keep_charge ? new_bank : old_bank);
+    return 0;
+}
+
 int r2_reality_buy_item(const char *name, const char *description,
                        double price, const char *container)
 {
-    if (!name || !*name || !isfinite(price) || price <= 0.0 ||
-        price > 1000000.0 || !r2_reality_is_initialized()) return -1;
+    if (!name || !*name || strlen(name)>REALITY_MAX_TEXT ||
+        (description && strlen(description)>REALITY_MAX_TEXT) ||
+        !isfinite(price) || price <= 0.0 || price > 1000000.0 ||
+        !r2_reality_is_initialized()) return -1;
     sqlite3_int64 cents = (sqlite3_int64)llround(price * 100.0);
     if (cents <= 0 || fabs(price * 100.0 - (double)cents) > 0.0001) return -1;
 
+    char destination_buf[REALITY_MAX_TEXT+1];
+    canonical_container_name(container && *container ? container : "pockets",
+                             destination_buf,sizeof(destination_buf));
+    const char *destination = destination_buf;
+    if (!container_accessible(destination)) return -1;
+    if (!strcasecmp(destination,"fridge")) {
+        double fullness=0.0, energy=0.0;
+        if (!reality_is_home() || food_metric(name,&fullness,&energy)!=0) return -1;
+    }
+
     char wallet[1200], piggybank[1200];
-    money_dir_path(0, wallet, sizeof(wallet));
-    money_dir_path(1, piggybank, sizeof(piggybank));
+    money_dir_path(0,wallet,sizeof(wallet));
+    money_dir_path(1,piggybank,sizeof(piggybank));
     pthread_mutex_lock(&reality_lock);
-    sqlite3_int64 cash = 0, bank = 0;
-    int rc = money_read_locked(&cash, &bank);
-    sqlite3_int64 old_cash = cash, old_bank = bank;
-    int wallet_changed = 0, bank_changed = 0;
-    if (rc == 0 && cash + bank < cents) rc = -1;
-    if (rc == 0) {
-        sqlite3_int64 spend_cash = cash < cents ? cash : cents;
-        sqlite3_int64 spend_bank = cents - spend_cash;
-        if (money_set_dir_balance(wallet, cash - spend_cash, &wallet_changed) != 0 ||
-            money_set_dir_balance(piggybank, bank - spend_bank, &bank_changed) != 0 ||
-            money_read_locked(&cash, &bank) != 0) rc = -1;
-    }
-    int mutation_started = wallet_changed || bank_changed;
-    if (rc != 0 && mutation_started) {
-        int wallet_restore = wallet_changed
-            ? money_set_dir_balance(wallet, old_cash, NULL) : 0;
-        int bank_restore = bank_changed
-            ? money_set_dir_balance(piggybank, old_bank, NULL) : 0;
-        int mirror_restore = money_read_locked(&cash, &bank);
-        if (wallet_restore != 0 || bank_restore != 0 || mirror_restore != 0)
-            fprintf(stderr, "[R2 Money] CRITICAL: purchase failed and balance rollback was incomplete; inspect Wallet and piggybank files.\n");
-    }
-    pthread_mutex_unlock(&reality_lock);
-    if (rc != 0) {
-        if (mutation_started) money_mirror_write(cash, bank);
-        return -1;
-    }
-
-    const char *destination = container && *container ? container : "pockets";
-    if (r2_reality_add_item(name, description ? description : "Purchased item",
-                            destination, 1) != 0) {
-        pthread_mutex_lock(&reality_lock);
-        int wallet_restore = wallet_changed
-            ? money_set_dir_balance(wallet, old_cash, NULL) : 0;
-        int bank_restore = bank_changed
-            ? money_set_dir_balance(piggybank, old_bank, NULL) : 0;
-        int mirror_restore = money_read_locked(&cash, &bank);
+    if (purchase_journal_recover()!=0 || money_journal_recover(NULL)!=0) {
         pthread_mutex_unlock(&reality_lock);
-        if (wallet_restore != 0 || bank_restore != 0 || mirror_restore != 0)
-            fprintf(stderr, "[R2 Money] CRITICAL: item creation failed and purchase rollback was incomplete; inspect Wallet and piggybank files.\n");
-        money_mirror_write(cash, bank);
         return -1;
     }
+    sqlite3_int64 pre_quantity=0;
+    char pre_container[REALITY_MAX_TEXT+1]={0};
+    if (purchase_inventory_state(name,destination,&pre_quantity,pre_container,sizeof(pre_container))!=0) {
+        pthread_mutex_unlock(&reality_lock);
+        return -1;
+    }
+    sqlite3_int64 cash=0, bank=0;
+    int rc=money_read_locked(&cash,&bank);
+    sqlite3_int64 old_cash=cash, old_bank=bank;
+    if (rc==0 && cash+bank<cents) rc=-1;
+    sqlite3_int64 new_cash=cash, new_bank=bank;
+    if (rc==0) {
+        sqlite3_int64 spend_cash=cash<cents?cash:cents;
+        new_cash=cash-spend_cash;
+        new_bank=bank-(cents-spend_cash);
+        if (new_cash<0 || new_bank<0) rc=-1;
+    }
+    if (rc==0)
+        rc=purchase_journal_begin(old_cash,old_bank,new_cash,new_bank,name,
+            description ? description : "Purchased item",destination,pre_quantity,pre_container);
+    if (rc==0 && (money_set_dir_balance(wallet,new_cash,NULL)!=0 ||
+                  money_set_dir_balance(piggybank,new_bank,NULL)!=0 ||
+                  money_read_locked(&cash,&bank)!=0)) rc=-1;
+    if (rc!=0) {
+        /* If an intent was persisted, recovery owns rollback; never erase it
+           unless restoring the original balances succeeded. */
+        if (purchase_journal_recover()!=0)
+            fprintf(stderr,"[R2 Money] Purchase failed and recovery remains pending; journal retained.\\n");
+        pthread_mutex_unlock(&reality_lock);
+        return -1;
+    }
+#ifdef R2_MONEY_TEST_FAILURE_INJECTION
+    if (getenv("R2_TEST_PURCHASE_INTERRUPT_BEFORE_ITEM")) {
+        /* Leave durable intent and deducted money exactly as a crash would. */
+        pthread_mutex_unlock(&reality_lock);
+        return -1;
+    }
+#endif
+    pthread_mutex_unlock(&reality_lock);
 
-    money_mirror_write(cash, bank);
+    if (r2_reality_add_item(name,description ? description : "Purchased item",destination,1)!=0) {
+        pthread_mutex_lock(&reality_lock);
+        int recovery_rc=purchase_journal_recover();
+        pthread_mutex_unlock(&reality_lock);
+        if (recovery_rc!=0)
+            fprintf(stderr,"[R2 Money] Item creation failed; purchase recovery remains pending.\\n");
+        return -1;
+    }
+#ifdef R2_MONEY_TEST_FAILURE_INJECTION
+    if (getenv("R2_TEST_PURCHASE_INTERRUPT_AFTER_ITEM")) return -1;
+#endif
+    pthread_mutex_lock(&reality_lock);
+    rc=purchase_journal_set_phase("committed");
+    if (rc==0) rc=purchase_journal_clear();
+    if (money_read_locked(&cash,&bank)!=0) rc=-1;
+    pthread_mutex_unlock(&reality_lock);
+    if (rc!=0) {
+        /* The item exists. Startup recovery can infer delivery and finish charging. */
+        fprintf(stderr,"[R2 Money] Purchase delivered but journal finalization failed; recovery will reconcile it.\\n");
+        return -1;
+    }
+    money_mirror_write(cash,bank);
     char summary[512], details[1024];
-    snprintf(summary, sizeof(summary), "R2 purchased %s for $%.2f.", name, cents / 100.0);
-    snprintf(details, sizeof(details), "Item=%s; price=$%.2f; destination=%s; wallet cash paid first, then piggybank.",
-             name, cents / 100.0, destination);
-    bridge_event("purchase", summary, details, 1, 1);
+    snprintf(summary,sizeof(summary),"R2 purchased %s for $%.2f.",name,cents/100.0);
+    snprintf(details,sizeof(details),"Item=%s; price=$%.2f; destination=%s; wallet cash paid first, then piggybank.",name,cents/100.0,destination);
+    bridge_event("purchase",summary,details,1,1);
     return 0;
 }
 
