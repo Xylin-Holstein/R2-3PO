@@ -180,3 +180,11 @@ This remains a bounded manual review, not a claim that every subsystem has been 
 - **Fix:** open with `O_NOFOLLOW | O_CLOEXEC`, validate the opened descriptor with `fstat()`, read at most a small fixed buffer, parse with `strtol()` and range checks, and reject oversized input, trailing junk, embedded NULs, or non-regular files. A genuinely missing file still means zero cents, preserving the wallet's existing semantics.
 - **Regression coverage:** extended `tests/money_wallet_smoke.c` to place an integer far beyond `LONG_MAX` and an embedded-NUL payload in the physical change file, verifying that money operations fail closed without changing the authoritative bill count.
 - **Status:** fix and runtime regressions are committed on the release branch and passed all 90/90 steps in workflow [4890](https://github.com/Xylin48/R2-3PO/actions/runs/39216933930), including the malformed-change-file runtime checks, strict production build, and overnight lifecycle integration. No target-machine execution is implied.
+
+### R2-AUD-019 — Alternate-Self comparison used an overflow-prone scanf conversion
+
+- **Area:** `shell.c`, `shell_alternate()`, `alternate compare` command.
+- **Finding:** comparison IDs were parsed with `sscanf("%lld %lld %c", ...)`. An out-of-range decimal supplied as a command argument can trigger undefined behavior in a scanf numeric conversion, and the parser contract was harder to audit than the checked parser already used by the adjacent commands.
+- **Fix:** added `shell_parse_pair_ids()` using `strtoll()`, explicit `errno`/range checks, required whitespace between the two IDs, and rejection of missing values or trailing tokens.
+- **Regression coverage:** extended `tests/build_configuration_smoke.py` to require the comparison route to use the checked parser and verify its overflow/trailing-token guards.
+- **Status:** fix and regression are committed on the release branch; full CI is pending. No target-machine execution is implied.
