@@ -187,7 +187,7 @@ This remains a bounded manual review, not a claim that every subsystem has been 
 - **Finding:** comparison IDs were parsed with `sscanf("%lld %lld %c", ...)`. An out-of-range decimal supplied as a command argument can trigger undefined behavior in a scanf numeric conversion, and the parser contract was harder to audit than the checked parser already used by the adjacent commands.
 - **Fix:** added `shell_parse_pair_ids()` using `strtoll()`, explicit `errno`/range checks, required whitespace between the two IDs, and rejection of missing values or trailing tokens.
 - **Regression coverage:** extended `tests/build_configuration_smoke.py` to require the comparison route to use the checked parser and verify its overflow/trailing-token guards.
-- **Status:** fix and regression are committed on the release branch; full CI is pending. No target-machine execution is implied.
+- **Status:** fix and regression are committed and validated at branch head `b27f39c6be029930be7024f4fd999ac2959649ac`; full workflow [4918](https://github.com/Xylin48/R2-3PO/actions/runs/39219321852) passed all 90/90 steps, including the checked comparison-ID parser regression and strict production build. No target-machine execution is implied.
 
 ### R2-AUD-020 — Model-generated Alternate-Self markers used overflow-prone ID parsing
 
@@ -195,7 +195,7 @@ This remains a bounded manual review, not a claim that every subsystem has been 
 - **Finding:** these model-generated control markers used `sscanf()` with `%lld` conversions. A malformed or out-of-range generated ID could invoke undefined behavior before the marker was rejected.
 - **Fix:** added line-bounded `strtoll()` parsers for a single positive ID and an exact pair of positive IDs. They reject numeric overflow, missing IDs, non-positive values, trailing junk, and extra tokens.
 - **Regression coverage:** extended `tests/recent_context_budget_runtime.c` to exercise valid IDs, overflow values, negative IDs, trailing junk, extra tokens, and missing second IDs against the production helpers.
-- **Status:** fix and runtime regressions are committed on the release branch; full CI is pending. No target-machine execution is implied.
+- **Status:** fix and runtime regressions are committed and validated at branch head `b27f39c6be029930be7024f4fd999ac2959649ac`; full workflow [4918](https://github.com/Xylin48/R2-3PO/actions/runs/39219321852) passed all 90/90 steps, including valid/invalid model-generated Alternate-Self ID cases and strict production compilation. No target-machine execution is implied.
 
 ### R2-AUD-021 — Concurrent visual analyses shared one focus-region temporary file
 
@@ -203,4 +203,4 @@ This remains a bounded manual review, not a claim that every subsystem has been 
 - **Finding:** the visual analyzer can perform model inference outside the database mutex, but every focus update used the same `focus.tmp` path. Overlapping analyses could truncate, rename, or unlink one another's pending focus update, leaving the display overlay stale or missing.
 - **Fix:** serialize the complete focus publication path with a dedicated mutex; the model inference and database work remain outside that lock.
 - **Regression coverage:** `tests/vwebcam_smoke.py` now asserts that all focus updates pass through the serialized wrapper and that the wrapper unlocks after the implementation returns.
-- **Validation:** branch head `2e3e99f8f420872e80051a061aba09f3c78a6b00` passed all 90/90 steps in [workflow 4911](https://github.com/Xylin48/R2-3PO/actions/runs/39219060470), including the visual JSON ownership smoke, the focus-publication serialization guard, strict production compilation, and overnight shutdown integration. Target-machine display/camera acceptance is still separate.
+- **Validation:** branch head `b27f39c6be029930be7024f4fd999ac2959649ac` passed all 90/90 steps in [workflow 4918](https://github.com/Xylin48/R2-3PO/actions/runs/39219321852), including the visual JSON ownership smoke, focus-publication serialization guard, strict production compilation, and overnight shutdown integration. Target-machine display/camera acceptance is still separate.
