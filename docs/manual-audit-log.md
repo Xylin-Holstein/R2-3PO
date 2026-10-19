@@ -140,3 +140,11 @@ This remains a bounded manual review, not a claim that every subsystem has been 
 - **Fix:** on result-buffer growth failure, preserve the existing allocation and return an explicit warning that processing had begun, an action may already have completed, and R2 will not repeat it automatically. Returning from the tool processor also stops subsequent tool markers from executing.
 - **Regression coverage:** extended `tests/conversation_recovery_smoke.py` to check this allocation-failure contract. This is a source-contract regression; the failure is not injected at runtime.
 - **Status:** fixed and validated on code/test commit `cc375fe440407ef87b7576e2fe7a4840994c6218`; full workflow [39198701049](https://github.com/Xylin-Holstein/R2-3PO/actions/runs/39198701049) passed all 90/90 steps, including the updated conversation-recovery regression and strict production build. The allocation-failure branch is protected by a source-contract test, not an injected runtime OOM test.
+
+### R2-AUD-014 — Ollama readiness and vision paths accepted incomplete model responses
+
+- **Area:** `tools/preflight_ollama_model.py` text/image readiness checks; `Visual.c` live visual inference response parsing.
+- **Finding:** the core conversation path requires an Ollama response to contain `message.role=assistant` and boolean `done=true`, but the startup text/vision preflight and live Visual subsystem accepted non-empty `message.content` without checking that completion contract. A partial or malformed response could therefore be treated as a successful readiness probe or visual description.
+- **Fix:** preflight now rejects text and image replies unless the assistant role and explicit boolean completion flag are present. Visual inference applies the same contract and logs `vision_invalid_completion_contract` when it rejects a malformed response.
+- **Regression coverage:** extended `tests/ollama_preflight_smoke.py` with incomplete text/image response cases and extended `tests/vision_watch_cancellation_smoke.py` to guard the live vision contract.
+- **Status:** code and regression changes are on the current release branch. GitHub Actions run 4831 was pending at the time of this entry; final CI status will be recorded after completion. No target-machine model or camera test is implied.
