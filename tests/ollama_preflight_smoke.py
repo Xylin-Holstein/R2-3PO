@@ -196,6 +196,27 @@ class OllamaPreflightSmoke(unittest.TestCase):
                 self.assertFalse(probe.preflight(timeout=1))
         self.assertIn("chat generation produced no usable final answer", errors.getvalue())
 
+    def test_incomplete_text_turn_does_not_pass_preflight(self) -> None:
+        errors = io.StringIO()
+        with patch.object(probe, "_read_json", side_effect=[
+            {"models": [{"name": "qwen3.5:9b"}]},
+            {"done": False, "message": {"role": "assistant", "content": "R2_READY"}},
+        ]) as read, contextlib.redirect_stderr(errors):
+            self.assertFalse(probe.preflight(timeout=1))
+        self.assertEqual(read.call_count, 2)
+        self.assertIn("did not return a complete assistant turn", errors.getvalue())
+
+    def test_incomplete_vision_turn_does_not_pass_preflight(self) -> None:
+        errors = io.StringIO()
+        with patch.object(probe, "_read_json", side_effect=[
+            {"models": [{"name": "qwen3.5:9b"}]},
+            {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
+            {"done": False, "message": {"role": "assistant", "content": "{\"color\":\"blue\"}"}},
+        ]) as read, contextlib.redirect_stderr(errors):
+            self.assertFalse(probe.preflight(timeout=1))
+        self.assertEqual(read.call_count, 3)
+        self.assertIn("incomplete or invalid assistant turn", errors.getvalue())
+
     def test_api_failure_is_reported_without_network_access(self) -> None:
         errors = io.StringIO()
         with patch.object(probe, "_read_json", side_effect=OSError("simulated offline API")):
