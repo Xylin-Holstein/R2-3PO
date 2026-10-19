@@ -4417,7 +4417,8 @@ int r2_reality_buy_item(const char *name, const char *description,
     money_dir_path(1,piggybank,sizeof(piggybank));
     pthread_mutex_lock(&purchase_lock);
     pthread_mutex_lock(&reality_lock);
-    if (purchase_journal_recover()!=0 || money_journal_recover(NULL)!=0) {
+    if (inventory_transfer_recover_locked()!=0 ||
+        purchase_journal_recover()!=0 || money_journal_recover(NULL)!=0) {
         pthread_mutex_unlock(&reality_lock);
         pthread_mutex_unlock(&purchase_lock);
         return -1;
