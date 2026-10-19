@@ -52,7 +52,8 @@ assert "r2_reality_move_item" in core and "r2_eat_and_learn" in core
 # heuristic reply-classification/rewrite guards.
 assert "conversation_turn_lock" in core
 assert "static const char r2_conversation_system_prompt[]" in core
-assert "Interpret social meaning, tone, relationships, and emotional cues from context" in core
+assert "Treat each message as a turn in an ongoing conversation" in core
+assert "Acknowledge affection, concern, excitement, or personal updates" not in core
 assert "r2_reply_reverses_speaker_roles" not in core
 assert "r2_reply_misclassifies_plain_text" not in core
 assert 'if (strcmp(m->role, "user") == 0 &&\n            r2_recent_message_is_tool_payload(m->content))' not in core
