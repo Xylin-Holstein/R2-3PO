@@ -22,7 +22,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         replies = [
             {"models": [{"name": "qwen3.5:9b"}]},
             {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
-            {"message": {"content": "{\"color\":\"blue\"}"}},
+            {"done": True, "message": {"role": "assistant", "content": "{\"color\":\"blue\"}"}},
             {"models": [{"name": "qwen3.5:9b", "size_vram": 123456}]},
         ]
         gpu_result = SimpleNamespace(
@@ -55,7 +55,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         replies = [
             {"models": [{"name": "qwen3.5:9b"}]},
             {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
-            {"message": {"content": "{\"color\":\"blue\"}"}},
+            {"done": True, "message": {"role": "assistant", "content": "{\"color\":\"blue\"}"}},
             {"models": [{"name": "qwen3.5:9b", "size": 500000, "size_vram": 123456}]},
         ]
         with patch.dict(probe.os.environ, {
@@ -79,7 +79,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         replies = [
             {"models": [{"name": "qwen3.5:9b"}]},
             {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
-            {"message": {"content": "{\"color\":\"blue\"}"}},
+            {"done": True, "message": {"role": "assistant", "content": "{\"color\":\"blue\"}"}},
             {"models": [{"name": "qwen3.5:9b", "size_vram": 123456}]},
         ]
         gpu_result = SimpleNamespace(returncode=1, stdout="", stderr="")
@@ -103,7 +103,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
              patch.object(probe, "_read_json", side_effect=[
                  {"models": [{"name": "qwen3.5:9b"}]},
                  {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
-                 {"message": {"content": "{\"color\":\"blue\"}"}},
+                 {"done": True, "message": {"role": "assistant", "content": "{\"color\":\"blue\"}"}},
                  {"models": [{"name": "qwen3.5:9b", "size_vram": 0}]},
              ]), patch.object(probe.subprocess, "run", return_value=SimpleNamespace(
                  returncode=0, stdout="NVIDIA GeForce GTX 1050 Ti, 4096 MiB, 0 MiB", stderr=""
@@ -115,7 +115,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         replies = [
             {"models": [{"name": "qwen3.5:9b"}]},
             {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
-            {"message": {"content": "{\"color\":\"blue\"}"}},
+            {"done": True, "message": {"role": "assistant", "content": "{\"color\":\"blue\"}"}},
             {"models": [{"name": "qwen3.5:9b", "size": 500000, "size_vram": 123456}]},
         ]
         with patch.dict(probe.os.environ, {"R2_OLLAMA_NUM_GPU": "0", "R2_OLLAMA_NUM_CTX": "8192"}), \
@@ -143,7 +143,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         with patch.object(probe, "_read_json", side_effect=[
             {"models": [{"name": "qwen3.5:9b"}]},
             {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
-            {"message": {"content": "{\"color\":\"blue\"}"}},
+            {"done": True, "message": {"role": "assistant", "content": "{\"color\":\"blue\"}"}},
             OSError("simulated /api/ps unavailable"),
         ]), patch.object(probe.subprocess, "run", side_effect=FileNotFoundError("nvidia-smi")):
             with contextlib.redirect_stderr(errors):
