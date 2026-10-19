@@ -1570,12 +1570,6 @@ static int fridge_change_one(const char *food, char *description, size_t descrip
     sqlite3_finalize(st);
     return rc == SQLITE_DONE ? 0 : -1;
 }
-static int fridge_restore_one(const char *food, const char *description, double fullness, double energy,
-                             const char *ingredients, const char *taste)
-{
-    return fridge_insert_item_compat(food, description, 1, fullness, energy,
-                                     ingredients, taste, 0) == SQLITE_DONE ? 0 : -1;
-}
 int r2_fridge_add_item(const char *name, const char *description, int quantity,
                        double fullness, double energy, const char *ingredients, const char *taste)
 {
