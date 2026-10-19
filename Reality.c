@@ -1619,6 +1619,365 @@ int r2_fridge_add_item(const char *name, const char *description, int quantity,
     return rc == SQLITE_DONE ? 0 : -1;
 }
 
+typedef struct {
+    char operation[32];
+    char name[REALITY_MAX_TEXT + 1];
+    int reality_exists;
+    char reality_description[REALITY_MAX_TEXT + 1];
+    int reality_quantity;
+    char reality_container[REALITY_MAX_TEXT + 1];
+    char reality_owner[REALITY_MAX_TEXT + 1];
+    sqlite3_int64 item_memory_max_id;
+    int fridge_exists;
+    char fridge_description[REALITY_MAX_TEXT + 1];
+    int fridge_quantity;
+    double fridge_fullness;
+    double fridge_energy;
+    char fridge_ingredients[1024];
+    char fridge_taste[1024];
+    char phase[24];
+} InventoryTransferSnapshot;
+
+/* Caller holds reality_lock. The snapshot is persisted before either database
+   is changed, so startup can restore both sides after an interrupted transfer. */
+static int inventory_transfer_snapshot_locked(const char *name,
+                                               InventoryTransferSnapshot *snapshot)
+{
+    if (!reality_db || !fridge_db || !name || !*name || !snapshot) return -1;
+    memset(snapshot, 0, sizeof(*snapshot));
+    snprintf(snapshot->name, sizeof(snapshot->name), "%s", name);
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "SELECT description,quantity,container,owner FROM r2_reality_objects "
+        "WHERE name=? COLLATE NOCASE", -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        bind_text(st, 1, name);
+        rc = sqlite3_step(st);
+        if (rc == SQLITE_ROW) {
+            const unsigned char *description = sqlite3_column_text(st, 0);
+            const unsigned char *container = sqlite3_column_text(st, 2);
+            const unsigned char *owner = sqlite3_column_text(st, 3);
+            snapshot->reality_exists = 1;
+            snprintf(snapshot->reality_description, sizeof(snapshot->reality_description),
+                     "%s", description ? (const char *)description : "");
+            snapshot->reality_quantity = sqlite3_column_int(st, 1);
+            snprintf(snapshot->reality_container, sizeof(snapshot->reality_container),
+                     "%s", container ? (const char *)container : "");
+            snprintf(snapshot->reality_owner, sizeof(snapshot->reality_owner),
+                     "%s", owner ? (const char *)owner : "R2");
+            rc = SQLITE_OK;
+        } else if (rc == SQLITE_DONE) {
+            rc = SQLITE_OK;
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    if (rc != SQLITE_OK) return -1;
+
+    st = NULL;
+    rc = sqlite3_prepare_v2(reality_db,
+        "SELECT COALESCE(MAX(id),0) FROM r2_reality_item_memory", -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        rc = sqlite3_step(st);
+        if (rc == SQLITE_ROW) {
+            snapshot->item_memory_max_id = sqlite3_column_int64(st, 0);
+            rc = SQLITE_OK;
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    if (rc != SQLITE_OK) return -1;
+
+    pthread_mutex_lock(&fridge_lock);
+    st = NULL;
+    rc = sqlite3_prepare_v2(fridge_db,
+        "SELECT description,quantity,fullness,energy,ingredients,taste "
+        "FROM r2_fridge_items WHERE name=? COLLATE NOCASE", -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        bind_text(st, 1, name);
+        rc = sqlite3_step(st);
+        if (rc == SQLITE_ROW) {
+            const unsigned char *description = sqlite3_column_text(st, 0);
+            const unsigned char *ingredients = sqlite3_column_text(st, 4);
+            const unsigned char *taste = sqlite3_column_text(st, 5);
+            snapshot->fridge_exists = 1;
+            snprintf(snapshot->fridge_description, sizeof(snapshot->fridge_description),
+                     "%s", description ? (const char *)description : "");
+            snapshot->fridge_quantity = sqlite3_column_int(st, 1);
+            snapshot->fridge_fullness = sqlite3_column_double(st, 2);
+            snapshot->fridge_energy = sqlite3_column_double(st, 3);
+            snprintf(snapshot->fridge_ingredients, sizeof(snapshot->fridge_ingredients),
+                     "%s", ingredients ? (const char *)ingredients : "");
+            snprintf(snapshot->fridge_taste, sizeof(snapshot->fridge_taste),
+                     "%s", taste ? (const char *)taste : "");
+            rc = SQLITE_OK;
+        } else if (rc == SQLITE_DONE) {
+            rc = SQLITE_OK;
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&fridge_lock);
+    return rc == SQLITE_OK ? 0 : -1;
+}
+
+/* Caller holds reality_lock. */
+static int inventory_transfer_journal_begin_locked(const char *operation,
+                                                    const InventoryTransferSnapshot *snapshot)
+{
+    if (!reality_db || !operation || !snapshot) return -1;
+    if (sqlite3_exec(reality_db, "BEGIN IMMEDIATE", NULL, NULL, NULL) != SQLITE_OK)
+        return -1;
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "INSERT INTO r2_inventory_transfer_journal("
+        "id,operation,item_name,reality_exists,reality_description,reality_quantity,"
+        "reality_container,reality_owner,item_memory_max_id,fridge_exists,fridge_description,"
+        "fridge_quantity,fridge_fullness,fridge_energy,fridge_ingredients,fridge_taste,phase) "
+        "VALUES(1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending')", -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        int i = 1;
+        sqlite3_bind_text(st, i++, operation, -1, SQLITE_TRANSIENT);
+        bind_text(st, i++, snapshot->name);
+        sqlite3_bind_int(st, i++, snapshot->reality_exists);
+        bind_text(st, i++, snapshot->reality_description);
+        sqlite3_bind_int(st, i++, snapshot->reality_quantity);
+        bind_text(st, i++, snapshot->reality_container);
+        bind_text(st, i++, snapshot->reality_owner);
+        sqlite3_bind_int64(st, i++, snapshot->item_memory_max_id);
+        sqlite3_bind_int(st, i++, snapshot->fridge_exists);
+        bind_text(st, i++, snapshot->fridge_description);
+        sqlite3_bind_int(st, i++, snapshot->fridge_quantity);
+        sqlite3_bind_double(st, i++, snapshot->fridge_fullness);
+        sqlite3_bind_double(st, i++, snapshot->fridge_energy);
+        bind_text(st, i++, snapshot->fridge_ingredients);
+        bind_text(st, i++, snapshot->fridge_taste);
+        rc = sqlite3_step(st);
+    }
+    if (st) sqlite3_finalize(st);
+    if (rc == SQLITE_DONE) rc = sqlite3_exec(reality_db, "COMMIT", NULL, NULL, NULL);
+    if (rc != SQLITE_OK) {
+        (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
+        return -1;
+    }
+    return 0;
+}
+
+static int inventory_transfer_journal_mark_committed(void)
+{
+    pthread_mutex_lock(&reality_lock);
+    if (!reality_db) {
+        pthread_mutex_unlock(&reality_lock);
+        return -1;
+    }
+    int rc = sqlite3_exec(reality_db, "BEGIN IMMEDIATE", NULL, NULL, NULL);
+    sqlite3_stmt *st = NULL;
+    if (rc == SQLITE_OK)
+        rc = sqlite3_prepare_v2(reality_db,
+            "UPDATE r2_inventory_transfer_journal SET phase='committed' "
+            "WHERE id=1 AND phase='pending'", -1, &st, NULL);
+    if (rc == SQLITE_OK) rc = sqlite3_step(st);
+    if (st) sqlite3_finalize(st);
+    if (rc == SQLITE_DONE && sqlite3_changes(reality_db) == 1)
+        rc = sqlite3_exec(reality_db, "COMMIT", NULL, NULL, NULL);
+    else rc = SQLITE_ERROR;
+    if (rc != SQLITE_OK) (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
+    pthread_mutex_unlock(&reality_lock);
+    return rc == SQLITE_OK ? 0 : -1;
+}
+
+static int inventory_transfer_journal_clear_locked(void)
+{
+    if (!reality_db) return -1;
+    int rc = sqlite3_exec(reality_db, "BEGIN IMMEDIATE", NULL, NULL, NULL);
+    if (rc == SQLITE_OK)
+        rc = sqlite3_exec(reality_db, "DELETE FROM r2_inventory_transfer_journal WHERE id=1",
+                          NULL, NULL, NULL);
+    if (rc == SQLITE_OK) rc = sqlite3_exec(reality_db, "COMMIT", NULL, NULL, NULL);
+    if (rc != SQLITE_OK) (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
+    return rc == SQLITE_OK ? 0 : -1;
+}
+
+static int inventory_transfer_journal_clear(void)
+{
+    pthread_mutex_lock(&reality_lock);
+    int rc = inventory_transfer_journal_clear_locked();
+    pthread_mutex_unlock(&reality_lock);
+    return rc;
+}
+
+/* Caller holds reality_lock. Reapplying a restore is safe if a second crash
+   happens while recovery is running: the journal is cleared only after both
+   authoritative databases have been restored. */
+static int inventory_transfer_restore_fridge_locked(const InventoryTransferSnapshot *snapshot)
+{
+    if (!fridge_db || !snapshot) return -1;
+    pthread_mutex_lock(&fridge_lock);
+    int rc = sqlite3_exec(fridge_db, "BEGIN IMMEDIATE", NULL, NULL, NULL);
+    sqlite3_stmt *st = NULL;
+    if (rc == SQLITE_OK)
+        rc = sqlite3_prepare_v2(fridge_db,
+            "DELETE FROM r2_fridge_items WHERE name=? COLLATE NOCASE", -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        bind_text(st, 1, snapshot->name);
+        rc = sqlite3_step(st);
+    }
+    if (st) sqlite3_finalize(st);
+    if (rc == SQLITE_DONE && snapshot->fridge_exists) {
+        rc = fridge_insert_item_compat(snapshot->name, snapshot->fridge_description,
+            snapshot->fridge_quantity, snapshot->fridge_fullness, snapshot->fridge_energy,
+            snapshot->fridge_ingredients, snapshot->fridge_taste, 1);
+    }
+    if (rc == SQLITE_DONE) rc = sqlite3_exec(fridge_db, "COMMIT", NULL, NULL, NULL);
+    else (void)sqlite3_exec(fridge_db, "ROLLBACK", NULL, NULL, NULL);
+    if (rc != SQLITE_OK) (void)sqlite3_exec(fridge_db, "ROLLBACK", NULL, NULL, NULL);
+    if (rc == SQLITE_OK) {
+        if (snapshot->fridge_exists)
+            fridge_mirror_write_warn(snapshot->name, snapshot->fridge_description,
+                snapshot->fridge_quantity, snapshot->fridge_fullness,
+                snapshot->fridge_energy, "interrupted-transfer recovery");
+        else
+            fridge_mirror_remove(snapshot->name);
+    }
+    pthread_mutex_unlock(&fridge_lock);
+    return rc == SQLITE_OK ? 0 : -1;
+}
+
+/* Caller holds reality_lock. */
+static int inventory_transfer_restore_reality_locked(const InventoryTransferSnapshot *snapshot)
+{
+    if (!reality_db || !snapshot) return -1;
+    int rc = sqlite3_exec(reality_db, "BEGIN IMMEDIATE", NULL, NULL, NULL);
+    sqlite3_stmt *st = NULL;
+    if (rc == SQLITE_OK && snapshot->reality_exists) {
+        rc = sqlite3_prepare_v2(reality_db,
+            "INSERT INTO r2_reality_objects(name,description,quantity,container,owner) "
+            "VALUES(?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET description=excluded.description,"
+            "quantity=excluded.quantity,container=excluded.container,owner=excluded.owner,"
+            "updated_at=CURRENT_TIMESTAMP", -1, &st, NULL);
+        if (rc == SQLITE_OK) {
+            bind_text(st, 1, snapshot->name);
+            bind_text(st, 2, snapshot->reality_description);
+            sqlite3_bind_int(st, 3, snapshot->reality_quantity);
+            bind_text(st, 4, snapshot->reality_container);
+            bind_text(st, 5, snapshot->reality_owner);
+            rc = sqlite3_step(st);
+        }
+        if (st) sqlite3_finalize(st);
+        st = NULL;
+    } else if (rc == SQLITE_OK) {
+        rc = sqlite3_prepare_v2(reality_db,
+            "DELETE FROM r2_reality_objects WHERE name=? COLLATE NOCASE", -1, &st, NULL);
+        if (rc == SQLITE_OK) {
+            bind_text(st, 1, snapshot->name);
+            rc = sqlite3_step(st);
+        }
+        if (st) sqlite3_finalize(st);
+        st = NULL;
+    }
+    if (rc == SQLITE_DONE) {
+        rc = sqlite3_prepare_v2(reality_db,
+            "DELETE FROM r2_reality_item_memory WHERE id>? AND item_name=? COLLATE NOCASE",
+            -1, &st, NULL);
+        if (rc == SQLITE_OK) {
+            sqlite3_bind_int64(st, 1, snapshot->item_memory_max_id);
+            bind_text(st, 2, snapshot->name);
+            rc = sqlite3_step(st);
+        }
+        if (st) sqlite3_finalize(st);
+    }
+    if (rc == SQLITE_DONE) rc = sqlite3_exec(reality_db, "COMMIT", NULL, NULL, NULL);
+    else (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
+    if (rc != SQLITE_OK) (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
+    if (rc == SQLITE_OK) {
+        if (snapshot->reality_exists) {
+            if (mirror_write(snapshot->name, snapshot->reality_description,
+                             snapshot->reality_quantity, snapshot->reality_container) != 0)
+                fprintf(stderr, "[R2 Reality] Could not restore room mirror for '%s' after transfer recovery.\n",
+                        snapshot->name);
+        } else {
+            mirror_remove(snapshot->name, "pockets");
+        }
+    }
+    return rc == SQLITE_OK ? 0 : -1;
+}
+
+static int inventory_transfer_recover_locked(void)
+{
+    if (!reality_db) return -1;
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "SELECT operation,item_name,reality_exists,reality_description,reality_quantity,"
+        "reality_container,reality_owner,item_memory_max_id,fridge_exists,fridge_description,"
+        "fridge_quantity,fridge_fullness,fridge_energy,fridge_ingredients,fridge_taste,phase "
+        "FROM r2_inventory_transfer_journal WHERE id=1", -1, &st, NULL);
+    if (rc != SQLITE_OK) return -1;
+    rc = sqlite3_step(st);
+    if (rc == SQLITE_DONE) {
+        sqlite3_finalize(st);
+        return 0;
+    }
+    if (rc != SQLITE_ROW) {
+        sqlite3_finalize(st);
+        return -1;
+    }
+    InventoryTransferSnapshot snapshot;
+    memset(&snapshot, 0, sizeof(snapshot));
+    const unsigned char *value = sqlite3_column_text(st, 0);
+    snprintf(snapshot.operation, sizeof(snapshot.operation), "%s", value ? (const char *)value : "");
+    value = sqlite3_column_text(st, 1);
+    snprintf(snapshot.name, sizeof(snapshot.name), "%s", value ? (const char *)value : "");
+    snapshot.reality_exists = sqlite3_column_int(st, 2);
+    value = sqlite3_column_text(st, 3);
+    snprintf(snapshot.reality_description, sizeof(snapshot.reality_description), "%s", value ? (const char *)value : "");
+    snapshot.reality_quantity = sqlite3_column_int(st, 4);
+    value = sqlite3_column_text(st, 5);
+    snprintf(snapshot.reality_container, sizeof(snapshot.reality_container), "%s", value ? (const char *)value : "");
+    value = sqlite3_column_text(st, 6);
+    snprintf(snapshot.reality_owner, sizeof(snapshot.reality_owner), "%s", value ? (const char *)value : "R2");
+    snapshot.item_memory_max_id = sqlite3_column_int64(st, 7);
+    snapshot.fridge_exists = sqlite3_column_int(st, 8);
+    value = sqlite3_column_text(st, 9);
+    snprintf(snapshot.fridge_description, sizeof(snapshot.fridge_description), "%s", value ? (const char *)value : "");
+    snapshot.fridge_quantity = sqlite3_column_int(st, 10);
+    snapshot.fridge_fullness = sqlite3_column_double(st, 11);
+    snapshot.fridge_energy = sqlite3_column_double(st, 12);
+    value = sqlite3_column_text(st, 13);
+    snprintf(snapshot.fridge_ingredients, sizeof(snapshot.fridge_ingredients), "%s", value ? (const char *)value : "");
+    value = sqlite3_column_text(st, 14);
+    snprintf(snapshot.fridge_taste, sizeof(snapshot.fridge_taste), "%s", value ? (const char *)value : "");
+    value = sqlite3_column_text(st, 15);
+    snprintf(snapshot.phase, sizeof(snapshot.phase), "%s", value ? (const char *)value : "");
+    sqlite3_finalize(st);
+
+    if (!strcmp(snapshot.phase, "committed"))
+        return inventory_transfer_journal_clear_locked();
+    if (strcmp(snapshot.phase, "pending") != 0) return -1;
+    if (inventory_transfer_restore_fridge_locked(&snapshot) != 0 ||
+        inventory_transfer_restore_reality_locked(&snapshot) != 0)
+        return -1;
+    if (inventory_transfer_journal_clear_locked() != 0) return -1;
+    fprintf(stderr, "[R2 Reality] Rolled back interrupted %s transfer for '%s' to its pre-transfer state.\n",
+            snapshot.operation, snapshot.name);
+    return 0;
+}
+
+static int inventory_transfer_recover(void)
+{
+    pthread_mutex_lock(&reality_lock);
+    int rc = inventory_transfer_recover_locked();
+    pthread_mutex_unlock(&reality_lock);
+    return rc;
+}
+
+static int inventory_transfer_begin(const char *operation, const char *name,
+                                   InventoryTransferSnapshot *snapshot)
+{
+    pthread_mutex_lock(&reality_lock);
+    int rc = inventory_transfer_recover_locked();
+    if (rc == 0) rc = inventory_transfer_snapshot_locked(name, snapshot);
+    if (rc == 0) rc = inventory_transfer_journal_begin_locked(operation, snapshot);
+    pthread_mutex_unlock(&reality_lock);
+    return rc;
+}
+
 int r2_fridge_take(const char *food)
 {
     if (!food || !*food || !fridge_db || !r2_reality_is_initialized() || !reality_is_home()) return -1;
