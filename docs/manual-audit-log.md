@@ -196,3 +196,11 @@ This remains a bounded manual review, not a claim that every subsystem has been 
 - **Fix:** added line-bounded `strtoll()` parsers for a single positive ID and an exact pair of positive IDs. They reject numeric overflow, missing IDs, non-positive values, trailing junk, and extra tokens.
 - **Regression coverage:** extended `tests/recent_context_budget_runtime.c` to exercise valid IDs, overflow values, negative IDs, trailing junk, extra tokens, and missing second IDs against the production helpers.
 - **Status:** fix and runtime regressions are committed on the release branch; full CI is pending. No target-machine execution is implied.
+
+### R2-AUD-021 — Concurrent visual analyses shared one focus-region temporary file
+
+- **Area:** `Visual.c`, `publish_focus_region()`.
+- **Finding:** the visual analyzer can perform model inference outside the database mutex, but every focus update used the same `focus.tmp` path. Overlapping analyses could truncate, rename, or unlink one another's pending focus update, leaving the display overlay stale or missing.
+- **Fix:** serialize the complete focus publication path with a dedicated mutex; the model inference and database work remain outside that lock.
+- **Regression coverage:** `tests/vwebcam_smoke.py` now asserts that all focus updates pass through the serialized wrapper and that the wrapper unlocks after the implementation returns.
+- **Status:** fix and regression guard are committed on the release branch. Full CI is pending; target-machine display/camera acceptance is still separate.
