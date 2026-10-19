@@ -105,3 +105,11 @@ No additional reproducible defect was established in this review slice. This is 
 - **Regression coverage:** added `tests/hand_enqueue_failure_smoke.py` and wired it into `.github/workflows/build.yml` to check all three dispatch sites.
 - **Status:** source fix and regression wiring committed on the release branch. The regression and full build workflow still need to pass on the resulting head; no target-machine execution is implied.
 
+### R2-AUD-011 — Game Boy command output could be accepted without a valid success response
+
+- **Area:** `r2.c`, Game Boy Advance command bridge and JSON response parsing.
+- **Finding:** the bridge defaulted a missing or unparsable `ok` field to true. Because `gameboy_json_bool()` also accepted non-boolean JSON values, a zero exit code with malformed output or an invalid `ok` value could be treated as a successful action. That could produce a false success response or record an action that the bridge had not verified.
+- **Fix:** JSON boolean fields now require the actual JSON boolean type. The command bridge accepts the documented array shape for `list`, the object shape for `status`, and requires an explicit boolean `ok: true` for action responses; process exit code alone is insufficient.
+- **Regression coverage:** added `tests/gameboy_json_contract_smoke.py` and wired it into `.github/workflows/build.yml`. This is a source-contract regression, not a live emulator/hardware test.
+- **Status:** source fix and regression wiring committed on the release branch. The current branch head still needs the full workflow result.
+
