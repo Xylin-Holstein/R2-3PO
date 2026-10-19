@@ -340,6 +340,30 @@ int main(void) {
     assert(r2_reality_money_withdraw(0.50)==0);
     assert(bill_count(wallet)==3 && change_cents(wallet)==0);
     assert(bill_count(bank)==1 && change_cents(bank)==0);
+
+    /* A purchase interrupted after payment but before inventory persistence
+       must refund on startup; interruption after inventory persistence must
+       retain the charge and delivered item. */
+    assert(setenv("R2_TEST_PURCHASE_INTERRUPT_BEFORE_ITEM","1",1)==0);
+    assert(r2_reality_buy_item("crash before item","Crash fixture",1.00,"pockets")!=0);
+    assert(unsetenv("R2_TEST_PURCHASE_INTERRUPT_BEFORE_ITEM")==0);
+    assert(bill_count(wallet)==2);
+    r2_reality_shutdown();
+    assert(r2_reality_init()==0);
+    assert(bill_count(wallet)==3 && change_cents(wallet)==0);
+    assert(bill_count(bank)==1 && change_cents(bank)==0);
+
+    assert(setenv("R2_TEST_PURCHASE_INTERRUPT_AFTER_ITEM","1",1)==0);
+    assert(r2_reality_buy_item("crash after item","Crash fixture",1.00,"pockets")!=0);
+    assert(unsetenv("R2_TEST_PURCHASE_INTERRUPT_AFTER_ITEM")==0);
+    assert(bill_count(wallet)==2);
+    r2_reality_shutdown();
+    assert(r2_reality_init()==0);
+    assert(bill_count(wallet)==2 && change_cents(wallet)==0);
+    assert(bill_count(bank)==1 && change_cents(bank)==0);
+    char *purchase_inventory=r2_reality_list("pockets");
+    assert(purchase_inventory && strstr(purchase_inventory,"crash after item"));
+    free(purchase_inventory);
     /* A food purchase destined for the fridge must use an explicit metric,
        just like any other fridge addition; the test supplies its own fixture. */
     char metrics_path[1400];
