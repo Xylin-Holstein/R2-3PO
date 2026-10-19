@@ -144,11 +144,7 @@ init_start = core.find("int r2_init(void)")
 shutdown_start = core.find("void r2_shutdown(void)", init_start)
 init_body = core[init_start:shutdown_start] if init_start >= 0 and shutdown_start > init_start else ""
 diary_create = init_body.find("r2_startup_thread_create(&diary_thread")
-failure_start = init_body.rfind(
-    'if (r2_startup_thread_create(&diary_thread',
-    0,
-    diary_create + 1,
-)
+failure_start = diary_create - len("if (")
 failure_end = init_body.find("pthread_join(hands_thread, NULL);", failure_start)
 init_failure = init_body[failure_start:failure_end] if failure_start >= 0 and failure_end > failure_start else ""
 init_lock = init_failure.find("pthread_mutex_lock(&task_queue_lock)")
