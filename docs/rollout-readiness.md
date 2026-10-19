@@ -18,6 +18,8 @@ bash /home/x/R2_Home/R2/tools/preflight_r2_hardware.sh
 
 Resolve every `[FAIL]`. Review each `[WARN]` and confirm whether the feature is optional or required for this installation. The preflight is intended to be non-destructive; it does not install packages, migrate databases, or start/stop R2.
 
+For the interactive desktop launcher, keep the isolated `r2-ollama.service` on `127.0.0.1:11435` stopped. Interactive R2 uses the desktop Ollama endpoint on `127.0.0.1:11434`; both servers share the GTX 1050 Ti's VRAM, so a runner loaded by the isolated service can make the interactive endpoint's `ollama ps` look empty while still consuming GPU memory. If preflight reports a `llama-server` process with no model listed, inspect `systemctl status ollama.service r2-ollama.service` and identify the owning process before stopping anything; do not kill a runner blindly.
+
 For a read-only database inventory and integrity report:
 
 ```sh
