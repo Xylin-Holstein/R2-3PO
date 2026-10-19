@@ -318,6 +318,10 @@ static atomic_int diary_running = ATOMIC_VAR_INIT(0);
 static int hands_thread_started = 0;
 static atomic_int diary_thread_started = ATOMIC_VAR_INIT(0);
 static int core_initialized = 0;
+/* Covers partial initialization even when manual cleanup has nulled core handles. */
+static int init_attempt_active = 0;
+/* curl_global_cleanup is valid only after a successful global initialization. */
+static int curl_global_initialized = 0;
 static int startup_memory_loaded = 0;
 static int watch_running = 0;
 static int diary_initialized = 0;
@@ -11402,8 +11406,20 @@ static int r2_startup_thread_create(pthread_t *thread,
     return pthread_create(thread, NULL, start_routine, arg);
 }
 
+#define R2_INIT_FAIL(...) do { \
+    fprintf(stderr, "[R2] Initialization failed: "); \
+    fprintf(stderr, __VA_ARGS__); \
+    fputc('\n', stderr); \
+    return -1; \
+} while (0)
+
 int r2_init(void)
 {
+    if (init_attempt_active || core_initialized) {
+        fprintf(stderr, "[R2] Initialization requested while a session is already active.\n");
+        return -1;
+    }
+    init_attempt_active = 1;
     shutting_down = 0;
     r2_sounds_init();
     atomic_store(&diary_running, 0);
@@ -11423,7 +11439,7 @@ int r2_init(void)
         mkdir_p(DIARY_DIR) != 0
     ) {
 
-        die(
+        R2_INIT_FAIL(
             "could not create required directories"
         );
     }
@@ -11436,7 +11452,7 @@ int r2_init(void)
         init_db() != 0
     ) {
 
-        die(
+        R2_INIT_FAIL(
             "could not initialize SQLite database"
         );
     }
@@ -11449,10 +11465,12 @@ int r2_init(void)
         r2_diary_init() != 0
     ) {
 
+        /* The diary initializer can fail after opening its own handle. */
+        r2_diary_shutdown();
         sqlite3_close(db);
         db = NULL;
 
-        die(
+        R2_INIT_FAIL(
             "could not initialize R2 diary"
         );
     }
@@ -11465,7 +11483,7 @@ int r2_init(void)
         diary_initialized = 0;
         sqlite3_close(db);
         db = NULL;
-        die("could not initialize R2 Life Log");
+        R2_INIT_FAIL("could not initialize R2 Life Log");
     }
 
     /* Index original Life Log event IDs without copying raw sensory data. */
@@ -11514,7 +11532,7 @@ int r2_init(void)
         diary_initialized = 0;
         sqlite3_close(db);
         db = NULL;
-        die("could not initialize R2 reality engine");
+        R2_INIT_FAIL("could not initialize R2 reality engine");
     }
 
     if (r2_eyes_init(&eyes) != 0) {
@@ -11527,7 +11545,7 @@ int r2_init(void)
         sqlite3_close(db);
         db = NULL;
 
-        die("could not initialize R2 eyes");
+        R2_INIT_FAIL("could not initialize R2 eyes");
     }
 
     if (r2_ears_init(&ears) != 0) {
@@ -11544,7 +11562,7 @@ int r2_init(void)
         sqlite3_close(db);
         db = NULL;
 
-        die("could not initialize R2 ears");
+        R2_INIT_FAIL("could not initialize R2 ears");
     }
 
     /* --------------------------------------------------------
@@ -11567,10 +11585,12 @@ int r2_init(void)
         sqlite3_close(db);
         db = NULL;
 
-        die(
+        R2_INIT_FAIL(
             "could not initialize libcurl"
         );
     }
+
+    curl_global_initialized = 1;
 
     /*
      * Vision is a separate local perception model. R2's existing
@@ -11639,8 +11659,9 @@ int r2_init(void)
         db = NULL;
 
         curl_global_cleanup();
+        curl_global_initialized = 0;
 
-        die(
+        R2_INIT_FAIL(
             "could not add system prompt to "
             "conversation context"
         );
@@ -11675,7 +11696,7 @@ int r2_init(void)
 
             free(original);
 
-            die(
+            R2_INIT_FAIL(
                 "out of memory while loading "
                 "archived conversation"
             );
@@ -11755,7 +11776,7 @@ int r2_init(void)
 
         free(startup_memories);
 
-        die(
+        R2_INIT_FAIL(
             "out of memory while building "
             "startup memory context"
         );
@@ -11810,7 +11831,7 @@ int r2_init(void)
         free(startup_context);
         free(startup_memories);
 
-        die(
+        R2_INIT_FAIL(
             "could not add startup persistent "
             "memory context"
         );
@@ -11917,9 +11938,12 @@ int r2_init(void)
     return 0;
 }
 
+#undef R2_INIT_FAIL
+
 void r2_shutdown(void)
 {
-    if (!core_initialized && !db && !eyes && !ears)
+    if (!init_attempt_active && !core_initialized && !db && !eyes && !ears &&
+        !curl_global_initialized)
         return;
 
     /* Stop task submission atomically with the Hands worker's queue predicate. */
@@ -12038,10 +12062,14 @@ void r2_shutdown(void)
         db = NULL;
     }
 
-    curl_global_cleanup();
+    if (curl_global_initialized) {
+        curl_global_cleanup();
+        curl_global_initialized = 0;
+    }
     message_free_all();
 
     core_initialized = 0;
+    init_attempt_active = 0;
     startup_memory_loaded = 0;
 
     printf("[R2-3PO shut down.]\n");
