@@ -188,3 +188,11 @@ This remains a bounded manual review, not a claim that every subsystem has been 
 - **Fix:** added `shell_parse_pair_ids()` using `strtoll()`, explicit `errno`/range checks, required whitespace between the two IDs, and rejection of missing values or trailing tokens.
 - **Regression coverage:** extended `tests/build_configuration_smoke.py` to require the comparison route to use the checked parser and verify its overflow/trailing-token guards.
 - **Status:** fix and regression are committed on the release branch; full CI is pending. No target-machine execution is implied.
+
+### R2-AUD-020 — Model-generated Alternate-Self markers used overflow-prone ID parsing
+
+- **Area:** `r2.c`, `process_tools_with_status()`, `[ALTERNATE_SHOW]`, `[ALTERNATE_COMPARE]`, `[ALTERNATE_RETAIN]`, and `[ALTERNATE_DISCARD]`.
+- **Finding:** these model-generated control markers used `sscanf()` with `%lld` conversions. A malformed or out-of-range generated ID could invoke undefined behavior before the marker was rejected.
+- **Fix:** added line-bounded `strtoll()` parsers for a single positive ID and an exact pair of positive IDs. They reject numeric overflow, missing IDs, non-positive values, trailing junk, and extra tokens.
+- **Regression coverage:** extended `tests/recent_context_budget_runtime.c` to exercise valid IDs, overflow values, negative IDs, trailing junk, extra tokens, and missing second IDs against the production helpers.
+- **Status:** fix and runtime regressions are committed on the release branch; full CI is pending. No target-machine execution is implied.
