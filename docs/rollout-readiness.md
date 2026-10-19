@@ -31,7 +31,7 @@ For non-overwriting snapshots, choose a new destination directory for each run. 
 # Run this line only when the overnight systemd service is the active runtime:
 sudo systemctl stop r2-3po.service
 python3 /home/x/R2_Home/R2/tools/audit_r2_databases.py \
-  --root /home/x/R2_Home \
+  --root /home/x/R2_Home/R2 \
   --snapshot-dir "/home/x/R2_Home/R2_Database_Snapshots/rollout-$(date +%Y%m%d-%H%M%S)"
 ```
 
