@@ -16,6 +16,7 @@ installer_wrapper = (ROOT / "tools/install_r2_overnight.sh").read_text(encoding=
 service_runner = (ROOT / "tools/r2_service_runner.sh").read_text(encoding="utf-8")
 hardware_preflight = (ROOT / "tools/preflight_r2_hardware.sh").read_text(encoding="utf-8")
 reality = (ROOT / "Reality.c").read_text(encoding="utf-8")
+shell = (ROOT / "shell.c").read_text(encoding="utf-8")
 
 required_sources = (
     "r2.c", "shell.c", "r2_diary.c", "Log.c", "Reality.c", "Addiction.c",
@@ -158,6 +159,20 @@ require(
     "hunger_fullness_semantics_v2" in reality
     and "100-hunger" in reality,
     "legacy hunger values migrate to the new fullness scale exactly once",
+)
+compare_start = shell.find('if (shell_starts_with(argument, "compare "))')
+compare_end = shell.find('if (shell_starts_with(argument, "create "))', compare_start)
+compare_block = shell[compare_start:compare_end] if compare_start >= 0 and compare_end > compare_start else ""
+pair_parser_start = shell.find("static int shell_parse_pair_ids(")
+pair_parser_end = shell.find("static void shell_alternate(", pair_parser_start)
+pair_parser = shell[pair_parser_start:pair_parser_end] if pair_parser_start >= 0 and pair_parser_end > pair_parser_start else ""
+require(
+    "shell_parse_pair_ids(argument + 8, &first, &second)" in compare_block
+    and "sscanf(" not in compare_block
+    and "strtoll(" in pair_parser
+    and "errno != 0" in pair_parser
+    and "if (*end)" in pair_parser,
+    "alternate comparison IDs use range-checked parsing and reject overflow or extra tokens",
 )
 bootstrap_bytes = (ROOT / "tools/r2_install_root_bootstrap.sh").read_bytes()
 git_blob_sha = hashlib.sha1(b"blob " + str(len(bootstrap_bytes)).encode("ascii") + bytes([0]) + bootstrap_bytes).hexdigest()
