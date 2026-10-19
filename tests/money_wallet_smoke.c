@@ -284,6 +284,17 @@ int main(void) {
     assert(bill_count(wallet) == 5);
     assert(unlink(malformed_change_path) == 0);
 
+    /* Embedded NUL bytes must not hide trailing malformed file contents. */
+    malformed_change = fopen(malformed_change_path, "wb");
+    assert(malformed_change);
+    const char embedded_nul_change[] = "cents=50\0junk\n";
+    assert(fwrite(embedded_nul_change, 1, sizeof(embedded_nul_change) - 1,
+                  malformed_change) == sizeof(embedded_nul_change) - 1);
+    assert(fclose(malformed_change) == 0);
+    assert(r2_reality_money_receive(1.00) != 0);
+    assert(bill_count(wallet) == 5);
+    assert(unlink(malformed_change_path) == 0);
+
     assert(setenv("R2_TEST_MONEY_STAGE_FAIL","1",1)==0);
     assert(r2_reality_money_receive(1.00)!=0);
     assert(unsetenv("R2_TEST_MONEY_STAGE_FAIL")==0);
