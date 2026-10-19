@@ -3643,19 +3643,6 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
         if (st) sqlite3_finalize(st);
     }
 
-    if (rc == SQLITE_DONE && fridge_eat_transfer_in_progress) {
-        st = NULL;
-        rc = sqlite3_prepare_v2(reality_db,
-            "UPDATE r2_inventory_transfer_journal SET phase='committed' "
-            "WHERE id=1 AND operation='eat_from_fridge' AND phase='pending'",
-            -1, &st, NULL);
-        if (rc == SQLITE_OK) {
-            rc = sqlite3_step(st);
-            if (rc == SQLITE_DONE && sqlite3_changes(reality_db) != 1)
-                rc = SQLITE_NOTFOUND;
-        }
-        if (st) sqlite3_finalize(st);
-    }
     if (rc == SQLITE_DONE) {
         rc = sqlite3_exec(reality_db, "COMMIT", NULL, NULL, NULL);
         if (rc != SQLITE_OK)
@@ -4016,6 +4003,19 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
             sqlite3_bind_int64(st, 5, (sqlite3_int64)time(NULL));
             if (sqlite3_step(st) != SQLITE_DONE) rc = SQLITE_ERROR;
         } else rc = SQLITE_ERROR;
+        if (st) sqlite3_finalize(st);
+    }
+    if (rc == SQLITE_DONE && fridge_eat_transfer_in_progress) {
+        st = NULL;
+        rc = sqlite3_prepare_v2(reality_db,
+            "UPDATE r2_inventory_transfer_journal SET phase='committed' "
+            "WHERE id=1 AND operation='eat_from_fridge' AND phase='pending'",
+            -1, &st, NULL);
+        if (rc == SQLITE_OK) {
+            rc = sqlite3_step(st);
+            if (rc == SQLITE_DONE && sqlite3_changes(reality_db) != 1)
+                rc = SQLITE_NOTFOUND;
+        }
         if (st) sqlite3_finalize(st);
     }
     if (rc == SQLITE_DONE) {
