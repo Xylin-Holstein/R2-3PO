@@ -11059,6 +11059,29 @@ static char *r2_talk_impl(const char *message)
     }
 
     if (*tools) {
+        /* If result capture failed after an action began, expose the no-retry
+           warning directly. A model follow-up could otherwise paraphrase it
+           away or incorrectly claim the action definitely succeeded. */
+        static const char tool_capture_failure_prefix[] =
+            "Tool-result memory ran out after processing began.";
+        if (strncmp(tools, tool_capture_failure_prefix,
+                    sizeof(tool_capture_failure_prefix) - 1) == 0) {
+            free(reply);
+            free(stripped_reply);
+            stripped_reply = NULL;
+            free(tools);
+            tools = NULL;
+            reply = xstrdup(
+                "I ran out of memory while recording an action result. "
+                "An action may already have completed, so I won't repeat it "
+                "automatically. Please verify the current state before retrying.");
+            if (!reply) {
+                fprintf(stderr, "[R2] Could not allocate the direct no-retry warning after tool-result memory failure.\\n");
+                return NULL;
+            }
+            goto finalize_reply;
+        }
+
         /* Tool-routing replies are internal context only: never play their
            markers and never retain the raw control syntax in conversation. */
         free(reply);
