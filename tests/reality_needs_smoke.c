@@ -268,7 +268,7 @@ static void seed_legacy_shared_reality_tables(void)
         "INSERT INTO r2_reality_ticks(previous_tick,current_tick) VALUES(100,110);"
         "CREATE TABLE r2_reality_item_memory(item_name TEXT,description TEXT,exact_quantity INTEGER,collected_at INTEGER);"
         "INSERT INTO r2_reality_item_memory(item_name,description,exact_quantity,collected_at) "
-        "VALUES('legacy_collection','Old item memory',3,123456);"
+        "VALUES('legacy_collection','Old item memory',3,CAST(strftime('%s','now') AS INTEGER));"
         "CREATE TABLE r2_food_experiences(food_name TEXT,fullness REAL,eaten_at INTEGER);"
         "INSERT INTO r2_food_experiences(food_name,fullness,eaten_at) VALUES('legacy_meal',25,123456);"
         "CREATE TABLE r2_food_preferences(food_name TEXT PRIMARY KEY,satisfaction_sum REAL,rating_count INTEGER,updated_at INTEGER);"
@@ -368,10 +368,10 @@ static void verify_legacy_shared_reality_migration(void)
     }
 
     if (sqlite3_prepare_v2(db,
-        "SELECT precision,last_decay_at FROM r2_reality_item_memory WHERE item_name='legacy_collection'",
+        "SELECT precision,last_decay_at,collected_at FROM r2_reality_item_memory WHERE item_name='legacy_collection'",
         -1, &st, NULL) != SQLITE_OK || sqlite3_step(st) != SQLITE_ROW ||
         strcmp((const char *)sqlite3_column_text(st, 0), "exact") != 0 ||
-        sqlite3_column_int64(st, 1) != 123456) {
+        sqlite3_column_int64(st, 1) != sqlite3_column_int64(st, 2)) {
         if (st) sqlite3_finalize(st);
         sqlite3_close(db);
         fail("legacy item memory did not receive backward-compatible precision/decay defaults");
