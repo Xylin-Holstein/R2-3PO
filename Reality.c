@@ -135,9 +135,17 @@ static int money_create_bill(const char *dir)
         int fd=open(path,O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC,0644);
         if (fd>=0) {
             static const char note[]="denomination=1.00\n";
-            ssize_t wrote=write(fd,note,sizeof(note)-1);
-            int closed=close(fd);
-            if (wrote!=(ssize_t)(sizeof(note)-1) || closed!=0) { (void)unlink(path); return -1; }
+            size_t offset = 0;
+            int failed = 0;
+            while (offset < sizeof(note) - 1) {
+                ssize_t wrote = write(fd, note + offset, sizeof(note) - 1 - offset);
+                if (wrote < 0 && errno == EINTR) continue;
+                if (wrote <= 0) { failed = 1; break; }
+                offset += (size_t)wrote;
+            }
+            if (!failed && fsync(fd) != 0) failed = 1;
+            if (close(fd) != 0) failed = 1;
+            if (failed) { (void)unlink(path); return -1; }
             return 0;
         }
         if (errno!=EEXIST) return -1;
