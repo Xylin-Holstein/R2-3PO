@@ -50,6 +50,16 @@ def _read_json(url: str, timeout: float, payload: dict[str, Any] | None = None) 
     return result
 
 
+def _is_complete_assistant_turn(reply: dict[str, Any]) -> bool:
+    """Match the core's non-streaming Ollama completion contract."""
+    message = reply.get("message")
+    return (
+        isinstance(message, dict)
+        and message.get("role") == "assistant"
+        and reply.get("done") is True
+    )
+
+
 def _png_chunk(kind: bytes, payload: bytes) -> bytes:
     return (
         struct.pack(">I", len(payload))
@@ -153,6 +163,14 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
         print(f"ERROR: Ollama listed {MODEL} but real chat generation failed: {exc}", file=sys.stderr)
         return False
 
+    if not _is_complete_assistant_turn(reply):
+        print(
+            f"ERROR: Ollama listed {MODEL} but text generation did not return a complete assistant turn "
+            "(expected message.role=assistant and done=true).",
+            file=sys.stderr,
+        )
+        return False
+
     message = reply.get("message")
     content = message.get("content") if isinstance(message, dict) else None
     if not isinstance(content, str) or not content.strip():
@@ -196,6 +214,14 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
         )
     except (OSError, ValueError, urllib.error.URLError, TimeoutError) as exc:
         print(f"ERROR: {MODEL} passed text generation but image-bearing chat failed: {exc}", file=sys.stderr)
+        return False
+
+    if not _is_complete_assistant_turn(vision_reply):
+        print(
+            f"ERROR: {MODEL} returned an incomplete or invalid assistant turn for the image-bearing probe "
+            "(expected message.role=assistant and done=true).",
+            file=sys.stderr,
+        )
         return False
 
     vision_message = vision_reply.get("message")
