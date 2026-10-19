@@ -46,6 +46,16 @@ require(
     "explicit family relationships survive name contamination from quoted/retrieved history while current corrections win",
 )
 
+# Affect should be interpreted contextually by R2, not routed through a
+# hard-coded emotion-to-response mapping in the system prompt.
+require(
+    "AFFECT AND NONVERBAL EXPRESSION" in core
+    and "do not rely on a hard-coded emotion-to-response table" in core
+    and "choose any state tag as your own contextual judgment, not by a fixed mapping" in core
+    and "Use sleepy or hungry only when the current modeled need actually supports it" not in core,
+    "affect and nonverbal expression are learned from context rather than fixed state-to-reaction rules",
+)
+
 require(
     impl.count("chat_with_relevant_memories(message)") >= 3
     and "first contextual response attempt failed" in impl
