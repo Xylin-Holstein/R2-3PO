@@ -50,7 +50,7 @@ required = (
     'a separate Ollama API is responding on 127.0.0.1:11435',
     "pgrep -af '[l]lama-server'",
     '$1 != "NAME"',
-    'llama-server process exists but ollama ps reports no loaded model',,
+    'llama-server process exists but ollama ps reports no loaded model',
     'Hardware preflight identity: %s (uid=%s, groups=%s)',
     'DROP=(setpriv --reuid="$R2_UID" --regid="$R2_GID" --groups="$R2_RUNTIME_GROUPS" --)',
     'sudo -n "${DROP[@]}" env HOME="$R2_ROOT" USER=r2 LOGNAME=r2',
