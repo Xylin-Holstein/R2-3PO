@@ -76,7 +76,7 @@ growth_start = tool_processor.find("char *_grown = realloc(results, cap);")
 growth_end = tool_processor.find("results = _grown;", growth_start)
 growth_failure = tool_processor[growth_start:growth_end] if growth_start >= 0 and growth_end >= 0 else ""
 require(
-    "Some action may already have completed" in growth_failure
+    "An action may already have completed" in growth_failure
     and "Verify the current state " in growth_failure
     and "before retrying the request." in growth_failure
     and "return results;" in growth_failure
