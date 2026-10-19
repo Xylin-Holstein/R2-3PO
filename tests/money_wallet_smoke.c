@@ -51,6 +51,28 @@ static void clear_money_files(const char *dir) {
     closedir(dp);
 }
 
+static void simulate_interrupted_money_swap(const char *wallet)
+{
+    char txn[1400], fresh[1500], backup[1500], phase[1500], path[1600];
+    snprintf(txn,sizeof(txn),"%s/.r2-money-txn.crash-test",wallet);
+    snprintf(fresh,sizeof(fresh),"%s/new",txn); snprintf(backup,sizeof(backup),"%s/backup",txn);
+    snprintf(phase,sizeof(phase),"%s/phase",txn);
+    assert(mkdir(txn,0700)==0); assert(mkdir(fresh,0700)==0); assert(mkdir(backup,0700)==0);
+    DIR *dp=opendir(wallet); assert(dp); struct dirent *e;
+    while((e=readdir(dp))) {
+        int bill=!strcmp(e->d_name,"money"); size_t n=strlen(e->d_name);
+        if(!bill&&n>=8&&!strncmp(e->d_name,"money(",6)&&e->d_name[n-1]==')') {
+            bill=1; for(size_t i=6;i+1<n;i++)if(e->d_name[i]<'0'||e->d_name[i]>'9')bill=0;
+        }
+        if(!bill&&strcmp(e->d_name,"change.txt"))continue;
+        char from[1700],to[1700];snprintf(from,sizeof(from),"%s/%s",wallet,e->d_name);
+        snprintf(to,sizeof(to),"%s/%s",backup,e->d_name);assert(rename(from,to)==0);
+    }
+    closedir(dp); FILE *fp=fopen(phase,"w");assert(fp);assert(fputs("installing\n",fp)>=0);assert(fclose(fp)==0);
+    snprintf(path,sizeof(path),"%s/money",wallet);fp=fopen(path,"w");assert(fp);
+    assert(fputs("partial replacement\n",fp)>=0);assert(fclose(fp)==0);
+}
+
 static void create_legacy_reality_and_fridge_databases(void)
 {
     char home[1200], path[1500];
@@ -215,6 +237,16 @@ int main(void) {
     assert(access(migrated,F_OK)==0);
     char *ctx=NULL;
     assert(bill_count(wallet)==5);
+    assert(setenv("R2_TEST_MONEY_STAGE_FAIL","1",1)==0);
+    assert(r2_reality_money_receive(1.00)!=0);
+    assert(unsetenv("R2_TEST_MONEY_STAGE_FAIL")==0);
+    assert(bill_count(wallet)==5);
+    ctx=money_context(); assert(strstr(ctx,"carried cash=$5.00")); free(ctx);
+    simulate_interrupted_money_swap(wallet);
+    r2_reality_shutdown();
+    assert(r2_reality_init()==0);
+    assert(bill_count(wallet)==5);
+    ctx=money_context(); assert(strstr(ctx,"carried cash=$5.00")); free(ctx);
     /* An unexpected non-regular authoritative path must be rejected before
        any valid cash bills are removed or recreated. */
     char bad_money_path[1400];
