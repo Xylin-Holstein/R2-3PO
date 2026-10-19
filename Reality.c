@@ -3643,6 +3643,19 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
         if (st) sqlite3_finalize(st);
     }
 
+    if (rc == SQLITE_DONE && fridge_eat_transfer_in_progress) {
+        st = NULL;
+        rc = sqlite3_prepare_v2(reality_db,
+            "UPDATE r2_inventory_transfer_journal SET phase='committed' "
+            "WHERE id=1 AND operation='eat_from_fridge' AND phase='pending'",
+            -1, &st, NULL);
+        if (rc == SQLITE_OK) {
+            rc = sqlite3_step(st);
+            if (rc == SQLITE_DONE && sqlite3_changes(reality_db) != 1)
+                rc = SQLITE_NOTFOUND;
+        }
+        if (st) sqlite3_finalize(st);
+    }
     if (rc == SQLITE_DONE) {
         rc = sqlite3_exec(reality_db, "COMMIT", NULL, NULL, NULL);
         if (rc != SQLITE_OK)
@@ -3905,7 +3918,7 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
     if (!isfinite(energy_bonus)) return -1;
     if (energy_bonus < 0.0) energy_bonus = 0.0;
     if (energy_bonus > 100.0) energy_bonus = 100.0;
-    if (r2_reality_tick() != 0) return -1;
+    if (!fridge_eat_transfer_in_progress && r2_reality_tick() != 0) return -1;
     char ingredients[1024] = {0}, taste[1024] = {0};
     food_attributes(food, ingredients, sizeof(ingredients), taste, sizeof(taste));
 
