@@ -86,9 +86,11 @@ retry = core[start:end]
 for phrase, message in (
     ("messages_copy[index].content,", "retry locates the actual user turn before constructing the compact prompt"),
     ("r2_build_retry_system_prompt()", "retry obtains the complete combined system prompt"),
-    ("Message compact_messages[3];", "retry builds a compact message window instead of resending stale dialogue"),
+    ("Message compact_messages[4];", "retry reserves a bounded compact window for context and the exact active turn"),
+    ("compact_count < 3", "retry can preserve up to three relevant system contexts without replaying stale dialogue"),
     ("PERSISTENT REALITY CONTEXT", "retry preserves live Reality when available"),
     ("CURRENT TURN RETRIEVED CONTEXT", "retry preserves focused retrieved evidence when available"),
+    ("R2 PERSISTENT MEMORY - STARTUP CONTEXT", "retry preserves the dynamic startup-memory snapshot so learned relationship facts remain available"),
     ("compact_messages[compact_count++] = (Message)", "retry appends the exact current user message as the authoritative turn"),
     ("ollama_authoritative_user_query = query;", "retry preserves active-turn identity"),
     ("conversation_reply_token_budget(query)", "retry respects the normal response budget"),
