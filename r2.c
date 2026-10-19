@@ -7498,7 +7498,8 @@ static int gameboy_json_bool(struct json_object *object, const char *key,
 {
     struct json_object *value = NULL;
     if (!object || !json_object_is_type(object, json_type_object) ||
-        !json_object_object_get_ex(object, key, &value))
+        !json_object_object_get_ex(object, key, &value) ||
+        !json_object_is_type(value, json_type_boolean))
         return fallback;
     return json_object_get_boolean(value) ? 1 : 0;
 }
@@ -8506,8 +8507,17 @@ static char *process_tools_with_status(
                 : -1;
             struct json_object *console_json = console_output[0]
                 ? json_tokener_parse(console_output) : NULL;
+            int response_is_list = command && !strcmp(command, "list") &&
+                console_json && json_object_is_type(console_json, json_type_array);
+            int response_is_status = command && !strcmp(command, "status") &&
+                console_json && json_object_is_type(console_json, json_type_object);
+            int response_is_success_object = console_json &&
+                json_object_is_type(console_json, json_type_object) &&
+                gameboy_json_bool(console_json, "ok", 0);
+            /* list/status have their documented shapes without an "ok" field;
+               every mutating/action command must return an explicit JSON true. */
             int command_ok = command_rc == 0 &&
-                gameboy_json_bool(console_json, "ok", 1);
+                (response_is_list || response_is_status || response_is_success_object);
             const char *message = gameboy_json_string(
                 console_json, "message", NULL);
             const char *title = gameboy_json_string(
