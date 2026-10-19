@@ -139,4 +139,3 @@ if empty_ps.returncode != 1 or loaded_ps.returncode != 0:
     raise SystemExit("ollama ps row detection must ignore the header and detect actual model rows")
 
 print("R2 hardware preflight safety, coverage, and launcher-order smoke test passed")
-print("R2 hardware preflight safety, coverage, and launcher-order smoke test passed")
