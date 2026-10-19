@@ -117,31 +117,71 @@ r2_apply_network_lock() {
 }
 
 
+# Detect NVIDIA hardware independently of nvidia-smi. If the PCI device is
+# present but the driver/runtime cannot query it, fail before silently falling
+# back to CPU-only inference.
+R2_NVIDIA_PCI_PRESENT=0
+for vendor_file in /sys/bus/pci/devices/*/vendor; do
+    [[ -r "$vendor_file" ]] || continue
+    R2_NVIDIA_VENDOR=""
+    IFS= read -r R2_NVIDIA_VENDOR < "$vendor_file" || continue
+    R2_NVIDIA_CLASS=""
+    IFS= read -r R2_NVIDIA_CLASS < "${vendor_file%/vendor}/class" 2>/dev/null || continue
+    if [[ "$R2_NVIDIA_VENDOR" == "0x10de" && "$R2_NVIDIA_CLASS" == 0x03* ]]; then
+        R2_NVIDIA_PCI_PRESENT=1
+        break
+    fi
+done
+R2_NVIDIA_QUERY_OK=0
+R2_NVIDIA_GPU_NAMES=""
+if command -v nvidia-smi >/dev/null 2>&1; then
+    if R2_NVIDIA_GPU_NAMES="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null)" &&
+       [[ -n "$R2_NVIDIA_GPU_NAMES" ]]; then
+        R2_NVIDIA_QUERY_OK=1
+    fi
+fi
+if [[ "$R2_NVIDIA_PCI_PRESENT" == "1" && "$R2_NVIDIA_QUERY_OK" != "1" ]]; then
+    echo "[GPU] ERROR: NVIDIA PCI hardware is present but nvidia-smi cannot query a GPU; refusing CPU-only fallback." >&2
+    exit 1
+fi
+
 # Keep the default KV cache within a safer budget on the 4 GiB GTX 1050 Ti.
-# R2's core still adapts to available system RAM on other GPUs; an explicit
-# non-empty context override always wins.
-if [[ -z "${R2_OLLAMA_NUM_CTX:-}" ]] &&
-   command -v nvidia-smi >/dev/null 2>&1 &&
-   nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi 'GTX 1050 Ti'; then
+# Remember which values are defaults so failed preflight can retry conservatively
+# without overriding explicit operator settings.
+R2_OLLAMA_NUM_CTX_DEFAULTED=0
+if [[ -z "${R2_OLLAMA_NUM_CTX:-}" && "$R2_NVIDIA_QUERY_OK" == "1" ]] &&
+   printf '%s\n' "$R2_NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
     export R2_OLLAMA_NUM_CTX=8192
+    R2_OLLAMA_NUM_CTX_DEFAULTED=1
     echo "[GPU] GTX 1050 Ti detected; limiting default Ollama context to 8192 tokens."
 fi
 
 # On this host the GTX 1050 Ti has 4 GiB VRAM. Request a partial layer
 # offload by default instead of forcing the entire model into limited VRAM.
 # An explicit environment value always wins; 0 leaves placement automatic.
+R2_OLLAMA_NUM_GPU_DEFAULTED=0
 if [[ -z "${R2_OLLAMA_NUM_GPU+x}" ]]; then
-    if command -v nvidia-smi >/dev/null 2>&1 &&
-       nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi 'GTX 1050 Ti'; then
+    if [[ "$R2_NVIDIA_QUERY_OK" == "1" ]] &&
+       printf '%s\n' "$R2_NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
         export R2_OLLAMA_NUM_GPU=20
+        R2_OLLAMA_NUM_GPU_DEFAULTED=1
         echo "[GPU] NVIDIA GeForce GTX 1050 Ti detected; requesting 20 model layers on GPU."
     else
         export R2_OLLAMA_NUM_GPU=0
+        R2_OLLAMA_NUM_GPU_DEFAULTED=1
         echo "[GPU] GTX 1050 Ti not detected; leaving placement automatic."
     fi
 else
     export R2_OLLAMA_NUM_GPU
     echo "[GPU] Using configured R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU."
+fi
+
+# If this launch is requesting GPU layers on the target card, require Ollama's
+# process report to confirm actual VRAM allocation rather than accepting a
+# CPU-only generation as a successful GPU preflight.
+R2_OLLAMA_PREFLIGHT_ARGS=()
+if [[ "$R2_NVIDIA_PCI_PRESENT" == "1" || "$R2_OLLAMA_NUM_GPU" != "0" ]]; then
+    R2_OLLAMA_PREFLIGHT_ARGS=(--require-gpu-offload)
 fi
 
 # The interactive launcher and the overnight service share persistent databases.
@@ -261,14 +301,33 @@ if ! sudo -n -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
     R2_OLLAMA_NUM_CTX="${R2_OLLAMA_NUM_CTX:-}" \
     R2_OLLAMA_NUM_GPU="$R2_OLLAMA_NUM_GPU" \
     R2_OLLAMA_TIMEOUT_SECONDS="${R2_OLLAMA_TIMEOUT_SECONDS:-}" \
-    python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --timeout 180; then
-    echo
-    echo "R2 was NOT launched."
-    echo "Start the local Ollama service and ensure 'ollama list' includes qwen3.5:9b."
-    echo "If the model is missing, run: ollama pull qwen3.5:9b"
-    echo "Then launch R2 again."
-    read -p "Press Enter to exit..."
-    exit 1
+    python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --timeout 180 "${R2_OLLAMA_PREFLIGHT_ARGS[@]}"; then
+    if [[ "$R2_OLLAMA_NUM_GPU_DEFAULTED" == "1" &&
+          "$R2_OLLAMA_NUM_CTX_DEFAULTED" == "1" ]]; then
+        echo "[GPU] Default inference preflight failed; retrying with 12 GPU layers and 4096 context tokens."
+        export R2_OLLAMA_NUM_GPU=12
+        export R2_OLLAMA_NUM_CTX=4096
+        if ! sudo -n -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
+            R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
+            R2_OLLAMA_NUM_CTX="$R2_OLLAMA_NUM_CTX" \
+            R2_OLLAMA_NUM_GPU="$R2_OLLAMA_NUM_GPU" \
+            R2_OLLAMA_TIMEOUT_SECONDS="${R2_OLLAMA_TIMEOUT_SECONDS:-}" \
+            python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --timeout 180 "${R2_OLLAMA_PREFLIGHT_ARGS[@]}"; then
+            echo "ERROR: Default and conservative GPU/context preflights both failed."
+            echo "R2 was NOT launched; check the local model/server logs."
+            read -p "Press Enter to exit..."
+            exit 1
+        fi
+    else
+        echo
+        echo "R2 was NOT launched."
+        echo "The explicitly configured GPU/context policy failed the real model preflight."
+        echo "Start the local Ollama service and ensure 'ollama list' includes qwen3.5:9b."
+        echo "If the model is missing, run: ollama pull qwen3.5:9b"
+        echo "Then launch R2 again."
+        read -p "Press Enter to exit..."
+        exit 1
+    fi
 fi
 echo
 
@@ -648,17 +707,19 @@ fi
 echo "Launching R2..."
 echo
 
-# Give this R2 process the audio device group without permanently changing
-# account membership. Preserve every supplementary group already assigned
-# to r2, then add the host's audio GID when that group exists.
+# Give this R2 process the device groups it needs without permanently
+# changing account membership. Preserve r2's existing groups, then add the
+# host audio/video GIDs for speaker/microphone and camera access when present.
 R2_RUNTIME_GROUPS="$(id -G r2 | tr ' ' ',')"
-if AUDIO_GID="$(getent group audio 2>/dev/null | cut -d: -f3)" &&
-   [[ "$AUDIO_GID" =~ ^[0-9]+$ ]]; then
-    case ",$R2_RUNTIME_GROUPS," in
-        *,"$AUDIO_GID",*) ;;
-        *) R2_RUNTIME_GROUPS+=",${AUDIO_GID}" ;;
-    esac
-fi
+for DEVICE_GROUP in audio video; do
+    if DEVICE_GID="$(getent group "$DEVICE_GROUP" 2>/dev/null | cut -d: -f3)" &&
+       [[ "$DEVICE_GID" =~ ^[0-9]+$ ]]; then
+        case ",$R2_RUNTIME_GROUPS," in
+            *,"$DEVICE_GID",*) ;;
+            *) R2_RUNTIME_GROUPS+=",${DEVICE_GID}" ;;
+        esac
+    fi
+done
 
 # ------------------------------------------------------------
 # START R2 WITH ITS PRIVATE CLOCK

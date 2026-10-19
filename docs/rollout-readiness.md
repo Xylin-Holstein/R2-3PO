@@ -4,7 +4,7 @@ This checklist separates repository/CI evidence from checks that must run on the
 
 ## 1. Confirm the candidate and CI
 
-- Use the `release/r2-rollout-readiness-2026-10-17` branch for this candidate; it carries the integrated conversation, speech, vision, database compatibility, Game Boy, TV, and lifecycle work.
+- Use `release/r2-workable-chat-integration-2026-10-18` as the current consolidated candidate (draft PR #161), based on `release/r2-rollout-readiness-2026-10-17` plus the latest conversation, prompt-budget, and Ollama model-copy integrity fixes. It carries the integrated conversation, speech, vision, database compatibility, Game Boy, TV, and lifecycle work.
 - Require the full `R2 build` GitHub Actions workflow to pass on the exact candidate commit. The release branch is explicitly included in the workflow's push filters.
 - Do not merge to `main` or call the candidate hardware-verified based on static smoke tests alone.
 
@@ -41,6 +41,12 @@ Do not delete or replace legacy databases to make a check pass. Investigate inte
 
 Follow [the overnight service guide](overnight-service.md) for dependency preparation and the installer. The service copies the already-installed `qwen3.5:9b` model into R2's private local Ollama store and requires a real local chat completion before starting the core.
 
+The model-copy step validates the Ollama model reference and manifest structure before writing, rejects symlinked source manifests/blob files and source/destination parent components, checks every blob digest and source blob hash, verifies copied content, and uses exclusively-created temporary files for atomic replacement. The model preflight then runs both a real text completion and a camera-sized 640x480 synthetic-image completion in JSON mode that must identify a known blue square, using the same context-dependent output cap as Visual.c; image-bearing inference failure/OOM blocks startup and triggers the same conservative default-only fallback as text failure.
+
+On the 4 GiB GTX 1050 Ti, both the interactive launcher and overnight runner first probe the default 20-GPU-layer / 8192-context policy. If real generation fails and both settings were defaults—not explicit operator overrides—they retry once at 12 GPU layers / 4096 context to reduce VRAM/KV-cache pressure. A successful fallback becomes the policy used by the core; if it also fails, startup remains blocked and the failure is reported. On the GTX 1050 Ti path, a generation reply alone is insufficient: preflight must report positive VRAM allocation and total model memory greater than VRAM to confirm mixed CPU/GPU placement. It must reject malformed references/manifests and must not follow pre-planted destination or temporary-file symlinks. These checks protect the copy operation; they do not replace the target-host model-generation and GPU-placement checks below.
+
+**Trusted bootstrap requirement:** the repository now includes `tools/r2_install_root_bootstrap.sh`, which is intended to be installed once as the root-owned `/usr/local/sbin/r2-3po-install`. It contains the systemd unit definitions and does not execute or install privileged unit content from `R2_SOURCE`; the mutable model copier, database audit, preflight, and build all run as `r2`. `tools/install_r2_overnight.sh` is only a nonprivileged notice and must not be run with `sudo`. The bootstrap must be fetched from immutable commit `2aec6cee84ed1274a6c7324ec6ac5560d8088240` into `/home/x` (outside the runtime-writable tree), verified against Git blob SHA `6e9906e6ac3e7299b368585fc7e842f32ceb2646`, and only then installed as `/usr/local/sbin/r2-3po-install`. Never install it directly from `/home/x/R2_Home/R2`, where `r2` can change it between review and privileged copy. The trust boundary is addressed only when the verified root-owned bootstrap has actually been installed and checked for root ownership and non-writable group/world permissions. Do not run the mutable source-tree installer as root.
+
 **Never run the interactive launcher and the overnight systemd core simultaneously.** They share persistent databases and are designed for one active R2 core.
 
 After installing/activating the service, verify its real state and logs:
@@ -51,7 +57,7 @@ sudo systemctl is-active r2-3po.service
 sudo journalctl -u r2-3po.service -n 100 --no-pager
 ```
 
-A successful service status is only the beginning: confirm the logs show a successful model preflight and no database, permission, or shutdown errors.
+A successful service status is only the beginning: confirm the logs show a successful mixed CPU/GPU model preflight and no database, permission, or shutdown errors.
 
 ## 4. Run real-device acceptance tests
 

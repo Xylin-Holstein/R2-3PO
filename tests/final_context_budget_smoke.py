@@ -28,6 +28,24 @@ require(copy_messages >= 0 and cap < copy_messages,
         "retrieval evidence is bounded before conversation history is copied into the prompt")
 require("r2_bound_context_records(memory_context, final_context_limit);" in body,
         "oversized retrieved evidence is clipped at a record boundary")
+
+budget_start = core.find("static R2SystemContextBudget r2_compute_system_context_budget(")
+budget_end = core.find("\n}\n", budget_start)
+if budget_start < 0 or budget_end < 0:
+    raise SystemExit("Could not locate the prompt-budget allocator.")
+budget = core[budget_start:budget_end + 3]
+require("budget.retrieval_reserve = system_budget / 8;" in budget,
+        "the serializer explicitly reserves a share for current-turn retrieval")
+require("budget.capabilities_reserve = system_budget / 16;" in budget,
+        "the serializer reserves space for capability instructions after active-turn evidence")
+require("r2_compute_system_context_budget(system_budget)" in core,
+        "the actual Ollama serializer uses the tested prompt-budget allocator")
+require("message_add_system_prompt_sections_locked() != 0" in core,
+        "the static identity and capability prompts are split before runtime budgeting")
+require("capability_context=%d" in core and "audit_capability_context = 1" in core,
+        "prompt audit reports whether capability instructions survived serialization")
+require("length > reality_reserve" in core,
+        "live Reality cannot consume more than its allocated prompt share")
 require("The actual user" in body and "message is stored separately" in body,
         "retrieval cap explicitly preserves the user's actual message")
 print("Final retrieved-context budget regression passed.")

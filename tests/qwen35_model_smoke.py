@@ -90,14 +90,14 @@ require(
 )
 require(
     'getenv("R2_OLLAMA_NUM_GPU")' in visual
-    and 'json_object_object_add(options, "num_gpu"' in visual,
+    and 'visual_json_object_add_checked' in visual and '"num_gpu", json_object_new_int((int)gpu_layers)' in visual,
     "vision inference follows the same configurable GPU layer policy as chat",
 )
 require(
     "int r2_ollama_context_tokens(void);" in header
     and "int num_ctx = r2_ollama_context_tokens();" in visual
-    and 'json_object_object_add(options, "num_ctx", json_object_new_int(num_ctx))' in visual
-    and 'json_object_object_add(options, "num_predict", json_object_new_int(num_predict))' in visual,
+    and 'visual_json_object_add_checked(options, "num_ctx", json_object_new_int(num_ctx))' in visual
+    and 'visual_json_object_add_checked(options, "num_predict", json_object_new_int(num_predict))' in visual,
     "vision uses the shared RAM-aware context ceiling and a bounded observation output budget",
 )
 require(
@@ -176,7 +176,7 @@ require(
     "vision keeps Qwen3.5's recommended non-thinking sampler",
 )
 require(
-    'json_object_object_add(root, "think", json_object_new_boolean(0))' in visual,
+    'visual_json_object_add_checked(root, "think", json_object_new_boolean(0))' in visual,
     "vision requests disable separate thinking output just like text conversation",
 )
 require(
@@ -188,16 +188,27 @@ require(
 )
 
 require(
-    "size_t identity_minimum = system_budget / 5;" in core
-    and "system_budget - reality_reserve - identity_minimum" in core
+    "budget.identity_budget = system_budget / 3;" in core
+    and "budget.retrieval_reserve = system_budget / 8;" in core
+    and "budget.capabilities_reserve = system_budget / 16;" in core
+    and "message_add_system_prompt_sections_locked() != 0" in core
+    and "return 7;" in core
+    and "r2_compute_system_context_budget(system_budget)" in core
+    and "length > reality_reserve" in core
+    and "length > retrieval_reserve" in core
+    and "capabilities_reserve > capabilities_used" in core
+    and "capability_remaining" in core
+    and "r2_capability_section_matches_query" in core
+    and "r2_inference_system_priority(" in core
+    and "ollama_authoritative_user_query" in core
     and "Prefer a complete sentence boundary when the cap falls inside the" in core
-    and "override_budget = system_budget / 4;" not in core,
-    "adaptive context budgeting preserves more of the conversation contract without dropping identity or live Reality",
+    and "system_budget - reality_reserve - identity_minimum" not in core,
+    "adaptive context budgeting preserves core identity, live Reality, retrieved memory, and a separate capability prompt",
 )
 require(
     "Return ONLY valid JSON with keys description and focus" in visual
     and "observation for R2's conversation to use as sensory evidence, not as a user-facing answer." in visual
-    and 'json_object_object_add(root, "format", json_object_new_string("json"))' in visual
+    and 'visual_json_object_add_checked(root, "format", json_object_new_string("json"))' in visual
     and "extract_visual_description(model_text)" in visual,
     "vision output carries a natural-language sensory description plus structured focus metadata",
 )
@@ -336,6 +347,14 @@ require(
     and "Reply cleanup produced no visible text; returning a visible reply and preserving the user turn." in core
     and "goto finalize_reply;" in core,
     "tool/action, parser, and sound-cleanup failures return a visible answer instead of silently rolling back the turn",
+)
+
+require(
+    "static void handle_completed_messages(void)" in core
+    and '"[R2_INTERNAL_TOOL_RESULT]\\n"' in core
+    and "messages.items[messages.count - 1].internal_tool_result = 1;" in core
+    and "it was not inserted as user speech" in core,
+    "completed background tasks enter chat as explicitly marked internal results, not unmarked user turns",
 )
 
 require(

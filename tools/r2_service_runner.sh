@@ -34,27 +34,71 @@ if [[ "$R2_OLLAMA_BASE_URL" != "http://127.0.0.1:11435" ]]; then
     fail "overnight R2 must use its permitted isolated Ollama endpoint 127.0.0.1:11435."
 fi
 
-# Match the interactive launcher's smaller default KV cache on the 4 GiB
-# GTX 1050 Ti. An explicit non-empty context override takes precedence.
-if [[ -z "${R2_OLLAMA_NUM_CTX:-}" ]] &&
-   command -v nvidia-smi >/dev/null 2>&1 &&
-   nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi 'GTX 1050 Ti'; then
-    export R2_OLLAMA_NUM_CTX=8192
+# Do not silently downgrade a machine with an NVIDIA PCI device to CPU-only
+# inference merely because its driver/runtime query is broken.
+R2_NVIDIA_PCI_PRESENT=0
+for vendor_file in /sys/bus/pci/devices/*/vendor; do
+    [[ -r "$vendor_file" ]] || continue
+    R2_NVIDIA_VENDOR=""
+    IFS= read -r R2_NVIDIA_VENDOR < "$vendor_file" || continue
+    R2_NVIDIA_CLASS=""
+    IFS= read -r R2_NVIDIA_CLASS < "${vendor_file%/vendor}/class" 2>/dev/null || continue
+    if [[ "$R2_NVIDIA_VENDOR" == "0x10de" && "$R2_NVIDIA_CLASS" == 0x03* ]]; then
+        R2_NVIDIA_PCI_PRESENT=1
+        break
+    fi
+done
+R2_NVIDIA_QUERY_OK=0
+R2_NVIDIA_GPU_NAMES=""
+if command -v nvidia-smi >/dev/null 2>&1; then
+    if R2_NVIDIA_GPU_NAMES="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null)" &&
+       [[ -n "$R2_NVIDIA_GPU_NAMES" ]]; then
+        R2_NVIDIA_QUERY_OK=1
+    fi
 fi
+if [[ "$R2_NVIDIA_PCI_PRESENT" == "1" && "$R2_NVIDIA_QUERY_OK" != "1" ]]; then
+    fail "NVIDIA PCI hardware is present but nvidia-smi cannot query a GPU; refusing CPU-only fallback."
+fi
+
+# Match the interactive launcher's smaller default KV cache on the 4 GiB
+# GTX 1050 Ti. Remember whether these values are defaults so a failed preflight
+# may fall back conservatively without overriding explicit operator settings.
+R2_OLLAMA_NUM_CTX_DEFAULTED="${R2_OLLAMA_NUM_CTX_DEFAULTED:-0}"
+if [[ -z "${R2_OLLAMA_NUM_CTX:-}" && "$R2_NVIDIA_QUERY_OK" == "1" ]] &&
+   printf '%s\n' "$R2_NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
+    export R2_OLLAMA_NUM_CTX=8192
+    R2_OLLAMA_NUM_CTX_DEFAULTED=1
+fi
+# Preserve default-vs-explicit provenance across the systemd-inhibit self-exec.
+export R2_OLLAMA_NUM_CTX_DEFAULTED
 log "Ollama context policy: R2_OLLAMA_NUM_CTX=${R2_OLLAMA_NUM_CTX:-adaptive}"
 
 # Match the interactive launcher: prefer partial offload on the target 4 GiB
 # GTX 1050 Ti, but keep automatic placement when that card is not installed.
 # An explicit service environment override always takes precedence.
+R2_OLLAMA_NUM_GPU_DEFAULTED="${R2_OLLAMA_NUM_GPU_DEFAULTED:-0}"
 if [[ -z "${R2_OLLAMA_NUM_GPU+x}" ]]; then
-    if command -v nvidia-smi >/dev/null 2>&1 &&
-       nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -qi 'GTX 1050 Ti'; then
+    if [[ "$R2_NVIDIA_QUERY_OK" == "1" ]] &&
+       printf '%s\n' "$R2_NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
         export R2_OLLAMA_NUM_GPU=20
     else
         export R2_OLLAMA_NUM_GPU=0
     fi
+    R2_OLLAMA_NUM_GPU_DEFAULTED=1
 fi
+export R2_OLLAMA_NUM_GPU_DEFAULTED
 log "Ollama GPU layer policy: R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU"
+
+# On the target GTX 1050 Ti, a successful CPU-only response is not sufficient
+# to declare the requested mixed CPU/GPU policy ready.
+R2_OLLAMA_REQUIRE_GPU_OFFLOAD=0
+if [[ "$R2_NVIDIA_PCI_PRESENT" == "1" || "$R2_OLLAMA_NUM_GPU" != "0" ]]; then
+    R2_OLLAMA_REQUIRE_GPU_OFFLOAD=1
+fi
+PREFLIGHT_GPU_ARGS=()
+if [[ "$R2_OLLAMA_REQUIRE_GPU_OFFLOAD" == "1" ]]; then
+    PREFLIGHT_GPU_ARGS=(--require-gpu-offload)
+fi
 
 # Acquire the sleep inhibitor before waiting for Ollama or doing any preflight.
 # Re-enter this script under the inhibitor with real time; faketime is applied
@@ -125,8 +169,21 @@ fi
 [[ -r "$R2_SOURCE/tools/preflight_ollama_model.py" ]] ||
     fail "shared Ollama inference preflight is missing: $R2_SOURCE/tools/preflight_ollama_model.py"
 log "Waiting for local Qwen 3.5 model availability and a real chat completion..."
-if ! python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 60 --timeout 180; then
-    fail "Ollama did not complete a real qwen3.5:9b chat preflight. Check the local model/server; systemd will retry automatically."
+if ! python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 60 --timeout 180 "${PREFLIGHT_GPU_ARGS[@]}"; then
+    # The target GTX 1050 Ti has only 4 GiB VRAM. If the default 20-layer /
+    # 8192-context probe fails, retry once with less GPU offload and half the
+    # KV-cache context. Never silently override an explicit operator policy.
+    if [[ "$R2_OLLAMA_NUM_GPU_DEFAULTED" == "1" &&
+          "$R2_OLLAMA_NUM_CTX_DEFAULTED" == "1" ]]; then
+        log "Default GPU/context preflight failed; retrying with 12 GPU layers and 4096 context tokens."
+        export R2_OLLAMA_NUM_GPU=12
+        export R2_OLLAMA_NUM_CTX=4096
+        log "Fallback Ollama policy: R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU R2_OLLAMA_NUM_CTX=$R2_OLLAMA_NUM_CTX"
+        python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 30 --timeout 180 "${PREFLIGHT_GPU_ARGS[@]}" ||
+            fail "Ollama preflight failed with both default and conservative GPU/context policies. Check model/server logs; systemd will retry automatically."
+    else
+        fail "Ollama did not complete a real qwen3.5:9b chat preflight with the explicitly configured GPU/context policy. Check the local model/server; systemd will retry automatically."
+    fi
 fi
 
 # Use the same fixed timestamp offset as the interactive launcher. Do not

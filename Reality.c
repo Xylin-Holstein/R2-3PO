@@ -32,8 +32,13 @@ static sqlite3 *reality_db = NULL;
 static sqlite3 *fridge_db = NULL;
 static pthread_mutex_t reality_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t fridge_lock = PTHREAD_MUTEX_INITIALIZER;
+/* Serializes a purchase from durable intent through inventory commit, including all other money mutations. */
+static pthread_mutex_t purchase_lock = PTHREAD_MUTEX_INITIALIZER;
+static _Thread_local int fridge_eat_transfer_in_progress = 0;
+
 static int reality_ready = 0;
 static int reality_eat_internal(const char *food, double fullness, int consume_tracked_item, double energy_override);
+static int purchase_journal_recover(void);
 
 /* The hunger field is a 0..100 fullness meter: it drains to zero over three
  * modeled hours without food and rises when R2 eats. The separate 72-hour
@@ -114,15 +119,68 @@ static int money_bill_count(const char *dir)
 }
 static int money_change_cents(const char *dir)
 {
-    char path[2048]; struct stat st;
-    int n=snprintf(path,sizeof(path),"%s/change.txt",dir);
-    if (n<=0 || (size_t)n>=sizeof(path)) return -1;
-    if (lstat(path,&st)!=0) return errno==ENOENT ? 0 : -1;
-    if (!S_ISREG(st.st_mode)) return -1;
-    FILE *fp=fopen(path,"r");
-    if (!fp) return -1;
-    long cents=-1; int ok=fscanf(fp,"cents=%ld",&cents)==1; fclose(fp);
-    return ok && cents>=0 && cents<100 ? (int)cents : -1;
+    char path[2048];
+    int n = snprintf(path, sizeof(path), "%s/change.txt", dir);
+    if (n <= 0 || (size_t)n >= sizeof(path))
+        return -1;
+
+    /* Open the authoritative file without following a symlink, then validate
+       the opened inode. lstat()+fopen() leaves a race between those operations. */
+    int fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    if (fd < 0)
+        return errno == ENOENT ? 0 : -1;
+
+    struct stat st;
+    if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+        close(fd);
+        return -1;
+    }
+
+    char buffer[64];
+    size_t used = 0;
+    for (;;) {
+        if (used == sizeof(buffer) - 1) {
+            char extra;
+            ssize_t extra_read;
+            do {
+                extra_read = read(fd, &extra, 1);
+            } while (extra_read < 0 && errno == EINTR);
+            if (extra_read != 0) {
+                close(fd);
+                return -1;
+            }
+            break;
+        }
+
+        ssize_t got = read(fd, buffer + used, sizeof(buffer) - 1 - used);
+        if (got < 0 && errno == EINTR)
+            continue;
+        if (got < 0) {
+            close(fd);
+            return -1;
+        }
+        if (got == 0)
+            break;
+        used += (size_t)got;
+    }
+    if (close(fd) != 0)
+        return -1;
+    if (memchr(buffer, '\0', used) != NULL)
+        return -1; /* Embedded NUL must not hide trailing file contents. */
+    buffer[used] = '\0';
+
+    if (strncmp(buffer, "cents=", 6) != 0)
+        return -1;
+    errno = 0;
+    char *end = NULL;
+    long cents = strtol(buffer + 6, &end, 10);
+    if (errno != 0 || end == buffer + 6)
+        return -1;
+    while (end && (*end == ' ' || *end == '\t' ||
+                   *end == '\r' || *end == '\n'))
+        ++end;
+    return end && *end == '\0' && cents >= 0 && cents < 100
+        ? (int)cents : -1;
 }
 static int money_create_bill(const char *dir)
 {
@@ -135,88 +193,344 @@ static int money_create_bill(const char *dir)
         int fd=open(path,O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC,0644);
         if (fd>=0) {
             static const char note[]="denomination=1.00\n";
-            ssize_t wrote=write(fd,note,sizeof(note)-1);
-            int closed=close(fd);
-            if (wrote!=(ssize_t)(sizeof(note)-1) || closed!=0) { (void)unlink(path); return -1; }
+            size_t offset = 0;
+            int failed = 0;
+            while (offset < sizeof(note) - 1) {
+                ssize_t wrote = write(fd, note + offset, sizeof(note) - 1 - offset);
+                if (wrote < 0 && errno == EINTR) continue;
+                if (wrote <= 0) { failed = 1; break; }
+                offset += (size_t)wrote;
+            }
+            if (!failed && fsync(fd) != 0) failed = 1;
+            if (close(fd) != 0) failed = 1;
+            if (failed) { (void)unlink(path); return -1; }
             return 0;
         }
         if (errno!=EEXIST) return -1;
     }
     return -1;
 }
-static int money_set_dir_balance(const char *dir, sqlite3_int64 cents,
-                                  int *changed)
+
+static int money_sync_directory(const char *path)
 {
-    if (changed) *changed = 0;
-    if (cents < 0 || cents > 100000000LL || ensure_dir_tree(dir) != 0) return -1;
+    int fd = open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (fd < 0) return -1;
+    int rc = fsync(fd);
+    if (close(fd) != 0) rc = -1;
+    return rc == 0 ? 0 : -1;
+}
 
-    /* Preflight every authoritative money path before deleting anything.
-       In particular, a symlink or unexpected directory named "money" must
-       not make us delete valid bills and then fail halfway through cleanup. */
-    DIR *dp = opendir(dir);
-    if (!dp) return -1;
-    struct dirent *entry;
-    int result = 0;
-    while ((entry = readdir(dp)) != NULL) {
-        if (!money_name_is_bill(entry->d_name) && strcmp(entry->d_name, "change.txt"))
-            continue;
-        char path[2048];
-        struct stat st;
-        int n = snprintf(path, sizeof(path), "%s/%s", dir, entry->d_name);
-        if (n <= 0 || (size_t)n >= sizeof(path)) { result = -1; break; }
-        if (lstat(path, &st) != 0) {
-            if (errno != ENOENT) { result = -1; break; }
-            continue;
-        }
-        if (!S_ISREG(st.st_mode)) { result = -1; break; }
-    }
-    closedir(dp);
-    if (result != 0) return -1;
-
-    dp = opendir(dir);
-    if (!dp) return -1;
-    while ((entry = readdir(dp)) != NULL) {
-        if (!money_name_is_bill(entry->d_name) && strcmp(entry->d_name, "change.txt"))
-            continue;
-        char path[2048];
-        struct stat st;
-        int n = snprintf(path, sizeof(path), "%s/%s", dir, entry->d_name);
-        if (n <= 0 || (size_t)n >= sizeof(path)) { result = -1; break; }
-        if (lstat(path, &st) != 0) {
-            if (errno != ENOENT) { result = -1; break; }
-            continue;
-        }
-        if (!S_ISREG(st.st_mode) || unlink(path) != 0) { result = -1; break; }
-        if (changed) *changed = 1;
-    }
-    closedir(dp);
-    if (result != 0) return -1;
-
-    for (sqlite3_int64 i = 0; i < cents / 100; ++i) {
-        if (money_create_bill(dir) != 0) return -1;
-        if (changed) *changed = 1;
-    }
-    int change = (int)(cents % 100);
-    if (change) {
-        char path[2048], tmp[2100];
-        int n = snprintf(path, sizeof(path), "%s/change.txt", dir);
-        if (n <= 0 || (size_t)n >= sizeof(path)) return -1;
-        n = snprintf(tmp, sizeof(tmp), "%s.tmp.%ld", path, (long)getpid());
-        if (n <= 0 || (size_t)n >= sizeof(tmp)) return -1;
-        int fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
-        if (fd < 0) return -1;
-        FILE *fp = fdopen(fd, "w");
-        if (!fp) { close(fd); (void)unlink(tmp); return -1; }
-        int bad = fprintf(fp, "cents=%d\n", change) < 0;
-        if (fflush(fp) != 0) bad = 1;
-        if (fsync(fileno(fp)) != 0) bad = 1;
-        if (fclose(fp) != 0) bad = 1;
-        if (!bad && rename(tmp, path) != 0) bad = 1;
-        if (bad) { (void)unlink(tmp); return -1; }
-        if (changed) *changed = 1;
+static int money_write_all(int fd, const char *data, size_t length)
+{
+    size_t offset = 0;
+    while (offset < length) {
+        ssize_t n = write(fd, data + offset, length - offset);
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) return -1;
+        offset += (size_t)n;
     }
     return 0;
 }
+
+static int money_txn_path(char *out, size_t cap, const char *txn, const char *leaf)
+{
+    int n = snprintf(out, cap, "%s/%s", txn, leaf);
+    return n > 0 && (size_t)n < cap ? 0 : -1;
+}
+
+static int money_write_phase(const char *txn, const char *state)
+{
+    char phase[4096], temp[4096];
+    if (money_txn_path(phase, sizeof(phase), txn, "phase") != 0 ||
+        money_txn_path(temp, sizeof(temp), txn, ".phase.tmp") != 0) return -1;
+    int fd = open(temp, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (fd < 0) return -1;
+    size_t length = strlen(state);
+    int rc = money_write_all(fd, state, length);
+    if (rc == 0 && fsync(fd) != 0) rc = -1;
+    if (close(fd) != 0) rc = -1;
+    if (rc == 0 && rename(temp, phase) != 0) rc = -1;
+    if (rc == 0 && money_sync_directory(txn) != 0) rc = -1;
+    if (rc != 0) (void)unlink(temp);
+    return rc;
+}
+
+static int money_remove_auth_files(const char *dir)
+{
+    DIR *dp = opendir(dir);
+    if (!dp) return -1;
+    struct dirent *entry;
+    int rc = 0;
+    while ((entry = readdir(dp)) != NULL) {
+        if (!money_name_is_bill(entry->d_name) && strcmp(entry->d_name, "change.txt")) continue;
+        char path[8192];
+        int n = snprintf(path, sizeof(path), "%s/%s", dir, entry->d_name);
+        struct stat st;
+        if (n <= 0 || (size_t)n >= sizeof(path) ||
+            lstat(path, &st) != 0 || !S_ISREG(st.st_mode) || unlink(path) != 0) {
+            rc = -1;
+            break;
+        }
+    }
+    if (closedir(dp) != 0) rc = -1;
+    return rc;
+}
+
+static int money_restore_backup(const char *dir, const char *backup)
+{
+    DIR *dp = opendir(backup);
+    if (!dp) return -1;
+    struct dirent *entry;
+    int rc = 0;
+    while ((entry = readdir(dp)) != NULL) {
+        if (!money_name_is_bill(entry->d_name) && strcmp(entry->d_name, "change.txt")) continue;
+        char from[8192], to[8192];
+        struct stat st;
+        int a = snprintf(from, sizeof(from), "%s/%s", backup, entry->d_name);
+        int b = snprintf(to, sizeof(to), "%s/%s", dir, entry->d_name);
+        if (a <= 0 || (size_t)a >= sizeof(from) || b <= 0 || (size_t)b >= sizeof(to) ||
+            lstat(from, &st) != 0 || !S_ISREG(st.st_mode)) {
+            rc = -1;
+            break;
+        }
+        if (lstat(to, &st) == 0 || errno != ENOENT || rename(from, to) != 0) {
+            rc = -1;
+            break;
+        }
+    }
+    if (closedir(dp) != 0) rc = -1;
+    if (rc == 0 && money_sync_directory(backup) != 0) rc = -1;
+    if (rc == 0 && money_sync_directory(dir) != 0) rc = -1;
+    return rc;
+}
+
+static int money_clean_txn_dir(const char *txn)
+{
+    char stage[4096], backup[4096], phase[4096], temp[4096];
+    if (money_txn_path(stage, sizeof(stage), txn, "new") != 0 ||
+        money_txn_path(backup, sizeof(backup), txn, "backup") != 0 ||
+        money_txn_path(phase, sizeof(phase), txn, "phase") != 0 ||
+        money_txn_path(temp, sizeof(temp), txn, ".phase.tmp") != 0) return -1;
+    const char *dirs[] = {stage, backup};
+    for (size_t i = 0; i < sizeof(dirs) / sizeof(dirs[0]); ++i) {
+        DIR *dp = opendir(dirs[i]);
+        if (!dp) {
+            if (errno == ENOENT) continue;
+            return -1;
+        }
+        struct dirent *entry;
+        int rc = 0;
+        while ((entry = readdir(dp)) != NULL) {
+            if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
+            if (!money_name_is_bill(entry->d_name) && strcmp(entry->d_name, "change.txt")) {
+                rc = -1;
+                break;
+            }
+            char path[8192];
+            struct stat st;
+            int n = snprintf(path, sizeof(path), "%s/%s", dirs[i], entry->d_name);
+            if (n <= 0 || (size_t)n >= sizeof(path) || lstat(path, &st) != 0 ||
+                !S_ISREG(st.st_mode) || unlink(path) != 0) {
+                rc = -1;
+                break;
+            }
+        }
+        if (closedir(dp) != 0) rc = -1;
+        if (rc != 0) return -1;
+        if (rmdir(dirs[i]) != 0 && errno != ENOENT) return -1;
+    }
+    if (unlink(phase) != 0 && errno != ENOENT) return -1;
+    if (unlink(temp) != 0 && errno != ENOENT) return -1;
+    if (money_sync_directory(txn) != 0) return -1;
+    if (rmdir(txn) != 0 && errno != ENOENT) return -1;
+    return 0;
+}
+
+static int money_recover_one_transaction(const char *dir, const char *txn)
+{
+    char stage[4096], backup[4096], phase[4096], state[32] = {0};
+    if (money_txn_path(stage, sizeof(stage), txn, "new") != 0 ||
+        money_txn_path(backup, sizeof(backup), txn, "backup") != 0 ||
+        money_txn_path(phase, sizeof(phase), txn, "phase") != 0) return -1;
+
+    int fd = open(phase, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    if (fd < 0 && errno != ENOENT) return -1;
+    if (fd >= 0) {
+        ssize_t n;
+        do { n = read(fd, state, sizeof(state) - 1); } while (n < 0 && errno == EINTR);
+        int close_rc = close(fd);
+        if (n <= 0 || close_rc != 0) return -1;
+        if (n == (ssize_t)(sizeof(state) - 1)) return -1;
+        state[n] = '\0';
+        state[strcspn(state, "\r\n")] = '\0';
+    } else {
+        /* No phase marker is safe only before any authoritative file moved. */
+        DIR *dp = opendir(backup);
+        if (!dp) return -1;
+        struct dirent *entry;
+        int has_backup = 0;
+        while ((entry = readdir(dp)) != NULL) {
+            if (money_name_is_bill(entry->d_name) || !strcmp(entry->d_name, "change.txt")) {
+                has_backup = 1;
+                break;
+            }
+        }
+        if (closedir(dp) != 0 || has_backup) return -1;
+        return money_clean_txn_dir(txn);
+    }
+
+    if (!strcmp(state, "moving")) {
+        /* Some old bills may still be in place; restore only names already backed up. */
+        if (money_restore_backup(dir, backup) != 0) return -1;
+    } else if (!strcmp(state, "installing")) {
+        if (money_remove_auth_files(dir) != 0 ||
+            money_restore_backup(dir, backup) != 0) return -1;
+    } else if (strcmp(state, "committed")) {
+        /* Unknown/truncated state is not permission to discard the backup. */
+        return -1;
+    }
+    if (money_sync_directory(dir) != 0) return -1;
+    return money_clean_txn_dir(txn);
+}
+
+static int money_recover_transactions(const char *dir)
+{
+    DIR *root = opendir(dir);
+    if (!root) return -1;
+    struct dirent *entry;
+    int result = 0;
+    while ((entry = readdir(root)) != NULL) {
+        if (strncmp(entry->d_name, ".r2-money-txn.", 14)) continue;
+        char txn[4096];
+        struct stat st;
+        int n = snprintf(txn, sizeof(txn), "%s/%s", dir, entry->d_name);
+        if (n <= 0 || (size_t)n >= sizeof(txn) ||
+            lstat(txn, &st) != 0 || !S_ISDIR(st.st_mode) ||
+            money_recover_one_transaction(dir, txn) != 0) {
+            result = -1;
+            break;
+        }
+    }
+    if (closedir(root) != 0) result = -1;
+    return result;
+}
+
+static int money_set_dir_balance(const char *dir, sqlite3_int64 cents, int *changed)
+{
+    if (changed) *changed = 0;
+    if (cents < 0 || cents > 100000000LL || ensure_dir_tree(dir) != 0 ||
+        money_recover_transactions(dir) != 0) return -1;
+
+    DIR *dp = opendir(dir);
+    if (!dp) return -1;
+    struct dirent *entry;
+    int rc = 0;
+    while ((entry = readdir(dp)) != NULL) {
+        if (!money_name_is_bill(entry->d_name) && strcmp(entry->d_name, "change.txt")) continue;
+        char path[4096];
+        struct stat st;
+        int n = snprintf(path, sizeof(path), "%s/%s", dir, entry->d_name);
+        if (n <= 0 || (size_t)n >= sizeof(path) ||
+            lstat(path, &st) != 0 || !S_ISREG(st.st_mode)) { rc = -1; break; }
+    }
+    if (closedir(dp) != 0) rc = -1;
+    if (rc) return -1;
+
+    char templ[2200], txn[4096], stage[4096], backup[4096];
+    int n = snprintf(templ, sizeof(templ), "%s/.r2-money-txn.XXXXXX", dir);
+    if (n <= 0 || (size_t)n >= sizeof(templ)) return -1;
+    char *made = mkdtemp(templ);
+    if (!made) return -1;
+    snprintf(txn, sizeof(txn), "%s", made);
+    if (money_sync_directory(dir) != 0 ||
+        money_txn_path(stage, sizeof(stage), txn, "new") != 0 ||
+        money_txn_path(backup, sizeof(backup), txn, "backup") != 0 ||
+        mkdir(stage, 0700) != 0 || mkdir(backup, 0700) != 0 ||
+        money_sync_directory(txn) != 0) {
+        (void)money_clean_txn_dir(txn);
+        return -1;
+    }
+
+    for (sqlite3_int64 i = 0; i < cents / 100; ++i) {
+        if (money_create_bill(stage) != 0) { rc = -1; break; }
+#ifdef R2_MONEY_TEST_FAILURE_INJECTION
+        if (i == 0 && getenv("R2_TEST_MONEY_STAGE_FAIL")) { rc = -1; break; }
+#endif
+    }
+    int change = (int)(cents % 100);
+    if (!rc && change) {
+        char path[4096], value[32];
+        n = snprintf(path, sizeof(path), "%s/change.txt", stage);
+        if (n <= 0 || (size_t)n >= sizeof(path)) rc = -1;
+        else {
+            int fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
+            if (fd < 0) rc = -1;
+            else {
+                int length = snprintf(value, sizeof(value), "cents=%d\n", change);
+                if (money_write_all(fd, value, (size_t)length) != 0 || fsync(fd) != 0) rc = -1;
+                if (close(fd) != 0) rc = -1;
+                if (rc) (void)unlink(path);
+            }
+        }
+    }
+    if (rc == 0 && money_sync_directory(stage) != 0) rc = -1;
+    if (rc != 0) {
+        (void)money_clean_txn_dir(txn);
+        return -1;
+    }
+
+    if (money_write_phase(txn, "moving\n") != 0) {
+        (void)money_clean_txn_dir(txn);
+        return -1;
+    }
+    dp = opendir(dir);
+    if (!dp) { rc = -1; goto rollback; }
+    while ((entry = readdir(dp)) != NULL) {
+        if (!money_name_is_bill(entry->d_name) && strcmp(entry->d_name, "change.txt")) continue;
+        char from[8192], to[8192];
+        int a = snprintf(from, sizeof(from), "%s/%s", dir, entry->d_name);
+        int b = snprintf(to, sizeof(to), "%s/%s", backup, entry->d_name);
+        if (a <= 0 || (size_t)a >= sizeof(from) || b <= 0 ||
+            (size_t)b >= sizeof(to) || rename(from, to) != 0) { rc = -1; break; }
+#ifdef R2_MONEY_TEST_FAILURE_INJECTION
+        if (getenv("R2_TEST_MONEY_FAIL_AFTER_BACKUP_MOVE")) { rc = -1; break; }
+#endif
+    }
+    if (closedir(dp) != 0) rc = -1;
+    if (rc != 0 || money_sync_directory(dir) != 0 || money_sync_directory(backup) != 0) {
+        rc = -1;
+        goto rollback;
+    }
+
+    if (money_write_phase(txn, "installing\n") != 0) { rc = -1; goto rollback; }
+    dp = opendir(stage);
+    if (!dp) { rc = -1; goto rollback; }
+    while ((entry = readdir(dp)) != NULL) {
+        if (!money_name_is_bill(entry->d_name) && strcmp(entry->d_name, "change.txt")) continue;
+        char from[8192], to[8192];
+        int a = snprintf(from, sizeof(from), "%s/%s", stage, entry->d_name);
+        int b = snprintf(to, sizeof(to), "%s/%s", dir, entry->d_name);
+        if (a <= 0 || (size_t)a >= sizeof(from) || b <= 0 ||
+            (size_t)b >= sizeof(to) || rename(from, to) != 0) { rc = -1; break; }
+    }
+    if (closedir(dp) != 0) rc = -1;
+    if (rc != 0 || money_sync_directory(dir) != 0 || money_sync_directory(stage) != 0) {
+        rc = -1;
+        goto rollback;
+    }
+
+    if (money_write_phase(txn, "committed\n") != 0) { rc = -1; goto rollback; }
+    if (changed) *changed = 1;
+    (void)money_recover_one_transaction(dir, txn); /* committed cleanup can be retried at startup */
+    return 0;
+
+rollback:
+    /* Never delete a backup unless restoration completed successfully. */
+    if (money_recover_one_transaction(dir, txn) != 0)
+        fprintf(stderr, "[R2 Reality] Money transaction recovery deferred; backup retained at %s\n", txn);
+    return -1;
+}
+
 static int money_dir_balance(const char *dir, sqlite3_int64 *balance)
 {
     int bills=money_bill_count(dir), change=money_change_cents(dir);
@@ -266,12 +580,111 @@ static int money_read_locked(sqlite3_int64 *cash, sqlite3_int64 *bank)
     if (bank) *bank=b;
     return 0;
 }
+static int money_journal_clear(void)
+{
+    if (sqlite3_exec(reality_db, "BEGIN IMMEDIATE; DELETE FROM r2_money_transfer_journal WHERE id=1; COMMIT;", NULL, NULL, NULL) != SQLITE_OK) {
+        (void)sqlite3_exec(reality_db, "ROLLBACK;", NULL, NULL, NULL);
+        return -1;
+    }
+    return 0;
+}
+
+static int money_journal_begin(sqlite3_int64 old_cash, sqlite3_int64 old_bank,
+                               sqlite3_int64 new_cash, sqlite3_int64 new_bank,
+                               const char *operation)
+{
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_exec(reality_db, "BEGIN IMMEDIATE", NULL, NULL, NULL) != SQLITE_OK) return -1;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "INSERT INTO r2_money_transfer_journal(id,old_cash_cents,old_bank_cents,new_cash_cents,new_bank_cents,operation,phase) "
+        "VALUES(1,?,?,?,?,?,'pending')", -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        sqlite3_bind_int64(st, 1, old_cash);
+        sqlite3_bind_int64(st, 2, old_bank);
+        sqlite3_bind_int64(st, 3, new_cash);
+        sqlite3_bind_int64(st, 4, new_bank);
+        sqlite3_bind_text(st, 5, operation ? operation : "transfer", -1, SQLITE_TRANSIENT);
+        rc = sqlite3_step(st);
+    }
+    if (st) sqlite3_finalize(st);
+    if (rc == SQLITE_DONE) rc = sqlite3_exec(reality_db, "COMMIT", NULL, NULL, NULL);
+    if (rc != SQLITE_OK) {
+        (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
+        return -1;
+    }
+    return 0;
+}
+
+static int money_journal_mark_committed(void)
+{
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_exec(reality_db, "BEGIN IMMEDIATE", NULL, NULL, NULL) != SQLITE_OK) return -1;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "UPDATE r2_money_transfer_journal SET phase='committed' WHERE id=1 AND phase='pending'",
+        -1, &st, NULL);
+    if (rc == SQLITE_OK) rc = sqlite3_step(st);
+    if (st) sqlite3_finalize(st);
+    if (rc == SQLITE_DONE && sqlite3_changes(reality_db) == 1)
+        rc = sqlite3_exec(reality_db, "COMMIT", NULL, NULL, NULL);
+    else rc = SQLITE_ERROR;
+    if (rc != SQLITE_OK) {
+        (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
+        return -1;
+    }
+    return 0;
+}
+
+/* Resolve a durable two-directory transfer intent before trusting balances. */
+static int money_journal_recover(int *was_committed)
+{
+    sqlite3_stmt *st = NULL;
+    sqlite3_int64 old_cash = 0, old_bank = 0, new_cash = 0, new_bank = 0;
+    char phase[24] = {0};
+    if (was_committed) *was_committed = 0;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "SELECT old_cash_cents,old_bank_cents,new_cash_cents,new_bank_cents,phase "
+        "FROM r2_money_transfer_journal WHERE id=1", -1, &st, NULL);
+    if (rc != SQLITE_OK) return -1;
+    rc = sqlite3_step(st);
+    if (rc == SQLITE_DONE) { sqlite3_finalize(st); return 0; }
+    if (rc != SQLITE_ROW) { sqlite3_finalize(st); return -1; }
+    old_cash = sqlite3_column_int64(st, 0);
+    old_bank = sqlite3_column_int64(st, 1);
+    new_cash = sqlite3_column_int64(st, 2);
+    new_bank = sqlite3_column_int64(st, 3);
+    const unsigned char *p = sqlite3_column_text(st, 4);
+    snprintf(phase, sizeof(phase), "%s", p ? (const char *)p : "");
+    sqlite3_finalize(st);
+
+    if (!strcmp(phase, "pending")) {
+        char wallet[1200], piggybank[1200];
+        money_dir_path(0, wallet, sizeof(wallet));
+        money_dir_path(1, piggybank, sizeof(piggybank));
+        if (money_set_dir_balance(wallet, old_cash, NULL) != 0 ||
+            money_set_dir_balance(piggybank, old_bank, NULL) != 0 ||
+            money_read_locked(NULL, NULL) != 0) {
+            fprintf(stderr, "[R2 Money] Pending transfer recovery failed; durable journal retained for retry.\n");
+            return -1;
+        }
+        return money_journal_clear();
+    }
+    if (strcmp(phase, "committed")) return -1;
+    if (was_committed) *was_committed = 1;
+    /* Physical files remain authoritative; this refreshes the derived SQLite summary. */
+    if (money_read_locked(NULL, NULL) != 0) return -1;
+    (void)new_cash;
+    (void)new_bank;
+    return money_journal_clear();
+}
+
 static int money_initialize_files(int previously_seeded)
 {
     char wallet[1200], piggybank[1200];
     money_dir_path(0, wallet, sizeof(wallet));
     money_dir_path(1, piggybank, sizeof(piggybank));
     if (ensure_dir_tree(wallet) != 0 || ensure_dir_tree(piggybank) != 0) return -1;
+    if (money_journal_recover(NULL) != 0) return -1;
+    if (money_recover_transactions(wallet) != 0 || money_recover_transactions(piggybank) != 0) return -1;
 
     int wb = money_bill_count(wallet), bb = money_bill_count(piggybank);
     int wc = money_change_cents(wallet), bc = money_change_cents(piggybank);
@@ -1054,11 +1467,32 @@ char *r2_fridge_list(void)
             sqlite3_column_double(st, 3), sqlite3_column_double(st, 4));
         if (n <= 0) continue;
         size_t add = (size_t)n;
-        if (len + add + 1 > cap) {
-            size_t next = cap * 2; while (next < len + add + 1) next *= 2;
-            char *grown = realloc(out, next); if (!grown) break; out = grown; cap = next;
+        if (add >= sizeof(line)) {
+            /* snprintf's return value is the required length, not stored bytes. */
+            static const char truncation[] = " [entry truncated]\n";
+            add = sizeof(line) - 1;
+            size_t suffix_len = sizeof(truncation) - 1;
+            memcpy(line + add - suffix_len, truncation, suffix_len);
         }
-        memcpy(out + len, line, add); len += add; out[len] = '\0';
+        if (add > SIZE_MAX - len - 1) break;
+        size_t needed = len + add + 1;
+        if (needed > cap) {
+            size_t next = cap;
+            while (next < needed) {
+                if (next > SIZE_MAX / 2) {
+                    next = needed;
+                    break;
+                }
+                next *= 2;
+            }
+            char *grown = realloc(out, next);
+            if (!grown) break;
+            out = grown;
+            cap = next;
+        }
+        memcpy(out + len, line, add);
+        len += add;
+        out[len] = '\0';
     }
     if (st) sqlite3_finalize(st);
     pthread_mutex_unlock(&fridge_lock);
@@ -1210,12 +1644,6 @@ static int fridge_change_one(const char *food, char *description, size_t descrip
     sqlite3_finalize(st);
     return rc == SQLITE_DONE ? 0 : -1;
 }
-static int fridge_restore_one(const char *food, const char *description, double fullness, double energy,
-                             const char *ingredients, const char *taste)
-{
-    return fridge_insert_item_compat(food, description, 1, fullness, energy,
-                                     ingredients, taste, 0) == SQLITE_DONE ? 0 : -1;
-}
 int r2_fridge_add_item(const char *name, const char *description, int quantity,
                        double fullness, double energy, const char *ingredients, const char *taste)
 {
@@ -1261,92 +1689,696 @@ int r2_fridge_add_item(const char *name, const char *description, int quantity,
     return rc == SQLITE_DONE ? 0 : -1;
 }
 
+typedef struct {
+    char operation[32];
+    char name[REALITY_MAX_TEXT + 1];
+    int reality_exists;
+    char reality_description[REALITY_MAX_TEXT + 1];
+    int reality_quantity;
+    char reality_container[REALITY_MAX_TEXT + 1];
+    char reality_owner[REALITY_MAX_TEXT + 1];
+    sqlite3_int64 item_memory_max_id;
+    int fridge_exists;
+    char fridge_description[REALITY_MAX_TEXT + 1];
+    int fridge_quantity;
+    double fridge_fullness;
+    double fridge_energy;
+    char fridge_ingredients[1024];
+    char fridge_taste[1024];
+    int self_snapshot_valid;
+    double self_hunger, self_satisfaction, self_seconds_since_meal;
+    double self_sleepiness, self_energy;
+    sqlite3_int64 self_last_tick;
+    char self_updated_at[64];
+    int starvation_fact_exists;
+    char starvation_fact_value[128];
+    char starvation_fact_evidence[1024];
+    sqlite3_int64 food_experience_max_id;
+    char phase[24];
+} InventoryTransferSnapshot;
+
+/* Caller holds reality_lock. The snapshot is persisted before either database
+   is changed, so startup can restore both sides after an interrupted transfer. */
+static int inventory_transfer_snapshot_locked(const char *name,
+                                               InventoryTransferSnapshot *snapshot)
+{
+    if (!reality_db || !fridge_db || !name || !*name || !snapshot) return -1;
+    memset(snapshot, 0, sizeof(*snapshot));
+    snprintf(snapshot->name, sizeof(snapshot->name), "%s", name);
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "SELECT description,quantity,container,owner FROM r2_reality_objects "
+        "WHERE name=? COLLATE NOCASE", -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        bind_text(st, 1, name);
+        rc = sqlite3_step(st);
+        if (rc == SQLITE_ROW) {
+            const unsigned char *description = sqlite3_column_text(st, 0);
+            const unsigned char *container = sqlite3_column_text(st, 2);
+            const unsigned char *owner = sqlite3_column_text(st, 3);
+            snapshot->reality_exists = 1;
+            snprintf(snapshot->reality_description, sizeof(snapshot->reality_description),
+                     "%s", description ? (const char *)description : "");
+            snapshot->reality_quantity = sqlite3_column_int(st, 1);
+            snprintf(snapshot->reality_container, sizeof(snapshot->reality_container),
+                     "%s", container ? (const char *)container : "");
+            snprintf(snapshot->reality_owner, sizeof(snapshot->reality_owner),
+                     "%s", owner ? (const char *)owner : "R2");
+            rc = SQLITE_OK;
+        } else if (rc == SQLITE_DONE) {
+            rc = SQLITE_OK;
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    if (rc != SQLITE_OK) return -1;
+
+    st = NULL;
+    rc = sqlite3_prepare_v2(reality_db,
+        "SELECT COALESCE(MAX(id),0) FROM r2_reality_item_memory", -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        rc = sqlite3_step(st);
+        if (rc == SQLITE_ROW) {
+            snapshot->item_memory_max_id = sqlite3_column_int64(st, 0);
+            rc = SQLITE_OK;
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    if (rc != SQLITE_OK) return -1;
+
+    st = NULL;
+    rc = sqlite3_prepare_v2(reality_db,
+        "SELECT hunger,satisfaction,seconds_since_meal,sleepiness,energy,last_tick,updated_at "
+        "FROM r2_reality_self WHERE id=1", -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        rc = sqlite3_step(st);
+        if (rc == SQLITE_ROW) {
+            snapshot->self_hunger = sqlite3_column_double(st, 0);
+            snapshot->self_satisfaction = sqlite3_column_double(st, 1);
+            snapshot->self_seconds_since_meal = sqlite3_column_double(st, 2);
+            snapshot->self_sleepiness = sqlite3_column_double(st, 3);
+            snapshot->self_energy = sqlite3_column_double(st, 4);
+            snapshot->self_last_tick = sqlite3_column_int64(st, 5);
+            const unsigned char *updated = sqlite3_column_text(st, 6);
+            snprintf(snapshot->self_updated_at, sizeof(snapshot->self_updated_at),
+                     "%s", updated ? (const char *)updated : "");
+            snapshot->self_snapshot_valid = 1;
+            rc = SQLITE_OK;
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    if (rc != SQLITE_OK) return -1;
+
+    st = NULL;
+    rc = sqlite3_prepare_v2(reality_db,
+        "SELECT value,evidence FROM r2_reality_self_facts "
+        "WHERE key='starvation_72h_logged'", -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        rc = sqlite3_step(st);
+        if (rc == SQLITE_ROW) {
+            const unsigned char *fact_value = sqlite3_column_text(st, 0);
+            const unsigned char *fact_evidence = sqlite3_column_text(st, 1);
+            snapshot->starvation_fact_exists = 1;
+            snprintf(snapshot->starvation_fact_value, sizeof(snapshot->starvation_fact_value),
+                     "%s", fact_value ? (const char *)fact_value : "");
+            snprintf(snapshot->starvation_fact_evidence, sizeof(snapshot->starvation_fact_evidence),
+                     "%s", fact_evidence ? (const char *)fact_evidence : "");
+            rc = SQLITE_OK;
+        } else if (rc == SQLITE_DONE) {
+            rc = SQLITE_OK;
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    if (rc != SQLITE_OK) return -1;
+
+    st = NULL;
+    rc = sqlite3_prepare_v2(reality_db,
+        "SELECT COALESCE(MAX(id),0) FROM r2_food_experiences", -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        rc = sqlite3_step(st);
+        if (rc == SQLITE_ROW) {
+            snapshot->food_experience_max_id = sqlite3_column_int64(st, 0);
+            rc = SQLITE_OK;
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    if (rc != SQLITE_OK) return -1;
+
+    pthread_mutex_lock(&fridge_lock);
+    st = NULL;
+    rc = sqlite3_prepare_v2(fridge_db,
+        "SELECT description,quantity,fullness,energy,ingredients,taste "
+        "FROM r2_fridge_items WHERE name=? COLLATE NOCASE", -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        bind_text(st, 1, name);
+        rc = sqlite3_step(st);
+        if (rc == SQLITE_ROW) {
+            const unsigned char *description = sqlite3_column_text(st, 0);
+            const unsigned char *ingredients = sqlite3_column_text(st, 4);
+            const unsigned char *taste = sqlite3_column_text(st, 5);
+            snapshot->fridge_exists = 1;
+            snprintf(snapshot->fridge_description, sizeof(snapshot->fridge_description),
+                     "%s", description ? (const char *)description : "");
+            snapshot->fridge_quantity = sqlite3_column_int(st, 1);
+            snapshot->fridge_fullness = sqlite3_column_double(st, 2);
+            snapshot->fridge_energy = sqlite3_column_double(st, 3);
+            snprintf(snapshot->fridge_ingredients, sizeof(snapshot->fridge_ingredients),
+                     "%s", ingredients ? (const char *)ingredients : "");
+            snprintf(snapshot->fridge_taste, sizeof(snapshot->fridge_taste),
+                     "%s", taste ? (const char *)taste : "");
+            rc = SQLITE_OK;
+        } else if (rc == SQLITE_DONE) {
+            rc = SQLITE_OK;
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&fridge_lock);
+    return rc == SQLITE_OK ? 0 : -1;
+}
+
+/* Caller holds reality_lock. */
+static int inventory_transfer_journal_begin_locked(const char *operation,
+                                                    const InventoryTransferSnapshot *snapshot)
+{
+    if (!reality_db || !operation || !snapshot) return -1;
+    if (sqlite3_exec(reality_db, "BEGIN IMMEDIATE", NULL, NULL, NULL) != SQLITE_OK)
+        return -1;
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "INSERT INTO r2_inventory_transfer_journal("
+        "id,operation,item_name,reality_exists,reality_description,reality_quantity,"
+        "reality_container,reality_owner,item_memory_max_id,fridge_exists,fridge_description,"
+        "fridge_quantity,fridge_fullness,fridge_energy,fridge_ingredients,fridge_taste,"
+        "self_snapshot_valid,self_hunger,self_satisfaction,self_seconds_since_meal,"
+        "self_sleepiness,self_energy,self_last_tick,self_updated_at,starvation_fact_exists,"
+        "starvation_fact_value,starvation_fact_evidence,food_experience_max_id,phase) "
+        "VALUES(1,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending')", -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        int i = 1;
+        sqlite3_bind_text(st, i++, operation, -1, SQLITE_TRANSIENT);
+        bind_text(st, i++, snapshot->name);
+        sqlite3_bind_int(st, i++, snapshot->reality_exists);
+        bind_text(st, i++, snapshot->reality_description);
+        sqlite3_bind_int(st, i++, snapshot->reality_quantity);
+        bind_text(st, i++, snapshot->reality_container);
+        bind_text(st, i++, snapshot->reality_owner);
+        sqlite3_bind_int64(st, i++, snapshot->item_memory_max_id);
+        sqlite3_bind_int(st, i++, snapshot->fridge_exists);
+        bind_text(st, i++, snapshot->fridge_description);
+        sqlite3_bind_int(st, i++, snapshot->fridge_quantity);
+        sqlite3_bind_double(st, i++, snapshot->fridge_fullness);
+        sqlite3_bind_double(st, i++, snapshot->fridge_energy);
+        bind_text(st, i++, snapshot->fridge_ingredients);
+        bind_text(st, i++, snapshot->fridge_taste);
+        sqlite3_bind_int(st, i++, snapshot->self_snapshot_valid);
+        sqlite3_bind_double(st, i++, snapshot->self_hunger);
+        sqlite3_bind_double(st, i++, snapshot->self_satisfaction);
+        sqlite3_bind_double(st, i++, snapshot->self_seconds_since_meal);
+        sqlite3_bind_double(st, i++, snapshot->self_sleepiness);
+        sqlite3_bind_double(st, i++, snapshot->self_energy);
+        sqlite3_bind_int64(st, i++, snapshot->self_last_tick);
+        bind_text(st, i++, snapshot->self_updated_at);
+        sqlite3_bind_int(st, i++, snapshot->starvation_fact_exists);
+        bind_text(st, i++, snapshot->starvation_fact_value);
+        bind_text(st, i++, snapshot->starvation_fact_evidence);
+        sqlite3_bind_int64(st, i++, snapshot->food_experience_max_id);
+        rc = sqlite3_step(st);
+    }
+    if (st) sqlite3_finalize(st);
+    if (rc == SQLITE_DONE) rc = sqlite3_exec(reality_db, "COMMIT", NULL, NULL, NULL);
+    if (rc != SQLITE_OK) {
+        (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
+        return -1;
+    }
+    return 0;
+}
+
+static int inventory_transfer_journal_mark_committed(void)
+{
+    pthread_mutex_lock(&reality_lock);
+    if (!reality_db) {
+        pthread_mutex_unlock(&reality_lock);
+        return -1;
+    }
+    int rc = sqlite3_exec(reality_db, "BEGIN IMMEDIATE", NULL, NULL, NULL);
+    sqlite3_stmt *st = NULL;
+    if (rc == SQLITE_OK)
+        rc = sqlite3_prepare_v2(reality_db,
+            "UPDATE r2_inventory_transfer_journal SET phase='committed' "
+            "WHERE id=1 AND phase='pending'", -1, &st, NULL);
+    if (rc == SQLITE_OK) rc = sqlite3_step(st);
+    if (st) sqlite3_finalize(st);
+    if (rc == SQLITE_DONE && sqlite3_changes(reality_db) == 1)
+        rc = sqlite3_exec(reality_db, "COMMIT", NULL, NULL, NULL);
+    else rc = SQLITE_ERROR;
+    if (rc != SQLITE_OK) (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
+    pthread_mutex_unlock(&reality_lock);
+    return rc == SQLITE_OK ? 0 : -1;
+}
+
+static int inventory_transfer_journal_clear_locked(void)
+{
+    if (!reality_db) return -1;
+    int rc = sqlite3_exec(reality_db, "BEGIN IMMEDIATE", NULL, NULL, NULL);
+    if (rc == SQLITE_OK)
+        rc = sqlite3_exec(reality_db, "DELETE FROM r2_inventory_transfer_journal WHERE id=1",
+                          NULL, NULL, NULL);
+    if (rc == SQLITE_OK) rc = sqlite3_exec(reality_db, "COMMIT", NULL, NULL, NULL);
+    if (rc != SQLITE_OK) (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
+    return rc == SQLITE_OK ? 0 : -1;
+}
+
+static int inventory_transfer_journal_clear(void)
+{
+    pthread_mutex_lock(&reality_lock);
+    int rc = inventory_transfer_journal_clear_locked();
+    pthread_mutex_unlock(&reality_lock);
+    return rc;
+}
+
+/* Caller holds reality_lock. Reapplying a restore is safe if a second crash
+   happens while recovery is running: the journal is cleared only after both
+   authoritative databases have been restored. */
+static int inventory_transfer_restore_fridge_locked(const InventoryTransferSnapshot *snapshot)
+{
+    if (!fridge_db || !snapshot) return -1;
+    pthread_mutex_lock(&fridge_lock);
+    int rc = sqlite3_exec(fridge_db, "BEGIN IMMEDIATE", NULL, NULL, NULL);
+    sqlite3_stmt *st = NULL;
+    if (rc == SQLITE_OK)
+        rc = sqlite3_prepare_v2(fridge_db,
+            "DELETE FROM r2_fridge_items WHERE name=? COLLATE NOCASE", -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        bind_text(st, 1, snapshot->name);
+        rc = sqlite3_step(st);
+    }
+    if (st) sqlite3_finalize(st);
+    if (rc == SQLITE_DONE && snapshot->fridge_exists) {
+        rc = fridge_insert_item_compat(snapshot->name, snapshot->fridge_description,
+            snapshot->fridge_quantity, snapshot->fridge_fullness, snapshot->fridge_energy,
+            snapshot->fridge_ingredients, snapshot->fridge_taste, 1);
+    }
+    if (rc == SQLITE_DONE) rc = sqlite3_exec(fridge_db, "COMMIT", NULL, NULL, NULL);
+    else (void)sqlite3_exec(fridge_db, "ROLLBACK", NULL, NULL, NULL);
+    if (rc != SQLITE_OK) (void)sqlite3_exec(fridge_db, "ROLLBACK", NULL, NULL, NULL);
+    if (rc == SQLITE_OK) {
+        if (snapshot->fridge_exists)
+            fridge_mirror_write_warn(snapshot->name, snapshot->fridge_description,
+                snapshot->fridge_quantity, snapshot->fridge_fullness,
+                snapshot->fridge_energy, "interrupted-transfer recovery");
+        else
+            fridge_mirror_remove(snapshot->name);
+    }
+    pthread_mutex_unlock(&fridge_lock);
+    return rc == SQLITE_OK ? 0 : -1;
+}
+
+/* Caller holds reality_lock. */
+static int inventory_transfer_restore_reality_locked(const InventoryTransferSnapshot *snapshot)
+{
+    if (!reality_db || !snapshot) return -1;
+    int rc = sqlite3_exec(reality_db, "BEGIN IMMEDIATE", NULL, NULL, NULL);
+    sqlite3_stmt *st = NULL;
+    if (rc == SQLITE_OK && snapshot->reality_exists) {
+        rc = sqlite3_prepare_v2(reality_db,
+            "INSERT INTO r2_reality_objects(name,description,quantity,container,owner) "
+            "VALUES(?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET description=excluded.description,"
+            "quantity=excluded.quantity,container=excluded.container,owner=excluded.owner,"
+            "updated_at=CURRENT_TIMESTAMP", -1, &st, NULL);
+        if (rc == SQLITE_OK) {
+            bind_text(st, 1, snapshot->name);
+            bind_text(st, 2, snapshot->reality_description);
+            sqlite3_bind_int(st, 3, snapshot->reality_quantity);
+            bind_text(st, 4, snapshot->reality_container);
+            bind_text(st, 5, snapshot->reality_owner);
+            rc = sqlite3_step(st);
+        }
+        if (st) sqlite3_finalize(st);
+        st = NULL;
+    } else if (rc == SQLITE_OK) {
+        rc = sqlite3_prepare_v2(reality_db,
+            "DELETE FROM r2_reality_objects WHERE name=? COLLATE NOCASE", -1, &st, NULL);
+        if (rc == SQLITE_OK) {
+            bind_text(st, 1, snapshot->name);
+            rc = sqlite3_step(st);
+        }
+        if (st) sqlite3_finalize(st);
+        st = NULL;
+    }
+    if (rc == SQLITE_DONE) {
+        rc = sqlite3_prepare_v2(reality_db,
+            "DELETE FROM r2_reality_item_memory WHERE id>? AND item_name=? COLLATE NOCASE",
+            -1, &st, NULL);
+        if (rc == SQLITE_OK) {
+            sqlite3_bind_int64(st, 1, snapshot->item_memory_max_id);
+            bind_text(st, 2, snapshot->name);
+            rc = sqlite3_step(st);
+        }
+        if (st) sqlite3_finalize(st);
+        st = NULL;
+    }
+    if (rc == SQLITE_DONE && snapshot->self_snapshot_valid && !strcmp(snapshot->operation, "eat_from_fridge")) {
+        rc = sqlite3_prepare_v2(reality_db,
+            "INSERT INTO r2_reality_self(id,hunger,satisfaction,seconds_since_meal,sleepiness,energy,last_tick,updated_at) "
+            "VALUES(1,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET hunger=excluded.hunger,"
+            "satisfaction=excluded.satisfaction,seconds_since_meal=excluded.seconds_since_meal,"
+            "sleepiness=excluded.sleepiness,energy=excluded.energy,last_tick=excluded.last_tick,"
+            "updated_at=excluded.updated_at", -1, &st, NULL);
+        if (rc == SQLITE_OK) {
+            sqlite3_bind_double(st, 1, snapshot->self_hunger);
+            sqlite3_bind_double(st, 2, snapshot->self_satisfaction);
+            sqlite3_bind_double(st, 3, snapshot->self_seconds_since_meal);
+            sqlite3_bind_double(st, 4, snapshot->self_sleepiness);
+            sqlite3_bind_double(st, 5, snapshot->self_energy);
+            sqlite3_bind_int64(st, 6, snapshot->self_last_tick);
+            bind_text(st, 7, snapshot->self_updated_at);
+            rc = sqlite3_step(st);
+        }
+        if (st) sqlite3_finalize(st);
+        st = NULL;
+    }
+    if (rc == SQLITE_DONE && snapshot->self_snapshot_valid && !strcmp(snapshot->operation, "eat_from_fridge")) {
+        if (snapshot->starvation_fact_exists) {
+            rc = sqlite3_prepare_v2(reality_db,
+                "INSERT INTO r2_reality_self_facts(key,value,evidence) "
+                "VALUES('starvation_72h_logged',?,?) ON CONFLICT(key) DO UPDATE SET "
+                "value=excluded.value,evidence=excluded.evidence,updated_at=CURRENT_TIMESTAMP",
+                -1, &st, NULL);
+            if (rc == SQLITE_OK) {
+                bind_text(st, 1, snapshot->starvation_fact_value);
+                bind_text(st, 2, snapshot->starvation_fact_evidence);
+                rc = sqlite3_step(st);
+            }
+        } else {
+            rc = sqlite3_prepare_v2(reality_db,
+                "DELETE FROM r2_reality_self_facts WHERE key='starvation_72h_logged'",
+                -1, &st, NULL);
+            if (rc == SQLITE_OK) rc = sqlite3_step(st);
+        }
+        if (st) sqlite3_finalize(st);
+        st = NULL;
+    }
+    if (rc == SQLITE_DONE && snapshot->self_snapshot_valid && !strcmp(snapshot->operation, "eat_from_fridge")) {
+        rc = sqlite3_prepare_v2(reality_db,
+            "DELETE FROM r2_food_experiences WHERE id>? AND food_name=? COLLATE NOCASE",
+            -1, &st, NULL);
+        if (rc == SQLITE_OK) {
+            sqlite3_bind_int64(st, 1, snapshot->food_experience_max_id);
+            bind_text(st, 2, snapshot->name);
+            rc = sqlite3_step(st);
+        }
+        if (st) sqlite3_finalize(st);
+    }
+    if (rc == SQLITE_DONE) rc = sqlite3_exec(reality_db, "COMMIT", NULL, NULL, NULL);
+    else (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
+    if (rc != SQLITE_OK) (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
+    if (rc == SQLITE_OK) {
+        if (snapshot->reality_exists) {
+            if (mirror_write(snapshot->name, snapshot->reality_description,
+                             snapshot->reality_quantity, snapshot->reality_container) != 0)
+                fprintf(stderr, "[R2 Reality] Could not restore room mirror for '%s' after transfer recovery.\n",
+                        snapshot->name);
+        } else {
+            mirror_remove(snapshot->name, "pockets");
+        }
+    }
+    return rc == SQLITE_OK ? 0 : -1;
+}
+
+static int inventory_transfer_recover_locked(void)
+{
+    if (!reality_db) return -1;
+    sqlite3_stmt *st = NULL;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "SELECT operation,item_name,reality_exists,reality_description,reality_quantity,"
+        "reality_container,reality_owner,item_memory_max_id,fridge_exists,fridge_description,"
+        "fridge_quantity,fridge_fullness,fridge_energy,fridge_ingredients,fridge_taste,"
+        "self_snapshot_valid,self_hunger,self_satisfaction,self_seconds_since_meal,self_sleepiness,"
+        "self_energy,self_last_tick,self_updated_at,starvation_fact_exists,starvation_fact_value,"
+        "starvation_fact_evidence,food_experience_max_id,phase "
+        "FROM r2_inventory_transfer_journal WHERE id=1", -1, &st, NULL);
+    if (rc != SQLITE_OK) return -1;
+    rc = sqlite3_step(st);
+    if (rc == SQLITE_DONE) {
+        sqlite3_finalize(st);
+        return 0;
+    }
+    if (rc != SQLITE_ROW) {
+        sqlite3_finalize(st);
+        return -1;
+    }
+    InventoryTransferSnapshot snapshot;
+    memset(&snapshot, 0, sizeof(snapshot));
+    const unsigned char *value = sqlite3_column_text(st, 0);
+    snprintf(snapshot.operation, sizeof(snapshot.operation), "%s", value ? (const char *)value : "");
+    value = sqlite3_column_text(st, 1);
+    snprintf(snapshot.name, sizeof(snapshot.name), "%s", value ? (const char *)value : "");
+    snapshot.reality_exists = sqlite3_column_int(st, 2);
+    value = sqlite3_column_text(st, 3);
+    snprintf(snapshot.reality_description, sizeof(snapshot.reality_description), "%s", value ? (const char *)value : "");
+    snapshot.reality_quantity = sqlite3_column_int(st, 4);
+    value = sqlite3_column_text(st, 5);
+    snprintf(snapshot.reality_container, sizeof(snapshot.reality_container), "%s", value ? (const char *)value : "");
+    value = sqlite3_column_text(st, 6);
+    snprintf(snapshot.reality_owner, sizeof(snapshot.reality_owner), "%s", value ? (const char *)value : "R2");
+    snapshot.item_memory_max_id = sqlite3_column_int64(st, 7);
+    snapshot.fridge_exists = sqlite3_column_int(st, 8);
+    value = sqlite3_column_text(st, 9);
+    snprintf(snapshot.fridge_description, sizeof(snapshot.fridge_description), "%s", value ? (const char *)value : "");
+    snapshot.fridge_quantity = sqlite3_column_int(st, 10);
+    snapshot.fridge_fullness = sqlite3_column_double(st, 11);
+    snapshot.fridge_energy = sqlite3_column_double(st, 12);
+    value = sqlite3_column_text(st, 13);
+    snprintf(snapshot.fridge_ingredients, sizeof(snapshot.fridge_ingredients), "%s", value ? (const char *)value : "");
+    value = sqlite3_column_text(st, 14);
+    snprintf(snapshot.fridge_taste, sizeof(snapshot.fridge_taste), "%s", value ? (const char *)value : "");
+    snapshot.self_snapshot_valid = sqlite3_column_int(st, 15);
+    snapshot.self_hunger = sqlite3_column_double(st, 16);
+    snapshot.self_satisfaction = sqlite3_column_double(st, 17);
+    snapshot.self_seconds_since_meal = sqlite3_column_double(st, 18);
+    snapshot.self_sleepiness = sqlite3_column_double(st, 19);
+    snapshot.self_energy = sqlite3_column_double(st, 20);
+    snapshot.self_last_tick = sqlite3_column_int64(st, 21);
+    value = sqlite3_column_text(st, 22);
+    snprintf(snapshot.self_updated_at, sizeof(snapshot.self_updated_at), "%s", value ? (const char *)value : "");
+    snapshot.starvation_fact_exists = sqlite3_column_int(st, 23);
+    value = sqlite3_column_text(st, 24);
+    snprintf(snapshot.starvation_fact_value, sizeof(snapshot.starvation_fact_value), "%s", value ? (const char *)value : "");
+    value = sqlite3_column_text(st, 25);
+    snprintf(snapshot.starvation_fact_evidence, sizeof(snapshot.starvation_fact_evidence), "%s", value ? (const char *)value : "");
+    snapshot.food_experience_max_id = sqlite3_column_int64(st, 26);
+    value = sqlite3_column_text(st, 27);
+    snprintf(snapshot.phase, sizeof(snapshot.phase), "%s", value ? (const char *)value : "");
+    sqlite3_finalize(st);
+
+    if (!strcmp(snapshot.phase, "committed"))
+        return inventory_transfer_journal_clear_locked();
+    if (strcmp(snapshot.phase, "pending") != 0) return -1;
+    if (inventory_transfer_restore_fridge_locked(&snapshot) != 0 ||
+        inventory_transfer_restore_reality_locked(&snapshot) != 0)
+        return -1;
+    if (inventory_transfer_journal_clear_locked() != 0) return -1;
+    char summary[512], details[1024];
+    snprintf(summary, sizeof(summary),
+             "Recovered interrupted inventory transfer for %.300s; the previous state was restored.",
+             snapshot.name);
+    snprintf(details, sizeof(details),
+             "Operation=%s; recovery=rollback to the persisted pre-transfer snapshot; "
+             "both Reality and fridge databases were restored.",
+             snapshot.operation);
+    bridge_event("inventory_transfer_recovered", summary, details, 0, 0);
+    fprintf(stderr, "[R2 Reality] Rolled back interrupted %s transfer for '%s' to its pre-transfer state.\n",
+            snapshot.operation, snapshot.name);
+    return 0;
+}
+
+static int inventory_transfer_recover(void)
+{
+    pthread_mutex_lock(&reality_lock);
+    int rc = inventory_transfer_recover_locked();
+    pthread_mutex_unlock(&reality_lock);
+    return rc;
+}
+
+
 int r2_fridge_take(const char *food)
 {
-    if (!food || !*food || !fridge_db || !r2_reality_is_initialized() || !reality_is_home()) return -1;
-    char desc[REALITY_MAX_TEXT + 1] = {0}, ingredients[1024] = {0}, taste[1024] = {0};
-    int qty = 0; double fullness = 0.0, energy = 0.0;
+    if (!food || !*food || strlen(food) > REALITY_MAX_TEXT ||
+        !r2_reality_is_initialized() || !reality_is_home())
+        return -1;
+
+    pthread_mutex_lock(&purchase_lock);
+    if (!r2_reality_is_initialized() || !reality_is_home() || !fridge_db) {
+        pthread_mutex_unlock(&purchase_lock);
+        return -1;
+    }
+
+    InventoryTransferSnapshot snapshot;
+    pthread_mutex_lock(&reality_lock);
+    int rc = inventory_transfer_recover_locked();
+    if (rc == 0) rc = inventory_transfer_snapshot_locked(food, &snapshot);
+    if (rc == 0 && (!snapshot.fridge_exists || snapshot.fridge_quantity < 1))
+        rc = -1;
+    if (rc == 0)
+        rc = inventory_transfer_journal_begin_locked("take_from_fridge", &snapshot);
+    pthread_mutex_unlock(&reality_lock);
+    if (rc != 0) {
+        pthread_mutex_unlock(&purchase_lock);
+        return -1;
+    }
+
+    char desc[REALITY_MAX_TEXT + 1] = {0};
+    char ingredients[1024] = {0}, taste[1024] = {0};
+    int qty = 0;
+    double fullness = 0.0, energy = 0.0;
     pthread_mutex_lock(&fridge_lock);
-    int rc = fridge_seed_if_empty_locked();
-    if (rc == 0) rc = fridge_change_one(food, desc, sizeof(desc), &qty, &fullness, &energy,
-                                         ingredients, sizeof(ingredients), taste, sizeof(taste));
+    rc = fridge_seed_if_empty_locked();
+    if (rc == 0)
+        rc = fridge_change_one(food, desc, sizeof(desc), &qty, &fullness, &energy,
+                               ingredients, sizeof(ingredients), taste, sizeof(taste));
     if (rc == 0) {
         if (qty == 1) fridge_mirror_remove(food);
         else fridge_mirror_write_warn(food, desc, qty - 1, fullness, energy, "stock take");
     }
     pthread_mutex_unlock(&fridge_lock);
-    if (rc != 0) return -1;
-    if (r2_reality_add_item(food, desc, "pockets", 1) != 0) {
-        pthread_mutex_lock(&fridge_lock);
-        int restore_rc = fridge_restore_one(food, desc, fullness, energy, ingredients, taste);
-        if (restore_rc == 0)
-            fridge_mirror_write_warn(food, desc, qty, fullness, energy, "failed-take rollback");
-        pthread_mutex_unlock(&fridge_lock);
-        if (restore_rc != 0)
-            fprintf(stderr, "[R2 Fridge] Failed to restore '%s' after a failed take; stock may need inspection.\n", food);
+    if (rc != 0) {
+        if (inventory_transfer_recover() != 0)
+            fprintf(stderr, "[R2 Fridge] CRITICAL: could not recover failed take of '%s'; journal retained.\n", food);
+        pthread_mutex_unlock(&purchase_lock);
         return -1;
     }
-    pthread_mutex_lock(&fridge_lock); rc = fridge_seed_if_empty_locked(); pthread_mutex_unlock(&fridge_lock);
-    if (rc != 0) return -1;
+
+#ifdef R2_INVENTORY_TEST_FAILURE_INJECTION
+    if (getenv("R2_TEST_INVENTORY_CRASH_AFTER_FRIDGE_TAKE")) {
+        /* Leave the pending journal exactly as a process crash would. */
+        pthread_mutex_unlock(&purchase_lock);
+        return -1;
+    }
+#endif
+
+    if (r2_reality_add_item(food, desc, "pockets", 1) != 0) {
+        if (inventory_transfer_recover() != 0)
+            fprintf(stderr, "[R2 Fridge] CRITICAL: failed-take rollback for '%s' is pending recovery.\n", food);
+        pthread_mutex_unlock(&purchase_lock);
+        return -1;
+    }
+    if (inventory_transfer_journal_mark_committed() != 0) {
+        if (inventory_transfer_recover() != 0)
+            fprintf(stderr, "[R2 Fridge] CRITICAL: transfer commit recovery for '%s' is pending.\n", food);
+        pthread_mutex_unlock(&purchase_lock);
+        return -1;
+    }
+    if (inventory_transfer_journal_clear() != 0)
+        fprintf(stderr, "[R2 Fridge] Committed take journal retained for startup cleanup ('%s').\n", food);
+
     char summary[512], details[1024];
     snprintf(summary, sizeof(summary), "R2 took %s from the fridge into his pockets.", food);
     snprintf(details, sizeof(details), "Food=%s; source=fridge database; destination=pockets; one verified stock unit consumed.", food);
     bridge_event("fridge_item_taken", summary, details, 1, 0);
+    pthread_mutex_unlock(&purchase_lock);
     return 0;
 }
 int r2_reality_fridge_eat(const char *food, double fullness)
 {
-    /* Keep the legacy parameter for ABI compatibility; stock metrics are
-       authoritative and must not be overridden by an action's guess. */
+    /* Keep the legacy parameter for ABI compatibility; stock metrics are authoritative. */
     (void)fullness;
-    if (!food || !*food || !fridge_db || !r2_reality_is_initialized() || !reality_is_home()) return -1;
-    char desc[REALITY_MAX_TEXT + 1] = {0}, ingredients[1024] = {0}, taste[1024] = {0};
-    int qty = 0; double stored_fullness = 0.0, energy = 0.0;
-    pthread_mutex_lock(&fridge_lock);
-    int rc = fridge_seed_if_empty_locked();
-    if (rc == 0) rc = fridge_change_one(food, desc, sizeof(desc), &qty, &stored_fullness, &energy,
-                                         ingredients, sizeof(ingredients), taste, sizeof(taste));
-    /* Fridge stock's authoritative metric wins over a caller-supplied value:
-       non-nutritive stock must never become a meal via a positive override. */
-    if (rc == 0 && (!isfinite(stored_fullness) || stored_fullness <= 0.0)) {
-        int restore_rc = fridge_restore_one(food, desc, stored_fullness, energy, ingredients, taste);
-        if (restore_rc != 0) {
-            if (qty == 1) fridge_mirror_remove(food);
-            else fridge_mirror_write_warn(food, desc, qty - 1, stored_fullness, energy,
-                                           "stock restoration");
-            fprintf(stderr, "[R2 Fridge] Failed to restore non-nutritive stock '%s'.\n", food);
-        }
-        rc = -1;
-    }
-    if (rc == 0) {
-        if (qty == 1) fridge_mirror_remove(food);
-        else fridge_mirror_write_warn(food, desc, qty - 1, stored_fullness, energy, "meal stock consumption");
-    }
-    pthread_mutex_unlock(&fridge_lock);
-    if (rc != 0) return -1;
-    fullness = stored_fullness;
-    rc = reality_eat_internal(food, fullness, 0, energy);
-    if (rc != 0) {
-        pthread_mutex_lock(&fridge_lock);
-        int restore_rc = fridge_restore_one(food, desc, stored_fullness, energy, ingredients, taste);
-        if (restore_rc == 0)
-            fridge_mirror_write_warn(food, desc, qty, stored_fullness, energy, "failed-meal rollback");
-        else {
-            if (qty == 1) fridge_mirror_remove(food);
-            else fridge_mirror_write_warn(food, desc, qty - 1, stored_fullness, energy,
-                                           "stock restoration");
-        }
-        pthread_mutex_unlock(&fridge_lock);
-        if (restore_rc != 0)
-            fprintf(stderr, "[R2 Fridge] Failed to restore '%s' after an unsuccessful meal; stock may need inspection.\n", food);
+    if (!food || !*food || strlen(food) > REALITY_MAX_TEXT ||
+        !r2_reality_is_initialized() || !reality_is_home())
+        return -1;
+
+    pthread_mutex_lock(&purchase_lock);
+    if (!r2_reality_is_initialized() || !reality_is_home() || !fridge_db) {
+        pthread_mutex_unlock(&purchase_lock);
         return -1;
     }
-    pthread_mutex_lock(&fridge_lock); rc = fridge_seed_if_empty_locked(); pthread_mutex_unlock(&fridge_lock);
-    if (rc != 0) return -1;
+    /* Resolve any retained transfer journal before ticking. Otherwise a failed
+       prior recovery could be followed by a clock update that the old snapshot
+       then rolls back, silently losing elapsed time. */
+    pthread_mutex_lock(&reality_lock);
+    int recovery_rc = inventory_transfer_recover_locked();
+    pthread_mutex_unlock(&reality_lock);
+    if (recovery_rc != 0) {
+        pthread_mutex_unlock(&purchase_lock);
+        return -1;
+    }
+
+    /* Advance the clock before taking the rollback snapshot. The inner meal
+       transaction skips its usual tick and commits the journal phase together
+       with needs and food-experience writes. */
+    if (r2_reality_tick() != 0) {
+        pthread_mutex_unlock(&purchase_lock);
+        return -1;
+    }
+
+    InventoryTransferSnapshot snapshot;
+    pthread_mutex_lock(&reality_lock);
+    int rc = inventory_transfer_recover_locked();
+    if (rc == 0) rc = inventory_transfer_snapshot_locked(food, &snapshot);
+    if (rc == 0 && (!snapshot.fridge_exists || snapshot.fridge_quantity < 1 ||
+                    !isfinite(snapshot.fridge_fullness) || snapshot.fridge_fullness <= 0.0))
+        rc = -1;
+    if (rc == 0)
+        rc = inventory_transfer_journal_begin_locked("eat_from_fridge", &snapshot);
+    pthread_mutex_unlock(&reality_lock);
+    if (rc != 0) {
+        pthread_mutex_unlock(&purchase_lock);
+        return -1;
+    }
+
+    char desc[REALITY_MAX_TEXT + 1] = {0};
+    char ingredients[1024] = {0}, taste[1024] = {0};
+    int qty = 0;
+    double stored_fullness = 0.0, energy = 0.0;
+    pthread_mutex_lock(&fridge_lock);
+    rc = fridge_change_one(food, desc, sizeof(desc), &qty, &stored_fullness, &energy,
+                           ingredients, sizeof(ingredients), taste, sizeof(taste));
+    if (rc == 0) {
+        if (qty == 1) fridge_mirror_remove(food);
+        else fridge_mirror_write_warn(food, desc, qty - 1, stored_fullness, energy,
+                                      "meal stock consumption");
+    }
+    pthread_mutex_unlock(&fridge_lock);
+    if (rc != 0 || !isfinite(stored_fullness) || stored_fullness <= 0.0) {
+        if (inventory_transfer_recover() != 0)
+            fprintf(stderr, "[R2 Fridge] CRITICAL: failed meal rollback for '%s' is pending recovery.\n", food);
+        pthread_mutex_unlock(&purchase_lock);
+        return -1;
+    }
+
+#ifdef R2_INVENTORY_TEST_FAILURE_INJECTION
+    if (getenv("R2_TEST_INVENTORY_CRASH_AFTER_FRIDGE_EAT_STOCK")) {
+        /* Leave the pending journal as if the process died before the meal transaction. */
+        pthread_mutex_unlock(&purchase_lock);
+        return -1;
+    }
+#endif
+
+    fridge_eat_transfer_in_progress = 1;
+    rc = reality_eat_internal(food, stored_fullness, 0, energy);
+    fridge_eat_transfer_in_progress = 0;
+    if (rc != 0) {
+        if (inventory_transfer_recover() != 0)
+            fprintf(stderr, "[R2 Fridge] CRITICAL: failed meal rollback for '%s' is pending recovery.\n", food);
+        pthread_mutex_unlock(&purchase_lock);
+        return -1;
+    }
+
+#ifdef R2_INVENTORY_TEST_FAILURE_INJECTION
+    if (getenv("R2_TEST_INVENTORY_CRASH_AFTER_FRIDGE_EAT_COMMIT")) {
+        /* The meal transaction committed the journal phase atomically. */
+        pthread_mutex_unlock(&purchase_lock);
+        return -1;
+    }
+#endif
+
+    if (inventory_transfer_journal_clear() != 0)
+        fprintf(stderr, "[R2 Fridge] Committed meal journal retained for startup cleanup ('%s').\n", food);
     char summary[512], details[1024];
     snprintf(summary, sizeof(summary), "R2 ate %s directly from the fridge.", food);
-    snprintf(details, sizeof(details), "Food=%s; source=fridge database; fullness=%.1f; an empty fridge remains empty.", food, stored_fullness);
+    snprintf(details, sizeof(details),
+             "Food=%s; source=fridge database; fullness=%.1f; an empty fridge remains empty.",
+             food, stored_fullness);
     bridge_event("fridge_food_consumed", summary, details, 1, 0);
+    pthread_mutex_unlock(&purchase_lock);
     return 0;
 }
 
@@ -1909,6 +2941,9 @@ int r2_reality_init(void)
         "CREATE TABLE IF NOT EXISTS r2_reality_self_facts (key TEXT PRIMARY KEY, value TEXT NOT NULL, evidence TEXT, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "CREATE TABLE IF NOT EXISTS r2_money_account (id INTEGER PRIMARY KEY CHECK(id=1),cash_cents INTEGER NOT NULL DEFAULT 0 CHECK(cash_cents>=0),bank_cents INTEGER NOT NULL DEFAULT 0 CHECK(bank_cents>=0),updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "INSERT OR IGNORE INTO r2_money_account(id,cash_cents,bank_cents) VALUES(1,0,0);"
+        "CREATE TABLE IF NOT EXISTS r2_money_transfer_journal (id INTEGER PRIMARY KEY CHECK(id=1),old_cash_cents INTEGER NOT NULL,old_bank_cents INTEGER NOT NULL,new_cash_cents INTEGER NOT NULL,new_bank_cents INTEGER NOT NULL,operation TEXT NOT NULL,phase TEXT NOT NULL CHECK(phase IN ('pending','committed')),created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
+        "CREATE TABLE IF NOT EXISTS r2_purchase_journal (id INTEGER PRIMARY KEY CHECK(id=1),old_cash_cents INTEGER NOT NULL,old_bank_cents INTEGER NOT NULL,new_cash_cents INTEGER NOT NULL,new_bank_cents INTEGER NOT NULL,item_name TEXT NOT NULL,item_description TEXT NOT NULL,destination TEXT NOT NULL,pre_quantity INTEGER NOT NULL,pre_container TEXT NOT NULL,phase TEXT NOT NULL CHECK(phase IN ('pending','committed')),created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
+         "CREATE TABLE IF NOT EXISTS r2_inventory_transfer_journal (id INTEGER PRIMARY KEY CHECK(id=1),operation TEXT NOT NULL,item_name TEXT NOT NULL COLLATE NOCASE,reality_exists INTEGER NOT NULL,reality_description TEXT NOT NULL,reality_quantity INTEGER NOT NULL,reality_container TEXT NOT NULL,reality_owner TEXT NOT NULL,item_memory_max_id INTEGER NOT NULL,fridge_exists INTEGER NOT NULL,fridge_description TEXT NOT NULL,fridge_quantity INTEGER NOT NULL,fridge_fullness REAL NOT NULL,fridge_energy REAL NOT NULL,fridge_ingredients TEXT NOT NULL,fridge_taste TEXT NOT NULL,self_snapshot_valid INTEGER NOT NULL DEFAULT 0,self_hunger REAL NOT NULL DEFAULT 0,self_satisfaction REAL NOT NULL DEFAULT 100,self_seconds_since_meal REAL NOT NULL DEFAULT 0,self_sleepiness REAL NOT NULL DEFAULT 0,self_energy REAL NOT NULL DEFAULT 100,self_last_tick INTEGER NOT NULL DEFAULT 0,self_updated_at TEXT NOT NULL DEFAULT '',starvation_fact_exists INTEGER NOT NULL DEFAULT 0,starvation_fact_value TEXT NOT NULL DEFAULT '',starvation_fact_evidence TEXT NOT NULL DEFAULT '',food_experience_max_id INTEGER NOT NULL DEFAULT 0,phase TEXT NOT NULL CHECK(phase IN ('pending','committed')),created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "CREATE TABLE IF NOT EXISTS r2_tv_state (id INTEGER PRIMARY KEY CHECK(id=1), power INTEGER NOT NULL DEFAULT 0 CHECK(power IN (0,1)), source_kind TEXT NOT NULL DEFAULT 'input', source_value INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);"
         "INSERT OR IGNORE INTO r2_tv_state(id,power,source_kind,source_value) VALUES(1,0,'input',1);"
         "CREATE TABLE IF NOT EXISTS r2_tv_devices (name TEXT PRIMARY KEY COLLATE NOCASE, connection_kind TEXT NOT NULL CHECK(connection_kind IN ('input','rf')), port INTEGER NOT NULL, connected INTEGER NOT NULL DEFAULT 1 CHECK(connected IN (0,1)), updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, CHECK((connection_kind='input' AND port BETWEEN 2 AND 4) OR (connection_kind='rf' AND port BETWEEN 2 AND 13)));"
@@ -1936,6 +2971,29 @@ int r2_reality_init(void)
     if (exec_sql(schema) != 0) {
         sqlite3_close(reality_db); reality_db = NULL;
         pthread_mutex_unlock(&reality_lock); return -1;
+    }
+    static const struct { const char *column; const char *definition; } transfer_journal_columns[] = {
+        {"self_snapshot_valid", "INTEGER NOT NULL DEFAULT 0"},
+        {"self_hunger", "REAL NOT NULL DEFAULT 0"},
+        {"self_satisfaction", "REAL NOT NULL DEFAULT 100"},
+        {"self_seconds_since_meal", "REAL NOT NULL DEFAULT 0"},
+        {"self_sleepiness", "REAL NOT NULL DEFAULT 0"},
+        {"self_energy", "REAL NOT NULL DEFAULT 100"},
+        {"self_last_tick", "INTEGER NOT NULL DEFAULT 0"},
+        {"self_updated_at", "TEXT NOT NULL DEFAULT ''"},
+        {"starvation_fact_exists", "INTEGER NOT NULL DEFAULT 0"},
+        {"starvation_fact_value", "TEXT NOT NULL DEFAULT ''"},
+        {"starvation_fact_evidence", "TEXT NOT NULL DEFAULT ''"},
+        {"food_experience_max_id", "INTEGER NOT NULL DEFAULT 0"}
+    };
+    for (size_t i = 0; i < sizeof(transfer_journal_columns) / sizeof(transfer_journal_columns[0]); ++i) {
+        if (reality_ensure_existing_column("r2_inventory_transfer_journal",
+                transfer_journal_columns[i].column, transfer_journal_columns[i].definition) != 0) {
+            fprintf(stderr, "[R2 Reality] Could not migrate inventory journal column %s.\n",
+                    transfer_journal_columns[i].column);
+            sqlite3_close(reality_db); reality_db = NULL;
+            pthread_mutex_unlock(&reality_lock); return -1;
+        }
     }
     if (backfill_reality_timestamps() != 0) {
         fprintf(stderr, "[R2 Reality] Could not backfill timestamps for upgraded tables.\n");
@@ -2015,6 +3073,20 @@ int r2_reality_init(void)
         pthread_mutex_unlock(&reality_lock); return -1;
     }
     fridge_sync_mirrors();
+    /* Restore both sides of any interrupted fridge/pocket transfer before exposing inventory. */
+    if (inventory_transfer_recover_locked() != 0) {
+        fprintf(stderr, "[R2 Reality] Pending inventory transfer recovery failed; refusing to start with ambiguous ownership.\n");
+        r2_fridge_shutdown();
+        sqlite3_close(reality_db); reality_db = NULL;
+        pthread_mutex_unlock(&reality_lock); return -1;
+    }
+    /* Resolve any purchase interrupted between physical payment and inventory persistence. */
+    if (purchase_journal_recover() != 0) {
+        fprintf(stderr, "[R2 Reality] Pending purchase recovery failed; refusing to start with ambiguous ownership.\n");
+        r2_fridge_shutdown();
+        sqlite3_close(reality_db); reality_db = NULL;
+        pthread_mutex_unlock(&reality_lock); return -1;
+    }
 
     /* Catch up persistent world time as one checked transaction. */
     sqlite3_stmt *st = NULL;
@@ -2102,6 +3174,9 @@ int r2_reality_init(void)
 
 void r2_reality_shutdown(void)
 {
+    /* Wait for any purchase to finish its cross-database commit before
+       closing either Reality or fridge handles. Lock order matches mutators. */
+    pthread_mutex_lock(&purchase_lock);
     pthread_mutex_lock(&reality_lock);
     if (reality_db) {
         sqlite3_wal_checkpoint_v2(reality_db, NULL, SQLITE_CHECKPOINT_PASSIVE, NULL, NULL);
@@ -2111,6 +3186,7 @@ void r2_reality_shutdown(void)
     r2_fridge_shutdown();
     reality_ready = 0;
     pthread_mutex_unlock(&reality_lock);
+    pthread_mutex_unlock(&purchase_lock);
     r2_addiction_shutdown();
 }
 
@@ -2665,6 +3741,68 @@ int r2_reality_add_item(const char *name,const char *description,const char *con
     return 0;
 }
 
+static int reality_move_item_to_fridge(const char *name)
+{
+    if (!name || !*name || !r2_reality_is_initialized() || !reality_is_home() ||
+        !container_accessible("fridge"))
+        return -1;
+
+    double fullness = 0.0, energy = 0.0;
+    char ingredients[1024] = {0}, taste[1024] = {0};
+    if (food_metric(name, &fullness, &energy) != 0) return -1;
+    food_attributes(name, ingredients, sizeof(ingredients), taste, sizeof(taste));
+
+    InventoryTransferSnapshot snapshot;
+    pthread_mutex_lock(&reality_lock);
+    int rc = inventory_transfer_recover_locked();
+    if (rc == 0) rc = inventory_transfer_snapshot_locked(name, &snapshot);
+    if (rc == 0 && (!snapshot.reality_exists || snapshot.reality_quantity < 1 ||
+                    !*snapshot.reality_container ||
+                    !strcasecmp(snapshot.reality_container, "fridge") ||
+                    !container_accessible(snapshot.reality_container)))
+        rc = -1;
+    if (rc == 0)
+        rc = inventory_transfer_journal_begin_locked("move_to_fridge", &snapshot);
+    pthread_mutex_unlock(&reality_lock);
+    if (rc != 0) return -1;
+
+    if (r2_fridge_add_item(name, snapshot.reality_description,
+                           snapshot.reality_quantity, fullness, energy,
+                           ingredients, taste) != 0) {
+        if (inventory_transfer_recover() != 0)
+            fprintf(stderr, "[R2 Reality] CRITICAL: failed fridge-add rollback for '%s' is pending recovery.\n", name);
+        return -1;
+    }
+
+#ifdef R2_INVENTORY_TEST_FAILURE_INJECTION
+    if (getenv("R2_TEST_INVENTORY_CRASH_AFTER_FRIDGE_ADD")) {
+        /* Leave the pending journal exactly as a process crash would. */
+        return -1;
+    }
+#endif
+
+    if (r2_reality_remove_item(name) != 0) {
+        if (inventory_transfer_recover() != 0)
+            fprintf(stderr, "[R2 Reality] CRITICAL: failed move rollback for '%s' is pending recovery.\n", name);
+        return -1;
+    }
+    if (inventory_transfer_journal_mark_committed() != 0) {
+        if (inventory_transfer_recover() != 0)
+            fprintf(stderr, "[R2 Reality] CRITICAL: move commit recovery for '%s' is pending.\n", name);
+        return -1;
+    }
+    if (inventory_transfer_journal_clear() != 0)
+        fprintf(stderr, "[R2 Reality] Committed transfer journal retained for startup cleanup ('%s').\n", name);
+
+    char summary[512], details[1024];
+    snprintf(summary, sizeof(summary), "R2 stored %s in the fridge.", name);
+    snprintf(details, sizeof(details),
+             "Object=%.300s; source container=%.200s; quantity=%d; destination=separate fridge database.",
+             name, snapshot.reality_container, snapshot.reality_quantity);
+    bridge_event("fridge_item_stored", summary, details, 1, 0);
+    return 0;
+}
+
 int r2_reality_move_item(const char *name,const char *container)
 {
     if(!name||!*name||!container||!*container||strlen(name)>REALITY_MAX_TEXT||strlen(container)>REALITY_MAX_TEXT||!r2_reality_is_initialized()) return -1;
@@ -2672,135 +3810,10 @@ int r2_reality_move_item(const char *name,const char *container)
     canonical_container_name(container, canonical_container, sizeof(canonical_container));
     container = canonical_container;
     if (!strcasecmp(container, "fridge")) {
-        char description[REALITY_MAX_TEXT + 1] = {0}, old_container[REALITY_MAX_TEXT + 1] = {0};
-        int quantity = 0;
-        pthread_mutex_lock(&reality_lock);
-        sqlite3_stmt *item = NULL;
-        if (sqlite3_prepare_v2(reality_db, "SELECT description,container,quantity FROM r2_reality_objects WHERE name=? COLLATE NOCASE", -1, &item, NULL) == SQLITE_OK) {
-            bind_text(item, 1, name);
-            if (sqlite3_step(item) == SQLITE_ROW) {
-                const unsigned char *d = sqlite3_column_text(item, 0), *c = sqlite3_column_text(item, 1);
-                if (d) snprintf(description, sizeof(description), "%s", (const char *)d);
-                if (c) snprintf(old_container, sizeof(old_container), "%s", (const char *)c);
-                quantity = sqlite3_column_int(item, 2);
-            }
-        }
-        if (item) sqlite3_finalize(item);
-        pthread_mutex_unlock(&reality_lock);
-        if (quantity < 1 || !container_accessible(old_container) || !container_accessible(container)) return -1;
-        char ingredients[1024] = {0}, taste[1024] = {0};
-        double fullness = 0.0, energy = 0.0;
-        if (food_metric(name, &fullness, &energy) != 0) return -1;
-        food_attributes(name, ingredients, sizeof(ingredients), taste, sizeof(taste));
-        int prior_fridge_quantity = 0, prior_fridge_exists = 0;
-        char prior_fridge_description[REALITY_MAX_TEXT + 1] = {0};
-        char prior_fridge_ingredients[1024] = {0}, prior_fridge_taste[1024] = {0};
-        double prior_fridge_fullness = 0.0, prior_fridge_energy = 0.0;
-        pthread_mutex_lock(&fridge_lock);
-        sqlite3_stmt *prior_fridge = NULL;
-        int prior_rc = sqlite3_prepare_v2(fridge_db,
-            "SELECT description,quantity,fullness,energy,ingredients,taste FROM r2_fridge_items WHERE name=? COLLATE NOCASE",
-            -1, &prior_fridge, NULL);
-        if (prior_rc == SQLITE_OK) {
-            bind_text(prior_fridge, 1, name);
-            prior_rc = sqlite3_step(prior_fridge);
-            if (prior_rc == SQLITE_ROW) {
-                const unsigned char *pd = sqlite3_column_text(prior_fridge, 0);
-                const unsigned char *pi = sqlite3_column_text(prior_fridge, 4);
-                const unsigned char *pt = sqlite3_column_text(prior_fridge, 5);
-                snprintf(prior_fridge_description, sizeof(prior_fridge_description), "%s", pd ? (const char *)pd : "");
-                prior_fridge_quantity = sqlite3_column_int(prior_fridge, 1);
-                prior_fridge_fullness = sqlite3_column_double(prior_fridge, 2);
-                prior_fridge_energy = sqlite3_column_double(prior_fridge, 3);
-                snprintf(prior_fridge_ingredients, sizeof(prior_fridge_ingredients), "%s", pi ? (const char *)pi : "");
-                snprintf(prior_fridge_taste, sizeof(prior_fridge_taste), "%s", pt ? (const char *)pt : "");
-                prior_fridge_exists = 1;
-                prior_rc = SQLITE_DONE;
-            }
-        }
-        if (prior_fridge) sqlite3_finalize(prior_fridge);
-        pthread_mutex_unlock(&fridge_lock);
-        if (prior_rc != SQLITE_DONE) return -1;
-        if (r2_fridge_add_item(name, description, quantity, fullness, energy, ingredients, taste) != 0) return -1;
-        if (r2_reality_remove_item(name) != 0) {
-            pthread_mutex_lock(&fridge_lock);
-            sqlite3_stmt *rollback = NULL;
-            char rollback_sql[1024];
-            if (prior_fridge_exists) {
-                size_t used = 0;
-                int n = snprintf(rollback_sql, sizeof(rollback_sql),
-                    "UPDATE r2_fridge_items SET description=?,quantity=?,fullness=?,energy=?,ingredients=?,taste=?");
-                if (n < 0 || (size_t)n >= sizeof(rollback_sql)) {
-                    pthread_mutex_unlock(&fridge_lock);
-                    return -1;
-                }
-                used = (size_t)n;
-                if (fridge_column_exists("qty")) {
-                    n = snprintf(rollback_sql + used, sizeof(rollback_sql) - used, ",qty=?");
-                    if (n < 0 || (size_t)n >= sizeof(rollback_sql) - used) {
-                        pthread_mutex_unlock(&fridge_lock);
-                        return -1;
-                    }
-                    used += (size_t)n;
-                }
-                if (fridge_column_exists("amount")) {
-                    n = snprintf(rollback_sql + used, sizeof(rollback_sql) - used, ",amount=?");
-                    if (n < 0 || (size_t)n >= sizeof(rollback_sql) - used) {
-                        pthread_mutex_unlock(&fridge_lock);
-                        return -1;
-                    }
-                    used += (size_t)n;
-                }
-                n = snprintf(rollback_sql + used, sizeof(rollback_sql) - used,
-                    ",updated_at=CURRENT_TIMESTAMP WHERE name=? COLLATE NOCASE");
-                if (n < 0 || (size_t)n >= sizeof(rollback_sql) - used) {
-                    pthread_mutex_unlock(&fridge_lock);
-                    return -1;
-                }
-            } else {
-                snprintf(rollback_sql, sizeof(rollback_sql),
-                    "DELETE FROM r2_fridge_items WHERE name=? COLLATE NOCASE");
-            }
-            int rollback_rc = sqlite3_prepare_v2(fridge_db, rollback_sql, -1, &rollback, NULL);
-            if (rollback_rc == SQLITE_OK) {
-                if (prior_fridge_exists) {
-                    int bind_index = 1;
-                    bind_text(rollback, bind_index++, prior_fridge_description);
-                    sqlite3_bind_int(rollback, bind_index++, prior_fridge_quantity);
-                    sqlite3_bind_double(rollback, bind_index++, prior_fridge_fullness);
-                    sqlite3_bind_double(rollback, bind_index++, prior_fridge_energy);
-                    bind_text(rollback, bind_index++, prior_fridge_ingredients);
-                    bind_text(rollback, bind_index++, prior_fridge_taste);
-                    if (fridge_column_exists("qty"))
-                        sqlite3_bind_int(rollback, bind_index++, prior_fridge_quantity);
-                    if (fridge_column_exists("amount"))
-                        sqlite3_bind_int(rollback, bind_index++, prior_fridge_quantity);
-                    bind_text(rollback, bind_index, name);
-                } else {
-                    bind_text(rollback, 1, name);
-                }
-                rollback_rc = sqlite3_step(rollback);
-                if (rollback_rc == SQLITE_DONE) rollback_rc = SQLITE_OK;
-            }
-            if (rollback) sqlite3_finalize(rollback);
-            if (rollback_rc == SQLITE_OK && prior_fridge_exists) {
-                if (fridge_mirror_write(name, prior_fridge_description, prior_fridge_quantity,
-                                        prior_fridge_fullness, prior_fridge_energy) != 0)
-                    fprintf(stderr, "[R2 Fridge] Database rollback succeeded but mirror restoration failed for '%s'.\n", name);
-            } else if (rollback_rc == SQLITE_OK) {
-                fridge_mirror_remove(name);
-            } else {
-                fprintf(stderr, "[R2 Fridge] CRITICAL: failed to roll back fridge stock after failed move of '%s'; inspect fridge inventory.\n", name);
-            }
-            (void)fridge_seed_if_empty_locked();
-            pthread_mutex_unlock(&fridge_lock);
-            return -1;
-        }
-        char summary[512], details[1024];
-        snprintf(summary, sizeof(summary), "R2 stored %s in the fridge.", name);
-        snprintf(details, sizeof(details), "Object=%.300s; source container=%.200s; quantity=%d; destination=separate fridge database.", name, old_container, quantity);
-        bridge_event("fridge_item_stored", summary, details, 1, 0);
-        return 0;
+        pthread_mutex_lock(&purchase_lock);
+        int transfer_rc = reality_move_item_to_fridge(name);
+        pthread_mutex_unlock(&purchase_lock);
+        return transfer_rc;
     }
     char old_container[REALITY_MAX_TEXT + 1] = {0};
     char old_description[REALITY_MAX_TEXT + 1] = {0};
@@ -2971,7 +3984,7 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
     if (!isfinite(energy_bonus)) return -1;
     if (energy_bonus < 0.0) energy_bonus = 0.0;
     if (energy_bonus > 100.0) energy_bonus = 100.0;
-    if (r2_reality_tick() != 0) return -1;
+    if (!fridge_eat_transfer_in_progress && r2_reality_tick() != 0) return -1;
     char ingredients[1024] = {0}, taste[1024] = {0};
     food_attributes(food, ingredients, sizeof(ingredients), taste, sizeof(taste));
 
@@ -3069,6 +4082,19 @@ static int reality_eat_internal(const char *food, double fullness, int consume_t
             sqlite3_bind_int64(st, 5, (sqlite3_int64)time(NULL));
             if (sqlite3_step(st) != SQLITE_DONE) rc = SQLITE_ERROR;
         } else rc = SQLITE_ERROR;
+        if (st) sqlite3_finalize(st);
+    }
+    if (rc == SQLITE_DONE && fridge_eat_transfer_in_progress) {
+        st = NULL;
+        rc = sqlite3_prepare_v2(reality_db,
+            "UPDATE r2_inventory_transfer_journal SET phase='committed' "
+            "WHERE id=1 AND operation='eat_from_fridge' AND phase='pending'",
+            -1, &st, NULL);
+        if (rc == SQLITE_OK) {
+            rc = sqlite3_step(st);
+            if (rc == SQLITE_DONE && sqlite3_changes(reality_db) != 1)
+                rc = SQLITE_NOTFOUND;
+        }
         if (st) sqlite3_finalize(st);
     }
     if (rc == SQLITE_DONE) {
@@ -3429,38 +4455,68 @@ static int money_transfer(double amount, int deposit)
     char wallet[1200], piggybank[1200];
     money_dir_path(0, wallet, sizeof(wallet));
     money_dir_path(1, piggybank, sizeof(piggybank));
+    pthread_mutex_lock(&purchase_lock);
     pthread_mutex_lock(&reality_lock);
+
     sqlite3_int64 cash = 0, bank = 0;
-    int rc = money_read_locked(&cash, &bank);
-    sqlite3_int64 old_cash = cash, old_bank = bank;
-    int wallet_changed = 0, bank_changed = 0;
+    sqlite3_int64 old_cash = 0, old_bank = 0;
+    int rc = purchase_journal_recover();
+    if (rc == 0) rc = money_journal_recover(NULL);
+    if (rc == 0) rc = money_read_locked(&cash, &bank);
+    old_cash = cash;
+    old_bank = bank;
     if (rc == 0 && ((deposit && cash < cents) || (!deposit && bank < cents)))
         rc = -1;
 
+    sqlite3_int64 new_cash = cash, new_bank = bank;
     if (rc == 0) {
-        sqlite3_int64 new_cash = deposit ? cash - cents : cash + cents;
-        sqlite3_int64 new_bank = deposit ? bank + cents : bank - cents;
-        if (money_set_dir_balance(wallet, new_cash, &wallet_changed) != 0 ||
-            money_set_dir_balance(piggybank, new_bank, &bank_changed) != 0 ||
-            money_read_locked(&cash, &bank) != 0) {
-            rc = -1;
+        new_cash = deposit ? cash - cents : cash + cents;
+        new_bank = deposit ? bank + cents : bank - cents;
+        if (new_cash < 0 || new_bank < 0 ||
+            new_cash > 100000000LL || new_bank > 100000000LL) rc = -1;
+    }
+
+    int journal_started = 0;
+    if (rc == 0) {
+        rc = money_journal_begin(old_cash, old_bank, new_cash, new_bank,
+                                 deposit ? "deposit" : "withdrawal");
+        journal_started = rc == 0;
+    }
+    if (rc == 0 && money_set_dir_balance(wallet, new_cash, NULL) != 0) rc = -1;
+#ifdef R2_MONEY_TEST_FAILURE_INJECTION
+    if (rc == 0 && getenv("R2_TEST_MONEY_TRANSFER_FAIL_AFTER_WALLET")) rc = -1;
+#endif
+    if (rc == 0 && money_set_dir_balance(piggybank, new_bank, NULL) != 0) rc = -1;
+    if (rc == 0 && money_read_locked(&cash, &bank) != 0) rc = -1;
+
+    if (rc == 0) {
+        if (money_journal_mark_committed() == 0) {
+            /* A committed journal is safe to leave behind; startup can clean it. */
+            (void)money_journal_clear();
+        } else {
+            int was_committed = 0;
+            if (money_journal_recover(&was_committed) != 0 || !was_committed) rc = -1;
+            else rc = 0; /* The durable commit marker won despite an ambiguous return. */
+        }
+    } else if (journal_started) {
+        int was_committed = 0;
+        if (money_journal_recover(&was_committed) != 0) {
+            fprintf(stderr, "[R2 Money] CRITICAL: transfer rollback is pending; durable journal retained for startup recovery.\n");
+        } else if (was_committed) {
+            rc = 0;
         }
     }
-    int mutation_started = wallet_changed || bank_changed;
-    if (rc != 0 && mutation_started) {
-        int wallet_restore = wallet_changed
-            ? money_set_dir_balance(wallet, old_cash, NULL) : 0;
-        int bank_restore = bank_changed
-            ? money_set_dir_balance(piggybank, old_bank, NULL) : 0;
-        int mirror_restore = money_read_locked(&cash, &bank);
-        if (wallet_restore != 0 || bank_restore != 0 || mirror_restore != 0)
-            fprintf(stderr, "[R2 Money] CRITICAL: deposit/withdraw failed and balance rollback was incomplete; inspect Wallet and piggybank files.\n");
+
+    if (money_read_locked(&cash, &bank) != 0) {
+        if (rc == 0) rc = -1;
+        fprintf(stderr, "[R2 Money] Could not refresh derived account summary after transfer.\n");
     }
     pthread_mutex_unlock(&reality_lock);
-    if (rc == 0) money_mirror_write(cash, bank);
-    else if (mutation_started) money_mirror_write(cash, bank);
+    if (rc == 0 || journal_started) money_mirror_write(cash, bank);
+    pthread_mutex_unlock(&purchase_lock);
     return rc == 0 ? 0 : -1;
 }
+
 int r2_reality_money_receive(double amount)
 {
     if (!r2_reality_is_initialized() || !isfinite(amount) ||
@@ -3470,9 +4526,11 @@ int r2_reality_money_receive(double amount)
 
     char wallet[1200];
     money_dir_path(0, wallet, sizeof(wallet));
+    pthread_mutex_lock(&purchase_lock);
     pthread_mutex_lock(&reality_lock);
     sqlite3_int64 cash = 0, bank = 0;
-    int rc = money_read_locked(&cash, &bank);
+    int rc = purchase_journal_recover();
+    if (rc == 0) rc = money_read_locked(&cash, &bank);
     sqlite3_int64 old_cash = cash;
     int wallet_changed = 0;
     if (rc == 0 && cash <= 100000000LL - cents) {
@@ -3489,72 +4547,273 @@ int r2_reality_money_receive(double amount)
     }
     pthread_mutex_unlock(&reality_lock);
     if (rc == 0 || wallet_changed) money_mirror_write(cash, bank);
+    pthread_mutex_unlock(&purchase_lock);
     return rc == 0 ? 0 : -1;
 }
 int r2_reality_money_deposit(double amount){return money_transfer(amount,1);}
 int r2_reality_money_withdraw(double amount){return money_transfer(amount,0);}
+static int purchase_inventory_state(const char *name, const char *destination,
+                                   sqlite3_int64 *quantity, char *container, size_t cap)
+{
+    if (quantity) *quantity = 0;
+    if (container && cap) container[0] = '\0';
+    if (!name || !destination) return -1;
+    sqlite3 *db = !strcasecmp(destination, "fridge") ? fridge_db : reality_db;
+    if (!db) return -1;
+    /* Callers hold reality_lock while inspecting the purchase journal.
+       Fridge has its own database/lock; the Reality DB must not be relocked. */
+    int is_fridge = !strcasecmp(destination, "fridge");
+    if (is_fridge) pthread_mutex_lock(&fridge_lock);
+    sqlite3_stmt *st = NULL;
+    int rc;
+    if (!strcasecmp(destination, "fridge")) {
+        rc = sqlite3_prepare_v2(db,
+            "SELECT quantity FROM r2_fridge_items WHERE name=? COLLATE NOCASE",
+            -1, &st, NULL);
+    } else {
+        rc = sqlite3_prepare_v2(db,
+            "SELECT quantity,container FROM r2_reality_objects WHERE name=? COLLATE NOCASE",
+            -1, &st, NULL);
+    }
+    if (rc == SQLITE_OK) {
+        bind_text(st, 1, name);
+        rc = sqlite3_step(st);
+        if (rc == SQLITE_ROW) {
+            if (quantity) *quantity = sqlite3_column_int64(st, 0);
+            if (container && cap) {
+                const unsigned char *c = !strcasecmp(destination, "fridge")
+                    ? (const unsigned char *)"fridge" : sqlite3_column_text(st, 1);
+                snprintf(container, cap, "%s", c ? (const char *)c : "");
+            }
+            rc = SQLITE_DONE;
+        } else if (rc == SQLITE_DONE) {
+            if (quantity) *quantity = 0;
+            if (container && cap) container[0] = '\0';
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    if (is_fridge) pthread_mutex_unlock(&fridge_lock);
+    return rc == SQLITE_DONE ? 0 : -1;
+}
+
+static int purchase_journal_begin(sqlite3_int64 old_cash, sqlite3_int64 old_bank,
+                                  sqlite3_int64 new_cash, sqlite3_int64 new_bank,
+                                  const char *name, const char *description,
+                                  const char *destination, sqlite3_int64 pre_quantity,
+                                  const char *pre_container)
+{
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_exec(reality_db, "BEGIN IMMEDIATE", NULL, NULL, NULL) != SQLITE_OK) return -1;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "INSERT INTO r2_purchase_journal(id,old_cash_cents,old_bank_cents,new_cash_cents,new_bank_cents,item_name,item_description,destination,pre_quantity,pre_container,phase) "
+        "VALUES(1,?,?,?,?,?,?,?,?,?,'pending')",
+        -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        sqlite3_bind_int64(st, 1, old_cash);
+        sqlite3_bind_int64(st, 2, old_bank);
+        sqlite3_bind_int64(st, 3, new_cash);
+        sqlite3_bind_int64(st, 4, new_bank);
+        bind_text(st, 5, name);
+        bind_text(st, 6, description);
+        bind_text(st, 7, destination);
+        sqlite3_bind_int64(st, 8, pre_quantity);
+        bind_text(st, 9, pre_container);
+        rc = sqlite3_step(st);
+    }
+    if (st) sqlite3_finalize(st);
+    if (rc == SQLITE_DONE) rc = sqlite3_exec(reality_db, "COMMIT", NULL, NULL, NULL);
+    if (rc != SQLITE_OK) {
+        (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
+        return -1;
+    }
+    return 0;
+}
+
+static int purchase_journal_set_phase(const char *phase)
+{
+    sqlite3_stmt *st = NULL;
+    if (sqlite3_exec(reality_db, "BEGIN IMMEDIATE", NULL, NULL, NULL) != SQLITE_OK) return -1;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "UPDATE r2_purchase_journal SET phase=? WHERE id=1",
+        -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        bind_text(st, 1, phase);
+        rc = sqlite3_step(st);
+    }
+    if (st) sqlite3_finalize(st);
+    if (rc == SQLITE_DONE && sqlite3_changes(reality_db) == 1)
+        rc = sqlite3_exec(reality_db, "COMMIT", NULL, NULL, NULL);
+    else rc = SQLITE_ERROR;
+    if (rc != SQLITE_OK) {
+        (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
+        return -1;
+    }
+    return 0;
+}
+
+static int purchase_journal_clear(void)
+{
+    if (sqlite3_exec(reality_db,
+        "BEGIN IMMEDIATE; DELETE FROM r2_purchase_journal WHERE id=1; COMMIT;",
+        NULL, NULL, NULL) != SQLITE_OK) {
+        (void)sqlite3_exec(reality_db, "ROLLBACK", NULL, NULL, NULL);
+        return -1;
+    }
+    return 0;
+}
+
+/* A pending purchase is committed only when the intended inventory stack
+   visibly advanced in the intended container. Otherwise recovery refunds it. */
+static int purchase_journal_recover(void)
+{
+    sqlite3_stmt *st = NULL;
+    sqlite3_int64 old_cash=0, old_bank=0, new_cash=0, new_bank=0, pre_quantity=0;
+    char name[REALITY_MAX_TEXT+1]={0}, destination[REALITY_MAX_TEXT+1]={0};
+    char pre_container[REALITY_MAX_TEXT+1]={0}, phase[24]={0};
+    int rc = sqlite3_prepare_v2(reality_db,
+        "SELECT old_cash_cents,old_bank_cents,new_cash_cents,new_bank_cents,item_name,destination,pre_quantity,pre_container,phase "
+        "FROM r2_purchase_journal WHERE id=1", -1, &st, NULL);
+    if (rc != SQLITE_OK) return -1;
+    rc = sqlite3_step(st);
+    if (rc == SQLITE_DONE) { sqlite3_finalize(st); return 0; }
+    if (rc != SQLITE_ROW) { sqlite3_finalize(st); return -1; }
+    old_cash=sqlite3_column_int64(st,0); old_bank=sqlite3_column_int64(st,1);
+    new_cash=sqlite3_column_int64(st,2); new_bank=sqlite3_column_int64(st,3);
+    snprintf(name,sizeof(name),"%s",sqlite3_column_text(st,4) ? (const char *)sqlite3_column_text(st,4) : "");
+    snprintf(destination,sizeof(destination),"%s",sqlite3_column_text(st,5) ? (const char *)sqlite3_column_text(st,5) : "");
+    pre_quantity=sqlite3_column_int64(st,6);
+    snprintf(pre_container,sizeof(pre_container),"%s",sqlite3_column_text(st,7) ? (const char *)sqlite3_column_text(st,7) : "");
+    snprintf(phase,sizeof(phase),"%s",sqlite3_column_text(st,8) ? (const char *)sqlite3_column_text(st,8) : "");
+    sqlite3_finalize(st);
+
+    sqlite3_int64 current_quantity=0;
+    char current_container[REALITY_MAX_TEXT+1]={0};
+    if (purchase_inventory_state(name,destination,&current_quantity,current_container,sizeof(current_container)) != 0)
+        return -1;
+    int delivered = current_quantity > pre_quantity &&
+        !strcasecmp(current_container,destination);
+    int keep_charge = delivered || !strcmp(phase,"committed");
+    if (!keep_charge && strcmp(phase,"pending")) return -1;
+
+    char wallet[1200], piggybank[1200];
+    money_dir_path(0,wallet,sizeof(wallet));
+    money_dir_path(1,piggybank,sizeof(piggybank));
+    if (money_set_dir_balance(wallet,keep_charge ? new_cash : old_cash,NULL) != 0 ||
+        money_set_dir_balance(piggybank,keep_charge ? new_bank : old_bank,NULL) != 0 ||
+        money_read_locked(NULL,NULL) != 0) {
+        fprintf(stderr,"[R2 Money] Purchase recovery could not reconcile physical balances; journal retained.\\n");
+        return -1;
+    }
+    if (purchase_journal_clear() != 0) return -1;
+    money_mirror_write(keep_charge ? new_cash : old_cash,keep_charge ? new_bank : old_bank);
+    return 0;
+}
+
 int r2_reality_buy_item(const char *name, const char *description,
                        double price, const char *container)
 {
-    if (!name || !*name || !isfinite(price) || price <= 0.0 ||
-        price > 1000000.0 || !r2_reality_is_initialized()) return -1;
+    if (!name || !*name || strlen(name)>REALITY_MAX_TEXT ||
+        (description && strlen(description)>REALITY_MAX_TEXT) ||
+        !isfinite(price) || price <= 0.0 || price > 1000000.0 ||
+        !r2_reality_is_initialized()) return -1;
     sqlite3_int64 cents = (sqlite3_int64)llround(price * 100.0);
     if (cents <= 0 || fabs(price * 100.0 - (double)cents) > 0.0001) return -1;
 
+    char destination_buf[REALITY_MAX_TEXT+1];
+    canonical_container_name(container && *container ? container : "pockets",
+                             destination_buf,sizeof(destination_buf));
+    const char *destination = destination_buf;
+    if (!container_accessible(destination)) return -1;
+    if (!strcasecmp(destination,"fridge")) {
+        double fullness=0.0, energy=0.0;
+        if (!reality_is_home() || food_metric(name,&fullness,&energy)!=0) return -1;
+    }
+
     char wallet[1200], piggybank[1200];
-    money_dir_path(0, wallet, sizeof(wallet));
-    money_dir_path(1, piggybank, sizeof(piggybank));
+    money_dir_path(0,wallet,sizeof(wallet));
+    money_dir_path(1,piggybank,sizeof(piggybank));
+    pthread_mutex_lock(&purchase_lock);
     pthread_mutex_lock(&reality_lock);
-    sqlite3_int64 cash = 0, bank = 0;
-    int rc = money_read_locked(&cash, &bank);
-    sqlite3_int64 old_cash = cash, old_bank = bank;
-    int wallet_changed = 0, bank_changed = 0;
-    if (rc == 0 && cash + bank < cents) rc = -1;
-    if (rc == 0) {
-        sqlite3_int64 spend_cash = cash < cents ? cash : cents;
-        sqlite3_int64 spend_bank = cents - spend_cash;
-        if (money_set_dir_balance(wallet, cash - spend_cash, &wallet_changed) != 0 ||
-            money_set_dir_balance(piggybank, bank - spend_bank, &bank_changed) != 0 ||
-            money_read_locked(&cash, &bank) != 0) rc = -1;
-    }
-    int mutation_started = wallet_changed || bank_changed;
-    if (rc != 0 && mutation_started) {
-        int wallet_restore = wallet_changed
-            ? money_set_dir_balance(wallet, old_cash, NULL) : 0;
-        int bank_restore = bank_changed
-            ? money_set_dir_balance(piggybank, old_bank, NULL) : 0;
-        int mirror_restore = money_read_locked(&cash, &bank);
-        if (wallet_restore != 0 || bank_restore != 0 || mirror_restore != 0)
-            fprintf(stderr, "[R2 Money] CRITICAL: purchase failed and balance rollback was incomplete; inspect Wallet and piggybank files.\n");
-    }
-    pthread_mutex_unlock(&reality_lock);
-    if (rc != 0) {
-        if (mutation_started) money_mirror_write(cash, bank);
-        return -1;
-    }
-
-    const char *destination = container && *container ? container : "pockets";
-    if (r2_reality_add_item(name, description ? description : "Purchased item",
-                            destination, 1) != 0) {
-        pthread_mutex_lock(&reality_lock);
-        int wallet_restore = wallet_changed
-            ? money_set_dir_balance(wallet, old_cash, NULL) : 0;
-        int bank_restore = bank_changed
-            ? money_set_dir_balance(piggybank, old_bank, NULL) : 0;
-        int mirror_restore = money_read_locked(&cash, &bank);
+    if (inventory_transfer_recover_locked()!=0 ||
+        purchase_journal_recover()!=0 || money_journal_recover(NULL)!=0) {
         pthread_mutex_unlock(&reality_lock);
-        if (wallet_restore != 0 || bank_restore != 0 || mirror_restore != 0)
-            fprintf(stderr, "[R2 Money] CRITICAL: item creation failed and purchase rollback was incomplete; inspect Wallet and piggybank files.\n");
-        money_mirror_write(cash, bank);
+        pthread_mutex_unlock(&purchase_lock);
         return -1;
     }
+    sqlite3_int64 pre_quantity=0;
+    char pre_container[REALITY_MAX_TEXT+1]={0};
+    if (purchase_inventory_state(name,destination,&pre_quantity,pre_container,sizeof(pre_container))!=0) {
+        pthread_mutex_unlock(&reality_lock);
+        pthread_mutex_unlock(&purchase_lock);
+        return -1;
+    }
+    sqlite3_int64 cash=0, bank=0;
+    int rc=money_read_locked(&cash,&bank);
+    sqlite3_int64 old_cash=cash, old_bank=bank;
+    if (rc==0 && cash+bank<cents) rc=-1;
+    sqlite3_int64 new_cash=cash, new_bank=bank;
+    if (rc==0) {
+        sqlite3_int64 spend_cash=cash<cents?cash:cents;
+        new_cash=cash-spend_cash;
+        new_bank=bank-(cents-spend_cash);
+        if (new_cash<0 || new_bank<0) rc=-1;
+    }
+    if (rc==0)
+        rc=purchase_journal_begin(old_cash,old_bank,new_cash,new_bank,name,
+            description ? description : "Purchased item",destination,pre_quantity,pre_container);
+    if (rc==0 && (money_set_dir_balance(wallet,new_cash,NULL)!=0 ||
+                  money_set_dir_balance(piggybank,new_bank,NULL)!=0 ||
+                  money_read_locked(&cash,&bank)!=0)) rc=-1;
+    if (rc!=0) {
+        /* If an intent was persisted, recovery owns rollback; never erase it
+           unless restoring the original balances succeeded. */
+        if (purchase_journal_recover()!=0)
+            fprintf(stderr,"[R2 Money] Purchase failed and recovery remains pending; journal retained.\\n");
+        pthread_mutex_unlock(&reality_lock);
+        pthread_mutex_unlock(&purchase_lock);
+        return -1;
+    }
+#ifdef R2_MONEY_TEST_FAILURE_INJECTION
+    if (getenv("R2_TEST_PURCHASE_INTERRUPT_BEFORE_ITEM")) {
+        /* Leave durable intent and deducted money exactly as a crash would. */
+        pthread_mutex_unlock(&reality_lock);
+        pthread_mutex_unlock(&purchase_lock);
+        return -1;
+    }
+#endif
+    pthread_mutex_unlock(&reality_lock);
 
-    money_mirror_write(cash, bank);
+    if (r2_reality_add_item(name,description ? description : "Purchased item",destination,1)!=0) {
+        pthread_mutex_lock(&reality_lock);
+        int recovery_rc=purchase_journal_recover();
+        pthread_mutex_unlock(&reality_lock);
+        if (recovery_rc!=0)
+            fprintf(stderr,"[R2 Money] Item creation failed; purchase recovery remains pending.\\n");
+        pthread_mutex_unlock(&purchase_lock);
+        return -1;
+    }
+#ifdef R2_MONEY_TEST_FAILURE_INJECTION
+    if (getenv("R2_TEST_PURCHASE_INTERRUPT_AFTER_ITEM")) { pthread_mutex_unlock(&purchase_lock); return -1; }
+#endif
+    pthread_mutex_lock(&reality_lock);
+    rc=purchase_journal_set_phase("committed");
+    /* Keep the committed intent until physical balances have been re-read;
+       if SQLite summary refresh fails, startup can still finish reconciliation. */
+    if (rc==0 && money_read_locked(&cash,&bank)!=0) rc=-1;
+    if (rc==0) rc=purchase_journal_clear();
+    pthread_mutex_unlock(&reality_lock);
+    if (rc!=0) {
+        /* The item exists. Startup recovery can infer delivery and finish charging. */
+        fprintf(stderr,"[R2 Money] Purchase delivered but journal finalization failed; recovery will reconcile it.\\n");
+        pthread_mutex_unlock(&purchase_lock);
+        return -1;
+    }
+    money_mirror_write(cash,bank);
+    pthread_mutex_unlock(&purchase_lock);
     char summary[512], details[1024];
-    snprintf(summary, sizeof(summary), "R2 purchased %s for $%.2f.", name, cents / 100.0);
-    snprintf(details, sizeof(details), "Item=%s; price=$%.2f; destination=%s; wallet cash paid first, then piggybank.",
-             name, cents / 100.0, destination);
-    bridge_event("purchase", summary, details, 1, 1);
+    snprintf(summary,sizeof(summary),"R2 purchased %.350s for $%.2f.",name,cents/100.0);
+    snprintf(details,sizeof(details),"Item=%.400s; price=$%.2f; destination=%.200s; wallet cash paid first, then piggybank.",name,cents/100.0,destination);
+    bridge_event("purchase",summary,details,1,1);
     return 0;
 }
 

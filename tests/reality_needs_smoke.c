@@ -268,7 +268,7 @@ static void seed_legacy_shared_reality_tables(void)
         "INSERT INTO r2_reality_ticks(previous_tick,current_tick) VALUES(100,110);"
         "CREATE TABLE r2_reality_item_memory(item_name TEXT,description TEXT,exact_quantity INTEGER,collected_at INTEGER);"
         "INSERT INTO r2_reality_item_memory(item_name,description,exact_quantity,collected_at) "
-        "VALUES('legacy_collection','Old item memory',3,123456);"
+        "VALUES('legacy_collection','Old item memory',3,CAST(strftime('%s','now') AS INTEGER));"
         "CREATE TABLE r2_food_experiences(food_name TEXT,fullness REAL,eaten_at INTEGER);"
         "INSERT INTO r2_food_experiences(food_name,fullness,eaten_at) VALUES('legacy_meal',25,123456);"
         "CREATE TABLE r2_food_preferences(food_name TEXT PRIMARY KEY,satisfaction_sum REAL,rating_count INTEGER,updated_at INTEGER);"
@@ -368,10 +368,10 @@ static void verify_legacy_shared_reality_migration(void)
     }
 
     if (sqlite3_prepare_v2(db,
-        "SELECT precision,last_decay_at FROM r2_reality_item_memory WHERE item_name='legacy_collection'",
+        "SELECT precision,last_decay_at,collected_at FROM r2_reality_item_memory WHERE item_name='legacy_collection'",
         -1, &st, NULL) != SQLITE_OK || sqlite3_step(st) != SQLITE_ROW ||
         strcmp((const char *)sqlite3_column_text(st, 0), "exact") != 0 ||
-        sqlite3_column_int64(st, 1) != 123456) {
+        sqlite3_column_int64(st, 1) != sqlite3_column_int64(st, 2)) {
         if (st) sqlite3_finalize(st);
         sqlite3_close(db);
         fail("legacy item memory did not receive backward-compatible precision/decay defaults");
@@ -653,9 +653,241 @@ int main(void)
           "\n  <food name=\"zero_fullness\" fullness=\"0\" energy=\"0\" />"
           "\n  <food name=\"nan_fullness\" fullness=\"nan\" energy=\"10\" />"
           "\n  <food name=\"nan_energy\" fullness=\"20\" energy=\"nan\" />"
-          "\n  <food name=\"fridge_move_failure\" fullness=\"45\" energy=\"4\" ingredients=\"new ingredient\" taste=\"new taste\" />\n",
+          "\n  <food name=\"fridge_move_failure\" fullness=\"45\" energy=\"4\" ingredients=\"new ingredient\" taste=\"new taste\" />"
+          "\n  <food name=\"inventory_crash_move\" fullness=\"45\" energy=\"4\" ingredients=\"transfer ingredient\" taste=\"transfer taste\" />"
+          "\n  <food name=\"inventory_crash_eat\" fullness=\"45\" energy=\"4\" ingredients=\"meal ingredient\" taste=\"meal taste\" />"
+          "\n  <food name=\"inventory_crash_eat_commit\" fullness=\"45\" energy=\"4\" ingredients=\"meal ingredient\" taste=\"meal taste\" />\n",
           metrics);
     if (fclose(metrics) != 0) fail("could not close temporary food metrics fixture");
+
+    /* Simulate a process crash after the fridge write but before the Reality
+       object is removed. Restart must restore both databases to the old state. */
+    if (r2_reality_add_item("inventory_crash_move", "Original pocket stack", "pockets", 2) != 0 ||
+        r2_fridge_add_item("inventory_crash_move", "Original fridge stack", 3,
+                           12.0, 1.0, "old ingredients", "old taste") != 0)
+        fail("could not seed interrupted move-to-fridge fixture");
+    if (setenv("R2_TEST_INVENTORY_CRASH_AFTER_FRIDGE_ADD", "1", 1) != 0)
+        fail("could not enable move-to-fridge crash injection");
+    if (r2_reality_move_item("inventory_crash_move", "fridge") == 0)
+        fail("injected move-to-fridge interruption must be reported as incomplete");
+    unsetenv("R2_TEST_INVENTORY_CRASH_AFTER_FRIDGE_ADD");
+    r2_reality_shutdown();
+    if (r2_reality_init() != 0)
+        fail("Reality restart could not recover interrupted move-to-fridge transfer");
+
+    char transfer_fridge_path[1024];
+    snprintf(transfer_fridge_path, sizeof(transfer_fridge_path), "%s/r2_fridge.db", R2_HOME);
+    sqlite3 *transfer_db = NULL;
+    sqlite3_stmt *transfer_st = NULL;
+    if (sqlite3_open(R2_HOME "/r2_reality.db", &transfer_db) != SQLITE_OK)
+        fail("could not query recovered Reality item transfer");
+    if (sqlite3_prepare_v2(transfer_db,
+        "SELECT container,quantity FROM r2_reality_objects WHERE name='inventory_crash_move'",
+        -1, &transfer_st, NULL) != SQLITE_OK ||
+        sqlite3_step(transfer_st) != SQLITE_ROW ||
+        strcmp((const char *)sqlite3_column_text(transfer_st, 0), "pockets") != 0 ||
+        sqlite3_column_int(transfer_st, 1) != 2)
+        fail("restart did not restore the original pocket stack after interrupted fridge move");
+    sqlite3_finalize(transfer_st);
+    transfer_st = NULL;
+    if (sqlite3_prepare_v2(transfer_db,
+        "SELECT COUNT(*) FROM r2_inventory_transfer_journal", -1, &transfer_st, NULL) != SQLITE_OK ||
+        sqlite3_step(transfer_st) != SQLITE_ROW || sqlite3_column_int(transfer_st, 0) != 0)
+        fail("move-to-fridge recovery did not clear its durable journal");
+    sqlite3_finalize(transfer_st);
+    transfer_st = NULL;
+    sqlite3_close(transfer_db);
+    transfer_db = NULL;
+    if (sqlite3_open(transfer_fridge_path, &transfer_db) != SQLITE_OK)
+        fail("could not query recovered fridge item transfer");
+    if (sqlite3_prepare_v2(transfer_db,
+        "SELECT description,quantity,fullness,energy FROM r2_fridge_items WHERE name='inventory_crash_move'",
+        -1, &transfer_st, NULL) != SQLITE_OK ||
+        sqlite3_step(transfer_st) != SQLITE_ROW ||
+        strcmp((const char *)sqlite3_column_text(transfer_st, 0), "Original fridge stack") != 0 ||
+        sqlite3_column_int(transfer_st, 1) != 3 ||
+        fabs(sqlite3_column_double(transfer_st, 2) - 12.0) > 0.001 ||
+        fabs(sqlite3_column_double(transfer_st, 3) - 1.0) > 0.001)
+        fail("restart did not restore the original fridge stock metadata and quantity");
+    sqlite3_finalize(transfer_st);
+    sqlite3_close(transfer_db);
+    transfer_db = NULL;
+    transfer_st = NULL;
+    if (r2_reality_remove_item("inventory_crash_move") != 0)
+        fail("could not remove recovered pocket transfer fixture");
+    for (int i = 0; i < 3; ++i)
+        if (r2_fridge_take("inventory_crash_move") != 0)
+            fail("could not clear recovered fridge transfer fixture");
+    if (r2_reality_remove_item("inventory_crash_move") != 0)
+        fail("could not clear pocket copies from recovered fridge transfer fixture");
+
+    /* Simulate a process crash after decrementing fridge stock but before the
+       pocket addition. Restart must restore the fridge and keep pockets empty. */
+    if (r2_fridge_add_item("inventory_crash_take", "Original take stock", 2,
+                           12.0, 1.0, "take ingredients", "take taste") != 0)
+        fail("could not seed interrupted fridge-take fixture");
+    if (setenv("R2_TEST_INVENTORY_CRASH_AFTER_FRIDGE_TAKE", "1", 1) != 0)
+        fail("could not enable fridge-take crash injection");
+    if (r2_fridge_take("inventory_crash_take") == 0)
+        fail("injected fridge-take interruption must be reported as incomplete");
+    unsetenv("R2_TEST_INVENTORY_CRASH_AFTER_FRIDGE_TAKE");
+    r2_reality_shutdown();
+    if (r2_reality_init() != 0)
+        fail("Reality restart could not recover interrupted fridge take");
+    if (sqlite3_open(R2_HOME "/r2_reality.db", &transfer_db) != SQLITE_OK)
+        fail("could not query recovered pocket take fixture");
+    if (sqlite3_prepare_v2(transfer_db,
+        "SELECT COUNT(*) FROM r2_reality_objects WHERE name='inventory_crash_take'",
+        -1, &transfer_st, NULL) != SQLITE_OK ||
+        sqlite3_step(transfer_st) != SQLITE_ROW ||
+        sqlite3_column_int(transfer_st, 0) != 0)
+        fail("restart left a pocket item from an interrupted fridge take");
+    sqlite3_finalize(transfer_st);
+    transfer_st = NULL;
+    sqlite3_close(transfer_db);
+    transfer_db = NULL;
+    if (sqlite3_open(R2_HOME "/r2_reality.db", &transfer_db) != SQLITE_OK)
+        fail("could not verify cleared fridge-take recovery journal");
+    if (sqlite3_prepare_v2(transfer_db,
+        "SELECT COUNT(*) FROM r2_inventory_transfer_journal", -1, &transfer_st, NULL) != SQLITE_OK ||
+        sqlite3_step(transfer_st) != SQLITE_ROW || sqlite3_column_int(transfer_st, 0) != 0)
+        fail("fridge-take recovery did not clear its durable journal");
+    sqlite3_finalize(transfer_st);
+    sqlite3_close(transfer_db);
+    transfer_db = NULL;
+    transfer_st = NULL;
+    if (sqlite3_open(transfer_fridge_path, &transfer_db) != SQLITE_OK)
+        fail("could not query recovered fridge take fixture");
+    if (sqlite3_prepare_v2(transfer_db,
+        "SELECT description,quantity FROM r2_fridge_items WHERE name='inventory_crash_take'",
+        -1, &transfer_st, NULL) != SQLITE_OK ||
+        sqlite3_step(transfer_st) != SQLITE_ROW ||
+        strcmp((const char *)sqlite3_column_text(transfer_st, 0), "Original take stock") != 0 ||
+        sqlite3_column_int(transfer_st, 1) != 2)
+        fail("restart did not restore the original fridge stock after interrupted take");
+    sqlite3_finalize(transfer_st);
+    sqlite3_close(transfer_db);
+    if (r2_fridge_take("inventory_crash_take") != 0 ||
+        r2_fridge_take("inventory_crash_take") != 0 ||
+        r2_reality_remove_item("inventory_crash_take") != 0)
+        fail("could not clean up recovered fridge-take fixture");
+
+    /* A crash after fridge stock is decremented but before the meal transaction
+       must restore stock, needs, starvation continuity, and food history. */
+    if (r2_fridge_add_item("inventory_crash_eat", "Original meal stock", 1,
+                           45.0, 4.0, "meal ingredient", "meal taste") != 0)
+        fail("could not seed interrupted fridge-meal fixture");
+    if (sqlite3_open(R2_HOME "/r2_reality.db", &transfer_db) != SQLITE_OK)
+        fail("could not set baseline needs for interrupted fridge meal");
+    if (sqlite3_exec(transfer_db,
+        "UPDATE r2_reality_self SET hunger=30,satisfaction=20,seconds_since_meal=600,"
+        "sleepiness=15,energy=50,last_tick=strftime('%s','now'),updated_at=CURRENT_TIMESTAMP WHERE id=1;"
+        "DELETE FROM r2_food_experiences WHERE food_name='inventory_crash_eat';"
+        "INSERT INTO r2_reality_self_facts(key,value,evidence) VALUES('starvation_72h_logged','yes','transfer recovery test') "
+        "ON CONFLICT(key) DO UPDATE SET value='yes',evidence='transfer recovery test';",
+        NULL, NULL, NULL) != SQLITE_OK)
+        fail("could not seed needs/history snapshot for interrupted fridge meal");
+    sqlite3_close(transfer_db);
+    transfer_db = NULL;
+    if (setenv("R2_TEST_INVENTORY_CRASH_AFTER_FRIDGE_EAT_STOCK", "1", 1) != 0)
+        fail("could not enable pre-meal crash injection");
+    if (r2_reality_fridge_eat("inventory_crash_eat", -1.0) == 0)
+        fail("injected pre-meal interruption must be reported as incomplete");
+    unsetenv("R2_TEST_INVENTORY_CRASH_AFTER_FRIDGE_EAT_STOCK");
+    r2_reality_shutdown();
+    if (r2_reality_init() != 0)
+        fail("Reality restart could not recover interrupted fridge meal");
+
+    if (sqlite3_open(R2_HOME "/r2_reality.db", &transfer_db) != SQLITE_OK)
+        fail("could not verify needs after interrupted fridge meal");
+    if (sqlite3_prepare_v2(transfer_db,
+        "SELECT satisfaction,(SELECT COUNT(*) FROM r2_food_experiences WHERE food_name='inventory_crash_eat'),"
+        "(SELECT value FROM r2_reality_self_facts WHERE key='starvation_72h_logged'),"
+        "(SELECT COUNT(*) FROM r2_inventory_transfer_journal) FROM r2_reality_self WHERE id=1",
+        -1, &transfer_st, NULL) != SQLITE_OK ||
+        sqlite3_step(transfer_st) != SQLITE_ROW ||
+        sqlite3_column_double(transfer_st, 0) >= 30.0 ||
+        sqlite3_column_int(transfer_st, 1) != 0 ||
+        !sqlite3_column_text(transfer_st, 2) ||
+        strcmp((const char *)sqlite3_column_text(transfer_st, 2), "yes") != 0 ||
+        sqlite3_column_int(transfer_st, 3) != 0)
+        fail("pre-meal crash did not restore needs, starvation fact, food history, and journal");
+    sqlite3_finalize(transfer_st);
+    transfer_st = NULL;
+    sqlite3_close(transfer_db);
+    transfer_db = NULL;
+    if (sqlite3_open(transfer_fridge_path, &transfer_db) != SQLITE_OK)
+        fail("could not verify stock after interrupted fridge meal");
+    if (sqlite3_prepare_v2(transfer_db,
+        "SELECT description,quantity FROM r2_fridge_items WHERE name='inventory_crash_eat'",
+        -1, &transfer_st, NULL) != SQLITE_OK ||
+        sqlite3_step(transfer_st) != SQLITE_ROW ||
+        strcmp((const char *)sqlite3_column_text(transfer_st, 0), "Original meal stock") != 0 ||
+        sqlite3_column_int(transfer_st, 1) != 1)
+        fail("pre-meal crash did not restore the original fridge stock");
+    sqlite3_finalize(transfer_st);
+    transfer_st = NULL;
+    sqlite3_close(transfer_db);
+    transfer_db = NULL;
+    if (r2_fridge_take("inventory_crash_eat") != 0 ||
+        r2_reality_remove_item("inventory_crash_eat") != 0)
+        fail("could not clean up pre-meal crash fixture");
+
+    /* Once the needs/food-history transaction commits the journal phase in the
+       same SQLite transaction, recovery must keep the meal rather than refund it. */
+    if (r2_fridge_add_item("inventory_crash_eat_commit", "Committed meal stock", 1,
+                           45.0, 4.0, "meal ingredient", "meal taste") != 0)
+        fail("could not seed committed fridge-meal fixture");
+    if (sqlite3_open(R2_HOME "/r2_reality.db", &transfer_db) != SQLITE_OK)
+        fail("could not set baseline needs for committed fridge meal");
+    if (sqlite3_exec(transfer_db,
+        "UPDATE r2_reality_self SET hunger=30,satisfaction=20,seconds_since_meal=600,"
+        "sleepiness=15,energy=50,last_tick=strftime('%s','now'),updated_at=CURRENT_TIMESTAMP WHERE id=1;"
+        "DELETE FROM r2_food_experiences WHERE food_name='inventory_crash_eat_commit';"
+        "INSERT INTO r2_reality_self_facts(key,value,evidence) VALUES('starvation_72h_logged','yes','commit recovery test') "
+        "ON CONFLICT(key) DO UPDATE SET value='yes',evidence='commit recovery test';",
+        NULL, NULL, NULL) != SQLITE_OK)
+        fail("could not seed baseline for committed fridge meal");
+    sqlite3_close(transfer_db);
+    transfer_db = NULL;
+    if (setenv("R2_TEST_INVENTORY_CRASH_AFTER_FRIDGE_EAT_COMMIT", "1", 1) != 0)
+        fail("could not enable committed-meal crash injection");
+    if (r2_reality_fridge_eat("inventory_crash_eat_commit", -1.0) == 0)
+        fail("injected post-commit interruption must be reported as incomplete");
+    unsetenv("R2_TEST_INVENTORY_CRASH_AFTER_FRIDGE_EAT_COMMIT");
+    r2_reality_shutdown();
+    if (r2_reality_init() != 0)
+        fail("Reality restart could not recover committed fridge meal");
+
+    if (sqlite3_open(R2_HOME "/r2_reality.db", &transfer_db) != SQLITE_OK)
+        fail("could not verify committed meal after restart");
+    if (sqlite3_prepare_v2(transfer_db,
+        "SELECT satisfaction,(SELECT COUNT(*) FROM r2_food_experiences WHERE food_name='inventory_crash_eat_commit'),"
+        "(SELECT value FROM r2_reality_self_facts WHERE key='starvation_72h_logged'),"
+        "(SELECT COUNT(*) FROM r2_inventory_transfer_journal) FROM r2_reality_self WHERE id=1",
+        -1, &transfer_st, NULL) != SQLITE_OK ||
+        sqlite3_step(transfer_st) != SQLITE_ROW ||
+        sqlite3_column_double(transfer_st, 0) < 40.0 ||
+        sqlite3_column_int(transfer_st, 1) != 1 ||
+        !sqlite3_column_text(transfer_st, 2) ||
+        strcmp((const char *)sqlite3_column_text(transfer_st, 2), "no") != 0 ||
+        sqlite3_column_int(transfer_st, 3) != 0)
+        fail("post-commit recovery rolled back a meal or retained its journal");
+    sqlite3_finalize(transfer_st);
+    transfer_st = NULL;
+    sqlite3_close(transfer_db);
+    transfer_db = NULL;
+    if (sqlite3_open(transfer_fridge_path, &transfer_db) != SQLITE_OK)
+        fail("could not verify committed meal stock after restart");
+    if (sqlite3_prepare_v2(transfer_db,
+        "SELECT COUNT(*) FROM r2_fridge_items WHERE name='inventory_crash_eat_commit'",
+        -1, &transfer_st, NULL) != SQLITE_OK ||
+        sqlite3_step(transfer_st) != SQLITE_ROW ||
+        sqlite3_column_int(transfer_st, 0) != 0)
+        fail("post-commit recovery incorrectly restored consumed fridge stock");
+    sqlite3_finalize(transfer_st);
+    sqlite3_close(transfer_db);
+    transfer_db = NULL;
     if (r2_fridge_add_item("invalid_negative_metric", "invalid test stock", 1,
                            -1.0, 10.0, NULL, NULL) == 0)
         fail("fridge API must reject negative fullness instead of substituting defaults");

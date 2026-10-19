@@ -54,6 +54,16 @@ require(
 )
 
 # A model response containing only internal markers must not trigger an action.
+visible_start = core.find("static int reply_has_visible_text(")
+visible_end = core.find("\n}\n", visible_start)
+visible_helper = core[visible_start:visible_end + 3] if visible_start >= 0 and visible_end > visible_start else ""
+require(
+    "control_blocks[]" in visible_helper
+    and '"[RUN]"' in visible_helper
+    and '"[WORLD]"' in visible_helper
+    and "Malformed control output is never user-facing text" in visible_helper,
+    "action-control blocks and lines do not count as visible user-facing text",
+)
 visible_gate = impl.find("if (!reply_has_visible_text(stripped_reply))")
 tool_execution = impl.find("char *tools = process_tools(stripped_reply)")
 require(
@@ -66,6 +76,35 @@ require(
     and "couldn't finish processing that response" in impl
     and "goto finalize_reply;" in impl,
     "tool-processing failure is converted into a visible response instead of a silent turn",
+)
+
+tool_processor = function_slice(
+    "static char *process_tools_with_status(",
+    "/* Preserve the existing result-only interface for ordinary callers. */",
+)
+growth_start = tool_processor.find("char *_grown = realloc(results, _new_cap);")
+growth_end = tool_processor.find("results = _grown;", growth_start)
+growth_failure = tool_processor[growth_start:growth_end] if growth_start >= 0 and growth_end >= 0 else ""
+growth_commit = tool_processor[growth_end:growth_end + 120] if growth_end >= 0 else ""
+require(
+    "An action may already have completed" in growth_failure
+    and "Verify the current state " in growth_failure
+    and "before retrying the request." in growth_failure
+    and "return results;" in growth_failure
+    and "free(results);" not in growth_failure
+    and "snprintf(results, cap, \"%s\", _capture_failure)" in growth_failure
+    and "cap = _new_cap;" not in growth_failure
+    and "cap = _new_cap;" in growth_commit,
+    "tool-result allocation failure keeps warning bounded by the original allocation",
+)
+direct_tool_oom = impl.find("if (strncmp(tools, tool_capture_failure_prefix")
+require(
+    direct_tool_oom >= 0
+    and "I ran out of memory while recording an action result." in impl
+    and "reply = tools; /* Transfer the existing buffer" in impl[direct_tool_oom:]
+    and "xstrdup(" not in impl[direct_tool_oom:impl.find("/* Tool-routing replies", direct_tool_oom)]
+    and "goto finalize_reply;" in impl[direct_tool_oom:],
+    "tool-result OOM warning is shown directly instead of being paraphrased by another model call",
 )
 
 # The public entry point must serialize entire turns, while announcing intent
@@ -143,12 +182,9 @@ require(
 init_start = core.find("int r2_init(void)")
 shutdown_start = core.find("void r2_shutdown(void)", init_start)
 init_body = core[init_start:shutdown_start] if init_start >= 0 and shutdown_start > init_start else ""
-diary_create = init_body.find("pthread_create(\n            &diary_thread")
-failure_start = init_body.find(
-    "/* Keep failed-startup shutdown atomic with the worker's predicate. */",
-    diary_create,
-)
-failure_end = init_body.find("pthread_join(\n            hands_thread", failure_start)
+diary_create = init_body.find("r2_startup_thread_create(&diary_thread")
+failure_start = diary_create - len("if (")
+failure_end = init_body.find("pthread_join(hands_thread, NULL);", failure_start)
 init_failure = init_body[failure_start:failure_end] if failure_start >= 0 and failure_end > failure_start else ""
 init_lock = init_failure.find("pthread_mutex_lock(&task_queue_lock)")
 init_state = init_failure.find("shutting_down = 1;")

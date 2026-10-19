@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
+import re
+import struct
+import zlib
 import subprocess
 import sys
 import time
@@ -46,7 +50,46 @@ def _read_json(url: str, timeout: float, payload: dict[str, Any] | None = None) 
     return result
 
 
-def preflight(wait_seconds: float = 0, timeout: float = 180) -> bool:
+def _is_complete_assistant_turn(reply: dict[str, Any]) -> bool:
+    """Match the core's non-streaming Ollama completion contract."""
+    message = reply.get("message")
+    return (
+        isinstance(message, dict)
+        and message.get("role") == "assistant"
+        and reply.get("done") is True
+    )
+
+
+def _png_chunk(kind: bytes, payload: bytes) -> bytes:
+    return (
+        struct.pack(">I", len(payload))
+        + kind
+        + payload
+        + struct.pack(">I", zlib.crc32(kind + payload) & 0xFFFFFFFF)
+    )
+
+
+def _vision_probe_image_base64() -> str:
+    """Build a camera-sized 640x480 known-color PNG using only the standard library."""
+    width, height = 640, 480
+    scanlines = bytearray()
+    for y in range(height):
+        scanlines.append(0)  # PNG filter: None
+        for x in range(width):
+            if 170 <= x < 470 and 90 <= y < 390:
+                scanlines.extend((0, 0, 255, 255))  # solid blue square
+            else:
+                scanlines.extend((255, 255, 255, 255))  # white background
+    png = (
+        b"\x89PNG\r\n\x1a\n"
+        + _png_chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0))
+        + _png_chunk(b"IDAT", zlib.compress(bytes(scanlines), level=6))
+        + _png_chunk(b"IEND", b"")
+    )
+    return base64.b64encode(png).decode("ascii")
+
+
+def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload: bool = False) -> bool:
     """Check local model availability and one real, bounded inference."""
     try:
         api_base = _configured_api_base()
@@ -131,7 +174,74 @@ def preflight(wait_seconds: float = 0, timeout: float = 180) -> bool:
         print(f"ERROR: Ollama listed {MODEL} but chat generation produced no usable final answer. {detail}", file=sys.stderr)
         return False
 
-    print(f"Local Ollama is ready: {MODEL} completed a real chat generation (reply omitted).")
+
+    if not _is_complete_assistant_turn(reply):
+        print(
+            f"ERROR: Ollama listed {MODEL} but text generation did not return a complete assistant turn "
+            "(expected message.role=assistant and done=true).",
+            file=sys.stderr,
+        )
+        return False
+
+    # Exercise the same 640x480 image dimensions, JSON response mode, GPU/context
+    # policy and context-dependent output cap used by Visual.c. This catches
+    # image-encoder/KV-cache OOMs that text-only readiness can miss.
+    vision_context = int(options.get("num_ctx", 4096))
+    vision_options = dict(options)
+    vision_options["num_predict"] = 512 if vision_context >= 8192 else 256
+    try:
+        vision_reply = _read_json(
+            f"{api_base}/api/chat",
+            timeout=timeout,
+            payload={
+                "model": MODEL,
+                "format": "json",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "Return only a JSON object with a string field named color. Identify the visible color of the large square.",
+                    },
+                    {
+                        "role": "user",
+                        "content": "What color is the large square? Return JSON with the key color.",
+                        "images": [_vision_probe_image_base64()],
+                    },
+                ],
+                "stream": False,
+                "think": False,
+                "keep_alive": "10m",
+                "options": vision_options,
+            },
+        )
+    except (OSError, ValueError, urllib.error.URLError, TimeoutError) as exc:
+        print(f"ERROR: {MODEL} passed text generation but image-bearing chat failed: {exc}", file=sys.stderr)
+        return False
+
+    if not _is_complete_assistant_turn(vision_reply):
+        print(
+            f"ERROR: {MODEL} returned an incomplete or invalid assistant turn for the image-bearing probe "
+            "(expected message.role=assistant and done=true).",
+            file=sys.stderr,
+        )
+        return False
+
+    vision_message = vision_reply.get("message")
+    vision_content = vision_message.get("content") if isinstance(vision_message, dict) else None
+    try:
+        vision_data = json.loads(vision_content) if isinstance(vision_content, str) else {}
+    except json.JSONDecodeError:
+        vision_data = {}
+    vision_color = vision_data.get("color") if isinstance(vision_data, dict) else None
+    if not isinstance(vision_color, str) or not re.search(r"\bblue\b", vision_color, re.IGNORECASE):
+        print(
+            f"ERROR: {MODEL} passed text generation but failed the JSON known-color vision probe "
+            "(expected the image-bearing reply to report color=blue).",
+            file=sys.stderr,
+        )
+        return False
+
+    gpu_offload_verified = False
+    mixed_placement_verified = False
     if gpu_layers == 0:
         print("GPU policy: automatic placement (no explicit layer count sent).")
     else:
@@ -155,11 +265,36 @@ def preflight(wait_seconds: float = 0, timeout: float = 180) -> bool:
             except (TypeError, ValueError):
                 vram = 0
             if vram > 0:
+                gpu_offload_verified = True
                 print(f"GPU verification: Ollama reports {vram / (1024 ** 3):.2f} GiB allocated in GPU VRAM.")
+                total_size = active.get("size", 0)
+                try:
+                    total_size = int(total_size)
+                except (TypeError, ValueError):
+                    total_size = 0
+                if total_size > vram:
+                    mixed_placement_verified = True
+                    print(f"Mixed placement: model process reports {total_size / (1024 ** 3):.2f} GiB total with {vram / (1024 ** 3):.2f} GiB in VRAM; remaining model/runtime memory is outside GPU VRAM.")
             else:
                 print("GPU verification: Ollama reports no VRAM allocation; inference may be CPU-only.")
     except (OSError, ValueError, urllib.error.URLError, TimeoutError) as exc:
         print(f"GPU verification unavailable: could not query Ollama /api/ps ({exc}).")
+
+    # When the host explicitly requests GPU layers, a successful text reply is
+    # not enough: require Ollama's process report to confirm that some model
+    # memory really landed in VRAM. CPU-only success must not masquerade as a
+    # successful GTX 1050 Ti policy preflight.
+    if require_gpu_offload and (
+        not gpu_offload_verified or not mixed_placement_verified
+    ):
+        print(
+            "ERROR: mixed CPU/GPU placement was required but Ollama did not report "
+            "both positive VRAM allocation and total model memory greater than VRAM.",
+            file=sys.stderr,
+        )
+        return False
+
+    print(f"Local Ollama is ready: {MODEL} passed real text and image-bearing chat generations (replies omitted).")
 
     # Host-side diagnostic; lack of nvidia-smi access does not fail preflight.
     try:
@@ -182,10 +317,12 @@ def main() -> int:
                         help="wait this long for the local API/model to become available")
     parser.add_argument("--timeout", type=float, default=180,
                         help="maximum seconds for the single real inference request")
+    parser.add_argument("--require-gpu-offload", action="store_true",
+                        help="fail unless Ollama reports both VRAM allocation and model memory outside VRAM")
     args = parser.parse_args()
     if args.timeout <= 0 or args.wait_seconds < 0:
         parser.error("--timeout must be positive and --wait-seconds cannot be negative")
-    return 0 if preflight(args.wait_seconds, args.timeout) else 1
+    return 0 if preflight(args.wait_seconds, args.timeout, args.require_gpu_offload) else 1
 
 
 if __name__ == "__main__":

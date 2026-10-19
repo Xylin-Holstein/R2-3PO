@@ -23,6 +23,7 @@ on:
     branches:
       - main
       - 'integrate/**'
+      - 'release/**'
       - clean-copy-r2-audit-2026-10-09
       - r2-hunger-reflection-fix-2026-10-10
       - consolidate/b2-5w2-latest-audit-2026-10-11
@@ -49,6 +50,11 @@ jobs:
         run: |
           python3 -m compileall -q .
           python3 tests/build_configuration_smoke.py
+
+      - name: Check secure Ollama model-copy integrity
+        run: |
+          python3 -m py_compile tools/copy_ollama_model.py tests/copy_ollama_model_integrity.py
+          python3 tests/copy_ollama_model_integrity.py
 
       - name: Check model references and implemented lifecycle documentation
         run: |
@@ -156,6 +162,9 @@ jobs:
 
       - name: Cancel visual inference when stopping Watch
         run: python3 tests/vision_watch_cancellation_smoke.py
+
+      - name: Check transactional vision JSON construction
+        run: python3 tests/visual_payload_allocation_smoke.py
 
       - name: Check unified Qwen 3.5 conversation and vision wiring
         run: python3 tests/qwen35_model_smoke.py
@@ -300,6 +309,11 @@ jobs:
           python3 -m py_compile GameBoyAdvance.py tests/gameboy_console_smoke.py
           python3 tests/gameboy_console_smoke.py
 
+      - name: Require fail-closed Game Boy JSON response contracts
+        run: |
+          python3 -m py_compile tests/gameboy_json_contract_smoke.py
+          python3 tests/gameboy_json_contract_smoke.py
+
       - name: Exercise Game Boy installer and desktop entry
         run: bash tests/gameboy_install_smoke.sh
 
@@ -323,7 +337,7 @@ jobs:
           rm -rf "$ROOT" /tmp/r2-wallet-smoke-r2.o /tmp/r2-wallet-smoke-test
           FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\"$ROOT\" -DR2_HOME=\"$ROOT/R2\" -DR2_WORKSPACE=\"$ROOT\" -DR2_DIARY_DATABASE=\"$ROOT/R2/r2_memory.db\" -DR2_DIARY_DIR=\"$ROOT/R2_Diary\""
           cc $FLAGS -Dmain=r2_program_main -c r2.c -o /tmp/r2-wallet-smoke-r2.o
-          cc $FLAGS tests/money_wallet_smoke.c shell.c r2_diary.c Log.c SensoryJournal.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c R2Sounds.c R2Reply.c Imagination.c /tmp/r2-wallet-smoke-r2.o -o /tmp/r2-wallet-smoke-test -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
+          cc $FLAGS -DR2_MONEY_TEST_FAILURE_INJECTION tests/money_wallet_smoke.c shell.c r2_diary.c Log.c SensoryJournal.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c R2Sounds.c R2Reply.c Imagination.c /tmp/r2-wallet-smoke-r2.o -o /tmp/r2-wallet-smoke-test -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
           /tmp/r2-wallet-smoke-test
 
       - name: Exercise shared Ollama request-gate serialization
@@ -396,7 +410,7 @@ jobs:
         run: |
           ROOT=/tmp/r2-needs-smoke
           rm -rf "$ROOT" /tmp/r2-needs-smoke-r2.o /tmp/r2-needs-smoke-test
-          FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\"$ROOT\" -DR2_HOME=\"$ROOT/R2\" -DR2_WORKSPACE=\"$ROOT\" -DR2_DIARY_DATABASE=\"$ROOT/R2/r2_memory.db\" -DR2_DIARY_DIR=\"$ROOT/R2_Diary\""
+          FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_INVENTORY_TEST_FAILURE_INJECTION -DR2_ROOT=\"$ROOT\" -DR2_HOME=\"$ROOT/R2\" -DR2_WORKSPACE=\"$ROOT\" -DR2_DIARY_DATABASE=\"$ROOT/R2/r2_memory.db\" -DR2_DIARY_DIR=\"$ROOT/R2_Diary\""
           cc $FLAGS -Dmain=r2_program_main -c r2.c -o /tmp/r2-needs-smoke-r2.o
           cc $FLAGS tests/reality_needs_smoke.c shell.c r2_diary.c Log.c SensoryJournal.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c R2Sounds.c R2Reply.c Imagination.c /tmp/r2-needs-smoke-r2.o -o /tmp/r2-needs-smoke-test -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
           /tmp/r2-needs-smoke-test
@@ -452,6 +466,28 @@ jobs:
         run: |
           cc -std=c11 -Wall -Wextra -Werror -O1 -I. tests/imagination_unit_smoke.c Imagination.c -o /tmp/r2-imagination-smoke -lpthread
           /tmp/r2-imagination-smoke
+
+      - name: Exercise startup failure cleanup at runtime
+        run: |
+          ROOT=/tmp/r2-startup-unwind-runtime
+          rm -rf "$ROOT" /tmp/r2-startup-unwind-r2.o /tmp/r2-startup-unwind-test
+          mkdir -p "$ROOT"
+          FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\"$ROOT\" -DR2_HOME=\"$ROOT/R2\" -DR2_WORKSPACE=\"$ROOT\" -DR2_DIARY_DATABASE=\"$ROOT/R2/r2_memory.db\" -DR2_DIARY_DIR=\"$ROOT/R2_Diary\""
+          cc $FLAGS -DR2_TEST_STARTUP_FAILURE_INJECTION -Dmain=r2_program_main -c r2.c -o /tmp/r2-startup-unwind-r2.o
+          cc $FLAGS tests/startup_failure_unwind_runtime.c shell.c r2_diary.c Log.c SensoryJournal.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c R2Sounds.c R2Reply.c Imagination.c /tmp/r2-startup-unwind-r2.o -o /tmp/r2-startup-unwind-test -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
+          /tmp/r2-startup-unwind-test hands
+          rm -rf "$ROOT"
+          /tmp/r2-startup-unwind-test diary
+
+      - name: Verify complete cleanup after either startup thread creation fails
+        run: |
+          python3 -m py_compile tests/startup_failure_unwind_smoke.py
+          python3 tests/startup_failure_unwind_smoke.py
+
+      - name: Verify failed background task enqueue is not reported as success
+        run: |
+          python3 -m py_compile tests/hand_enqueue_failure_smoke.py
+          python3 tests/hand_enqueue_failure_smoke.py
 
       - name: Compile R2 with the same sources and flags as the launcher
         run: make clean all CFLAGS="-std=c11 -Wall -Wextra -Werror -O2"

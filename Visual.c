@@ -34,6 +34,35 @@ static int visual_initialized = 0;
 static char visual_directory[PATH_MAX];
 static char visual_model[256];
 
+/* Treat JSON construction as a transaction: never send a partial payload. */
+static int visual_json_object_add_checked(json_object *object,
+                                          const char *key,
+                                          json_object *value)
+{
+    if (!object || !key || !value) {
+        if (value) json_object_put(value);
+        return -1;
+    }
+    if (json_object_object_add(object, key, value) != 0) {
+        json_object_put(value);
+        return -1;
+    }
+    return 0;
+}
+
+static int visual_json_array_add_checked(json_object *array, json_object *value)
+{
+    if (!array || !value) {
+        if (value) json_object_put(value);
+        return -1;
+    }
+    if (json_object_array_add(array, value) != 0) {
+        json_object_put(value);
+        return -1;
+    }
+    return 0;
+}
+
 #define R2_VWEBCAM_DIR "/tmp/r2-vwebcam-r2"
 
 static int visual_vwebcam_prepare_dir(void)
@@ -49,7 +78,12 @@ static int visual_vwebcam_prepare_dir(void)
     return 0;
 }
 
-static void publish_focus_region(json_object *focus)
+/* Focus publication uses a shared temporary path. Serialize writers so
+   overlapping vision requests cannot truncate, rename, or unlink each
+   other's pending focus update. */
+static pthread_mutex_t focus_publish_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static void publish_focus_region_impl(json_object *focus)
 {
     char path[PATH_MAX], tmp[PATH_MAX];
     const char *display = getenv("DISPLAY");
@@ -103,11 +137,16 @@ static void publish_focus_region(json_object *focus)
         (void)unlink(path);
         return;
     }
-    json_object_object_add(root, "x", json_object_new_double(x));
-    json_object_object_add(root, "y", json_object_new_double(y));
-    json_object_object_add(root, "width", json_object_new_double(w));
-    json_object_object_add(root, "height", json_object_new_double(h));
-    json_object_object_add(root, "label", json_object_new_string(label));
+    if (visual_json_object_add_checked(root, "x", json_object_new_double(x)) != 0 ||
+        visual_json_object_add_checked(root, "y", json_object_new_double(y)) != 0 ||
+        visual_json_object_add_checked(root, "width", json_object_new_double(w)) != 0 ||
+        visual_json_object_add_checked(root, "height", json_object_new_double(h)) != 0 ||
+        visual_json_object_add_checked(root, "label", json_object_new_string(label)) != 0) {
+        json_object_put(root);
+        (void)unlink(tmp);
+        (void)unlink(path);
+        return;
+    }
     const char *encoded = json_object_to_json_string_ext(root, JSON_C_TO_STRING_PLAIN);
     FILE *fp = encoded ? fopen(tmp, "w") : NULL;
     int failed = !fp;
@@ -127,6 +166,13 @@ static void publish_focus_region(json_object *focus)
         (void)unlink(tmp);
         (void)unlink(path);
     }
+}
+
+static void publish_focus_region(json_object *focus)
+{
+    pthread_mutex_lock(&focus_publish_lock);
+    publish_focus_region_impl(focus);
+    pthread_mutex_unlock(&focus_publish_lock);
 }
 
 /* Return the natural-language description for R2 while publishing the
@@ -378,21 +424,14 @@ static char *call_vision_model(const char *image_base64, const char *question,
     json_object *user = json_object_new_object();
     json_object *images = json_object_new_array();
     json_object *options = json_object_new_object();
-    if (!root || !messages || !sys || !user || !images || !options || !system_prompt) {
-        if (root) json_object_put(root);
-        if (messages) json_object_put(messages);
-        if (sys) json_object_put(sys);
-        if (user) json_object_put(user);
-        if (images) json_object_put(images);
-        if (options) json_object_put(options);
-        free(system_prompt);
-        return NULL;
-    }
-    json_object_object_add(root, "model", json_object_new_string(model));
-    json_object_object_add(root, "stream", json_object_new_boolean(0));
-    json_object_object_add(root, "think", json_object_new_boolean(0));
-    json_object_object_add(root, "format", json_object_new_string("json"));
-    json_object_object_add(root, "keep_alive", json_object_new_string("10m"));
+    if (!root || !messages || !sys || !user || !images || !options || !system_prompt)
+        goto build_failure;
+    if (visual_json_object_add_checked(root, "model", json_object_new_string(model)) != 0 ||
+        visual_json_object_add_checked(root, "stream", json_object_new_boolean(0)) != 0 ||
+        visual_json_object_add_checked(root, "think", json_object_new_boolean(0)) != 0 ||
+        visual_json_object_add_checked(root, "format", json_object_new_string("json")) != 0 ||
+        visual_json_object_add_checked(root, "keep_alive", json_object_new_string("10m")) != 0)
+        goto build_failure;
 
     /*
      * Share the RAM-aware context ceiling with chat. Vision only needs a concise
@@ -401,16 +440,15 @@ static char *call_vision_model(const char *image_base64, const char *question,
      */
     int num_ctx = r2_ollama_context_tokens();
     int num_predict = num_ctx >= 8192 ? 512 : 256;
-    json_object_object_add(options, "num_ctx", json_object_new_int(num_ctx));
-    json_object_object_add(options, "num_predict", json_object_new_int(num_predict));
-
-    /* Qwen3.5's official non-thinking/VL sampler settings. */
-    json_object_object_add(options, "temperature", json_object_new_double(0.7));
-    json_object_object_add(options, "top_p", json_object_new_double(0.8));
-    json_object_object_add(options, "top_k", json_object_new_int(20));
-    json_object_object_add(options, "min_p", json_object_new_double(0.0));
-    json_object_object_add(options, "presence_penalty", json_object_new_double(1.5));
-    json_object_object_add(options, "repeat_penalty", json_object_new_double(1.0));
+    if (visual_json_object_add_checked(options, "num_ctx", json_object_new_int(num_ctx)) != 0 ||
+        visual_json_object_add_checked(options, "num_predict", json_object_new_int(num_predict)) != 0 ||
+        visual_json_object_add_checked(options, "temperature", json_object_new_double(0.7)) != 0 ||
+        visual_json_object_add_checked(options, "top_p", json_object_new_double(0.8)) != 0 ||
+        visual_json_object_add_checked(options, "top_k", json_object_new_int(20)) != 0 ||
+        visual_json_object_add_checked(options, "min_p", json_object_new_double(0.0)) != 0 ||
+        visual_json_object_add_checked(options, "presence_penalty", json_object_new_double(1.5)) != 0 ||
+        visual_json_object_add_checked(options, "repeat_penalty", json_object_new_double(1.0)) != 0)
+        goto build_failure;
 
     /* Keep vision inference on the same requested GPU/CPU layer policy as chat. */
     const char *gpu_layers_env = getenv("R2_OLLAMA_NUM_GPU");
@@ -420,24 +458,56 @@ static char *call_vision_model(const char *image_base64, const char *question,
         long gpu_layers = strtol(gpu_layers_env, &gpu_end, 10);
         if (!errno && gpu_end != gpu_layers_env && *gpu_end == '\0' &&
             gpu_layers >= -1 && gpu_layers <= 999 && gpu_layers != 0) {
-            json_object_object_add(options, "num_gpu",
-                                   json_object_new_int((int)gpu_layers));
+            if (visual_json_object_add_checked(
+                    options, "num_gpu", json_object_new_int((int)gpu_layers)) != 0)
+                goto build_failure;
         } else if (errno || gpu_end == gpu_layers_env || *gpu_end != '\0' ||
                    gpu_layers < -1 || gpu_layers > 999) {
             fprintf(stderr, "[R2 Vision] Ignoring invalid R2_OLLAMA_NUM_GPU value.\n");
         }
     }
-    json_object_object_add(root, "options", options);
-    json_object_object_add(sys, "role", json_object_new_string("system"));
-    json_object_object_add(sys, "content", json_object_new_string(system_prompt));
-    json_object_object_add(user, "role", json_object_new_string("user"));
-    json_object_object_add(user, "content", json_object_new_string(asked));
-    json_object_array_add(images, json_object_new_string(image_base64));
-    json_object_object_add(user, "images", images);
-    json_object_array_add(messages, sys);
-    json_object_array_add(messages, user);
-    json_object_object_add(root, "messages", messages);
+    int add_rc = visual_json_object_add_checked(root, "options", options);
+    options = NULL; /* checked helper consumes the value on success or failure */
+    if (add_rc != 0)
+        goto build_failure;
+    if (visual_json_object_add_checked(sys, "role", json_object_new_string("system")) != 0 ||
+        visual_json_object_add_checked(sys, "content", json_object_new_string(system_prompt)) != 0 ||
+        visual_json_object_add_checked(user, "role", json_object_new_string("user")) != 0 ||
+        visual_json_object_add_checked(user, "content", json_object_new_string(asked)) != 0 ||
+        visual_json_array_add_checked(images, json_object_new_string(image_base64)) != 0)
+        goto build_failure;
+    add_rc = visual_json_object_add_checked(user, "images", images);
+    images = NULL;
+    if (add_rc != 0)
+        goto build_failure;
+    add_rc = visual_json_array_add_checked(messages, sys);
+    sys = NULL;
+    if (add_rc != 0)
+        goto build_failure;
+    add_rc = visual_json_array_add_checked(messages, user);
+    user = NULL;
+    if (add_rc != 0)
+        goto build_failure;
+    add_rc = visual_json_object_add_checked(root, "messages", messages);
+    messages = NULL;
+    if (add_rc != 0)
+        goto build_failure;
     free(system_prompt);
+    system_prompt = NULL;
+    goto payload_ready;
+
+build_failure:
+    if (root) json_object_put(root);
+    if (messages) json_object_put(messages);
+    if (sys) json_object_put(sys);
+    if (user) json_object_put(user);
+    if (images) json_object_put(images);
+    if (options) json_object_put(options);
+    free(system_prompt);
+    return NULL;
+
+payload_ready:
+    ;
 
     const char *payload = json_object_to_json_string_ext(root, JSON_C_TO_STRING_PLAIN);
     char ollama_url[128];
@@ -485,11 +555,27 @@ static char *call_vision_model(const char *image_base64, const char *question,
             response.data) {
             json_object *parsed = json_tokener_parse(response.data);
             json_object *message = NULL, *content = NULL;
-            if (parsed && json_object_object_get_ex(parsed, "message", &message) &&
+            json_object *role = NULL, *done = NULL;
+            int complete_assistant_turn =
+                parsed &&
+                json_object_object_get_ex(parsed, "done", &done) && done &&
+                json_object_is_type(done, json_type_boolean) &&
+                json_object_get_boolean(done) &&
+                json_object_object_get_ex(parsed, "message", &message) && message &&
+                json_object_is_type(message, json_type_object) &&
+                json_object_object_get_ex(message, "role", &role) && role &&
+                json_object_is_type(role, json_type_string) &&
+                strcmp(json_object_get_string(role), "assistant") == 0;
+            if (complete_assistant_turn &&
                 json_object_object_get_ex(message, "content", &content) &&
-                json_object_is_type(content, json_type_string)) {
+                content && json_object_is_type(content, json_type_string)) {
                 const char *text = json_object_get_string(content);
                 if (text && *text) answer = strdup(text);
+            } else if (parsed) {
+                r2_log_sensory("vision_invalid_completion_contract",
+                               "R2 rejected an incomplete or invalid vision-model response.",
+                               "The response must contain message.role=assistant and boolean done=true.",
+                               model);
             }
             if (parsed) json_object_put(parsed);
         } else if (yielded_to_foreground) {

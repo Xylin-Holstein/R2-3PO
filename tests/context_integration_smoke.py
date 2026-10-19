@@ -84,17 +84,17 @@ print("shared memory/reality/reward/addiction context wiring smoke passed")
 # Startup memory uses a different heading from the identity prompt. It must
 # have an explicit serialization priority, after focused live retrieval but
 # before learned summaries and archived dialogue.
-priority_start = core.find("static int r2_inference_system_priority(const char *content)")
+priority_start = core.find("static int r2_inference_system_priority(const char *content, const char *query)")
 priority_end = core.find("\nstatic size_t r2_order_inference_messages", priority_start)
 if priority_start < 0 or priority_end < 0:
     raise SystemExit("Could not locate inference system-context priority ordering.")
 priority = core[priority_start:priority_end]
-if 'strstr(content, "R2 PERSISTENT MEMORY - STARTUP CONTEXT")' not in priority or "return 3;" not in priority:
+if 'strstr(content, "R2 PERSISTENT MEMORY - STARTUP CONTEXT")' not in priority or "return 5;" not in priority:
     raise SystemExit("Startup persistent memory is not explicitly prioritized.")
-if "for (int priority = 0; priority < 6" not in core:
+if "for (int priority = 0; priority < 8" not in core:
     raise SystemExit("Inference serialization does not iterate all six context priorities.")
-if 'else if (strstr(content, "R2 PERSISTENT MEMORY - STARTUP CONTEXT"))' not in core:
-    raise SystemExit("Serialized context budgeting does not use the startup-memory priority.")
+if "int message_priority = r2_inference_system_priority(" not in core or "if (message_priority != priority) continue;" not in core:
+    raise SystemExit("Serialized context budgeting does not apply the shared context-priority function.")
 
 # Every real request should report whether the exact current user text and
 # the key context blocks actually survived serialization, without logging text.

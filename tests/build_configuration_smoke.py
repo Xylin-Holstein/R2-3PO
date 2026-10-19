@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Ensure all documented R2 build paths use the same strict source/config policy."""
 from pathlib import Path
+import hashlib
 import re
 import sys
 
@@ -9,7 +10,13 @@ makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 launcher = (ROOT / "R2_Launch_Code.sh").read_text(encoding="utf-8")
 workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
 core = (ROOT / "r2.c").read_text(encoding="utf-8")
+installer = (ROOT / "tools/r2_install_root_bootstrap.sh").read_text(encoding="utf-8")
+overnight_docs = (ROOT / "docs/overnight-service.md").read_text(encoding="utf-8")
+installer_wrapper = (ROOT / "tools/install_r2_overnight.sh").read_text(encoding="utf-8")
+service_runner = (ROOT / "tools/r2_service_runner.sh").read_text(encoding="utf-8")
+hardware_preflight = (ROOT / "tools/preflight_r2_hardware.sh").read_text(encoding="utf-8")
 reality = (ROOT / "Reality.c").read_text(encoding="utf-8")
+shell = (ROOT / "shell.c").read_text(encoding="utf-8")
 
 required_sources = (
     "r2.c", "shell.c", "r2_diary.c", "Log.c", "Reality.c", "Addiction.c",
@@ -22,6 +29,61 @@ def require(ok: bool, message: str) -> None:
         print(f"FAIL: {message}", file=sys.stderr)
         raise SystemExit(1)
     print(f"PASS: {message}")
+
+require(
+    'run_as_r2 python3 "$MODEL_COPY_SCRIPT"' in installer
+    and 'run_as_r2 make -C "$R2_SOURCE" clean all TARGET="$TEMP_EXEC"' in installer
+    and 'root_run python3 "$MODEL_COPY_SCRIPT"' not in installer
+    and 'root_run make -C "$R2_SOURCE"' not in installer,
+    "mutable model-copy script and build system run as r2, never as root",
+)
+
+require(
+    '[[ "$EUID" -eq 0 ]]' in installer
+    and 'PATH="/usr/sbin:/usr/bin:/sbin:/bin"' in installer
+    and 'umask 077' in installer
+    and 'BOOTSTRAP_PATH="/usr/local/sbin/r2-3po-install"' in installer
+    and 'refusing privileged execution outside the root-owned bootstrap path' in installer
+    and "R2_OLLAMA_UNIT_EOF" in installer
+    and "R2_SERVICE_UNIT_EOF" in installer
+    and "--require-gpu-offload" in installer
+    and "--require-gpu-offload" in service_runner
+    and "--require-gpu-offload" in launcher
+    and "for DEVICE_GROUP in audio video; do" in launcher
+    and "R2_NVIDIA_PCI_PRESENT=0" in launcher
+    and "R2_NVIDIA_PCI_PRESENT=0" in service_runner
+    and '[[ "$R2_NVIDIA_VENDOR" == "0x10de" && "$R2_NVIDIA_CLASS" == 0x03* ]]' in launcher
+    and '[[ "$R2_NVIDIA_VENDOR" == "0x10de" && "$R2_NVIDIA_CLASS" == 0x03* ]]' in service_runner
+    and "NVIDIA_PCI_PRESENT=0" in installer
+    and '[[ "$NVIDIA_VENDOR" == "0x10de" && "$NVIDIA_CLASS" == 0x03* ]]' in installer
+    and "NVIDIA_PCI_PRESENT=0" in hardware_preflight
+    and '[[ "$NVIDIA_VENDOR" == "0x10de" && "$NVIDIA_CLASS" == 0x03* ]]' in hardware_preflight
+    and "refusing CPU-only fallback" in launcher
+    and "refusing CPU-only fallback" in service_runner
+    and "refusing to silently deploy a CPU-only policy" in installer
+    and "refusing to treat this as a CPU-only host" in hardware_preflight
+    and 'root_run install -o root -g root -m 0644 "$UNIT_STAGING_DIR/r2-ollama.service"' in installer
+    and 'root_run install -o root -g root -m 0644 "$UNIT_STAGING_DIR/r2-3po.service"' in installer
+    and 'root_run install -m 0644 "$OLLAMA_UNIT_SOURCE"' not in installer
+    and 'root_run install -m 0644 "$UNIT_SOURCE"' not in installer,
+    "privileged bootstrap is root-only and installs embedded trusted unit definitions, not mutable source-tree units",
+)
+require(
+    "do not execute this mutable source-tree script as root" in installer_wrapper
+    and "/usr/local/sbin/r2-3po-install" in installer_wrapper
+    and "root_run " not in installer_wrapper,
+    "source-tree installer does not perform privileged deployment",
+)
+require(
+    'root_run chown r2:r2 "$TEMP_EXEC"' not in installer
+    and 'root_run chown r2:r2 "$R2_EXEC"' not in installer
+    and 'root_run chown r2:r2 "$BACKUP_EXEC"' not in installer
+    and re.search(r'^chmod 0755 "\$RUNNER_SOURCE" "\$OLLAMA_RUNNER_SOURCE"$',
+                  installer, re.MULTILINE) is None
+    and 'run_as_r2 chmod 0755 "$RUNNER_SOURCE" "$OLLAMA_RUNNER_SOURCE"' in installer
+    and 'run_as_r2 mv -f "$TEMP_EXEC" "$R2_EXEC"' in installer,
+    "writable runtime paths are not passed to privileged ownership-changing operations",
+)
 
 require(
     re.search(r"^CFLAGS\s*\?=\s*-std=c11\s+-Wall\s+-Wextra\s+-Werror\s+-O2\s*$",
@@ -46,6 +108,15 @@ require(
 require(
     "      - 'release/**'" in workflow,
     "release branches run the same full CI workflow instead of silently skipping validation",
+)
+pull_request_block = re.search(
+    r"^  pull_request:\n(?P<body>.*?)(?=^  [A-Za-z_][A-Za-z0-9_-]*:|\Z)",
+    workflow,
+    re.MULTILINE | re.DOTALL,
+)
+require(
+    pull_request_block is not None and "      - 'release/**'" in pull_request_block.group("body"),
+    "pull requests targeting release branches trigger the full CI workflow",
 )
 require(
     "python3 -m compileall -q ." in workflow,
@@ -88,5 +159,31 @@ require(
     "hunger_fullness_semantics_v2" in reality
     and "100-hunger" in reality,
     "legacy hunger values migrate to the new fullness scale exactly once",
+)
+compare_start = shell.find('if (shell_starts_with(argument, "compare "))')
+compare_end = shell.find('if (shell_starts_with(argument, "create "))', compare_start)
+compare_block = shell[compare_start:compare_end] if compare_start >= 0 and compare_end > compare_start else ""
+pair_parser_start = shell.find("static int shell_parse_pair_ids(")
+pair_parser_end = shell.find("static void shell_alternate(", pair_parser_start)
+pair_parser = shell[pair_parser_start:pair_parser_end] if pair_parser_start >= 0 and pair_parser_end > pair_parser_start else ""
+require(
+    "shell_parse_pair_ids(argument + 8, &first, &second)" in compare_block
+    and "sscanf(" not in compare_block
+    and "strtoll(" in pair_parser
+    and "errno != 0" in pair_parser
+    and "if (*end)" in pair_parser,
+    "alternate comparison IDs use range-checked parsing and reject overflow or extra tokens",
+)
+bootstrap_bytes = (ROOT / "tools/r2_install_root_bootstrap.sh").read_bytes()
+git_blob_sha = hashlib.sha1(b"blob " + str(len(bootstrap_bytes)).encode("ascii") + bytes([0]) + bootstrap_bytes).hexdigest()
+pinned_bootstrap_sha = re.search(r"^BOOTSTRAP_BLOB_SHA=([0-9a-f]{40})$", overnight_docs, re.MULTILINE)
+require(
+    pinned_bootstrap_sha is not None and pinned_bootstrap_sha.group(1) == git_blob_sha,
+    "one-time trusted bootstrap pin matches the exact reviewed source blob",
+)
+require(
+    'https://raw.githubusercontent.com/Xylin48/R2-3PO/${BOOTSTRAP_COMMIT}/tools/r2_install_root_bootstrap.sh' in overnight_docs
+    and "raw.githubusercontent.com/Xylin-Holstein/R2-3PO/" not in overnight_docs,
+    "trusted bootstrap instructions use the current canonical raw-content namespace",
 )
 print("R2 build configuration smoke test passed.")

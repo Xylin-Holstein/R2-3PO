@@ -21,4 +21,8 @@ stop_start = core.index("int r2_vision_watch_stop(void)")
 stop_end = core.index("\nint r2_vision_watch_active(void)", stop_start)
 stop = core[stop_start:stop_end]
 assert stop.index("atomic_store(&vision_watch_running, 0)") < stop.index("pthread_join(vision_watch_thread, NULL)")
+visual = (ROOT / "Visual.c").read_text(encoding="utf-8")
+assert 'json_object_get_boolean(done)' in visual
+assert 'strcmp(json_object_get_string(role), "assistant") == 0' in visual
+assert '"vision_invalid_completion_contract"' in visual
 print("Visual Watch stop cancels its own in-flight inference before joining, without aborting direct vision requests.")

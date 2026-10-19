@@ -6,9 +6,9 @@ R2 already has a headless shell mode, a supervised systemd unit, a local-model p
 - R2 unit: `deploy/r2-3po.service`
 - Dedicated model-server runner/unit: `tools/r2_ollama_runner.sh`, `deploy/r2-ollama.service`
 - Local model copier: `tools/copy_ollama_model.py`
-- Installer: `tools/install_r2_overnight.sh`
+- Trusted bootstrap source: `tools/r2_install_root_bootstrap.sh` (install once as `/usr/local/sbin/r2-3po-install`); `tools/install_r2_overnight.sh` is only a nonprivileged notice.
 
-The overnight core uses the same persistent R2 databases as the interactive launcher, but its inference server is separate: the installer copies the already-installed `qwen3.5:9b` model from the host Ollama service at `127.0.0.1:11434` into `/home/x/R2_Home/.ollama/models`, then runs an `r2`-owned Ollama server on `127.0.0.1:11435`. It does not download model weights or modify the host Ollama service. **Only one R2 core may run at a time.** Both launch paths keep `HOME` set to `/home/x/R2_Home`, while the process UID remains `r2`; `/home/r2` is not an alternate memory, diary, or workspace location. While the overnight services run, UID-scoped firewall chains allow only local Ollama ports 11434 and 11435; IPv6 egress and all other IPv4 egress for UID `r2` are rejected. Port 11434 remains available for the interactive launcher, while the overnight core uses port 11435. The separate chains are cleaned up independently so stopping one service does not remove the other's rules. The installer refuses to rebuild while an R2 process is already running, checks database paths and permissions, takes a private SQLite snapshot, requires a clean integrity audit, copies only an already-installed model, builds to a process-specific temporary executable, preserves the previous binary, and starts the private model server only after installation checks. If the private model preflight fails, R2 is not started; if R2 activation fails, it attempts to restore and restart the previous executable.
+The overnight core uses the same persistent R2 databases as the interactive launcher, but its inference server is separate: the installer copies the already-installed `qwen3.5:9b` model from the host Ollama service at `127.0.0.1:11434` into `/home/x/R2_Home/.ollama/models`, then runs an `r2`-owned Ollama server on `127.0.0.1:11435`. It does not download model weights or modify the host Ollama service. **Only one R2 core may run at a time.** Both launch paths keep `HOME` set to `/home/x/R2_Home`, while the process UID remains `r2`; `/home/r2` is not an alternate memory, diary, or workspace location. While the overnight core is active, its stricter UID-scoped firewall chain permits only `127.0.0.1:11435`; IPv6 and all other egress for UID `r2` are rejected. The private Ollama service has its own chain, which also permits local port 11434 so the interactive launcher can use the host Ollama after the overnight core is stopped. The core chain is inserted first while the service is active, so port 11434 is not available to `r2` during overnight operation. The separate chains are cleaned up independently so stopping one service does not remove the other's rules. The installer refuses to rebuild while an R2 process is already running, checks database paths and permissions, takes a private SQLite snapshot, requires a clean integrity audit, copies only an already-installed model, builds to a process-specific temporary executable, preserves the previous binary, and starts the private model server only after installation checks. If the private model preflight fails, R2 is not started; if R2 activation fails, it attempts to restore and restart the previous executable.
 
 ## One-time host preparation
 
@@ -40,7 +40,7 @@ It checks the source/deployment files, the local Ollama API and `qwen3.5:9b`, re
    curl -fsS http://127.0.0.1:11434/api/tags
    ```
 
-   If Ollama is installed without a system unit named `ollama.service`, start it using the host's existing method. The installer copies the already-installed `qwen3.5:9b` blobs into R2's private model store and starts `r2-ollama.service` on port 11435. It then uses `tools/preflight_ollama_model.py` to require one real local `qwen3.5:9b` chat completion (up to 180 seconds) before starting the R2 core. The copy and inference checks do not download model weights or contact an external API; the host Ollama service on port 11434 is left running and unmodified.
+   If Ollama is installed without a system unit named `ollama.service`, start it using the host's existing method. The installer copies the already-installed `qwen3.5:9b` blobs into R2's private model store and starts `r2-ollama.service` on port 11435. It then requires both a real text completion and a 640x480 image-bearing JSON-mode completion that identifies a known blue square, with the same context-dependent output cap used by Visual.c, using the selected GPU/context policy (up to 180 seconds per inference request) before starting the R2 core. This catches image-encoder/KV-cache OOMs that a text-only probe can miss; the default GTX 1050 Ti policy retries once at 12 GPU layers / 4096 context when both settings were defaults. The copy and inference checks do not download model weights or contact an external API; the host Ollama service on port 11434 is left running and unmodified.
 
 5. Confirm the service account can access the existing workspace and local FX assets. Do not solve permission problems with broad `chmod 777` permissions:
 
@@ -108,21 +108,60 @@ Tracing is off by default. When enabled, each serialized request is saved to a n
 
 First exit any interactive R2 session. The service and interactive launcher share persistent SQLite databases.
 
-Run the existing installer:
+### Install the trusted root bootstrap once
+
+Do **not** run a source-tree script with `sudo`. The checkout under `/home/x/R2_Home/R2` must remain writable by `r2` for the existing persistent SQLite databases and runtime files. A privileged installer stored there would let a compromised runtime account replace code that is later executed as root.
+
+Do **not** copy the bootstrap directly from `/home/x/R2_Home/R2`: that tree is writable by `r2`, so checking it and then running `sudo install` from the same path leaves a time-of-check/time-of-use gap. Fetch the reviewed bootstrap from an immutable commit into the desktop user's home (outside the R2-writable tree), verify its Git blob ID, then install that exact file:
 
 ```sh
-sudo bash /home/x/R2_Home/R2/tools/install_r2_overnight.sh
+BOOTSTRAP_COMMIT=2aec6cee84ed1274a6c7324ec6ac5560d8088240
+BOOTSTRAP_BLOB_SHA=6e9906e6ac3e7299b368585fc7e842f32ceb2646
+umask 077
+curl -fsSL \
+  "https://raw.githubusercontent.com/Xylin48/R2-3PO/${BOOTSTRAP_COMMIT}/tools/r2_install_root_bootstrap.sh" \
+  -o /home/x/r2-3po-install
+chmod 0600 /home/x/r2-3po-install
+ACTUAL_BLOB_SHA="$(git hash-object /home/x/r2-3po-install)"
+if [[ "$ACTUAL_BLOB_SHA" != "$BOOTSTRAP_BLOB_SHA" ]]; then
+  rm -f /home/x/r2-3po-install
+  echo "ERROR: trusted bootstrap hash mismatch; refusing installation." >&2
+  exit 1
+fi
+sudo install -o root -g root -m 0755 \
+  /home/x/r2-3po-install /usr/local/sbin/r2-3po-install || {
+    rm -f /home/x/r2-3po-install
+    echo "ERROR: failed to install the trusted root bootstrap." >&2
+    exit 1
+  }
+if ! sudo test -f /usr/local/sbin/r2-3po-install || \
+   ! sudo test ! -L /usr/local/sbin/r2-3po-install || \
+   [[ "$(sudo stat -c '%u:%a' /usr/local/sbin/r2-3po-install)" != "0:755" ]]; then
+  echo "ERROR: installed bootstrap is not a root-owned, non-symlink 0755 file." >&2
+  exit 1
+fi
+rm -f /home/x/r2-3po-install
 ```
 
-It will:
-- verify `r2`, build tools, `libfaketime`, and the expected deployed files;
+The commit URL is immutable, and the Git blob hash must match exactly. Do not replace this with a copy from the runtime-writable checkout. If the bootstrap source changes in a future release, review the new file and deliberately update both the pinned commit and blob hash.
+
+From then on, use only the protected entrypoint:
+
+```sh
+sudo /usr/local/sbin/r2-3po-install
+```
+
+The trusted bootstrap compiles the current checkout and runs the model copier, database audit, and preflight as the unprivileged `r2` account. Its systemd unit definitions are embedded in the root-owned bootstrap; it does not install unit contents read from the runtime-writable checkout. The repository's `tools/install_r2_overnight.sh` is now only a nonprivileged notice and must not be invoked with `sudo`. If the trusted bootstrap itself is intentionally changed in a future release, review that change and reinstall the root-owned copy deliberately.
+
+The bootstrap will:
+- verify `r2`, build tools, `libfaketime`, and the required runtime files;
 - refuse to run beside an already active R2 process;
 - check permissions and refuse symlinked database paths;
 - create a private snapshot of the memory, Reality, fridge, reward, and addiction databases and require the integrity audit to pass;
-- compile the full C runtime to a temporary executable so a failed build does not replace the prior executable;
-- install the systemd unit, reload systemd, and enable/start the overnight service.
+- compile the full C runtime as `r2` and keep the previous executable until the private Ollama server passes a real generation preflight;
+- install the trusted embedded systemd units, reload systemd, and enable/start the overnight service.
 
-The installer intentionally stops if the database audit fails. Preserve the report and snapshot and investigate the issue rather than deleting or replacing the database files.
+The bootstrap intentionally stops if the database audit or model preflight fails. Preserve the report and snapshot and investigate the issue rather than deleting or replacing the database files.
 
 ## Verify that R2 is actually active
 
@@ -133,7 +172,7 @@ systemctl --no-pager --full status r2-3po.service
 journalctl -u r2-3po.service -n 100 --no-pager
 ```
 
-Expected state is `enabled` and `active`. The journal should report a successful local Ollama chat preflight and the core readiness marker (`[R2 READY] Core initialized; entering shell.`). The installer does not call the service ready based only on systemd's early `active` state. If the unit keeps restarting, inspect the logs; common causes are a missing `qwen3.5:9b` model, missing `libfaketime`, inaccessible workspace/database files, or Ollama not running.
+Expected state is `enabled` and `active`. The journal should report successful text and synthetic-image Ollama preflights and the core readiness marker (`[R2 READY] Core initialized; entering shell.`). The installer does not call the service ready based only on systemd's early `active` state. If the unit keeps restarting, inspect the logs; common causes are a missing `qwen3.5:9b` model, missing `libfaketime`, inaccessible workspace/database files, or Ollama not running.
 
 Follow live logs with `journalctl -u r2-3po.service -f`.
 
@@ -159,6 +198,8 @@ After future source changes, stop R2 and rerun the installer so the executable i
 CI can compile the source and statically check the supervisor wiring, but it cannot verify the host's Linux permissions, installed Ollama model, actual SQLite contents, speaker/audio routing, camera access, or desktop power settings. After activation, verify `systemctl is-enabled r2-3po.service` and `systemctl is-active r2-3po.service`, inspect the journal for model/preflight/audio warnings, and test one real conversation with the local model. Separately, launch the interactive desktop session and verify speaker playback, explicit microphone listening, camera/Eyes input, the Observer window, and TV/VCR playback; the overnight systemd service is intentionally headless and is not proof that desktop GUI/audio devices work. Confirm shutdown/restart once and inspect the logs for clean lifecycle messages. The FX collection is a local runtime asset, not a repository folder.
 
 
-### CPU/GPU placement default
+### CPU/GPU placement policy
 
-Both the interactive launcher and systemd service leave layer placement to Ollama by default (`R2_OLLAMA_NUM_GPU=0`, which omits an explicit `num_gpu` option in the request). This supports CPU-only machines and lets Ollama choose a supported accelerator automatically. Only override `R2_OLLAMA_NUM_GPU` after verifying the host’s Ollama backend; `-1` is an explicit all-layers request, not the safe universal default.
+On the target 4 GiB GTX 1050 Ti, both launch paths default to 20 GPU layers and an 8192-token context. Before replacing the executable or entering the core, preflight must prove a real chat generation **and** mixed placement from Ollama's `/api/ps` report: positive `size_vram` and total model size greater than VRAM. If the default generation/placement preflight fails and both values were defaults, the launcher retries once at 12 GPU layers and 4096 context; if that also fails, startup remains blocked rather than silently accepting CPU-only inference. The core adapts context further to available RAM.
+
+On a host with no NVIDIA PCI device, `R2_OLLAMA_NUM_GPU=0` omits an explicit `num_gpu` option and lets Ollama choose an available backend automatically. If an NVIDIA PCI device is present but `nvidia-smi` cannot query it, startup fails rather than silently downgrading to CPU-only inference. A successfully queried non-1050-Ti NVIDIA GPU uses automatic layer placement but must still prove mixed placement. Explicit operator overrides are respected rather than silently changed; `R2_OLLAMA_NUM_GPU=0` means automatic placement, not permission to ignore an installed NVIDIA GPU. `-1` is an explicit all-layers request, not a safe universal default, and it is incompatible with the target's required mixed-placement check if Ollama reports the whole model in VRAM.

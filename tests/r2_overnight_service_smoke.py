@@ -91,6 +91,7 @@ class OvernightServiceTests(unittest.TestCase):
     def test_unit_restarts_failures_and_runs_as_dedicated_user(self):
         source = (ROOT / "deploy/r2-3po.service").read_text(encoding="utf-8")
         self.assertIn("User=r2", source)
+        self.assertIn("SupplementaryGroups=audio video render", source)
         self.assertIn("Environment=HOME=/home/x/R2_Home", source)
         self.assertIn("R2_SVC_NETLOCK", source)
         self.assertIn("--uid-owner r2", source)
@@ -149,32 +150,60 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn("export R2_OLLAMA_NUM_GPU=20", launcher)
         self.assertIn('R2_OLLAMA_NUM_GPU="${R2_OLLAMA_NUM_GPU}"', launcher)
         self.assertIn("R2_RUNTIME_GROUPS=", launcher)
-        self.assertIn('R2_RUNTIME_GROUPS+=",${AUDIO_GID}"', launcher)
+        self.assertIn('R2_RUNTIME_GROUPS+=",${DEVICE_GID}"', launcher)
+        self.assertIn("for DEVICE_GROUP in audio video; do", launcher)
         self.assertIn('sudo -n setpriv --reuid="$R2_UID" --regid="$R2_GID" --groups="$R2_RUNTIME_GROUPS" --', launcher)
         self.assertNotIn('sudo -u r2 -g r2 -G "$R2_RUNTIME_GROUPS"', launcher)
         self.assertNotIn("usermod -aG audio", launcher)
 
     def test_installer_is_non_destructive_and_does_not_update_apt(self):
-        source = (ROOT / "tools/install_r2_overnight.sh").read_text(encoding="utf-8")
+        source = (ROOT / "tools/r2_install_root_bootstrap.sh").read_text(encoding="utf-8")
+        wrapper = (ROOT / "tools/install_r2_overnight.sh").read_text(encoding="utf-8")
         self.assertIn("r2_rewards.db", source)
         self.assertIn("r2_addictions.db", source)
         self.assertIn('TEMP_EXEC="${R2_ROOT}/r2.new.${BASHPID}"', source)
         self.assertIn('if [[ -e "$TEMP_EXEC" || -L "$TEMP_EXEC" ]]; then', source)
         self.assertIn('mv -f "$TEMP_EXEC" "$R2_EXEC"', source)
-        self.assertIn('BACKUP_EXEC="$(mktemp "$R2_ROOT/r2.previous.XXXXXX")"', source)
+        self.assertIn('BACKUP_EXEC="$(run_as_r2 mktemp "$R2_ROOT/r2.previous.XXXXXX")"', source)
         self.assertIn('cp "$R2_EXEC" "$BACKUP_EXEC"', source)
         self.assertIn("rollback_previous_executable() {", source)
-        self.assertIn('root_run cp "$BACKUP_EXEC" "$restore_exec"', source)
-        self.assertIn('root_run chmod 0755 "$R2_EXEC"', source)
+        self.assertIn('run_as_r2 cp "$BACKUP_EXEC" "$restore_exec"', source)
+        self.assertIn("NEW_EXEC_INSTALLED=1", source)
+        self.assertIn("automatic early-exit rollback", source)
+        self.assertIn("trap cleanup_on_exit EXIT", source)
+        self.assertIn('run_as_r2 chmod 0755 "$R2_EXEC"', source)
         self.assertIn("refusing symlinked existing executable", source)
         self.assertEqual(source.count("rollback_previous_executable || log"), 2)
         self.assertLess(source.index('cp "$R2_EXEC" "$BACKUP_EXEC"'),
                         source.index('mv -f "$TEMP_EXEC" "$R2_EXEC"'))
+        self.assertLess(
+            source.index('python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 60'),
+            source.index('BACKUP_EXEC="$(run_as_r2 mktemp "$R2_ROOT/r2.previous.XXXXXX")"'),
+        )
         self.assertIn("systemctl enable --now r2-3po.service", source)
         self.assertIn("copy_ollama_model.py", source)
-        self.assertIn("deploy/r2-ollama.service", source)
+        self.assertIn("R2_OLLAMA_UNIT_EOF", source)
+        self.assertIn("R2_SERVICE_UNIT_EOF", source)
+        self.assertIn("do not execute this mutable source-tree script as root", wrapper)
+        self.assertNotIn("root_run ", wrapper)
+        # The privileged bootstrap's embedded units are the exact definitions
+        # installed by root; they must stay synchronized with reviewed repo units.
+        ollama_unit = (ROOT / "deploy/r2-ollama.service").read_text(encoding="utf-8").rstrip("\n")
+        r2_unit = (ROOT / "deploy/r2-3po.service").read_text(encoding="utf-8").rstrip("\n")
+        ollama_marker = 'cat > "$UNIT_STAGING_DIR/r2-ollama.service" <<\'R2_OLLAMA_UNIT_EOF\'\n'
+        r2_marker = 'cat > "$UNIT_STAGING_DIR/r2-3po.service" <<\'R2_SERVICE_UNIT_EOF\'\n'
+        ollama_start = source.index(ollama_marker) + len(ollama_marker)
+        r2_start = source.index(r2_marker) + len(r2_marker)
+        ollama_end = source.index("\nR2_OLLAMA_UNIT_EOF", ollama_start)
+        r2_end = source.index("\nR2_SERVICE_UNIT_EOF", r2_start)
+        self.assertEqual(source[ollama_start:ollama_end], ollama_unit)
+        self.assertEqual(source[r2_start:r2_end], r2_unit)
         self.assertIn("systemctl enable --now r2-ollama.service", source)
         self.assertIn("preflight_ollama_model.py", source)
+        self.assertIn("PREFLIGHT_GPU=20", source)
+        self.assertIn("PREFLIGHT_CTX=8192", source)
+        self.assertIn('R2_OLLAMA_NUM_GPU="$PREFLIGHT_GPU" R2_OLLAMA_NUM_CTX="$PREFLIGHT_CTX"', source)
+        self.assertIn("12 GPU layers and 4096 context tokens", source)
         self.assertNotIn("ollama pull", source)
         self.assertNotIn("apt-get update", source)
         self.assertIn("pgrep -x r2", source)
@@ -189,6 +218,46 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn('grep -Fq "[R2 READY] Core initialized; entering shell."', source)
         self.assertNotIn('grep -Fq "Starting R2 with private clock"', source)
 
+
+    def test_installer_restores_private_ollama_state_after_early_failure(self):
+        installer = (ROOT / "tools/r2_install_root_bootstrap.sh").read_text(encoding="utf-8")
+        self.assertIn("OLLAMA_WAS_ACTIVE=0", installer)
+        self.assertIn("OLLAMA_WAS_ENABLED=0", installer)
+        self.assertIn(
+            'OLLAMA_ACTIVE_STATE="$(root_run systemctl is-active r2-ollama.service 2>/dev/null || true)"',
+            installer,
+        )
+        self.assertIn(
+            'OLLAMA_ENABLED_STATE="$(root_run systemctl is-enabled r2-ollama.service 2>/dev/null || true)"',
+            installer,
+        )
+        self.assertIn("active) OLLAMA_WAS_ACTIVE=1 ;;", installer)
+        self.assertIn("enabled|enabled-runtime|linked|linked-runtime) OLLAMA_WAS_ENABLED=1 ;;", installer)
+        self.assertIn("OLLAMA_STATE_CAPTURED=1", installer)
+        self.assertIn('if [[ "$INSTALL_SUCCEEDED" != "1"', installer)
+        self.assertIn('R2_ROLLBACK_RESTARTED=1', installer)
+        self.assertIn('INSTALL_SUCCEEDED=1', installer)
+        self.assertIn('run_as_r2 rm -f -- "$R2_EXEC"', installer)
+        self.assertIn('root_run systemctl disable r2-3po.service >/dev/null 2>&1 || true', installer)
+        self.assertIn('NEW_EXEC_INSTALLED=0', installer)
+        model_copy_section = installer.index("# Keep the desktop user's Ollama service untouched.")
+        stop_at = installer.index(
+            'root_run systemctl stop r2-ollama.service >/dev/null 2>&1 || true',
+            model_copy_section,
+        )
+        self.assertLess(installer.index("OLLAMA_STATE_CAPTURED=1"), stop_at)
+        state_check_at = installer.index(
+            'OLLAMA_UNIT_STATE="$(root_run systemctl is-active r2-ollama.service',
+            stop_at,
+        )
+        model_copy_at = installer.index('run_as_r2 python3 "$MODEL_COPY_SCRIPT"', model_copy_section)
+        self.assertLess(stop_at, state_check_at)
+        self.assertLess(state_check_at, model_copy_at)
+        self.assertIn("pgrep -u r2 -x ollama", installer)
+        self.assertIn("OLLAMA_ACTIVE_STATE=", installer)
+        self.assertIn("OLLAMA_ENABLED_STATE=", installer)
+        self.assertIn("could not verify that the private Ollama service stopped", installer)
+        self.assertIn("could not verify that no r2-owned Ollama process remains", installer)
 
 if __name__ == "__main__":
     unittest.main()

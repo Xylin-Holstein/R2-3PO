@@ -51,6 +51,60 @@ static void clear_money_files(const char *dir) {
     closedir(dp);
 }
 
+static void write_test_bills(const char *dir, int count)
+{
+    for (int i = 0; i < count; ++i) {
+        char path[1500];
+        if (i == 0) snprintf(path, sizeof(path), "%s/money", dir);
+        else snprintf(path, sizeof(path), "%s/money(%d)", dir, i);
+        FILE *fp = fopen(path, "w");
+        assert(fp);
+        assert(fputs("denomination=1.00\n", fp) >= 0);
+        assert(fclose(fp) == 0);
+    }
+}
+
+static void simulate_interrupted_transfer(const char *wallet, const char *bank)
+{
+    char dbpath[1500];
+    snprintf(dbpath, sizeof(dbpath), "%s/R2/r2_reality.db", R2_ROOT);
+    sqlite3 *db = NULL;
+    assert(sqlite3_open(dbpath, &db) == SQLITE_OK);
+    assert(sqlite3_exec(db,
+        "INSERT OR REPLACE INTO r2_money_transfer_journal"
+        "(id,old_cash_cents,old_bank_cents,new_cash_cents,new_bank_cents,operation,phase)"
+        " VALUES(1,500,0,400,100,'crash-fixture','pending');",
+        NULL, NULL, NULL) == SQLITE_OK);
+    assert(sqlite3_close(db) == SQLITE_OK);
+
+    clear_money_files(wallet);
+    clear_money_files(bank);
+    write_test_bills(wallet, 4);
+    write_test_bills(bank, 1);
+}
+
+static void simulate_interrupted_money_swap(const char *wallet)
+{
+    char txn[1400], fresh[1500], backup[1500], phase[1500], path[1600];
+    snprintf(txn,sizeof(txn),"%s/.r2-money-txn.crash-test",wallet);
+    snprintf(fresh,sizeof(fresh),"%s/new",txn); snprintf(backup,sizeof(backup),"%s/backup",txn);
+    snprintf(phase,sizeof(phase),"%s/phase",txn);
+    assert(mkdir(txn,0700)==0); assert(mkdir(fresh,0700)==0); assert(mkdir(backup,0700)==0);
+    DIR *dp=opendir(wallet); assert(dp); struct dirent *e;
+    while((e=readdir(dp))) {
+        int bill=!strcmp(e->d_name,"money"); size_t n=strlen(e->d_name);
+        if(!bill&&n>=8&&!strncmp(e->d_name,"money(",6)&&e->d_name[n-1]==')') {
+            bill=1; for(size_t i=6;i+1<n;i++)if(e->d_name[i]<'0'||e->d_name[i]>'9')bill=0;
+        }
+        if(!bill&&strcmp(e->d_name,"change.txt"))continue;
+        char from[1700],to[1700];snprintf(from,sizeof(from),"%s/%s",wallet,e->d_name);
+        snprintf(to,sizeof(to),"%s/%s",backup,e->d_name);assert(rename(from,to)==0);
+    }
+    closedir(dp); FILE *fp=fopen(phase,"w");assert(fp);assert(fputs("installing\n",fp)>=0);assert(fclose(fp)==0);
+    snprintf(path,sizeof(path),"%s/money",wallet);fp=fopen(path,"w");assert(fp);
+    assert(fputs("partial replacement\n",fp)>=0);assert(fclose(fp)==0);
+}
+
 static void create_legacy_reality_and_fridge_databases(void)
 {
     char home[1200], path[1500];
@@ -215,6 +269,57 @@ int main(void) {
     assert(access(migrated,F_OK)==0);
     char *ctx=NULL;
     assert(bill_count(wallet)==5);
+
+    /* A corrupted cents file must fail closed even when its integer cannot
+       fit in long; do not invoke scanf's out-of-range conversion behavior. */
+    char malformed_change_path[1400];
+    snprintf(malformed_change_path, sizeof(malformed_change_path),
+             "%s/change.txt", wallet);
+    FILE *malformed_change = fopen(malformed_change_path, "w");
+    assert(malformed_change);
+    assert(fputs("cents=999999999999999999999999999999999999999999999999999999\n",
+                 malformed_change) >= 0);
+    assert(fclose(malformed_change) == 0);
+    assert(r2_reality_money_receive(1.00) != 0);
+    assert(bill_count(wallet) == 5);
+    assert(unlink(malformed_change_path) == 0);
+
+    /* Embedded NUL bytes must not hide trailing malformed file contents. */
+    malformed_change = fopen(malformed_change_path, "wb");
+    assert(malformed_change);
+    const char embedded_nul_change[] = "cents=50\0junk\n";
+    assert(fwrite(embedded_nul_change, 1, sizeof(embedded_nul_change) - 1,
+                  malformed_change) == sizeof(embedded_nul_change) - 1);
+    assert(fclose(malformed_change) == 0);
+    assert(r2_reality_money_receive(1.00) != 0);
+    assert(bill_count(wallet) == 5);
+    assert(unlink(malformed_change_path) == 0);
+
+    assert(setenv("R2_TEST_MONEY_STAGE_FAIL","1",1)==0);
+    assert(r2_reality_money_receive(1.00)!=0);
+    assert(unsetenv("R2_TEST_MONEY_STAGE_FAIL")==0);
+    assert(bill_count(wallet)==5);
+    ctx=money_context(); assert(strstr(ctx,"carried cash=$5.00")); free(ctx);
+    assert(setenv("R2_TEST_MONEY_FAIL_AFTER_BACKUP_MOVE","1",1)==0);
+    assert(r2_reality_money_receive(1.00)!=0);
+    assert(unsetenv("R2_TEST_MONEY_FAIL_AFTER_BACKUP_MOVE")==0);
+    assert(bill_count(wallet)==5);
+    ctx=money_context(); assert(strstr(ctx,"carried cash=$5.00")); free(ctx);
+    assert(setenv("R2_TEST_MONEY_TRANSFER_FAIL_AFTER_WALLET","1",1)==0);
+    assert(r2_reality_money_deposit(1.00)!=0);
+    assert(unsetenv("R2_TEST_MONEY_TRANSFER_FAIL_AFTER_WALLET")==0);
+    assert(bill_count(wallet)==5 && bill_count(bank)==0);
+    ctx=money_context(); assert(strstr(ctx,"carried cash=$5.00") && strstr(ctx,"piggybank=$0.00")); free(ctx);
+    simulate_interrupted_money_swap(wallet);
+    r2_reality_shutdown();
+    assert(r2_reality_init()==0);
+    assert(bill_count(wallet)==5);
+    ctx=money_context(); assert(strstr(ctx,"carried cash=$5.00")); free(ctx);
+    simulate_interrupted_transfer(wallet,bank);
+    r2_reality_shutdown();
+    assert(r2_reality_init()==0);
+    assert(bill_count(wallet)==5 && bill_count(bank)==0);
+    ctx=money_context(); assert(strstr(ctx,"carried cash=$5.00") && strstr(ctx,"piggybank=$0.00")); free(ctx);
     /* An unexpected non-regular authoritative path must be rejected before
        any valid cash bills are removed or recreated. */
     char bad_money_path[1400];
@@ -261,6 +366,31 @@ int main(void) {
     assert(r2_reality_money_withdraw(0.50)==0);
     assert(bill_count(wallet)==3 && change_cents(wallet)==0);
     assert(bill_count(bank)==1 && change_cents(bank)==0);
+
+    /* A purchase interrupted after payment but before inventory persistence
+       must refund on startup; interruption after inventory persistence must
+       retain the charge and delivered item. */
+    assert(setenv("R2_TEST_PURCHASE_INTERRUPT_BEFORE_ITEM","1",1)==0);
+    assert(r2_reality_buy_item("crash before item","Crash fixture",1.00,"pockets")!=0);
+    assert(unsetenv("R2_TEST_PURCHASE_INTERRUPT_BEFORE_ITEM")==0);
+    assert(bill_count(wallet)==2);
+    r2_reality_shutdown();
+    assert(r2_reality_init()==0);
+    assert(bill_count(wallet)==3 && change_cents(wallet)==0);
+    assert(bill_count(bank)==1 && change_cents(bank)==0);
+
+    assert(setenv("R2_TEST_PURCHASE_INTERRUPT_AFTER_ITEM","1",1)==0);
+    assert(r2_reality_buy_item("crash after item","Crash fixture",1.00,"pockets")!=0);
+    assert(unsetenv("R2_TEST_PURCHASE_INTERRUPT_AFTER_ITEM")==0);
+    assert(bill_count(wallet)==2);
+    r2_reality_shutdown();
+    assert(r2_reality_init()==0);
+    assert(bill_count(wallet)==2 && change_cents(wallet)==0);
+    assert(bill_count(bank)==1 && change_cents(bank)==0);
+    char *purchase_inventory=r2_reality_list("pockets");
+    assert(purchase_inventory && strstr(purchase_inventory,"crash after item"));
+    free(purchase_inventory);
+    assert(r2_reality_money_receive(1.00)==0); /* Restore the later fridge-purchase fixture balance. */
     /* A food purchase destined for the fridge must use an explicit metric,
        just like any other fridge addition; the test supplies its own fixture. */
     char metrics_path[1400];
@@ -272,6 +402,28 @@ int main(void) {
           "  <food name=\"soda\" fullness=\"25\" energy=\"3\" ingredients=\"carbonated water,sugar\" taste=\"sweet,fizzy\" />\n"
           "</foods>\n", metrics);
     assert(fclose(metrics) == 0);
+    /* Exercise the same recovery protocol against the separate fridge DB. */
+    assert(setenv("R2_TEST_PURCHASE_INTERRUPT_BEFORE_ITEM","1",1)==0);
+    assert(r2_reality_buy_item("soda","Interrupted fridge purchase",0.25,"fridge")!=0);
+    assert(unsetenv("R2_TEST_PURCHASE_INTERRUPT_BEFORE_ITEM")==0);
+    assert(bill_count(wallet)==2 && change_cents(wallet)==75);
+    r2_reality_shutdown();
+    assert(r2_reality_init()==0);
+    assert(bill_count(wallet)==3 && change_cents(wallet)==0);
+    assert(bill_count(bank)==1 && change_cents(bank)==0);
+
+    assert(setenv("R2_TEST_PURCHASE_INTERRUPT_AFTER_ITEM","1",1)==0);
+    assert(r2_reality_buy_item("soda","Interrupted fridge purchase",0.25,"fridge")!=0);
+    assert(unsetenv("R2_TEST_PURCHASE_INTERRUPT_AFTER_ITEM")==0);
+    assert(bill_count(wallet)==2 && change_cents(wallet)==75);
+    r2_reality_shutdown();
+    assert(r2_reality_init()==0);
+    assert(bill_count(wallet)==2 && change_cents(wallet)==75);
+    char *fridge_after_recovery=r2_fridge_list();
+    assert(fridge_after_recovery && strstr(fridge_after_recovery,"soda"));
+    free(fridge_after_recovery);
+    assert(r2_reality_money_receive(0.25)==0); /* Restore the expected $3 cash fixture. */
+
     assert(r2_reality_buy_item("soda","A purchased drink",3.50,"fridge")==0);
     /* Pockets travel with R2; room storage and the fixed fridge do not. */
     assert(r2_reality_set_location(0)==0);

@@ -55,6 +55,13 @@ def main() -> None:
     assert "Return ONLY valid JSON with keys description and focus" in visual
     assert '"format", json_object_new_string("json")' in visual
     assert "extract_visual_description(model_text)" in visual
+    assert "static pthread_mutex_t focus_publish_lock = PTHREAD_MUTEX_INITIALIZER;" in visual
+    focus_writer = visual[visual.index("static void publish_focus_region(json_object *focus)"):visual.index("/* Return the natural-language description", visual.index("static void publish_focus_region(json_object *focus)"))]
+    assert "pthread_mutex_lock(&focus_publish_lock);" in focus_writer
+    assert "publish_focus_region_impl(focus);" in focus_writer
+    assert "pthread_mutex_unlock(&focus_publish_lock);" in focus_writer, (
+        "concurrent vision requests must serialize writes to the shared focus temporary file"
+    )
     assert "static int visual_insert_compat(" in visual
     assert "visual_insert_compat(created, source, image_path, model_snapshot," in visual
     for legacy_column in ("created_at", "timestamp", "file_path", "path"):
