@@ -106,8 +106,8 @@ for phrase, message in (
     ("Preserve speaker identity and who said what", "builder preserves attribution while correcting a nonresponsive answer"),
     ("attributes words to them", "builder forbids invented attributions"),
     ("that they did not say", "builder forbids adding words the user never said"),
-    ("r2_conversation_system_prompt, retry_instruction", "builder retains the full R2 prompt before appending correction"),
-    ('"%s\\n\\n%s"', "builder separates core and corrective instructions cleanly"),
+    ("SYSTEM_PROMPT, r2_conversation_system_prompt, retry_instruction", "builder retains the full base identity and conversation prompts before appending correction"),
+    ('"%s\\n\\n%s\\n\\n%s"', "builder separates base, conversation, and corrective instructions cleanly"),
 ):
     require(phrase in builder, message)
 
