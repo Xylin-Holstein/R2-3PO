@@ -5825,7 +5825,7 @@ static char *chat_with_relevant_memories(
         free(reply);
         reply = user_facing;
         if (!reply || !*reply) {
-            fprintf(stderr, "[R2 Ollama] Reply contained no user-facing text after sanitization.\\n");
+            fprintf(stderr, "[R2 Ollama] Reply contained no user-facing text after sanitization.\n");
         }
     }
 
