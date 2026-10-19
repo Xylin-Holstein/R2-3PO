@@ -1954,6 +1954,15 @@ static int inventory_transfer_recover_locked(void)
         inventory_transfer_restore_reality_locked(&snapshot) != 0)
         return -1;
     if (inventory_transfer_journal_clear_locked() != 0) return -1;
+    char summary[512], details[1024];
+    snprintf(summary, sizeof(summary),
+             "Recovered interrupted inventory transfer for %s; the previous state was restored.",
+             snapshot.name);
+    snprintf(details, sizeof(details),
+             "Operation=%s; recovery=rollback to the persisted pre-transfer snapshot; "
+             "both Reality and fridge databases were restored.",
+             snapshot.operation);
+    bridge_event("inventory_transfer_recovered", summary, details, 0, 0);
     fprintf(stderr, "[R2 Reality] Rolled back interrupted %s transfer for '%s' to its pre-transfer state.\n",
             snapshot.operation, snapshot.name);
     return 0;
