@@ -543,11 +543,27 @@ payload_ready:
             response.data) {
             json_object *parsed = json_tokener_parse(response.data);
             json_object *message = NULL, *content = NULL;
-            if (parsed && json_object_object_get_ex(parsed, "message", &message) &&
+            json_object *role = NULL, *done = NULL;
+            int complete_assistant_turn =
+                parsed &&
+                json_object_object_get_ex(parsed, "done", &done) && done &&
+                json_object_is_type(done, json_type_boolean) &&
+                json_object_get_boolean(done) &&
+                json_object_object_get_ex(parsed, "message", &message) && message &&
+                json_object_is_type(message, json_type_object) &&
+                json_object_object_get_ex(message, "role", &role) && role &&
+                json_object_is_type(role, json_type_string) &&
+                strcmp(json_object_get_string(role), "assistant") == 0;
+            if (complete_assistant_turn &&
                 json_object_object_get_ex(message, "content", &content) &&
-                json_object_is_type(content, json_type_string)) {
+                content && json_object_is_type(content, json_type_string)) {
                 const char *text = json_object_get_string(content);
                 if (text && *text) answer = strdup(text);
+            } else if (parsed) {
+                r2_log_sensory("vision_invalid_completion_contract",
+                               "R2 rejected an incomplete or invalid vision-model response.",
+                               "The response must contain message.role=assistant and boolean done=true.",
+                               model);
             }
             if (parsed) json_object_put(parsed);
         } else if (yielded_to_foreground) {
