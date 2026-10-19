@@ -224,6 +224,18 @@ if have sudo && id r2 >/dev/null 2>&1 && [[ -d "$R2_FX_DIR" ]]; then
   else warn "could not verify FX-directory access for r2 (sudo may require a password)."; fi
 fi
 
+# Interactive R2 uses the desktop Ollama endpoint on 11434. The isolated
+# overnight Ollama server on 11435 has its own runner/model store but shares
+# the same physical GPU; leaving it active can consume VRAM while the
+# interactive preflight sees an empty ollama ps on 11434.
+if have systemctl && systemctl is-active --quiet r2-ollama.service 2>/dev/null; then
+  fail "r2-ollama.service is active on 127.0.0.1:11435 and may be occupying the shared GPU; stop it before interactive launch: sudo systemctl stop r2-ollama.service"
+elif curl --silent --show-error --fail --max-time 2 http://127.0.0.1:11435/api/tags >/dev/null 2>&1; then
+  fail "a separate Ollama API is responding on 127.0.0.1:11435; it may be using the shared GPU. Stop that server before interactive launch, then retry."
+else
+  pass "no competing R2 Ollama server detected on 127.0.0.1:11435"
+fi
+
 section "Ollama and unified Qwen 3.5 model"
 if TAGS="$(curl --silent --show-error --fail --max-time 4 "$OLLAMA_URL" 2>/dev/null)"; then
   if printf '%s' "$TAGS" | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if any(m.get("name") == "qwen3.5:9b" or m.get("name","").startswith("qwen3.5:9b-") for m in d.get("models",[])) else 1)' >/dev/null 2>&1; then
