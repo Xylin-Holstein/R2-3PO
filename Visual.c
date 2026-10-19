@@ -78,7 +78,12 @@ static int visual_vwebcam_prepare_dir(void)
     return 0;
 }
 
-static void publish_focus_region(json_object *focus)
+/* Focus publication uses a shared temporary path. Serialize writers so
+   overlapping vision requests cannot truncate, rename, or unlink each
+   other's pending focus update. */
+static pthread_mutex_t focus_publish_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static void publish_focus_region_impl(json_object *focus)
 {
     char path[PATH_MAX], tmp[PATH_MAX];
     const char *display = getenv("DISPLAY");
@@ -161,6 +166,13 @@ static void publish_focus_region(json_object *focus)
         (void)unlink(tmp);
         (void)unlink(path);
     }
+}
+
+static void publish_focus_region(json_object *focus)
+{
+    pthread_mutex_lock(&focus_publish_lock);
+    publish_focus_region_impl(focus);
+    pthread_mutex_unlock(&focus_publish_lock);
 }
 
 /* Return the natural-language description for R2 while publishing the
