@@ -119,15 +119,66 @@ static int money_bill_count(const char *dir)
 }
 static int money_change_cents(const char *dir)
 {
-    char path[2048]; struct stat st;
-    int n=snprintf(path,sizeof(path),"%s/change.txt",dir);
-    if (n<=0 || (size_t)n>=sizeof(path)) return -1;
-    if (lstat(path,&st)!=0) return errno==ENOENT ? 0 : -1;
-    if (!S_ISREG(st.st_mode)) return -1;
-    FILE *fp=fopen(path,"r");
-    if (!fp) return -1;
-    long cents=-1; int ok=fscanf(fp,"cents=%ld",&cents)==1; fclose(fp);
-    return ok && cents>=0 && cents<100 ? (int)cents : -1;
+    char path[2048];
+    int n = snprintf(path, sizeof(path), "%s/change.txt", dir);
+    if (n <= 0 || (size_t)n >= sizeof(path))
+        return -1;
+
+    /* Open the authoritative file without following a symlink, then validate
+       the opened inode. lstat()+fopen() leaves a race between those operations. */
+    int fd = open(path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+    if (fd < 0)
+        return errno == ENOENT ? 0 : -1;
+
+    struct stat st;
+    if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+        close(fd);
+        return -1;
+    }
+
+    char buffer[64];
+    size_t used = 0;
+    for (;;) {
+        if (used == sizeof(buffer) - 1) {
+            char extra;
+            ssize_t extra_read;
+            do {
+                extra_read = read(fd, &extra, 1);
+            } while (extra_read < 0 && errno == EINTR);
+            if (extra_read != 0) {
+                close(fd);
+                return -1;
+            }
+            break;
+        }
+
+        ssize_t got = read(fd, buffer + used, sizeof(buffer) - 1 - used);
+        if (got < 0 && errno == EINTR)
+            continue;
+        if (got < 0) {
+            close(fd);
+            return -1;
+        }
+        if (got == 0)
+            break;
+        used += (size_t)got;
+    }
+    if (close(fd) != 0)
+        return -1;
+    buffer[used] = '\0';
+
+    if (strncmp(buffer, "cents=", 6) != 0)
+        return -1;
+    errno = 0;
+    char *end = NULL;
+    long cents = strtol(buffer + 6, &end, 10);
+    if (errno == ERANGE || end == buffer + 6)
+        return -1;
+    while (end && (*end == ' ' || *end == '\t' ||
+                   *end == '\r' || *end == '\n'))
+        ++end;
+    return end && *end == '\0' && cents >= 0 && cents < 100
+        ? (int)cents : -1;
 }
 static int money_create_bill(const char *dir)
 {
