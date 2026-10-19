@@ -2211,57 +2211,95 @@ int r2_fridge_take(const char *food)
 }
 int r2_reality_fridge_eat(const char *food, double fullness)
 {
-    /* Keep the legacy parameter for ABI compatibility; stock metrics are
-       authoritative and must not be overridden by an action's guess. */
+    /* Keep the legacy parameter for ABI compatibility; stock metrics are authoritative. */
     (void)fullness;
-    if (!food || !*food || !fridge_db || !r2_reality_is_initialized() || !reality_is_home()) return -1;
-    char desc[REALITY_MAX_TEXT + 1] = {0}, ingredients[1024] = {0}, taste[1024] = {0};
-    int qty = 0; double stored_fullness = 0.0, energy = 0.0;
-    pthread_mutex_lock(&fridge_lock);
-    int rc = fridge_seed_if_empty_locked();
-    if (rc == 0) rc = fridge_change_one(food, desc, sizeof(desc), &qty, &stored_fullness, &energy,
-                                         ingredients, sizeof(ingredients), taste, sizeof(taste));
-    /* Fridge stock's authoritative metric wins over a caller-supplied value:
-       non-nutritive stock must never become a meal via a positive override. */
-    if (rc == 0 && (!isfinite(stored_fullness) || stored_fullness <= 0.0)) {
-        int restore_rc = fridge_restore_one(food, desc, stored_fullness, energy, ingredients, taste);
-        if (restore_rc != 0) {
-            if (qty == 1) fridge_mirror_remove(food);
-            else fridge_mirror_write_warn(food, desc, qty - 1, stored_fullness, energy,
-                                           "stock restoration");
-            fprintf(stderr, "[R2 Fridge] Failed to restore non-nutritive stock '%s'.\n", food);
-        }
-        rc = -1;
-    }
-    if (rc == 0) {
-        if (qty == 1) fridge_mirror_remove(food);
-        else fridge_mirror_write_warn(food, desc, qty - 1, stored_fullness, energy, "meal stock consumption");
-    }
-    pthread_mutex_unlock(&fridge_lock);
-    if (rc != 0) return -1;
-    fullness = stored_fullness;
-    rc = reality_eat_internal(food, fullness, 0, energy);
-    if (rc != 0) {
-        pthread_mutex_lock(&fridge_lock);
-        int restore_rc = fridge_restore_one(food, desc, stored_fullness, energy, ingredients, taste);
-        if (restore_rc == 0)
-            fridge_mirror_write_warn(food, desc, qty, stored_fullness, energy, "failed-meal rollback");
-        else {
-            if (qty == 1) fridge_mirror_remove(food);
-            else fridge_mirror_write_warn(food, desc, qty - 1, stored_fullness, energy,
-                                           "stock restoration");
-        }
-        pthread_mutex_unlock(&fridge_lock);
-        if (restore_rc != 0)
-            fprintf(stderr, "[R2 Fridge] Failed to restore '%s' after an unsuccessful meal; stock may need inspection.\n", food);
+    if (!food || !*food || strlen(food) > REALITY_MAX_TEXT ||
+        !r2_reality_is_initialized() || !reality_is_home())
+        return -1;
+
+    pthread_mutex_lock(&purchase_lock);
+    if (!r2_reality_is_initialized() || !reality_is_home() || !fridge_db) {
+        pthread_mutex_unlock(&purchase_lock);
         return -1;
     }
-    pthread_mutex_lock(&fridge_lock); rc = fridge_seed_if_empty_locked(); pthread_mutex_unlock(&fridge_lock);
-    if (rc != 0) return -1;
+    /* Advance the clock before taking the rollback snapshot. The inner meal
+       transaction skips its usual tick and commits the journal phase together
+       with needs and food-experience writes. */
+    if (r2_reality_tick() != 0) {
+        pthread_mutex_unlock(&purchase_lock);
+        return -1;
+    }
+
+    InventoryTransferSnapshot snapshot;
+    pthread_mutex_lock(&reality_lock);
+    int rc = inventory_transfer_recover_locked();
+    if (rc == 0) rc = inventory_transfer_snapshot_locked(food, &snapshot);
+    if (rc == 0 && (!snapshot.fridge_exists || snapshot.fridge_quantity < 1 ||
+                    !isfinite(snapshot.fridge_fullness) || snapshot.fridge_fullness <= 0.0))
+        rc = -1;
+    if (rc == 0)
+        rc = inventory_transfer_journal_begin_locked("eat_from_fridge", &snapshot);
+    pthread_mutex_unlock(&reality_lock);
+    if (rc != 0) {
+        pthread_mutex_unlock(&purchase_lock);
+        return -1;
+    }
+
+    char desc[REALITY_MAX_TEXT + 1] = {0};
+    char ingredients[1024] = {0}, taste[1024] = {0};
+    int qty = 0;
+    double stored_fullness = 0.0, energy = 0.0;
+    pthread_mutex_lock(&fridge_lock);
+    rc = fridge_change_one(food, desc, sizeof(desc), &qty, &stored_fullness, &energy,
+                           ingredients, sizeof(ingredients), taste, sizeof(taste));
+    if (rc == 0) {
+        if (qty == 1) fridge_mirror_remove(food);
+        else fridge_mirror_write_warn(food, desc, qty - 1, stored_fullness, energy,
+                                      "meal stock consumption");
+    }
+    pthread_mutex_unlock(&fridge_lock);
+    if (rc != 0 || !isfinite(stored_fullness) || stored_fullness <= 0.0) {
+        if (inventory_transfer_recover() != 0)
+            fprintf(stderr, "[R2 Fridge] CRITICAL: failed meal rollback for '%s' is pending recovery.\n", food);
+        pthread_mutex_unlock(&purchase_lock);
+        return -1;
+    }
+
+#ifdef R2_INVENTORY_TEST_FAILURE_INJECTION
+    if (getenv("R2_TEST_INVENTORY_CRASH_AFTER_FRIDGE_EAT_STOCK")) {
+        /* Leave the pending journal as if the process died before the meal transaction. */
+        pthread_mutex_unlock(&purchase_lock);
+        return -1;
+    }
+#endif
+
+    fridge_eat_transfer_in_progress = 1;
+    rc = reality_eat_internal(food, stored_fullness, 0, energy);
+    fridge_eat_transfer_in_progress = 0;
+    if (rc != 0) {
+        if (inventory_transfer_recover() != 0)
+            fprintf(stderr, "[R2 Fridge] CRITICAL: failed meal rollback for '%s' is pending recovery.\n", food);
+        pthread_mutex_unlock(&purchase_lock);
+        return -1;
+    }
+
+#ifdef R2_INVENTORY_TEST_FAILURE_INJECTION
+    if (getenv("R2_TEST_INVENTORY_CRASH_AFTER_FRIDGE_EAT_COMMIT")) {
+        /* The meal transaction committed the journal phase atomically. */
+        pthread_mutex_unlock(&purchase_lock);
+        return -1;
+    }
+#endif
+
+    if (inventory_transfer_journal_clear() != 0)
+        fprintf(stderr, "[R2 Fridge] Committed meal journal retained for startup cleanup ('%s').\n", food);
     char summary[512], details[1024];
     snprintf(summary, sizeof(summary), "R2 ate %s directly from the fridge.", food);
-    snprintf(details, sizeof(details), "Food=%s; source=fridge database; fullness=%.1f; an empty fridge remains empty.", food, stored_fullness);
+    snprintf(details, sizeof(details),
+             "Food=%s; source=fridge database; fullness=%.1f; an empty fridge remains empty.",
+             food, stored_fullness);
     bridge_event("fridge_food_consumed", summary, details, 1, 0);
+    pthread_mutex_unlock(&purchase_lock);
     return 0;
 }
 
