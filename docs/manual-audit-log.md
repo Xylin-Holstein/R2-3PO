@@ -81,11 +81,19 @@ Reviewed the current implementations and call flow in `r2.c`, `r2.h`, `R2Reply.c
 - The reply sanitizer removes private reasoning blocks, fails closed for unclosed private blocks, and preserves/redacts tag syntax in code examples. Its tests cover nested/crossing tags and malformed truncation.
 - The post-turn bookkeeping is scheduled after user-facing delivery; worker-start failure is logged instead of blocking the response.
 
-No additional reproducible defect was established in this review slice. This is a bounded checkpoint, not a claim that every subsystem has now been audited. Next source-review batch should continue into tool routing/side effects and Life Log/Reality database writes, then cover shutdown and service lifecycle paths.
+## Manual source-review checkpoint: tool routing, filesystem tools, and persistence
+
+- Traced all three background command dispatch paths through `start_background_task()`; fixed false-success reporting and added a regression.
+- Traced the Game Boy control-plane response contract against `GameBoyAdvance.py`; fixed fail-open JSON handling and added a regression.
+- Reviewed filesystem tool path resolution: workspace paths are canonicalized and checked for workspace containment; fenced/HTML code examples are excluded by the control-marker parser. This pass did not establish a reproducible path-escape defect, though filesystem writes are not a full descriptor-relative defense against a hostile concurrent symlink swap.
+- Traced Reality add/move/remove paths and the existing money/purchase journals, including cross-database rollback paths. No additional reproducible inventory-persistence defect was established in this slice.
+- Continued the startup/shutdown review and fixed direct `r2_init()` fatal exits so required initialization failures route through centralized cleanup, with state-aware libcurl and diary cleanup.
+
+This remains a bounded manual review, not a claim that every subsystem has been audited. The current release branch's full source workflow passed on commit `d9c1ff5e3d4f4d48f735ee03374260fde3d0e503` (89/89 steps). Next code-review batch should cover remaining subsystem lifecycle and cross-thread interactions. Target-host acceptance remains open.
 
 ## Release gates still open
 
-- Money replacement, recovery, and transfer journal source/tests passed both full workflows on code commit `9fe05d0e000243b4b1ba9b515c39f68259e287bd` (87/87 steps each). The later audit-log-only commit records those results but does not change runtime source.
+- The current release branch's full workflow passed on code commit `d9c1ff5e3d4f4d48f735ee03374260fde3d0e503` (89/89 steps; run [39194830081](https://github.com/Xylin-Holstein/R2-3PO/actions/runs/39194830081)), including the current startup-unwind, background enqueue, Game Boy JSON, money/purchase recovery, and strict-build checks.
 - On the target machine, verify real Qwen 3.5 9B multi-turn chat, retry/fallback behavior, measured CPU/GPU placement and RAM headroom, and connected devices. CI cannot perform these checks.
 - Before installation, verify that the trusted root bootstrap is installed at `/usr/local/sbin/r2-3po-install`, root-owned, and not group/world-writable. The documented immutable source commit and Git blob SHA are checked against the current branch; this repository check does not prove the host has installed that copy.
 - Keep PR #161 draft and `main` untouched until repository validation and target-host acceptance are complete.
@@ -97,7 +105,7 @@ No additional reproducible defect was established in this review slice. This is 
 - **Impact:** OS process teardown will close ordinary process-owned descriptors, but R2's own orderly subsystem shutdown, consistent failure reporting, and in-process retry/unwind contract are not guaranteed for these startup failures.
 - **Fix:** required failures in `r2_init()` now report an error and return to `main()`'s centralized cleanup owner instead of calling process-wide `exit()`. An explicit init-attempt flag makes cleanup run even if an earlier branch already nulled the core handles; libcurl cleanup is gated on successful initialization; the diary handle is closed when its initializer fails after opening it. Unrelated runtime `die()` behavior is unchanged.
 - **Regression coverage:** expanded `tests/startup_failure_unwind_smoke.py` to check direct init exits are gone, early partial initialization reaches central cleanup, and libcurl/diary cleanup are state-aware. Existing thread-creation failure checks remain.
-- **Status:** source fix and regression committed on the release branch; strict build and full workflow validation are pending. The smoke test checks source contracts and does not inject every initialization failure at runtime.
+- **Status:** fixed and validated on commit `d9c1ff5e3d4f4d48f735ee03374260fde3d0e503`; full workflow [39194830081](https://github.com/Xylin-Holstein/R2-3PO/actions/runs/39194830081) passed (89/89 steps). The smoke test checks source contracts and existing thread-failure regressions; it does not inject every initialization failure at runtime.
 
 ### R2-AUD-010 — Background command dispatch could report success when no task was queued
 
@@ -105,7 +113,7 @@ No additional reproducible defect was established in this review slice. This is 
 - **Finding:** `start_background_task()` returns `NULL` when allocation fails or shutdown has already begun. All three callers previously printed “Background task successfully started” anyway, with an empty task ID, which could tell R2 and the user that a command was running when no work had entered the queue.
 - **Fix:** each caller now branches on the returned task ID and emits an explicit enqueue-failure result when the queue operation fails. It does not claim execution or invent a task ID.
 - **Regression coverage:** added `tests/hand_enqueue_failure_smoke.py` and wired it into `.github/workflows/build.yml` to check all three dispatch sites.
-- **Status:** source fix and regression wiring committed on the release branch. The regression and full build workflow still need to pass on the resulting head; no target-machine execution is implied.
+- **Status:** fixed and validated on commit `d9c1ff5e3d4f4d48f735ee03374260fde3d0e503`; the regression passed and the full workflow [39194830081](https://github.com/Xylin-Holstein/R2-3PO/actions/runs/39194830081) passed (89/89 steps). No target-machine execution is implied.
 
 ### R2-AUD-011 — Game Boy command output could be accepted without a valid success response
 
@@ -113,5 +121,5 @@ No additional reproducible defect was established in this review slice. This is 
 - **Finding:** the bridge defaulted a missing or unparsable `ok` field to true. Because `gameboy_json_bool()` also accepted non-boolean JSON values, a zero exit code with malformed output or an invalid `ok` value could be treated as a successful action. That could produce a false success response or record an action that the bridge had not verified.
 - **Fix:** JSON boolean fields now require the actual JSON boolean type. The command bridge accepts the documented array shape for `list`, the object shape for `status`, and requires an explicit boolean `ok: true` for action responses; process exit code alone is insufficient.
 - **Regression coverage:** added `tests/gameboy_json_contract_smoke.py` and wired it into `.github/workflows/build.yml`. This is a source-contract regression, not a live emulator/hardware test.
-- **Status:** source fix and regression wiring committed on the release branch. The current branch head still needs the full workflow result.
+- **Status:** fixed and validated on commit `d9c1ff5e3d4f4d48f735ee03374260fde3d0e503`; the response-contract regression, strict build, and full workflow [39194830081](https://github.com/Xylin-Holstein/R2-3PO/actions/runs/39194830081) passed (89/89 steps). This is not a live emulator/hardware test.
 
