@@ -5088,16 +5088,10 @@ static char *r2_build_retry_system_prompt(void)
  */
 static char *r2_validate_corrective_reply(const char *query, char *retry_reply)
 {
-    if (retry_reply && *retry_reply &&
-        !r2_reply_misclassifies_plain_text(query, retry_reply))
-        return retry_reply;
-
-    free(retry_reply);
-    fprintf(stderr,
-            "[R2 Conversation] Corrective reply was unavailable or repeated the misclassification; asking for clarification instead.\n");
-    return xstrdup(
-        "I'm sorry—I misread your message and couldn't form a reliable response. "
-        "Could you tell me which part you'd like me to respond to?");
+    /* The conversation contract is the correction mechanism. Do not replace
+       R2's generated response with a hard-coded clarification after retry. */
+    (void)query;
+    return retry_reply;
 }
 
 static char *r2_retry_direct_answer(Message *messages_copy,
