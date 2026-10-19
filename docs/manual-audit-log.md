@@ -234,3 +234,11 @@ This remains a bounded manual review, not a claim that every subsystem has been 
 - **Fix/test:** changed the default to `qwen3.5:9b` and added a CLI regression that verifies default model discovery and copy selection without modifying a real model store.
 - **Validation:** the same full workflow at `51a63db04d86d1d27115535770b119921f444575` passed all 91/91 steps, including the new default-model test and the service-unit synchronization check. Live inference and GPU placement still require the target host.
 
+
+
+### R2-AUD-026 — Ollama HTTP 500 hid the inference failure and startup did not check for the competing endpoint
+
+- **Area:** `tools/preflight_ollama_model.py`, `tools/preflight_r2_hardware.sh`, and the corresponding smoke tests.
+- **Finding:** the model preflight printed only the generic HTTP status for Ollama server errors, discarding the JSON `error` body needed to distinguish CUDA allocation failure, runner termination, and other runtime faults. The hardware preflight also did not check whether the isolated Ollama server on port 11435 was active while interactive R2 used port 11434. The initial runner-discrepancy check had a static-detection bug: `ollama ps`'s `NAME ...` header was counted as a model row.
+- **Fix/test:** preserve bounded Ollama HTTP error details for both text and image-bearing inference; detect an active second Ollama endpoint and report an unexplained `llama-server` process when the interactive endpoint reports no model; explicitly ignore the `ollama ps` header when testing for loaded-model rows. Added regression tests for text and vision HTTP 500 bodies and expanded the hardware-preflight contract smoke test.
+- **Validation:** fetched the changed files back from the release branch and ran the hardware preflight's source-contract assertions in the GitHub-connected audit environment: all 58 required strings were present, no forbidden mutating command appeared in the read-only script, and all launcher-order markers were present. The Python smoke tests and full GitHub Actions run still need to complete; this does not establish live inference success or identify which process owns the user's currently observed runner.
