@@ -119,7 +119,7 @@ BOOTSTRAP_COMMIT=2aec6cee84ed1274a6c7324ec6ac5560d8088240
 BOOTSTRAP_BLOB_SHA=6e9906e6ac3e7299b368585fc7e842f32ceb2646
 umask 077
 curl -fsSL \
-  "https://raw.githubusercontent.com/Xylin-Holstein/R2-3PO/${BOOTSTRAP_COMMIT}/tools/r2_install_root_bootstrap.sh" \
+  "https://raw.githubusercontent.com/Xylin48/R2-3PO/${BOOTSTRAP_COMMIT}/tools/r2_install_root_bootstrap.sh" \
   -o /home/x/r2-3po-install
 chmod 0600 /home/x/r2-3po-install
 ACTUAL_BLOB_SHA="$(git hash-object /home/x/r2-3po-install)"

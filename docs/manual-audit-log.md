@@ -204,3 +204,10 @@ This remains a bounded manual review, not a claim that every subsystem has been 
 - **Fix:** serialize the complete focus publication path with a dedicated mutex; the model inference and database work remain outside that lock.
 - **Regression coverage:** `tests/vwebcam_smoke.py` now asserts that all focus updates pass through the serialized wrapper and that the wrapper unlocks after the implementation returns.
 - **Validation:** branch head `b27f39c6be029930be7024f4fd999ac2959649ac` passed all 90/90 steps in [workflow 4918](https://github.com/Xylin48/R2-3PO/actions/runs/39219321852), including the visual JSON ownership smoke, focus-publication serialization guard, strict production compilation, and overnight shutdown integration. Target-machine display/camera acceptance is still separate.
+
+### R2-AUD-022 — Trusted bootstrap download instructions retained the former GitHub owner path
+
+- **Area:** `docs/overnight-service.md`, immutable download instructions for `tools/r2_install_root_bootstrap.sh`.
+- **Finding:** the installation procedure still downloaded from the former `Xylin-Holstein` raw-content namespace after the repository account changed to `Xylin48`. The pinned old-owner URL did not resolve to file content through the GitHub retrieval path, so a clean install could fail before hash verification.
+- **Fix:** changed only the documented raw-content URL to the current `Xylin48/R2-3PO` namespace. The immutable commit and expected Git blob SHA remain unchanged.
+- **Validation:** fetched the bootstrap from the new raw-content URL at immutable commit `2aec6cee84ed1274a6c7324ec6ac5560d8088240`; GitHub reported blob SHA `6e9906e6ac3e7299b368585fc7e842f32ceb2646`, exactly matching the documented and installer-enforced expected SHA. The old URL failed to return file content. No trusted bootstrap code or runtime behavior was changed.
