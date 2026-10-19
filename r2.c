@@ -10976,11 +10976,11 @@ static int reply_has_visible_text(const char *text)
     if (!text) return 0;
     const char *p = text;
     while (*p) {
-        const char *line_end = strchr(p, '\\n');
+        const char *line_end = strchr(p, '\n');
         if (!line_end) line_end = p + strlen(p);
         const char *first = p;
         while (first < line_end &&
-               (*first == ' ' || *first == '\\t' || *first == '\\r'))
+               (*first == ' ' || *first == '\t' || *first == '\r'))
             ++first;
 
         if (first == line_end) {
