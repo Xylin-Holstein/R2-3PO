@@ -129,8 +129,8 @@ require(
 fallback = core[fallback_start:fallback_end]
 require(
     "return retry_reply;" in fallback and
-    "Do not replace R2's generated response with a hard-coded clarification" in fallback,
-    "corrective output is not replaced with a hard-coded clarification safeguard",
+    "r2_reply_misclassifies_plain_text(query, retry_reply)" not in fallback,
+    "corrective output is passed through without a hard-coded clarification safeguard",
 )
 require(
     "r2_validate_corrective_reply(query, retry_user_facing)" in core,
