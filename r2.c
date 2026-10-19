@@ -5090,13 +5090,21 @@ static char *r2_build_retry_system_prompt(void)
         "A greeting from the user is not a request to rewrite that greeting. Reply from R2's perspective to the person who addressed you; never speak as that person or greet yourself as R2. Address each specific question in the message, including about pockets or other current devices/inventory when supported by context. "
         "Return only the user-facing answer.";
 
-    size_t prompt_size = sizeof(r2_conversation_system_prompt) +
-                         sizeof(retry_instruction) + 2;
+    /*
+     * Root cause of relationship-sensitive retry drift: the corrective retry
+     * used only the narrow conversation prompt, replacing the full R2 identity,
+     * memory-learning, and relationship policy from SYSTEM_PROMPT. Preserve
+     * the complete base prompt and layer the conversation-specific guidance
+     * and one-turn correction on top; do not hard-code a particular identity.
+     */
+    size_t prompt_size = strlen(SYSTEM_PROMPT) +
+                         sizeof(r2_conversation_system_prompt) +
+                         sizeof(retry_instruction) + 8;
     char *retry_system_prompt = malloc(prompt_size);
     if (!retry_system_prompt)
         return NULL;
-    snprintf(retry_system_prompt, prompt_size, "%s\n\n%s",
-             r2_conversation_system_prompt, retry_instruction);
+    snprintf(retry_system_prompt, prompt_size, "%s\n\n%s\n\n%s",
+             SYSTEM_PROMPT, r2_conversation_system_prompt, retry_instruction);
     return retry_system_prompt;
 }
 
