@@ -68,8 +68,8 @@ int main(void)
     memset(long_description, 'x', 5999);
     long_description[5999] = '\0';
     assert(sqlite3_prepare_v2(fridge_db,
-        "INSERT INTO r2_fridge_items(name,description,quantity,fullness,energy) "
-        "VALUES('oversized description',?1,1,0,0)",
+        "INSERT INTO r2_fridge_items(name,description,quantity,fullness,energy,qty,amount) "
+        "VALUES('oversized description',?1,1,0,0,1,1)",
         -1, &st, NULL) == SQLITE_OK);
     assert(sqlite3_bind_text(st, 1, long_description, -1, SQLITE_TRANSIENT) == SQLITE_OK);
     assert(sqlite3_step(st) == SQLITE_DONE);
