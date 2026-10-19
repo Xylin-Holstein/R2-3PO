@@ -89,3 +89,11 @@ No additional reproducible defect was established in this review slice. This is 
 - On the target machine, verify real Qwen 3.5 9B multi-turn chat, retry/fallback behavior, measured CPU/GPU placement and RAM headroom, and connected devices. CI cannot perform these checks.
 - Before installation, verify that the trusted root bootstrap is installed at `/usr/local/sbin/r2-3po-install`, root-owned, and not group/world-writable. The documented immutable source commit and Git blob SHA are checked against the current branch; this repository check does not prove the host has installed that copy.
 - Keep PR #161 draft and `main` untouched until repository validation and target-host acceptance are complete.
+
+### R2-AUD-009 — Fatal exits inside `r2_init()` bypass the centralized unwind path
+
+- **Area:** `r2.c`, early and mid-stage failures inside `r2_init()`.
+- **Finding:** multiple initialization failures still call the process-wide `die()` helper, which calls `exit(EXIT_FAILURE)`. This bypasses `main()`'s new `r2_init() != 0` cleanup path. Several of these branches perform hand-written partial cleanup first, making a blind conversion to `return -1` unsafe: the shutdown guard currently checks only `core_initialized`, `db`, `eyes`, and `ears`, so it can skip cleanup after a branch has already nulled those pointers while other subsystems or sound state may still be initialized.
+- **Impact:** OS process teardown will close ordinary process-owned descriptors, but R2's own orderly subsystem shutdown, consistent failure reporting, and in-process retry/unwind contract are not guaranteed for these startup failures.
+- **Status:** confirmed by manual source tracing; open. Do not replace `die()` calls mechanically. Fix requires explicit per-subsystem initialization state (including libcurl and sound lifecycle), one idempotent unwind path, and injected failures at each required-init boundary; preserve fatal behavior for unrelated runtime helper calls.
+
