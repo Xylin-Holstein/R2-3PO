@@ -3375,17 +3375,18 @@ typedef struct {
     size_t reality_reserve;
     size_t retrieval_reserve;
     size_t capabilities_reserve;
+    size_t startup_reserve;
 } R2SystemContextBudget;
 
-/* Reserve separate shares for core identity, live Reality, current-turn
-   retrieval, and the split capability prompt. The conversation contract gets
-   the remainder; broad startup memory and archive history use only spare room. */
+/* Reserve separate shares for the active conversation contract, core identity,
+   live Reality, current-turn retrieval, capabilities, and startup memory. The
+   previous budget let the override consume every remaining byte, so the newest
+   100 persistent memories were usually omitted whenever the prompt was full.
+   That made learned identity/relationships disappear on the exact low-context
+   hardware where R2 needs the database evidence most. */
 static R2SystemContextBudget r2_compute_system_context_budget(size_t system_budget)
 {
     R2SystemContextBudget budget = {0};
-    /* Reserve distinct shares while leaving a substantial remainder for the
-       full conversation contract. These ratios scale smoothly as the active
-       user turn consumes more of the available context. */
     budget.reality_reserve = system_budget / 8;
     if (budget.reality_reserve > 3000)
         budget.reality_reserve = 3000;
@@ -3399,13 +3400,18 @@ static R2SystemContextBudget r2_compute_system_context_budget(size_t system_budg
 
     budget.retrieval_reserve = system_budget / 8;
     budget.capabilities_reserve = system_budget / 16;
+    budget.startup_reserve = system_budget / 8;
+    if (budget.startup_reserve > 1600)
+        budget.startup_reserve = 1600;
+
     size_t reserved = budget.reality_reserve +
                       budget.identity_budget +
                       budget.retrieval_reserve +
-                      budget.capabilities_reserve;
+                      budget.capabilities_reserve +
+                      budget.startup_reserve;
     budget.override_budget = system_budget > reserved
         ? system_budget - reserved
-        : system_budget / 2;
+        : system_budget / 4;
     return budget;
 }
 
