@@ -169,7 +169,8 @@ require(
     and "stored_hunger < 0.0 || stored_hunger > 100.0" in tick_block
     and "stored_sleepiness < 0.0 || stored_sleepiness > 100.0" in tick_block
     and "stored_energy < 0.0 || stored_energy > 100.0" in tick_block
-    and tick_block.index("return -1;") < tick_block.index('"UPDATE r2_reality_self SET hunger=?'),
+    and tick_block.index("sqlite3_column_type(st, column)") < tick_block.index('"UPDATE r2_reality_self SET hunger=?')
+    and tick_block.index("stored_hunger < 0.0 || stored_hunger > 100.0") < tick_block.index('"UPDATE r2_reality_self SET hunger=?'),
     "Reality time progression rejects corrupt stored metrics before writing updated state",
 )
 
