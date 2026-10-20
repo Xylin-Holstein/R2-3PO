@@ -9360,8 +9360,12 @@ static void autonomous_needs_check(void)
                    text may change or fail to allocate after the world changed. */
 
                 if (result && *result) {
-                    r2_log_event(R2_LOG_WORLD, "autonomous_needs_action",
-                                 "R2's autonomous needs check performed a world action.",
+                    r2_log_event(action_succeeded ? R2_LOG_WORLD : R2_LOG_ERROR,
+                                 action_succeeded ? "autonomous_needs_action" :
+                                                    "autonomous_needs_action_failed",
+                                 action_succeeded
+                                     ? "R2's autonomous needs controller completed its selected world action."
+                                     : "R2's autonomous needs controller attempted its selected world action, but the action handler reported failure.",
                                  result, "autonomous_needs_check");
                 }
                 free(result);
