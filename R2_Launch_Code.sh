@@ -162,8 +162,8 @@ fi
 # multimodal run also hit a KV-cache allocation failure. Leave more VRAM free.
 if [[ -z "${R2_OLLAMA_NUM_CTX:-}" && "$R2_NVIDIA_QUERY_OK" == "1" ]] &&
    printf '%s\n' "$R2_NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
-    export R2_OLLAMA_NUM_CTX=4096
-    echo "[GPU] GTX 1050 Ti detected; defaulting Ollama context to 4096 tokens for VRAM headroom."
+    export R2_OLLAMA_NUM_CTX=8192
+    echo "[GPU] GTX 1050 Ti detected; defaulting Ollama context to 8192 tokens for the complete R2 prompt budget."
 fi
 
 # Request mixed CPU/GPU execution within the known 4 GiB VRAM budget. An
