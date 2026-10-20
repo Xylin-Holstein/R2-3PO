@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+"""Source-contract regression for model-owned autonomous needs decisions."""
+from pathlib import Path
+
+root = Path(__file__).resolve().parents[1]
+source = (root / "r2.c").read_text(encoding="utf-8")
+reality = (root / "Reality.c").read_text(encoding="utf-8")
+header = (root / "Reality.h").read_text(encoding="utf-8")
+shell = (root / "shell.c").read_text(encoding="utf-8")
+
+shell_needs_start = shell.index("static int shell_needs(const char *command)")
+shell_needs_end = shell.index("static int shell_dispatch", shell_needs_start)
+shell_needs = shell[shell_needs_start:shell_needs_end]
+assert "shell_parse_amount(reality_trim(sep + 1), &fullness)" in shell_needs
+assert "shell_parse_amount(command + 6, &hours)" in shell_needs
+assert "atof(reality_trim(sep + 1))" not in shell_needs
+assert "atof(command + 6)" not in shell_needs
+
+sleep_start = source.index('} else if (nf >= 2 && !strcasecmp(fields[0], "sleep")) {')
+sleep_end = source.index('} else if (nf >= 2 && !strcasecmp(fields[0], "dream")) {', sleep_start)
+world_sleep = source[sleep_start:sleep_end]
+assert "parse_finite_double(fields[1], &hours)" in world_sleep
+assert "atof(fields[1])" not in world_sleep
+
+start = source.index("static void autonomous_needs_check(void)\n{")
+end = source.index("\nint r2_think(void)", start)
+function = source[start:end]
+
+assert "r2_reality_autonomous_feed_if_needed" not in source
+assert "autonomous_needs_food_safeguard" not in source
+assert "r2_reality_autonomous_feed_if_needed" not in reality
+assert "r2_reality_autonomous_feed_if_needed" not in header
+assert "autonomous_needs_context_failed" in function
+assert "autonomous_needs_context_allocation_failed" in function
+assert "autonomous_needs_check_failed" in function
+assert "no substitute action was performed" in function
+assert "if (!world_action_succeeded)" not in function
+assert "r2_reality_autonomous_food_available()" in source
+
+allow_start = source.index("static int autonomous_needs_action_allowed(")
+allow_end = source.index("\n/* Re-check the authoritative need", allow_start)
+allow_guard = source[allow_start:allow_end]
+assert 'command_len == 3 && !strncmp(command, "eat", 3)' in allow_guard
+assert 'command_len == 10 && !strncmp(command, "fridge_eat", 10)' in allow_guard
+assert 'command_len == 5 && !strncmp(command, "sleep", 5)' in allow_guard
+assert "autonomous_needs_action_allowed(safe_action)" in function
+assert "autonomous_needs_action_rejected" in function
+
+helper_start = source.index("static int autonomous_needs_action_still_needed(")
+helper_end = source.index("\n/* Autonomous needs checks are deliberately limited", helper_start)
+food_guard = source[helper_start:helper_end]
+assert 'strstr(action, "[WORLD] eat|")' in food_guard
+assert 'strstr(action, "[WORLD] fridge_eat|")' in food_guard
+assert 'double hunger = hunger_field' in food_guard
+assert 'double sleepiness = sleepiness_field' in food_guard
+assert "return valid_hunger && hunger < 50.0;" in food_guard
+assert "sleepiness < 85.0" in food_guard
+assert 'strstr(action, "[WORLD] sleep|")' in food_guard
+assert "r2_reality_autonomous_food_available()" in food_guard
+assert "if (food_available != 0)" in food_guard
+assert "if (!status) return 0;" in food_guard
+assert "if (!autonomous_needs_action_still_needed(safe_action))" in function
+assert "autonomous_needs_stale_action" in function
+
+assert "int action_succeeded = 0;" in function
+assert "process_tools_with_status(safe_action, &action_succeeded)" in function
+assert "action_succeeded ? R2_LOG_WORLD : R2_LOG_ERROR" in function
+assert "autonomous_needs_yielded_to_conversation" in function
+assert "pthread_mutex_trylock(&conversation_turn_lock)" in function
+
+talk_start = source.index("char *r2_talk(const char *message)\n{")
+talk_end = source.index("\nint r2_conversation(void)", talk_start)
+talk_wrapper = source[talk_start:talk_end]
+assert talk_wrapper.index("atomic_fetch_add(&foreground_conversation_waiting, 1)") < talk_wrapper.index("pthread_mutex_lock(&conversation_turn_lock)")
+assert "atomic_fetch_sub(&foreground_conversation_waiting, 1)" in talk_wrapper
+assert "ollama_foreground_turn_mode = 1;" in talk_wrapper
+assert "ollama_foreground_turn_mode = previous_turn_mode;" in talk_wrapper
+assert "(atomic_load(&foreground_conversation_waiting) > 0 &&" in source
+assert "!ollama_foreground_turn_mode" in source
+
+vision_begin_start = source.index("int r2_ollama_vision_request_begin(void)")
+vision_begin_end = source.index("\nvoid r2_ollama_vision_request_end(void)", vision_begin_start)
+assert "foreground_conversation_waiting" in source[vision_begin_start:vision_begin_end]
+assert "!ollama_foreground_turn_mode" in source[vision_begin_start:vision_begin_end]
+vision_abort_start = source.index("int r2_ollama_vision_request_should_abort(void)")
+vision_abort_end = source.index("\n/* Estimate safe Ollama context", vision_abort_start)
+assert "!ollama_foreground_turn_mode" in source[vision_abort_start:vision_abort_end]
+
+worker_start = source.index("static void *post_turn_worker(void *opaque)\n{")
+worker_end = source.index("\n/* These model-assisted bookkeeping tasks", worker_start)
+worker = source[worker_start:worker_end]
+assert "while (!shutting_down" in worker
+assert "atomic_load(&foreground_conversation_waiting) > 0" in worker
+assert worker.index("atomic_load(&foreground_conversation_waiting) > 0") < worker.index("log_structured_self_report")
+
+print("model-owned autonomous needs controller smoke passed")
