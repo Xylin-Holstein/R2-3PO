@@ -3434,6 +3434,68 @@ static char *ollama_chat_with_limit(
     if (num_predict < 1) num_predict = num_ctx >= 12288 ? 2048 : 1024;
     if (num_predict > max_predict) num_predict = max_predict;
 
+    size_t override_length = system_override ? strlen(system_override) : 0;
+    if (override_length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS)
+        override_length = r2_utf8_safe_prefix_length(
+            system_override, OLLAMA_MAX_SYSTEM_MESSAGE_CHARS);
+
+    /*
+     * Size output only after accounting for the complete high-priority prompt
+     * sections and the active user turn. Previously a complexity-based output
+     * ceiling could consume the context needed to send R2's own instructions.
+     * This changes the output ceiling, not the identity or instruction text.
+     */
+    size_t required_input_chars = override_length;
+    for (size_t i = 0; i < count; ++i) {
+        if (!msgs[i].role || strcmp(msgs[i].role, "system") != 0)
+            continue;
+        if (r2_inference_system_priority(
+                msgs[i].content, ollama_authoritative_user_query) > 2)
+            continue;
+        size_t length = msgs[i].content ? strlen(msgs[i].content) : 0;
+        if (length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS)
+            length = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;
+        if (length > SIZE_MAX - required_input_chars) {
+            required_input_chars = SIZE_MAX;
+            break;
+        }
+        required_input_chars += length;
+    }
+
+    size_t active_user_chars = 0;
+    if (ollama_authoritative_user_query && *ollama_authoritative_user_query) {
+        active_user_chars = strlen(ollama_authoritative_user_query);
+    } else {
+        for (size_t i = count; i > 0; --i) {
+            size_t index = i - 1;
+            if (!msgs[index].role || strcmp(msgs[index].role, "user") != 0 ||
+                r2_is_internal_tool_result(&msgs[index]))
+                continue;
+            active_user_chars = msgs[index].content
+                ? strlen(msgs[index].content) : 0;
+            break;
+        }
+    }
+    if (active_user_chars > OLLAMA_MAX_MESSAGE_CHARS)
+        active_user_chars = OLLAMA_MAX_MESSAGE_CHARS;
+    if (active_user_chars <= SIZE_MAX - required_input_chars)
+        required_input_chars += active_user_chars;
+    else
+        required_input_chars = SIZE_MAX;
+
+    if (required_input_chars <= (SIZE_MAX - 31U) / 10U) {
+        size_t required_input_tokens =
+            (required_input_chars * 10U + 31U) / 32U + 512U;
+        int available_output_tokens = required_input_tokens < (size_t)num_ctx
+            ? num_ctx - (int)required_input_tokens : 128;
+        if (available_output_tokens < 128)
+            available_output_tokens = 128;
+        if (num_predict > available_output_tokens)
+            num_predict = available_output_tokens;
+    } else {
+        num_predict = 128;
+    }
+
     struct json_object *options = json_object_new_object();
     if (!options) {
         json_object_put(root);
@@ -3500,10 +3562,6 @@ static char *ollama_chat_with_limit(
         return NULL;
     }
 
-    size_t override_length = system_override ? strlen(system_override) : 0;
-    if (override_length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS)
-        override_length = r2_utf8_safe_prefix_length(
-            system_override, OLLAMA_MAX_SYSTEM_MESSAGE_CHARS);
     if (system_override &&
         ollama_json_append_message(arr, "system", system_override,
                                    override_length) != 0) {
