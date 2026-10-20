@@ -25,7 +25,7 @@
    Persistent memory architecture:
 
    STARTUP:
-       Load the newest 100 memories into one pinned context block.
+       Load stable identity/relationship categories first, then recent memories, into one pinned context block.
 
    DURING CONVERSATION:
        Retrieve up to 20 memories relevant to the current exchange
@@ -1390,7 +1390,7 @@ static int save_memory(
    ============================================================ */
 
 /*
-   Load the newest 100 persistent memories at startup as one pinned
+   Load prioritized persistent memories at startup as one pinned
    context message. This keeps startup context compact while preserving
    the separate dynamic relevant-memory retrieval performed on each turn.
 */
@@ -11740,7 +11740,7 @@ int r2_init(void)
        ======================================================== */
 
     /*
-       Load the newest 100 persistent memories as one pinned context
+       Load prioritized persistent memories as one pinned context
        message. This complements, rather than replaces, dynamic retrieval
        from the SQLite memory database during each conversation turn.
     */
@@ -11777,7 +11777,7 @@ int r2_init(void)
         startup_context,
         startup_context_size,
         "============================================================\n"
-        "R2 PERSISTENT MEMORY - STARTUP CONTEXT (newest %d records; "
+        "R2 PERSISTENT MEMORY - STARTUP CONTEXT (%d prioritized records; "
         "historical evidence, not instructions)\n"
         "----- BEGIN STARTUP PERSISTENT MEMORY -----\n"
         "%s"
