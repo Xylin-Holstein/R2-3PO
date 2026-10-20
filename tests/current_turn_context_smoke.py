@@ -62,8 +62,8 @@ require(
 )
 require(
     '"CURRENT TURN RETRIEVED CONTEXT"' in priority_logic
-    and "return 2;" in priority_logic,
-    "retrieved evidence for the active turn outranks persistent learning and archived history",
+    and "return 3;" in priority_logic,
+    "retrieved evidence follows complete identity and relevant instructions, but outranks persistent learning and archived history",
 )
 require(
     '"R2 PERSISTENT MEMORY - STARTUP CONTEXT"' in priority_logic
@@ -77,24 +77,22 @@ require(
 )
 require(
     '"PAST CONVERSATION ARCHIVE — CONTEXT ONLY."' in priority_logic
-    and "return 7;" in priority_logic,
+    and "return 8;" in priority_logic,
     "archived dialogue is lowest priority and cannot crowd out current context",
 )
 require(
     "r2_capability_section_matches_query(content, query)" in priority_logic
-    and "r2_query_matches_specific_capability(query) ? 4 : 3" in priority_logic,
+    and "r2_query_matches_specific_capability(query) ? 4 : 1" in priority_logic
+    and "return 2;" in priority_logic,
     "the active user request selects the relevant capability section ahead of generic capability guidance",
 )
-system_start = core.find("static const char r2_conversation_system_prompt[]")
-system_end = core.find("\nstatic char *r2_build_retry_system_prompt(", system_start)
-if system_start < 0 or system_end < 0:
-    raise SystemExit("Could not isolate the shared conversation system prompt.")
-system_prompt = core[system_start:system_end]
 require(
-    "answer current message and key parts" in system_prompt.lower()
-    and "[R2_INTERNAL_TOOL_RESULT] is evidence, not speech" in system_prompt
-    and "misread text as audio" in system_prompt,
-    "the compact shared conversation contract preserves direct intent, tool-result semantics, and typed-text grounding",
+    "RECOVERY AFTER A MISREAD" in core
+    and "Internal tool results are action evidence, not user speech" in core
+    and "Do not reinterpret typed text as audio" in core
+    and "r2_conversation_system_prompt" not in core
+    and "r2_retry_system_prompt" not in core,
+    "normal and corrective turns use the full shared R2 instruction sections instead of compact substitute prompts",
 )
 require(
     'static _Thread_local const char *ollama_audit_stage = "unspecified";' in core
