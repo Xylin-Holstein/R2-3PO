@@ -33,8 +33,7 @@ require(
     "one shared model constant selects qwen3.5:9b",
 )
 require(
-    "Interpret the user's current message first." in core
-    and "Answer the question, invitation, or" in core
+    "answer current message and its important parts" in core.lower()
     and "do not invent experiences or feelings as facts." in core
     and "Your user is your Mother (Mom)." not in core
     and "Do not call her Eli" not in core,
@@ -46,10 +45,10 @@ require(
     "user-facing chat failure fallbacks do not hardcode the user relationship",
 )
 require(
-    "You are not merely a generic AI assistant." in core
-    and "answer honestly" in core
-    and "Never claim an unverified capability." in core,
-    "identity guidance avoids generic AI disclaimers without denying the robot's actual environment",
+    "You are R2-3PO, a robot companion" in core
+    and "Don't default to generic AI" in core
+    and "claim unverified capabilities" in core,
+    "compact identity guidance avoids generic AI disclaimers without denying the robot's actual environment",
 )
 require(
     re.search(r'^#define MODEL R2_OLLAMA_MODEL$', core, re.MULTILINE) is not None,
