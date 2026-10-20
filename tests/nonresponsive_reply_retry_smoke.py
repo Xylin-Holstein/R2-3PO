@@ -97,7 +97,7 @@ for phrase, message in (
     require(phrase in retry, message)
 
 builder_start = core.find("static char *r2_build_retry_system_prompt(void)")
-builder_end = core.find("\nstatic char *r2_retry_direct_answer(", builder_start)
+builder_end = core.find("\nstatic int r2_is_retry_context_message(", builder_start)
 context_start = core.find("static int r2_is_retry_context_message(")
 context_end = core.find("\nstatic char *r2_retry_direct_answer(", context_start)
 require(context_start >= 0 and context_end > context_start,
