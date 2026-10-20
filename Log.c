@@ -958,21 +958,26 @@ char *r2_log_recent_conversation_context(size_t max_chars)
 
     rc = sqlite3_prepare_v2(
         log_db,
-        "SELECT user_text,assistant_text FROM r2_log_conversations "
+        "SELECT event_id,user_text,assistant_text FROM r2_log_conversations "
         "ORDER BY event_id DESC LIMIT 8;",
         -1, &statement, NULL);
     if (rc == SQLITE_OK) {
         while ((rc = sqlite3_step(statement)) == SQLITE_ROW) {
-            const unsigned char *user = sqlite3_column_text(statement, 0);
-            const unsigned char *assistant = sqlite3_column_text(statement, 1);
-            int user_bytes = sqlite3_column_bytes(statement, 0);
-            int assistant_bytes = sqlite3_column_bytes(statement, 1);
+            sqlite3_int64 event_id = sqlite3_column_int64(statement, 0);
+            const unsigned char *user = sqlite3_column_text(statement, 1);
+            const unsigned char *assistant = sqlite3_column_text(statement, 2);
+            int user_bytes = sqlite3_column_bytes(statement, 1);
+            int assistant_bytes = sqlite3_column_bytes(statement, 2);
             if (!user || !assistant || user_bytes < 0 || assistant_bytes < 0 ||
                 memchr(user, '\0', (size_t)user_bytes) != NULL ||
                 memchr(assistant, '\0', (size_t)assistant_bytes) != NULL) {
                 rc = SQLITE_CORRUPT;
                 break;
             }
+            /* Legacy migrations can leave default-empty archive rows. They
+               are not complete conversation turns and must not enter context. */
+            if (event_id <= 0 || user_bytes == 0 || assistant_bytes == 0)
+                continue;
 
             size_t user_len = (size_t)user_bytes;
             size_t assistant_len = (size_t)assistant_bytes;
