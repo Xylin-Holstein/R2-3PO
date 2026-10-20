@@ -118,6 +118,27 @@ if "Persistent memory database could not be loaded into startup context" in core
 if 'R2_INIT_FAIL("could not load startup persistent memories")' not in core:
     raise SystemExit("R2 can start without its startup persistent-memory query succeeding.")
 
+# Dynamic retrieval distinguishes a genuinely empty result from a failed
+# database query. Failure must not be cached as an empty-memory success.
+retrieval_start = core.find("static char *get_relevant_memories(")
+retrieval_end = core.find("\n\n/* ============================================================\n   SAFE WORKSPACE PATHS", retrieval_start)
+if retrieval_start < 0 or retrieval_end < 0:
+    raise SystemExit("Could not locate current-turn persistent-memory retrieval.")
+retrieval = core[retrieval_start:retrieval_end]
+for marker in (
+    "sqlite3_prepare_v2(db, sql, -1, &st, NULL)",
+    "if (rc != SQLITE_ROW)",
+    "sqlite3_errmsg(db)",
+    "append_memory_record(&out, &length, &capacity",
+    "if (failed)",
+):
+    if marker not in retrieval:
+        raise SystemExit(f"Current-turn retrieval does not handle {marker!r}.")
+if "memory_context = xstrdup(\"\");" in core[core.find("char *memory_context = context_cache_get"):core.find("r2_bound_context_records(memory_context")]:
+    raise SystemExit("Current-turn retrieval failure is still being cached as an empty context.")
+if "Persistent-memory retrieval failed; refusing to continue with silently missing evidence." not in core:
+    raise SystemExit("Conversation does not surface current-turn memory retrieval failure.")
+
 # Every real request should report whether the exact current user text and
 # the key context blocks actually survived serialization, without logging text.
 if "[R2 Prompt Audit]" not in core or "exact_user_turn=%d" not in core or "query_in_user_turn=%d" not in core:
