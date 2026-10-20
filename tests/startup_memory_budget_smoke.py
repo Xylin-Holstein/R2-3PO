@@ -41,6 +41,24 @@ assert "newest %d records;" in startup_builder
 assert "This startup memory does NOT represent the entirety" not in startup_builder
 assert "New memories written during this session can be retrieved" not in startup_builder
 
+# Verify the context builder still connects the separate durable stores; budget
+# changes must not substitute a prompt-only identity shortcut for DB evidence.
+learning_start = source.find("static char *build_learning_context(void)")
+learning_end = source.find("\\n/* Refresh Reality and learning", learning_start)
+assert learning_start >= 0 and learning_end > learning_start
+learning_builder = source[learning_start:learning_end]
+assert "r2_reward_context()" in learning_builder
+assert "r2_addiction_report()" in learning_builder
+assert "PERSISTENT LEARNING CONTEXT" in learning_builder
+
+refresh_start = source.find("static int refresh_reality_context_message(void)")
+refresh_end = source.find("\\n}", refresh_start)
+assert refresh_start >= 0 and refresh_end > refresh_start
+refresh = source[refresh_start:refresh_end]
+assert "r2_reality_context()" in refresh
+assert "build_learning_context()" in refresh
+assert 'message_add_pair_locked("system", context' in refresh
+
 # The old budget assigned all unreserved bytes to the system override. With
 # a full prompt, no bytes remained for priority-5 startup memory. The new
 # reserve must be a positive, bounded slice before the override is computed.
