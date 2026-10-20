@@ -77,10 +77,10 @@ for required in (
 
 def decode_c_constant(name: str) -> str:
     start = core.find(f"static const char {name}[] =")
-    end = core.find(";\\n", start)
+    end = core.find(";\n", start)
     if start < 0 or end < 0:
         raise SystemExit(f"Could not isolate compact prompt constant {name}")
-    literals = re.findall(r'"(?:\\\\.|[^"\\\\])*"', core[start:end])
+    literals = re.findall(r'"(?:\\.|[^"\\])*"', core[start:end])
     try:
         return "".join(ast.literal_eval(literal) for literal in literals)
     except (SyntaxError, ValueError) as exc:
