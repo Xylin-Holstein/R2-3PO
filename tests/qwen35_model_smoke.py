@@ -189,9 +189,7 @@ require(
 )
 
 require(
-    "budget.identity_budget = context_budget;" in core
-    and "budget.reality_reserve = context_budget;" in core
-    and "budget.retrieval_reserve = context_budget / 8;" in core
+    "budget.retrieval_reserve = context_budget / 8;" in core
     and "budget.capabilities_reserve = context_budget;" in core
     and "budget.startup_reserve = context_budget / 10;" in core
     and "budget.learning_reserve = context_budget / 10;" in core
@@ -206,7 +204,7 @@ require(
     and "ollama_authoritative_user_query" in core
     and "Prefer a complete sentence boundary when the cap falls inside the" in core
     and "system_budget - reality_reserve - identity_minimum" not in core,
-    "adaptive context budgeting preserves core identity, live Reality, retrieved memory, and a separate capability prompt",
+    "instruction-first context budgeting preserves complete relevant instructions before retrieved memory",
 )
 require(
     "Return ONLY valid JSON with keys description and focus" in visual
