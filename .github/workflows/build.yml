@@ -507,7 +507,7 @@ jobs:
           python3 -m py_compile tests/r2_service_signal_integration.py
           python3 tests/r2_service_signal_integration.py
 
-      - name: Check Mother relationship learning and contextual affect in both conversation paths
+      - name: Check experience-led conversation and durable logging
         run: |
           python3 -m py_compile tests/affect_mother_conversation_smoke.py
           python3 tests/affect_mother_conversation_smoke.py
