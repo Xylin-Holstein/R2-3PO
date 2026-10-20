@@ -67,10 +67,10 @@ int main(void)
         r2_is_retry_context_message(&interleaved_messages[5]) &&
         r2_is_retry_context_message(&interleaved_messages[7]) &&
         r2_is_retry_context_message(&interleaved_messages[8]) &&
-        !r2_is_retry_context_message(&interleaved_messages[2]) &&
-        !r2_is_retry_context_message(&interleaved_messages[1]) &&
+        r2_is_retry_context_message(&interleaved_messages[2]) &&
+        r2_is_retry_context_message(&interleaved_messages[1]) &&
         !r2_is_retry_context_message(&interleaved_messages[0]),
-        "retry selector preserves Reality, focused retrieval, startup memory, and persisted recent turns while excluding learning summaries, pinned archive, and full stale transcript; bounded current-session dialogue is added separately");
+        "retry selector preserves Reality, focused retrieval, startup memory, learning, archive, and persisted recent turns while excluding stale dialogue; bounded current-session dialogue is added separately");
 
     const char *mother_message =
         "Hello r2, this is your mother speaking to you. i miss you. "
@@ -287,7 +287,7 @@ int main(void)
 
     Message identity_message = {
         .role = "system",
-        .content = "============================================================\\nIDENTITY AND PERSISTENT MEMORY\n",
+        .content = "============================================================\nIDENTITY AND PERSISTENT MEMORY\n",
     };
     Message visual_message = {
         .role = "system",
@@ -438,10 +438,10 @@ int main(void)
         "============================================================\nREAL FILE TOOLS\n============================================================\n";
     static const char game_capability[] =
         "============================================================\nGAMEPLAY IS A REAL-LIFE ACTIVITY, NOT PHYSICAL REALITY\n";
-    ok &= check(r2_inference_system_priority(hands_capability, "run a shell command") == 3 &&
-                    r2_inference_system_priority(file_capability, "open a file") == 3 &&
-                    r2_inference_system_priority(game_capability, "play a GameBoy cartridge") == 3 &&
-                    r2_inference_system_priority(reality_capability, "hello there") == 3 &&
+    ok &= check(r2_inference_system_priority(hands_capability, "run a shell command") == 2 &&
+                    r2_inference_system_priority(file_capability, "open a file") == 2 &&
+                    r2_inference_system_priority(game_capability, "play a GameBoy cartridge") == 2 &&
+                    r2_inference_system_priority(reality_capability, "hello there") == 1 &&
                     r2_inference_system_priority(reality_capability, "run a shell command") == 4,
                 "capability prompt prioritization follows the active request instead of dropping tool-specific instructions");
 
