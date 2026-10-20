@@ -232,3 +232,11 @@ This document keeps historical audit snapshots; it is not a live CI dashboard. T
 - **Evidence:** Sensory Journal, Reward, Visual Experience Library, Alternate-Self Lab, and Imagination initialization failures were logged while startup continued with those subsystems disabled. That allowed R2 to report online without the integrated learning system being fully connected.
 - **Fix:** These database-backed learning/perception subsystems are now required during core initialization. A failed initialization reports the specific subsystem and returns through the existing centralized startup cleanup instead of presenting a partially connected core as fully online.
 - **Regression coverage:** The subsystem wiring smoke test asserts that each required initialization failure propagates to core startup failure.
+
+
+### AUDIT-027 — Addiction database lifecycle was not wired into the core
+- **Files:** `r2.c`, `Addiction.c`, `Addiction.h`, and `tests/subsystem_wiring_smoke.py`.
+- **Severity:** High / persistent learning lifecycle.
+- **Evidence:** Core conversation context called `r2_addiction_report()`, which could open the Addiction database lazily, but `r2_init()` did not explicitly initialize it and `r2_shutdown()` did not close it. That left the subsystem's lifecycle implicit and made its connection failures appear only when context was assembled.
+- **Fix:** Core initialization now explicitly initializes the Addiction database and fails with a subsystem-specific diagnostic if it cannot open or prepare its schema. Central shutdown and the existing partial-startup unwind paths close the Addiction handle.
+- **Regression coverage:** `tests/subsystem_wiring_smoke.py` now requires the Addiction init, shutdown, and startup-failure propagation alongside the other core learning subsystems.
