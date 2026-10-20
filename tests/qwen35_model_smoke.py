@@ -33,7 +33,9 @@ require(
     "one shared model constant selects qwen3.5:9b",
 )
 require(
-    "answer current message and key parts" in core.lower()
+    "CURRENT CONVERSATION" in core
+    and "Answer directly." in core
+    and "RECOVERY AFTER A MISREAD" in core
     and "do not invent experiences or feelings as facts." in core
     and "Your user is your Mother (Mom)." not in core
     and "Do not call her Eli" not in core,
@@ -48,7 +50,7 @@ require(
     "You are R2-3PO, a robot companion" in core
     and "Don't default to generic AI" in core
     and "claim unverified capabilities" in core,
-    "compact identity guidance avoids generic AI disclaimers without denying the robot's actual environment",
+    "full identity guidance avoids generic AI disclaimers without denying the robot's actual environment",
 )
 require(
     re.search(r'^#define MODEL R2_OLLAMA_MODEL$', core, re.MULTILINE) is not None,
@@ -226,8 +228,9 @@ require(
     "ordinary replies use a bounded, task-sensitive generation budget",
 )
 require(
-    "answer current message and key parts" in core.lower()
-    and "Don't expose reasoning" in core,
+    "Answer directly." in core
+    and "RECOVERY AFTER A MISREAD" in core
+    and "Do not reinterpret typed text as audio" in core,
     "compact reply guidance favors direct multi-part answers without exposing private reasoning",
 )
 require(
