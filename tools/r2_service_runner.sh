@@ -63,16 +63,12 @@ fi
 # The target GTX 1050 Ti has 4 GiB VRAM. The 9B multimodal model has
 # already shown allocation failures with 20 layers / 8192 context, so use the
 # conservative mixed-placement policy before the first probe, not as a retry.
-R2_OLLAMA_NUM_CTX_DEFAULTED="${R2_OLLAMA_NUM_CTX_DEFAULTED:-0}"
 if [[ -z "${R2_OLLAMA_NUM_CTX:-}" && "$R2_NVIDIA_QUERY_OK" == "1" ]] &&
    printf '%s\n' "$R2_NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
     export R2_OLLAMA_NUM_CTX=4096
-    R2_OLLAMA_NUM_CTX_DEFAULTED=1
 fi
-export R2_OLLAMA_NUM_CTX_DEFAULTED
 log "Ollama context policy: R2_OLLAMA_NUM_CTX=${R2_OLLAMA_NUM_CTX:-adaptive}"
 
-R2_OLLAMA_NUM_GPU_DEFAULTED="${R2_OLLAMA_NUM_GPU_DEFAULTED:-0}"
 if [[ -z "${R2_OLLAMA_NUM_GPU+x}" ]]; then
     if [[ "$R2_NVIDIA_QUERY_OK" == "1" ]] &&
        printf '%s\n' "$R2_NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
@@ -80,9 +76,7 @@ if [[ -z "${R2_OLLAMA_NUM_GPU+x}" ]]; then
     else
         export R2_OLLAMA_NUM_GPU=0
     fi
-    R2_OLLAMA_NUM_GPU_DEFAULTED=1
 fi
-export R2_OLLAMA_NUM_GPU_DEFAULTED
 log "Ollama GPU layer policy: R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU"
 
 # On the target GTX 1050 Ti, a successful CPU-only response is not sufficient
