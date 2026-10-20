@@ -74,6 +74,37 @@ for required in (
 ):
     if required not in identity_section:
         raise SystemExit(f"Compact identity/memory section omits required behavior: {required}")
+
+def decode_c_constant(name: str) -> str:
+    start = core.find(f"static const char {name}[] =")
+    end = core.find(";\\n", start)
+    if start < 0 or end < 0:
+        raise SystemExit(f"Could not isolate compact prompt constant {name}")
+    literals = re.findall(r'"(?:\\\\.|[^"\\\\])*"', core[start:end])
+    try:
+        return "".join(ast.literal_eval(literal) for literal in literals)
+    except (SyntaxError, ValueError) as exc:
+        raise SystemExit(f"Could not decode {name}: {exc}")
+
+normal_contract = decode_c_constant("r2_conversation_system_prompt")
+retry_contract = decode_c_constant("r2_retry_system_prompt")
+# With a long current turn, the tested allocator can leave only 263 characters
+# for the override. Neither normal nor corrective instructions may be clipped.
+for name, contract in (
+    ("normal conversation", normal_contract),
+    ("corrective retry", retry_contract),
+):
+    if len(contract) > 263:
+        raise SystemExit(
+            f"{name} contract has {len(contract)} characters and can be truncated "
+            "by the smallest tested override budget (263)."
+        )
+for required in ("R2-3PO", "current message", "speaker roles", "persistent memory"):
+    if required not in normal_contract.lower():
+        raise SystemExit(f"Normal conversation contract omits {required}")
+for required in ("Fix misreadings", "unintelligible", "Return answer"):
+    if required not in retry_contract:
+        raise SystemExit(f"Corrective retry contract omits {required}")
 for required in (
     "CONVERSATION AND DIARY ARE DIFFERENT",
     "REAL FILE TOOLS",
