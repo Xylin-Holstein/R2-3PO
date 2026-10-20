@@ -161,6 +161,18 @@ require(
     "legacy hunger values migrate to the new fullness scale exactly once",
 )
 
+tick_start = reality.index("static int update_hunger_locked(double elapsed)")
+tick_end = reality.index("static void sync_room_mirrors", tick_start)
+tick_block = reality[tick_start:tick_end]
+require(
+    "sqlite3_column_type(st, column)" in tick_block
+    and "stored_hunger < 0.0 || stored_hunger > 100.0" in tick_block
+    and "stored_sleepiness < 0.0 || stored_sleepiness > 100.0" in tick_block
+    and "stored_energy < 0.0 || stored_energy > 100.0" in tick_block
+    and tick_block.index("return -1;") < tick_block.index('"UPDATE r2_reality_self SET hunger=?'),
+    "Reality time progression rejects corrupt stored metrics before writing updated state",
+)
+
 status_start = reality.index("char *r2_reality_status(void)")
 status_end = reality.index("static sqlite3_int64 real_epoch_seconds(void)", status_start)
 status_block = reality[status_start:status_end]
