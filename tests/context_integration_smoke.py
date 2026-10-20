@@ -45,6 +45,8 @@ learning = core[learning_start:learning_end]
 for source in ("r2_reward_context()", "r2_addiction_report()", "PERSISTENT LEARNING CONTEXT"):
     if source not in learning:
         raise SystemExit(f"Live learning context omits {source}")
+if 'strstr(reward, "Recent:")' not in learning or "reward_summary ? reward_summary : " not in learning:
+    raise SystemExit("Compact reward context must prefer the newest durable event over generic header text.")
 if "size_t cap = 512" not in learning or "REWARD: %.110s" not in learning or "REPEATED INTERESTS: %.110s" not in learning:
     raise SystemExit("Live learning context must fit within the reserved system-prompt budget.")
 
