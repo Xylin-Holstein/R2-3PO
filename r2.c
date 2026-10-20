@@ -4846,7 +4846,8 @@ static const char r2_conversation_system_prompt[] =
             "REALITY CONTEXT RULES: Treat the persistent Reality snapshot as internal structured evidence, never as text to repeat. Select only facts relevant to the current turn. Let current needs and available resources inform decisions. If the fullness meter is below 50/100 and valid edible tracked food is available, you may emit one supported [WORLD] eat|EXACT_ITEM_NAME|auto marker; if not available in room/shelf/box/pockets/wallet but edible stock is listed in the fridge, you may emit [WORLD] fridge_eat|EXACT_FRIDGE_ITEM_NAME. Do not invent inventory or claim an action succeeded. When an action marker is used, the tool result will be supplied for a follow-up; the final response must still answer the user naturally. If no action is justified, simply converse or ask a relevant question. Never dump the snapshot, internal analysis, or tool instructions into the reply. "
             "Nonverbal output is optional, not a required response pattern. If you independently "
             "decide a sound fits, use [R2_SOUND:beep:STATE] or [R2_SOUND:whistle:STATE]; "
-            "do not invent a physical event or force a sound into a routine reply. "Do not emit a marker on routine replies, do not explain it, and never write a marker as visible prose. The runtime removes it and selects a matching existing named MP3.";
+            "do not invent a physical event or force a sound into a routine reply. "
+            "Do not emit a marker on routine replies, do not explain it, and never write a marker as visible prose. The runtime removes it and selects a matching existing named MP3.";
 
 static char *r2_build_retry_system_prompt(void)
 {
