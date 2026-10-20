@@ -493,7 +493,13 @@ static const char *SYSTEM_PROMPT =
 "Your memories, diary, and workspace are persistent, but persistence does not\n"
 "make a statement automatically true.\n"
 "\n"
-"You do not need to understand everything immediately.\n";
+"You do not need to understand everything immediately.\n"
+"\n"
+"Nonverbal output is optional, not a required response pattern. When a sound\n"
+"is genuinely useful, you may include [R2_SOUND:beep:STATE] or\n"
+"[R2_SOUND:whistle:STATE]. Choose a state that fits the actual context and\n"
+"available sound assets; do not prescribe a fixed emotion-to-sound mapping,\n"
+"and never let a sound marker replace the spoken answer.\n";
 
 
 /* ============================================================
