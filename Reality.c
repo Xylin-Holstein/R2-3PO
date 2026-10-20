@@ -3237,7 +3237,7 @@ int r2_reality_init(void)
     pthread_mutex_unlock(&reality_lock);
     if (r2_addiction_init() != 0) {
         fprintf(stderr,
-                "[R2 Reality] Could not initialize required Addiction/preference history.\\n");
+                "[R2 Reality] Could not initialize required Addiction/preference history.\n");
         r2_reality_shutdown();
         return -1;
     }
