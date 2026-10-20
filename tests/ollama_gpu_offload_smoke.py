@@ -8,6 +8,7 @@ visual = (ROOT / "Visual.c").read_text(encoding="utf-8")
 launcher = (ROOT / "R2_Launch_Code.sh").read_text(encoding="utf-8")
 service = (ROOT / "deploy/r2-3po.service").read_text(encoding="utf-8")
 runner = (ROOT / "tools/r2_service_runner.sh").read_text(encoding="utf-8")
+bootstrap = (ROOT / "tools/r2_install_root_bootstrap.sh").read_text(encoding="utf-8")
 readme = (ROOT / "README.md").read_text(encoding="utf-8")
 preflight = (ROOT / "tools/preflight_ollama_model.py").read_text(encoding="utf-8")
 
@@ -49,5 +50,9 @@ if "size_vram" not in preflight or "nvidia-smi" not in preflight:
     raise SystemExit("Ollama preflight must report model VRAM and visible NVIDIA hardware.")
 if "R2_OLLAMA_NUM_GPU=12" not in readme or "4096" not in readme or "4 GiB VRAM" not in readme:
     raise SystemExit("Documentation must explain the conservative GTX 1050 Ti mixed-placement policy.")
+if 'PREFLIGHT_GPU=12' not in bootstrap or 'PREFLIGHT_CTX=4096' not in bootstrap:
+    raise SystemExit("Trusted installer must preflight the same conservative 12-layer / 4096-context policy.")
+if "20-layer/8192-context" in bootstrap or "retrying with 12 GPU layers and 4096 context tokens" in bootstrap:
+    raise SystemExit("Trusted installer must not provoke the known oversized allocation before falling back.")
 
 print("Ollama NVIDIA GPU offload configuration checks passed.")
