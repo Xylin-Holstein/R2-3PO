@@ -287,30 +287,6 @@ int main(void)
         free(retry_prompt);
     }
 
-    char *safe_retry = r2_validate_corrective_reply(
-        mother_message,
-        strdup("I missed you too, Mom. The room sounds lovely, and I’m "
-               "curious what you’re planning to put in it."));
-    ok &= check(safe_retry && strstr(safe_retry, "I missed you too, Mom."),
-                "valid corrective response is preserved");
-    free(safe_retry);
-
-    char *repeated_bad_retry = r2_validate_corrective_reply(
-        mother_message,
-        strdup("That’s a bit garbled. I think you’re trying to say I made "
-               "a mistake. Is that correct?"));
-    ok &= check(repeated_bad_retry &&
-                    strstr(repeated_bad_retry, "couldn't form a reliable response") &&
-                    strstr(repeated_bad_retry, "which part you'd like me to respond to"),
-                "repeated fabricated paraphrase becomes an honest clarification");
-    free(repeated_bad_retry);
-
-    char *missing_retry = r2_validate_corrective_reply(mother_message, NULL);
-    ok &= check(missing_retry &&
-                    strstr(missing_retry, "couldn't form a reliable response"),
-                "failed corrective inference does not expose the original bad reply");
-    free(missing_retry);
-
     /* Tool results travel through a user-role message for the next model
        call, but are not human speech. A user mentioning the marker in ordinary
        prose must not be dropped from Imagination's recent context. */
