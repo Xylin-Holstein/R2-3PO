@@ -166,6 +166,7 @@ status_end = reality.index("static sqlite3_int64 real_epoch_seconds(void)", stat
 status_block = reality[status_start:status_end]
 require(
     "if (rc != SQLITE_OK)" in status_block
+    and "sqlite3_column_type(st, column)" in status_block
     and "if (!isfinite(hunger)" in status_block
     and "free(out);" in status_block
     and "return NULL;" in status_block
@@ -180,7 +181,10 @@ require(
     and "tv_status_error:" in tv_block
     and "if (rc != SQLITE_OK ||" in tv_block
     and "return NULL;" in tv_block
-    and "sqlite3_column_type(st, 2) == SQLITE_NULL" in tv_block
+    and "sqlite3_column_type(st, 0) != SQLITE_INTEGER" in tv_block
+    and "sqlite3_column_type(st, 1) != SQLITE_TEXT" in tv_block
+    and "sqlite3_column_type(st, 2) != SQLITE_INTEGER" in tv_block
+    and "sqlite3_column_type(st, 2) != SQLITE_FLOAT" in tv_block
     and 'strcmp(transport, "play")' in tv_block
     and "len += (size_t)snprintf" not in tv_block,
     "TV status checks every database read and bounds every append before advancing its output cursor",
