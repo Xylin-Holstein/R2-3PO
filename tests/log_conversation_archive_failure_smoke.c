@@ -6,6 +6,16 @@
 #include <stdio.h>
 #include <string.h>
 
+/* Isolate the Life Log test from the optional Sensory Journal database. */
+void r2_sj_index_event(int64_t event_id, const char *category,
+                       const char *event_type, const char *source)
+{
+    (void)event_id;
+    (void)category;
+    (void)event_type;
+    (void)source;
+}
+
 static int query_count(sqlite3 *db, const char *sql,
                        sqlite3_int64 bind_id, sqlite3_int64 *count)
 {
