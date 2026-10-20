@@ -418,8 +418,15 @@ jobs:
       - name: Check fridge context against real inventory semantics
         run: python3 tests/fridge_context_smoke.py
 
-      - name: Prevent double-eating during autonomous needs checks
-        run: python3 tests/test_autonomous_needs_safeguard.py
+      - name: Require model-owned autonomous needs decisions
+        run: |
+          python3 -m py_compile tests/autonomous_needs_controller_smoke.py
+          python3 tests/autonomous_needs_controller_smoke.py
+
+      - name: Check seasonal shell selection and presentation
+        run: |
+          python3 -m py_compile tests/seasonal_shell_smoke.py
+          python3 tests/seasonal_shell_smoke.py
 
       - name: Check unified memory/reality/reward/addiction context wiring
         run: python3 tests/context_integration_smoke.py
