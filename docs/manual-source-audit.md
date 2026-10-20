@@ -210,3 +210,25 @@ This document keeps historical audit snapshots; it is not a live CI dashboard. T
 - **Fix:** Removed the deterministic feed API and all automatic calls to it. Context/model/action failures are logged and do not trigger a substitute behavior. R2's controller remains responsible for selecting an eat, fridge-eat, sleep, or no-op decision. The authoritative inventory/food-metric checks, transaction integrity, and turn-concurrency handling remain because they preserve the modeled world's actual state rather than dictate a response.
 - **Regression coverage:** Replaced the old safeguard test with `tests/autonomous_needs_controller_smoke.py`; updated the Reality regression to stop expecting automatic consumption; updated the conversation-recovery and context-integration tests.
 - **Validation:** Exact branch head `78f97471831f1fd9743cb25703ae6a4568eb3d6f` passed the full GitHub Actions workflow [#39357732761](https://github.com/Xylin48/R2-3PO/actions/runs/39357732761), 91/91 steps. This validates source/test integration, not live model behavior on the target machine.
+
+
+### AUDIT-024 — corrective retry output was replaced by a canned clarification
+- **File:** `r2.c`; regression coverage in `tests/nonresponsive_reply_retry_smoke.py`, `tests/conversation_recovery_smoke.py`, and `tests/r2_reply_misclassification_smoke.c`.
+- **Severity:** High / model-owned conversation behavior.
+- **Evidence:** After retrying a detected misclassification, `r2_validate_corrective_reply()` classified the retry again, discarded it if the classifier still objected or inference returned no text, and substituted a fixed clarification. That made the final words come from C logic rather than R2.
+- **Fix:** Removed the canned-output validator. A nonempty sanitized retry is delivered as generated. If corrective inference returns no usable text, the original turn result is retained and the failure is logged. The single retry remains a chance for R2 to reconsider, not a rule dictating his final wording.
+- **Regression coverage:** Updated tests to assert that the validator is absent, retry output is passed through, and the fixed clarification is not injected.
+
+### AUDIT-025 — persistent-memory retrieval failures were silently converted into missing context
+- **File:** `r2.c`; regression coverage in `tests/context_integration_smoke.py`.
+- **Severity:** High / learned relationship and continuity.
+- **Evidence:** Startup retrieval could return partial memories when `sqlite3_step()` failed, and initialization replaced a failed query with a placeholder claiming the memory database could not be loaded. Current-turn retrieval could likewise return partial or empty context on SQLite, allocation, or serialization errors; its caller then cached an empty string as if retrieval had succeeded.
+- **Fix:** Startup memory retrieval now checks the database handle, bind result, every row-read result, allocation arithmetic, and complete row serialization; a failed startup memory query stops initialization instead of injecting fake context. Dynamic retrieval now reports prepare/bind/step/allocation/serialization failures and returns failure rather than partial results; the caller no longer caches an empty substitute.
+- **Regression coverage:** Context integration checks cover fail-fast startup memory loading and the distinction between genuinely empty memory results and failed current-turn retrieval.
+
+### AUDIT-026 — required learning subsystems could fail initialization while R2 continued in a degraded mode
+- **File:** `r2.c`; regression coverage in `tests/subsystem_wiring_smoke.py`.
+- **Severity:** High / incomplete persistence and learning.
+- **Evidence:** Sensory Journal, Reward, Visual Experience Library, Alternate-Self Lab, and Imagination initialization failures were logged while startup continued with those subsystems disabled. That allowed R2 to report online without the integrated learning system being fully connected.
+- **Fix:** These database-backed learning/perception subsystems are now required during core initialization. A failed initialization reports the specific subsystem and returns through the existing centralized startup cleanup instead of presenting a partially connected core as fully online.
+- **Regression coverage:** The subsystem wiring smoke test asserts that each required initialization failure propagates to core startup failure.
