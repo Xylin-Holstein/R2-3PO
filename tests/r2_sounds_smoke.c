@@ -82,6 +82,7 @@ int main(void)
     /* A generic suffix must not disguise a clip explicitly tagged for a
        conflicting state. */
     assert(r2_sounds_select_file(conflict_dir, "beep", "curious", path, sizeof(path)) != 0);
+    assert(r2_sounds_select_file(conflict_dir, "beep", "default", path, sizeof(path)) != 0);
     assert(r2_sounds_select_file(conflict_dir, "beep", "sleepy", path, sizeof(path)) == 0);
     assert(strstr(path, "R2_Beep_Sleepy_Default.mp3"));
     char conflict_file[4096];
