@@ -245,6 +245,11 @@ jobs:
       - name: Prevent silent truncation of the complete system prompt
         run: python3 tests/prompt_budget_smoke.py
 
+      - name: Preserve startup memory and learning context in constrained prompts
+        run: |
+          python3 -m py_compile tests/startup_memory_budget_smoke.py
+          python3 tests/startup_memory_budget_smoke.py
+
       - name: Keep GTX 1050 Ti context budget within VRAM headroom
         run: python3 tests/gpu_context_budget_smoke.py
 
