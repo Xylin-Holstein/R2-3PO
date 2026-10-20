@@ -84,7 +84,7 @@ for required in (
     "Count every static instruction section",
     "if (message_priority <= 2 || message_priority == 4)",
     "if (message_priority == 3 && length > retrieval_reserve)",
-    "message_priority == 2",
+    "return 2;",
     "return r2_query_matches_specific_capability(query) ? 4 : 1;",
     "return 3;",
     "return 5;",
