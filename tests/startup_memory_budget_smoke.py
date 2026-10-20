@@ -39,7 +39,7 @@ startup_start = source.find("snprintf(\n        startup_context,")
 startup_end = source.find("\n    );", startup_start)
 assert startup_start >= 0 and startup_end > startup_start
 startup_builder = source[startup_start:startup_end]
-assert "newest %d records;" in startup_builder
+assert "%d prioritized records;" in startup_builder
 assert "This startup memory does NOT represent the entirety" not in startup_builder
 assert "New memories written during this session can be retrieved" not in startup_builder
 
