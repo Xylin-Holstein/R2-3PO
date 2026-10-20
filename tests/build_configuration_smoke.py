@@ -180,6 +180,8 @@ require(
     and "tv_status_error:" in tv_block
     and "if (rc != SQLITE_OK ||" in tv_block
     and "return NULL;" in tv_block
+    and "sqlite3_column_type(st, 2) == SQLITE_NULL" in tv_block
+    and 'strcmp(transport, "play")' in tv_block
     and "len += (size_t)snprintf" not in tv_block,
     "TV status checks every database read and bounds every append before advancing its output cursor",
 )
