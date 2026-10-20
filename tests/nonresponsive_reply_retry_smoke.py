@@ -159,7 +159,7 @@ require(
     "the corrective prompt distinguishes feedback about R2's prior output from unintelligible user input",
 )
 require(
-    "Don't treat typed text as " in core and "audio/noise" in core,
+    "treat typed text as " in core and "audio/noise" in core,
     "primary conversation prompt discourages typed-text misclassification as audio",
 )
 require(
