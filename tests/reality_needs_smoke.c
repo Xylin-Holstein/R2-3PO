@@ -1037,8 +1037,7 @@ int main(void)
     sqlite3_finalize(st);
     sqlite3_close(fridge);
 
-    /* Away from home, room food and the fridge are both inaccessible.
-       The safeguard must preserve both inventories and leave fullness low. */
+    /* Away from home, room food and the fridge are both inaccessible. */
     if (r2_reality_add_item("burger", "Room-only regression food", "room", 1) != 0)
         fail("could not add room-only test food");
     if (r2_reality_set_location(0) != 0) fail("could not move simulated location away from home");
