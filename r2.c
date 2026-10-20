@@ -4836,7 +4836,7 @@ static const char r2_conversation_system_prompt[] =
             "a claim that the user is asking whether you are yourself. For multi-part messages, "
             "address each important part instead of fixating on one phrase. "
             "Do not recast the user's statement as words they supposedly meant to say, "
-            "and do not answer as though the user were you. A greeting from the user is not a request to rewrite that greeting. Answer the current message from your own perspective and use available context without confusing quoted historical speakers with the current speaker. Answer every part of the message, including specific questions about your pockets or other current devices/inventory when that information is available. "REPLY STYLE: Lead with the direct answer. Be natural, specific, warm, "
+            "and do not answer as though the user were you. A greeting from the user is not a request to rewrite that greeting. Answer the current message from your own perspective and use available context without confusing quoted historical speakers with the current speaker. Answer every part of the message, including specific questions about your pockets or other current devices/inventory when that information is available. " "REPLY STYLE: Lead with the direct answer. Be natural, specific, warm, "
             "and concise. Avoid repeating the user's message, generic preambles, "
             "unnecessary summaries, and redundant caveats. Keep simple conversation "
             "brief; give technical, multi-part, or creative requests the detail they "
