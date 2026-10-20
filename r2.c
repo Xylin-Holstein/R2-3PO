@@ -3299,7 +3299,6 @@ fail:
 }
 
 typedef struct {
-    size_t override_budget;
     size_t retrieval_reserve;
     size_t capabilities_reserve;
     size_t startup_reserve;
@@ -3316,7 +3315,6 @@ static R2SystemContextBudget r2_compute_system_context_budget(
     size_t context_budget = system_budget > override_length
         ? system_budget - override_length : 0;
 
-    budget.override_budget = override_length;
     budget.retrieval_reserve = context_budget / 8;
     budget.capabilities_reserve = context_budget;
     budget.startup_reserve = context_budget / 10;
@@ -3723,52 +3721,6 @@ static char *ollama_chat_with_limit(
     size_t capabilities_reserve = context_budgets.capabilities_reserve;
     size_t startup_reserve = context_budgets.startup_reserve;
     size_t learning_reserve = context_budgets.learning_reserve;
-    size_t override_budget = context_budgets.override_budget;
-    if (override_length > override_budget) {
-        /*
-         * Prefer a complete sentence boundary when the cap falls inside the
-         * prompt. Fall back to the exact cap only when no reasonable boundary
-         * exists in the latter half of the available prefix.
-         */
-        size_t boundary = override_budget;
-        while (boundary > override_budget / 2 && boundary > 0) {
-            char c = system_override[boundary - 1];
-            if (c == '\n' || c == '!' || c == '?' ||
-                (c == '.' && (system_override[boundary] == ' ' ||
-                              system_override[boundary] == '\n')))
-                break;
-            --boundary;
-        }
-        override_length = boundary >= override_budget / 2
-            ? boundary : override_budget;
-        /* Sentence-boundary search can fall back to an arbitrary byte offset.
-           Re-align that final cap so a multibyte UTF-8 code point is never split. */
-        override_length = r2_utf8_safe_prefix_length(system_override, override_length);
-        if (system_override && json_object_array_length(arr) > 0) {
-            struct json_object *override_message = json_object_array_get_idx(arr, 0);
-            if (override_message) {
-                struct json_object *bounded_override =
-                    json_object_new_string_len(system_override, (int)override_length);
-                if (!bounded_override) {
-                    free(include);
-                    free(limits);
-                    json_object_put(arr);
-                    json_object_put(root);
-                    return NULL;
-                }
-                if (json_object_object_add(override_message, "content",
-                                            bounded_override) != 0) {
-                    json_object_put(bounded_override);
-                    free(include);
-                    free(limits);
-                    json_object_put(arr);
-                    json_object_put(root);
-                    return NULL;
-                }
-            }
-        }
-    }
-
     size_t total_chars = override_length;
     /*
      * Priority matters when the system-context budget is reached: core identity,
