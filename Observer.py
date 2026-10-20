@@ -34,25 +34,26 @@ def is_observer_event(category: str, event_type: str) -> bool:
 def append_activity_line(path: Path, local_time: str, summary: str, event_id: int) -> None:
     """Append one public event idempotently; never overwrite activity history."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a+", encoding="utf-8") as stream:
+    with path.open("a+b") as stream:
         stream.seek(0, os.SEEK_END)
         size = stream.tell()
-        # The observer retries a failed write at the same event id. Since it
-        # processes events in order, the latest complete marker is enough to
-        # distinguish a write that reached disk before a later flush error.
+        # Binary mode permits a bounded tail read by byte offset. The observer
+        # retries events in order, so the latest complete marker detects a
+        # write that reached the file before a later flush error.
         if size:
-            stream.seek(max(0, size - 4096))
-            tail = stream.read()
+            stream.seek(max(0, size - 4096), os.SEEK_SET)
+            tail = stream.read().decode("utf-8", errors="replace")
             if f"(event #{event_id})" in tail:
                 return
             stream.seek(0, os.SEEK_END)
         if size == 0:
-            stream.write("R2-3PO Activity Log\n")
-            stream.write("Factual observer events only; private thoughts and notifications excluded.\n")
-            stream.write("-" * 72 + "\n")
+            stream.write(b"R2-3PO Activity Log\n")
+            stream.write(b"Factual observer events only; private thoughts and notifications excluded.\n")
+            stream.write(("-" * 72 + "\n").encode("utf-8"))
         clean_time = " ".join((local_time or "time unavailable").split())
         clean_summary = " ".join((summary or "").split())
-        stream.write(f"[{clean_time}] {clean_summary} (event #{event_id})\n")
+        line = f"[{clean_time}] {clean_summary} (event #{event_id})\n"
+        stream.write(line.encode("utf-8"))
         stream.flush()
 
 def open_database():
