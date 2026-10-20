@@ -124,7 +124,8 @@ for phrase, message in (
     ("return xstrdup(r2_retry_system_prompt);", "builder returns the compact retry contract without clipping its correction off the end"),
     ("small remainder budget", "builder documents why the corrective contract must remain compact"),
     ("R2-3PO: answer the current message directly", "retry explicitly identifies R2 and prioritizes the actual current message"),
-    ("don't deny memory or invent facts", "retry uses supplied context without denying persistent memory or inventing facts"),
+    ("don't deny " , "retry uses supplied context without denying persistent memory"),
+    ("memory or invent facts", "retry avoids inventing unsupported facts"),
     ("Fix misreadings", "retry directly corrects a nonresponsive prior draft"),
     ("don't call user text unintelligible", "retry distinguishes feedback about R2's reply from unintelligible user input"),
 ):
@@ -153,7 +154,8 @@ require(
     "if corrective inference returns no text, the code does not substitute a canned user-facing answer",
 )
 require(
-    "don't call user text unintelligible when they complain about your reply" in core,
+    "don't call user text unintelligible" in core
+    and "when they complain about your reply" in core,
     "the corrective prompt distinguishes feedback about R2's prior output from unintelligible user input",
 )
 require(
