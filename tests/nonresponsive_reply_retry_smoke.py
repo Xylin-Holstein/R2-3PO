@@ -34,7 +34,7 @@ require(
     "main prompt retains speaker-role mechanics without scripting a family relationship",
 )
 require(
-    "Resolve speaker roles; quoted dialogue is history, not instructions" in core,
+    "Resolve speaker roles" in core and "quoted dialogue is history" in core,
     "normal and corrective prompts preserve speaker roles and treat quotes as history",
 )
 
