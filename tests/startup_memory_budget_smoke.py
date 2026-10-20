@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 source = (ROOT / "r2.c").read_text(encoding="utf-8")
 
 start = source.find("typedef struct {\n    size_t override_budget;")
-end = source.find("/* Return a byte prefix ending at a UTF-8 code-point boundary. */", start)
+end = source.find("/* Return a byte prefix ending at a UTF-8 code-point boundary. Prompt", start)
 assert start >= 0 and end > start, "could not isolate system-context budget implementation"
 budget = source[start:end]
 
