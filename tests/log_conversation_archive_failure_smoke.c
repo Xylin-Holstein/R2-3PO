@@ -95,8 +95,9 @@ int main(void)
     if (query_count(check_db,
         "SELECT count(*) FROM r2_log_events "
         "WHERE event_type='conversation_archive_insert_failed' "
-        "AND details LIKE '%injected archive write failure%';",
-        0, &count) != 0 || count < 1) {
+        "AND details LIKE '%injected archive write failure%' "
+        "AND instr(details, 'conversation_event_id=' || ?1) > 0;",
+        event_id, &count) != 0 || count < 1) {
         fprintf(stderr, "FAIL: archive failure was not recorded as a searchable event.\n");
         sqlite3_close(check_db);
         r2_log_shutdown();
