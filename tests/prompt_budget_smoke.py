@@ -99,7 +99,7 @@ for name, contract in (
             f"{name} contract has {len(contract)} characters and can be truncated "
             "by the smallest tested override budget (263)."
         )
-for required in ("R2-3PO", "current message", "speaker roles", "persistent memory"):
+for required in ("r2-3po", "current message", "speaker roles", "persistent memory"):
     if required not in normal_contract.lower():
         raise SystemExit(f"Normal conversation contract omits {required}")
 for required in ("Fix misreadings", "unintelligible", "Return answer"):
