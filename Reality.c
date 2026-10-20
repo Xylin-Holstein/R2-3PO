@@ -3472,7 +3472,7 @@ char *r2_reality_room_look(void)
 
 char *r2_reality_status(void)
 {
-    if (r2_reality_tick() != 0 || !r2_reality_is_initialized())
+    if (r2_reality_tick() != 0)
         return NULL;
 
     char *out = malloc(4096);
@@ -3480,6 +3480,11 @@ char *r2_reality_status(void)
         return NULL;
 
     pthread_mutex_lock(&reality_lock);
+    if (!reality_ready || !reality_db) {
+        pthread_mutex_unlock(&reality_lock);
+        free(out);
+        return NULL;
+    }
     sqlite3_stmt *st = NULL;
     double hunger = 0.0, satisfaction = 0.0, since = 0.0;
     double sleepiness = 0.0, energy = 0.0;
