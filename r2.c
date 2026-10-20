@@ -3300,8 +3300,6 @@ fail:
 
 typedef struct {
     size_t override_budget;
-    size_t identity_budget;
-    size_t reality_reserve;
     size_t retrieval_reserve;
     size_t capabilities_reserve;
     size_t startup_reserve;
@@ -3319,8 +3317,6 @@ static R2SystemContextBudget r2_compute_system_context_budget(
         ? system_budget - override_length : 0;
 
     budget.override_budget = override_length;
-    budget.identity_budget = context_budget;
-    budget.reality_reserve = context_budget;
     budget.retrieval_reserve = context_budget / 8;
     budget.capabilities_reserve = context_budget;
     budget.startup_reserve = context_budget / 10;
