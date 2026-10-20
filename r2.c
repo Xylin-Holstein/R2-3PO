@@ -9876,9 +9876,17 @@ static void autonomous_needs_check(void)
                 pthread_mutex_unlock(&conversation_turn_lock);
             }
             free(safe_action);
+        } else {
+            r2_log_event(R2_LOG_ERROR, "autonomous_needs_action_allocation_failed",
+                         "Could not allocate the model-selected needs action; no world action was performed.",
+                         NULL, "autonomous_needs_check");
         }
+    } else if (strcmp(decision, "NONE") != 0) {
+        r2_log_event(R2_LOG_ERROR, "autonomous_needs_decision_unrecognized",
+                     "The autonomous needs model returned neither NONE nor a standalone world action; no substitute action was performed.",
+                     decision, "autonomous_needs_check");
     }
-free(decision);
+    free(decision);
 }
 
 int r2_think(void)
