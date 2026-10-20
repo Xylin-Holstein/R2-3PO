@@ -1562,7 +1562,7 @@ static char *get_startup_memories(int limit)
             return NULL;
         }
         size_t needed = memory_len + category_len + updated_len + 32;
-        if (len > SIZE_MAX - needed - 1) {
+        if (needed >= SIZE_MAX - len) {
             fprintf(stderr, "[R2 memory] Startup memory context length overflow.\n");
             sqlite3_finalize(st);
             pthread_mutex_unlock(&db_lock);
