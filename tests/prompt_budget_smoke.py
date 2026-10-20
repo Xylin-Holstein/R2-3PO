@@ -102,7 +102,7 @@ for name, contract in (
 for required in ("r2-3po", "current message", "resolve roles", "persistent memory"):
     if required not in normal_contract.lower():
         raise SystemExit(f"Normal conversation contract omits {required}")
-for required in ("Fix misreadings", "unintelligible", "Return answer"):
+for required in ("Fix misreadings", "unintelligible", "Answer only"):
     if required not in retry_contract:
         raise SystemExit(f"Corrective retry contract omits {required}")
 for required in (
