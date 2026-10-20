@@ -65,6 +65,37 @@ int main(void)
         "working on giving you a fully detailed room with a bed, you also "
         "have physical pockets you can put stuff in";
 
+    ok &= check(r2_reply_misclassifies_plain_text(
+                    "I wanted to tell you something important about my room and pockets",
+                    "That appears to be a random assortment of sounds."),
+                "known unintelligibility response to ordinary typed language triggers a corrective retry");
+    ok &= check(r2_reply_misclassifies_plain_text(
+                    "Hello R2, this is your mother speaking to you.",
+                    "Hello R2! How can I help you today?"),
+                "speaker-role reversal in a direct greeting triggers a corrective retry");
+    ok &= check(!r2_reply_misclassifies_plain_text(
+                    "Can you explain how an audio signal gets transcribed?",
+                    "That audio signal is converted into text by speech recognition."),
+                "legitimate audio and transcription discussion is not classified as a bad reply");
+    ok &= check(!r2_reply_misclassifies_plain_text(
+                    "Please paraphrase this paragraph for me.",
+                    "I can paraphrase it. Please send the paragraph."),
+                "explicit paraphrasing requests are not classified as misinterpretation");
+    char *retry_prompt = r2_build_retry_system_prompt();
+    ok &= check(retry_prompt &&
+                    strstr(retry_prompt, "IDENTITY AND PERSISTENT MEMORY") &&
+                    strstr(retry_prompt, "AFFECT AND NONVERBAL EXPRESSION") &&
+                    strstr(retry_prompt, "RESPONSE CORRECTION"),
+                "corrective prompt retains persistent identity, contextual affect, and correction policy");
+    free(retry_prompt);
+    Message startup_context = {
+        .role = "system",
+        .content = "============================================================\\nR2 PERSISTENT MEMORY - STARTUP CONTEXT",
+        .pinned = 0
+    };
+    ok &= check(r2_is_retry_context_message(&startup_context),
+                "compact retry recognizes the startup persistent-memory snapshot");
+
     ok &= check(!r2_query_explicitly_requests_recall(mother_message),
                 "ordinary affectionate update uses focused context retrieval");
     ok &= check(r2_query_explicitly_requests_recall(
