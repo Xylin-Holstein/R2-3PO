@@ -68,6 +68,15 @@ require('trap r2_network_cleanup EXIT' in launcher
         and 'r2_network_cleanup() {' in launcher
         and 'r2_observer_cleanup' in launcher,
         "EXIT cleanup always handles observer/display permissions and network rules")
+require('systemctl is-active --quiet r2-ollama.service' in launcher
+        and 'sudo -n systemctl stop r2-ollama.service' in launcher
+        and 'R2_OLLAMA_SERVICE_PAUSED=1' in launcher,
+        "interactive launch releases VRAM held by the separate overnight Ollama runner")
+require('if [[ "$R2_OLLAMA_SERVICE_PAUSED" -eq 1 ]]; then' in launcher
+        and 'sudo -n systemctl start r2-ollama.service' in launcher,
+        "interactive launch restores the overnight Ollama runner on every EXIT path")
+require(launcher.find('systemctl is-active --quiet r2-3po.service') < launcher.find('sudo -n systemctl stop r2-ollama.service'),
+        "the dedicated Ollama runner is only paused after confirming the overnight R2 core is inactive")
 require(re.search(r"\bsudo -u r2\b", launcher) is None,
         "all optional r2 helper/observer launches are non-interactive and cannot hang on a sudo prompt")
 cleanup_start = launcher.find("r2_observer_cleanup() {")
