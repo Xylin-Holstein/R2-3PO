@@ -4,9 +4,10 @@ This checklist separates repository/CI evidence from checks that must run on the
 
 ## 1. Confirm the candidate and CI
 
-- Use `integrate/affect-and-mother-chat-root-fix-2026-10-19` as the current consolidated candidate (draft PR #162), based on `release/r2-workable-chat-integration-2026-10-18` plus corrective-retry identity/memory continuity, contextual affect guidance, and regression coverage. The retry retains static relationship policy plus live Reality, focused current-turn retrieval, and the separate startup persistent-memory snapshot when present, without replaying stale dialogue. It carries the integrated conversation, speech, vision, database compatibility, Game Boy, TV, and lifecycle work.
-- Require the full `R2 build` GitHub Actions workflow to pass on the exact candidate commit. The `integrate/**` branch pattern is included in the workflow's push and pull-request filters.
-- Do not merge to `main` or call the candidate hardware-verified based on static smoke tests alone.
+- Current consolidated completion candidate: PR [#165](https://github.com/Xylin48/R2-3PO/pull/165), head branch `integrate/r2-final-code-completion-2026-10-20`, commit `69214901e1d4c62ac036aecb85d44b6c6663ce4d`. The hardware-readiness working branch `release/r2-hardware-readiness-2026-10-20` is based on that exact head.
+- Exact-head `R2 build` workflow [#5478](https://github.com/Xylin48/R2-3PO/actions/runs/39402852794) passed 94/94 steps. It covers strict launcher-equivalent compilation, subsystem and lifecycle regressions, reply-misclassification/context ordering, persisted conversation restoration after restart, archive-write failure handling, and seasonal shell selection.
+- The candidate integrates the conversation retry/history fixes, contextual (not scripted) affect interpretation, seasonal shell themes, subsystem/database compatibility, speech/vision wiring, Game Boy/TV, and launcher/service lifecycle work. Do not replace newer source files with older branch versions.
+- Do not merge to `main` or call the candidate hardware-verified based on CI alone. Target-host acceptance remains required for live Qwen 3.5 9B multi-turn behavior, measured GTX 1050 Ti mixed CPU/GPU placement and RAM headroom, real database writes/restart persistence, and attached audio/video/device paths.
 
 ## 2. Preflight the target host before activation
 
