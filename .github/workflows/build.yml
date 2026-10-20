@@ -248,7 +248,7 @@ jobs:
       - name: Refuse silently truncated active user turns
         run: python3 tests/no_truncated_current_turn_smoke.py
 
-      - name: Verify root conversation contract and removal of heuristic retry
+      - name: Verify root conversation contract and bounded corrective retry
         run: python3 tests/nonresponsive_reply_retry_smoke.py
       - name: Guard task pipe and child waits against interrupted system calls
         run: |
@@ -263,7 +263,7 @@ jobs:
           cc $FLAGS tests/r2_task_shutdown_runtime.c shell.c r2_diary.c Log.c SensoryJournal.c Reality.c Addiction.c Reward.c AlternateSelf.c Visual.c Ears.c Eyes.c R2Sounds.c R2Reply.c Imagination.c -o /tmp/r2-task-shutdown-smoke-test -lcurl -lsqlite3 -lpthread -ljson-c -lpulse-simple -lpulse -lm
           /tmp/r2-task-shutdown-smoke-test
 
-      - name: Exercise the production conversation contract without heuristic reply guards
+      - name: Exercise production direct-answer recovery against observed failure cases
         run: |
           ROOT=/tmp/r2-reply-misclassification-smoke
           rm -rf "$ROOT"
