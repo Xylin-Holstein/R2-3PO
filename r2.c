@@ -3778,9 +3778,9 @@ static char *ollama_chat_with_limit(
     size_t total_chars = override_length;
     /*
      * Priority matters when the system-context budget is reached: core identity,
-     * live Reality, active-turn retrieval, static capability guidance, broad
-     * startup memory, learning summaries, and finally archived dialogue.
-     * Every category has a cap so one long block cannot crowd the others out.
+     * relevant live Reality or task-specific capability instructions, current-turn
+     * retrieval, lower-priority capability sections, startup memory, learning,
+     * and archived dialogue. Instruction sections remain whole; evidence yields.
      */
     size_t capabilities_used = 0;
     size_t startup_used = 0;
@@ -3799,18 +3799,16 @@ static char *ollama_chat_with_limit(
             if (length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS)
                 length = r2_utf8_safe_prefix_length(
                     content, OLLAMA_MAX_SYSTEM_MESSAGE_CHARS);
-            if (message_priority == 0 && length > identity_budget)
-                length = r2_safe_prompt_prefix_length(content, identity_budget, 0);
-            if (message_priority == 1 && length > reality_reserve)
-                length = r2_safe_prompt_prefix_length(content, reality_reserve, 1);
             if (message_priority == 3 && length > retrieval_reserve)
                 length = r2_safe_prompt_prefix_length(content, retrieval_reserve, 1);
             if (message_priority == 4) {
                 size_t capability_remaining =
                     capabilities_reserve > capabilities_used
                         ? capabilities_reserve - capabilities_used : 0;
+                /* Unrelated capability sections are included whole or yield;
+                   do not turn any instruction section into a truncated prefix. */
                 if (length > capability_remaining)
-                    length = r2_safe_prompt_prefix_length(content, capability_remaining, 0);
+                    continue;
             }
             if (message_priority == 5) {
                 size_t startup_remaining = startup_reserve > startup_used
@@ -3837,7 +3835,7 @@ static char *ollama_chat_with_limit(
             include[i] = 1;
             limits[i] = length;
             total_chars += length;
-            if (message_priority == 3 || message_priority == 4)
+            if (message_priority == 4)
                 capabilities_used += length;
             if (message_priority == 5)
                 startup_used += length;
