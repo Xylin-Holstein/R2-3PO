@@ -3245,7 +3245,7 @@ static int r2_inference_system_priority(const char *content, const char *query)
         return 7;
     if (!strncmp(content, "PAST CONVERSATION ARCHIVE — CONTEXT ONLY.",
                   strlen("PAST CONVERSATION ARCHIVE — CONTEXT ONLY.")))
-        return 7;
+        return 8;
     return 7;
 }
 
@@ -3259,7 +3259,7 @@ static size_t r2_order_inference_messages(const Message *msgs,
         return 0;
 
     size_t used = 0;
-    for (int priority = 0; priority < 8; ++priority) {
+    for (int priority = 0; priority < 9; ++priority) {
         for (size_t i = 0; i < count; ++i) {
             if (!include[i] || !msgs[i].role ||
                 strcmp(msgs[i].role, "system") != 0 ||
