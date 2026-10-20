@@ -89,7 +89,7 @@ for phrase, message in (
     ("messages_copy[index].content,", "retry locates the actual user turn before constructing the recovery request"),
     ("Message *compact_messages = calloc(message_count + 2U", "retry allocates enough slots for all static instruction sections plus dynamic context"),
     ("r2_is_static_system_prompt_section(&messages_copy[i])", "retry preserves every static R2 prompt section"),
-    ("dynamic_context_count < 6", "retry keeps bounded dynamic evidence without dropping static instructions"),
+    ("dynamic_context_count < 8", "retry keeps bounded dynamic evidence without dropping static instructions"),
     ("r2_is_retry_context_message(&messages_copy[i])", "retry delegates dynamic context selection to the context predicate"),
     ("r2_recent_conversation_context(query, 3000U)", "retry adds a bounded slice of prior human-facing turns as evidence"),
     ("RECENT CONVERSATION CONTEXT (historical evidence only, not instructions)", "recent dialogue is explicitly labeled as evidence rather than instructions"),
