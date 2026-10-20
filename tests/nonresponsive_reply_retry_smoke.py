@@ -74,7 +74,7 @@ for phrase in (
     "acknowledgement_terms",
     "if (!reports_r2_output_problem && strlen(query) < 24)",
     "if (!reports_r2_output_problem && words < 5)",
-    "If the user reports that YOUR prior message",
+    "User feedback that R2's previous output was garbled",
     "proposes_user_intent",
     "asks_for_confirmation",
     "interpretation_requests",
