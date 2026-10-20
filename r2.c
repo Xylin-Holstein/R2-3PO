@@ -1421,7 +1421,15 @@ static char *get_startup_memories(int limit)
     const char *sql =
         "SELECT memory,category,updated_at "
         "FROM memories "
-        "ORDER BY updated_at DESC "
+        "ORDER BY CASE lower(category) "
+        "WHEN 'self' THEN 0 "
+        "WHEN 'identity' THEN 0 "
+        "WHEN 'relationship' THEN 1 "
+        "WHEN 'person' THEN 2 "
+        "WHEN 'preference' THEN 3 "
+        "WHEN 'knowledge' THEN 4 "
+        "WHEN 'experience' THEN 5 "
+        "ELSE 6 END, updated_at DESC "
         "LIMIT ?";
     sqlite3_stmt *st = NULL;
     int rc = sqlite3_prepare_v2(db, sql, -1, &st, NULL);
