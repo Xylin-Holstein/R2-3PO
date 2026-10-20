@@ -73,7 +73,7 @@ retry_prompt = core[retry_prompt_start:retry_prompt_end]
 require(
     "return xstrdup(r2_retry_system_prompt);" in retry_builder
     and "small remainder budget" in retry_builder
-    and "R2-3PO: answer current message directly" in retry_prompt
+    and "R2-3PO: answer current message" in retry_prompt
     and "Fix misreadings" in retry_prompt,
     "corrective retry uses a complete compact identity/memory correction prompt that fits the remaining budget",
 )
