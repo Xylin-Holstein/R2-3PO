@@ -39,13 +39,20 @@ retry_end = core.find("static int r2_is_retry_context_message", retry_start)
 require(retry_start >= 0 and retry_end > retry_start,
         "corrective-answer prompt builder is present and bounded")
 retry_builder = core[retry_start:retry_end]
+retry_prompt_start = core.find("static const char r2_retry_system_prompt[] =")
+retry_prompt_end = core.find(";\\n", retry_prompt_start)
+retry_prompt = core[retry_prompt_start:retry_prompt_end]
+require(
+    "return xstrdup(r2_retry_system_prompt);" in retry_builder
+    and "small remainder budget" in retry_builder,
+    "corrective-answer builder returns a compact prompt that fits the serializer's reserved budget",
+)
 for phrase, description in [
-    ("identity_start_marker", "corrective answers retain base identity/memory context"),
-    ("r2_conversation_system_prompt", "corrective answers reuse the non-prescriptive answer mechanics"),
-    ("retry_instruction", "corrective answers retain current-turn correction context"),
-    ("return retry_system_prompt", "assembled corrective policy reaches the model caller"),
+    ("R2-3PO: answer current message", "corrective answers preserve R2's identity and current-turn focus"),
+    ("Treat reply complaints as feedback", "corrective answers treat complaints about R2's reply as feedback"),
+    ("Fix misreadings", "corrective answers explicitly repair a nonresponsive draft"),
 ]:
-    require(phrase in retry_builder, description)
+    require(phrase in retry_prompt, description)
 
 require("compact_messages[compact_count++] = (Message) {" in core and
         ".content = (char *)query" in core,
