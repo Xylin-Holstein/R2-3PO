@@ -45,7 +45,7 @@ learning = core[learning_start:learning_end]
 for source in ("r2_reward_context()", "r2_addiction_report()", "PERSISTENT LEARNING CONTEXT"):
     if source not in learning:
         raise SystemExit(f"Live learning context omits {source}")
-if "size_t cap = 2400" not in learning or "REWARD/REINFORCEMENT SUMMARY:\\n%.900s" not in learning or "REPEATED-INTEREST SUMMARY:\\n%.900s" not in learning:
+if "size_t cap = 512" not in learning or "REWARD: %.110s" not in learning or "REPEATED INTERESTS: %.110s" not in learning:
     raise SystemExit("Live learning context must fit within the reserved system-prompt budget.")
 
 dream_start = core.find("int r2_sleep_and_dream(double hours)")
