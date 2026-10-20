@@ -49,7 +49,7 @@ if "size_t cap = 2400" not in learning or "REWARD/REINFORCEMENT SUMMARY:\\n%.900
     raise SystemExit("Live learning context must fit within the reserved system-prompt budget.")
 
 dream_start = core.find("int r2_sleep_and_dream(double hours)")
-dream_end = core.find("static void autonomous_needs_food_safeguard", dream_start)
+dream_end = core.find("static int autonomous_needs_action_allowed(", dream_start)
 if dream_start < 0 or dream_end < 0:
     raise SystemExit("Could not locate the private dream context path.")
 dream = core[dream_start:dream_end]

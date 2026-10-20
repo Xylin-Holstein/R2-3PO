@@ -152,10 +152,10 @@ require(
 require(
     'int allow_reasoning = ollama_audit_stage &&' in core
     and '"conversation-answer"' in core
-    and '"conversation-retry"' not in core
+    and '"conversation-retry"' in core
     and 'ollama_json_object_add_checked(root, "think",' in core
     and "message.thinking is measured for diagnostics but never displayed" in core,
-    "foreground answer can reason while only final content is user-facing, without a corrective-retry stage",
+    "primary and corrective conversation inferences can reason while only final content is user-facing",
 )
 require(
     "double temperature = allow_reasoning ? 1.0 : 0.7;" in core
@@ -225,10 +225,12 @@ require(
 )
 require(
     "Answer the user's actual current message from your own perspective." in core
-    and "Answer the current turn directly" in core
-    and "ask one focused question only when a genuinely necessary detail is missing" in core
-    and "Acknowledge affection, concern, excitement, or personal updates" not in core,
-    "reply contract is direct without prescribing an emotional response",
+    and "Answer the clear intent first; if a genuinely necessary detail remains unclear, ask one focused question." in core
+    and "AFFECT AND NONVERBAL EXPRESSION:" in core
+    and "do not rely on a hard-coded emotion-to-response table." in core
+    and "choose any state tag as your own contextual judgment, not by a fixed mapping." in core
+    and "Do not invent a physical event or force a sound into a routine reply." in core,
+    "reply contract is direct and affect-aware without prescribing fixed emotional responses",
 )
 require(
     "REALITY CONTEXT: USE IT, DO NOT RECITE IT" in core

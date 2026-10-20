@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Source-contract regression for autonomous needs safety and single-meal cycles."""
-
+"""Source-contract regression for model-owned autonomous needs decisions."""
 from pathlib import Path
 
-source = Path("r2.c").read_text(encoding="utf-8")
-shell = Path("shell.c").read_text(encoding="utf-8")
+root = Path(__file__).resolve().parents[1]
+source = (root / "r2.c").read_text(encoding="utf-8")
+reality = (root / "Reality.c").read_text(encoding="utf-8")
+header = (root / "Reality.h").read_text(encoding="utf-8")
+shell = (root / "shell.c").read_text(encoding="utf-8")
+
 shell_needs_start = shell.index("static int shell_needs(const char *command)")
 shell_needs_end = shell.index("static int shell_dispatch", shell_needs_start)
 shell_needs = shell[shell_needs_start:shell_needs_end]
@@ -22,6 +25,20 @@ assert "atof(fields[1])" not in world_sleep
 start = source.index("static void autonomous_needs_check(void)\n{")
 end = source.index("\nint r2_think(void)", start)
 function = source[start:end]
+
+assert "r2_reality_autonomous_feed_if_needed" not in function
+assert "r2_reality_autonomous_feed_if_needed" not in reality
+assert "r2_reality_autonomous_feed_if_needed" not in header
+assert "autonomous_needs_food_safeguard" not in source
+assert "autonomous_needs_context_failed" in function
+assert "autonomous_needs_context_allocation_failed" in function
+assert "autonomous_needs_check_failed" in function
+assert "autonomous_needs_action_allocation_failed" in function
+assert "autonomous_needs_action_result_missing" in function
+assert "autonomous_needs_decision_unrecognized" in function
+assert "no substitute action was performed" in function
+assert "if (!world_action_succeeded)" not in function
+assert "r2_reality_autonomous_food_available()" in source
 
 allow_start = source.index("static int autonomous_needs_action_allowed(")
 allow_end = source.index("\n/* Re-check the authoritative need", allow_start)
@@ -48,16 +65,9 @@ assert "if (!status) return 0;" in food_guard
 assert "if (!autonomous_needs_action_still_needed(safe_action))" in function
 assert "autonomous_needs_stale_action" in function
 
-assert "food_action_succeeded" not in function
-assert "int world_action_succeeded = 0;" in function
+assert "int action_succeeded = 0;" in function
 assert "process_tools_with_status(safe_action, &action_succeeded)" in function
-assert "world_action_succeeded = action_succeeded;" in function
-assert "strstr(result, \"REAL NEEDS RESULT: eating" not in function
-assert "strstr(result, \"FRIDGE RESULT: eating" not in function
-assert "strstr(result, \"REAL NEEDS RESULT: sleep transition" not in function
-assert 'if (rc == 0 && world_action_succeeded)' in source
-assert source.count('*world_action_succeeded = 1;') == 3
-assert "if (!world_action_succeeded)\n        autonomous_needs_food_safeguard();" in function
+assert "action_succeeded ? R2_LOG_WORLD : R2_LOG_ERROR" in function
 assert "autonomous_needs_yielded_to_conversation" in function
 assert "pthread_mutex_trylock(&conversation_turn_lock)" in function
 
@@ -70,11 +80,11 @@ assert "ollama_foreground_turn_mode = 1;" in talk_wrapper
 assert "ollama_foreground_turn_mode = previous_turn_mode;" in talk_wrapper
 assert "(atomic_load(&foreground_conversation_waiting) > 0 &&" in source
 assert "!ollama_foreground_turn_mode" in source
+
 vision_begin_start = source.index("int r2_ollama_vision_request_begin(void)")
 vision_begin_end = source.index("\nvoid r2_ollama_vision_request_end(void)", vision_begin_start)
-vision_begin = source[vision_begin_start:vision_begin_end]
-assert "foreground_conversation_waiting" in vision_begin
-assert "!ollama_foreground_turn_mode" in vision_begin
+assert "foreground_conversation_waiting" in source[vision_begin_start:vision_begin_end]
+assert "!ollama_foreground_turn_mode" in source[vision_begin_start:vision_begin_end]
 vision_abort_start = source.index("int r2_ollama_vision_request_should_abort(void)")
 vision_abort_end = source.index("\n/* Estimate safe Ollama context", vision_abort_start)
 assert "!ollama_foreground_turn_mode" in source[vision_abort_start:vision_abort_end]
@@ -86,13 +96,4 @@ assert "while (!shutting_down" in worker
 assert "atomic_load(&foreground_conversation_waiting) > 0" in worker
 assert worker.index("atomic_load(&foreground_conversation_waiting) > 0") < worker.index("log_structured_self_report")
 
-safeguard_start = source.index("static void autonomous_needs_food_safeguard(void)\n{")
-assert "pthread_mutex_trylock(&conversation_turn_lock) != 0" in source[safeguard_start:start]
-
-# A successful meal or sleep satisfies this cycle's action; the fallback only
-# runs when no successful allowed action occurred.
-assert function.count("autonomous_needs_food_safeguard();") == 4, (
-    "expected fallbacks for missing state, allocation failure, model failure, "
-    "and the final guarded fallback"
-)
-print("autonomous needs safety smoke passed")
+print("model-owned autonomous needs controller smoke passed")
