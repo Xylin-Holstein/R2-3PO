@@ -9881,10 +9881,20 @@ static void autonomous_needs_check(void)
                          "Could not allocate the model-selected needs action; no world action was performed.",
                          NULL, "autonomous_needs_check");
         }
-    } else if (strcmp(decision, "NONE") != 0) {
-        r2_log_event(R2_LOG_ERROR, "autonomous_needs_decision_unrecognized",
-                     "The autonomous needs model returned neither NONE nor a standalone world action; no substitute action was performed.",
-                     decision, "autonomous_needs_check");
+    } else {
+        const char *decision_text = decision;
+        while (*decision_text && isspace((unsigned char)*decision_text))
+            ++decision_text;
+        size_t decision_length = strlen(decision_text);
+        while (decision_length &&
+               isspace((unsigned char)decision_text[decision_length - 1]))
+            --decision_length;
+        if (decision_length != 4 ||
+            strncasecmp(decision_text, "NONE", 4) != 0) {
+            r2_log_event(R2_LOG_ERROR, "autonomous_needs_decision_unrecognized",
+                         "The autonomous needs model returned neither NONE nor a standalone world action; no substitute action was performed.",
+                         decision, "autonomous_needs_check");
+        }
     }
     free(decision);
 }
