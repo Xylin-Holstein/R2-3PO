@@ -15,8 +15,8 @@ strip_marker_index = r2.find("r2_sounds_strip_markers(reply)")
 checks = {
     "core includes the existing sound API": '#include "R2Sounds.h"' in r2,
     "conversation prompt permits rare state-tagged droid effects": "[R2_SOUND:beep:STATE]" in r2 and "[R2_SOUND:whistle:STATE]" in r2,
-    "sound-state hints must be grounded in current evidence": "only when supported by this turn or current Reality evidence" in r2 and "Prefer no marker when the fit is unclear" in r2,
-    "need-related sound tags cannot be inferred from topic alone": "Do not infer a need from the topic alone" in r2 and "Use sleepy or hungry only when the current modeled need actually supports it" in r2,
+    "sound-state choices use contextual affect judgment rather than a fixed mapping": "AFFECT AND NONVERBAL EXPRESSION" in r2 and "Distinguish observed cues from uncertain interpretations" in r2 and "choose any state tag as your own contextual judgment, not by a fixed mapping" in r2 and "do not rely on a hard-coded emotion-to-response table" in r2,
+    "nonverbal sounds remain optional and are not forced into routine replies": "Do not invent a physical event or force a sound into a routine reply" in r2 and "Prefer no sound when it adds nothing" in r2,
     "tool routing is decided before playback": marker_processing_index >= 0 and tool_processing_index >= 0 and tool_processing_index < marker_processing_index,
     "sound markers are stripped before tool side effects": strip_marker_index >= 0 and tool_processing_index >= 0 and strip_marker_index < tool_processing_index and "process_tools(stripped_reply)" in r2 and "r2_sounds_strip_markers" in sound_header,
     "official FX location is hard-coded in the sound API": '/home/x/R2_Home/R2_sounds/FX' in sound_header,
