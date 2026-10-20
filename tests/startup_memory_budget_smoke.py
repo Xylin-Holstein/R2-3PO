@@ -33,6 +33,14 @@ assert "return 5;" in priority and "return 6;" in priority
 assert '"RECENT PERSISTED CONVERSATION CONTEXT"' in priority
 assert "return 7;" in priority
 
+startup_start = source.find("snprintf(\\n        startup_context,")
+startup_end = source.find("\\n    );", startup_start)
+assert startup_start >= 0 and startup_end > startup_start
+startup_builder = source[startup_start:startup_end]
+assert "newest %d records;" in startup_builder
+assert "This startup memory does NOT represent the entirety" not in startup_builder
+assert "New memories written during this session can be retrieved" not in startup_builder
+
 # The old budget assigned all unreserved bytes to the system override. With
 # a full prompt, no bytes remained for priority-5 startup memory. The new
 # reserve must be a positive, bounded slice before the override is computed.
