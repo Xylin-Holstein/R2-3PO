@@ -88,8 +88,8 @@ retry_builder_body = function_slice(
 )
 require(
     '"PERSISTENT LEARNING CONTEXT"' in retry_context_classifier
-    and "Message compact_messages[7]" in retry_builder_body
-    and "compact_count < 5" in retry_builder_body,
+    and "Message compact_messages[8]" in retry_builder_body
+    and "compact_count < 6" in retry_builder_body,
     "corrective retry preserves the learning database context alongside Reality, retrieval, and startup memory",
 )
 
