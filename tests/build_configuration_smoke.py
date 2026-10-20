@@ -140,13 +140,13 @@ for source in required_sources:
     require(f'"$R2_SOURCE/{source}"' in launcher, f"launcher includes {source}")
 require(
     "static const double HUNGER_PER_SECOND = 100.0 / (3.0 * 3600.0);" in reality
-    and "double hunger = sqlite3_column_double(st, 0) - elapsed * HUNGER_PER_SECOND;" in reality
+    and "double hunger = stored_hunger - elapsed * HUNGER_PER_SECOND;" in reality
     and "hunger=MIN(100,hunger+?)" in reality,
     "fullness meter drains over three hours and eating restores it",
 )
 require(
     "static const double SATIETY_PER_SECOND = 0.1 / 4.75;" in reality
-    and "double satisfaction = sqlite3_column_double(st, 4) - elapsed * SATIETY_PER_SECOND;" in reality,
+    and "double satisfaction = stored_satisfaction - elapsed * SATIETY_PER_SECOND;" in reality,
     "satisfaction independently decays by 0.1 per 4.75 seconds",
 )
 require(
