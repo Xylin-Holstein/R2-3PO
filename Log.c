@@ -959,6 +959,7 @@ char *r2_log_recent_conversation_context(size_t max_chars)
     rc = sqlite3_prepare_v2(
         log_db,
         "SELECT event_id,user_text,assistant_text FROM r2_log_conversations "
+        "WHERE event_id>0 AND user_text<>'' AND assistant_text<>'' "
         "ORDER BY event_id DESC LIMIT 8;",
         -1, &statement, NULL);
     if (rc == SQLITE_OK) {
