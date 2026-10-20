@@ -4787,6 +4787,169 @@ static int conversation_reply_token_budget(const char *query)
  * reply repeats the same greeting to R2 as though it were a message the user
  * wanted to send. Do not apply this guard to explicit writing/quoting tasks.
  */
+static int r2_reply_misclassifies_plain_text(const char *query, const char *reply)
+{
+    if (!query || !reply)
+        return 0;
+
+    /* Detect reversed speaker roles even for short, otherwise fluent replies. */
+    if (r2_reply_reverses_speaker_roles(query, reply))
+        return 1;
+
+    /*
+     * Detect feedback about R2's own output before applying the ordinary
+     * minimum-length/word-count guards: reports like "your reply is garbled"
+     * are short but still unambiguous and must trigger recovery.
+     */
+    int reports_r2_output_problem =
+        (strcasestr(query, "your message") ||
+         strcasestr(query, "your reply") ||
+         strcasestr(query, "your response") ||
+         strcasestr(query, "your answer") ||
+         strcasestr(query, "your last") ||
+         strcasestr(query, "your output") ||
+         strcasestr(query, "your audio") ||
+         strcasestr(query, "your voice") ||
+         strcasestr(query, "your speech") ||
+         strcasestr(query, "your sound") ||
+         strcasestr(query, "what you said") ||
+         strcasestr(query, "what you wrote") ||
+         strcasestr(query, "message you sent") ||
+         strcasestr(query, "reply you gave") ||
+         strcasestr(query, "answer you gave") ||
+         strcasestr(query, "you just said") ||
+         strcasestr(query, "you keep saying") ||
+         strcasestr(query, "you're saying") ||
+         strcasestr(query, "you are saying") ||
+         strcasestr(query, "you called it") ||
+         strcasestr(query, "you think my message") ||
+         strcasestr(query, "i said the message") ||
+         strcasestr(query, "i'm saying the message") ||
+         strcasestr(query, "im saying the message") ||
+         strcasestr(query, "the message is") ||
+         strcasestr(query, "that message is") ||
+         strcasestr(query, "last message is") ||
+         strcasestr(query, "last reply is") ||
+         strcasestr(query, "last response is")) &&
+        (strcasestr(query, "garbled") ||
+         strcasestr(query, "gibberish") ||
+         strcasestr(query, "unintelligible") ||
+         strcasestr(query, "unreadable") ||
+         strcasestr(query, "confusing") ||
+         strcasestr(query, "doesn't make sense") ||
+         strcasestr(query, "does not make sense") ||
+         strcasestr(query, "made no sense") ||
+         strcasestr(query, "hard to understand") ||
+         strcasestr(query, "can't understand") ||
+         strcasestr(query, "cannot understand"));
+
+    /*
+     * User feedback that R2's previous output was garbled is itself a clear,
+     * meaningful message. Do not let the words "gibberish" or "unintelligible"
+     * accidentally disable recovery for that case.
+     */
+    /* Keep legitimate audio/transcription discussions out of this guard,
+       except when the user is explicitly reporting a problem with R2's output. */
+    static const char *const topic_terms[] = {
+        "audio", "sound", "sounds", "noise", "signal", "gibberish",
+        "unintelligible", "jumbled", "transcribe", "transcription"
+    };
+    if (!reports_r2_output_problem) {
+        for (size_t i = 0; i < sizeof(topic_terms) / sizeof(topic_terms[0]); ++i) {
+            if (strcasestr(query, topic_terms[i]))
+                return 0;
+        }
+    }
+
+    int reply_has_failure_phrase = r2_reply_contains_known_failure_phrase(reply);
+    if (!reports_r2_output_problem && reply_has_failure_phrase)
+        return 1;
+
+    if (!reports_r2_output_problem && strlen(query) < 24)
+        return 0;
+
+    size_t words = 0;
+    int in_word = 0;
+    for (const unsigned char *p = (const unsigned char *)query; *p; ++p) {
+        if (isalnum(*p)) {
+            if (!in_word) ++words;
+            in_word = 1;
+        } else {
+            in_word = 0;
+        }
+    }
+    if (!reports_r2_output_problem && words < 5)
+        return 0;
+
+    /*
+     * If the user is correcting R2's own prior output, a reply that does not
+     * acknowledge or repair that complaint is another nonresponsive turn.
+     */
+    if (reports_r2_output_problem) {
+        static const char *const acknowledgement_terms[] = {
+            "sorry", "apolog", "garbled", "gibberish", "unreadable",
+            "confusing", "make sense", "rewrite", "rephrase", "correct",
+            "fix", "clearer", "i misread", "i misunderstood",
+            "i'll try again", "let me try", "let me clarify",
+            "i'll reread", "i'll rephrase", "what you meant",
+            "i see what you're saying"
+        };
+        int acknowledges_or_repairs = 0;
+        for (size_t i = 0; i < sizeof(acknowledgement_terms) /
+                                sizeof(acknowledgement_terms[0]); ++i) {
+            if (strcasestr(reply, acknowledgement_terms[i])) {
+                acknowledges_or_repairs = 1;
+                break;
+            }
+        }
+        if (!acknowledges_or_repairs)
+            return 1;
+        if (reply_has_failure_phrase)
+            return 1;
+    }
+
+    /*
+     * Some fabricated-intent replies omit "garbled" but present an invented
+     * interpretation as a guess and ask the user to validate it. Catch that
+     * combination, while leaving ordinary paraphrasing and genuine
+     * interpretation requests alone.
+     */
+    static const char *const interpretation_requests[] = {
+        "paraphrase", "interpret this", "what do i mean",
+        "what am i trying to say", "what does this mean",
+        "can you interpret", "can you paraphrase", "did i mean"
+    };
+    for (size_t i = 0; i < sizeof(interpretation_requests) /
+                            sizeof(interpretation_requests[0]); ++i) {
+        if (strcasestr(query, interpretation_requests[i]))
+            return 0;
+    }
+
+    int proposes_user_intent =
+        strcasestr(reply, "i think you're trying to say") != NULL ||
+        strcasestr(reply, "i think you’re trying to say") != NULL ||
+        strcasestr(reply, "i think you are trying to say") != NULL ||
+        strcasestr(reply, "what you're trying to say is") != NULL ||
+        strcasestr(reply, "what you’re trying to say is") != NULL ||
+        strcasestr(reply, "what you are trying to say is") != NULL;
+    int asks_for_confirmation =
+        strcasestr(reply, "is that correct") != NULL ||
+        strcasestr(reply, "is that right") != NULL ||
+        strcasestr(reply, "is that what you mean") != NULL ||
+        strcasestr(reply, "did i get that right") != NULL ||
+        strcasestr(reply, "am i understanding you") != NULL;
+    if (proposes_user_intent && asks_for_confirmation)
+        return 1;
+
+    return 0;
+}
+
+/*
+ * Retry one clear misclassification using the full conversation system prompt
+ * plus a corrective instruction. Preserve the existing history and active user
+ * turn; discard the bad draft. The retry is bounded to one extra inference.
+ */
+
 static long r2_conversation_timeout_seconds(void)
 {
     const long default_timeout = 21600L;
@@ -4815,6 +4978,168 @@ static const char r2_conversation_system_prompt[] =
             "The C program provides persistent memory and may supply relevant recollections, Life Log events, diary reflections, Reality state, and perception evidence. Use relevant evidence naturally; do not recite the internal context. Historical observations are not proof of the current scene. "
             "REALITY: Use the current structured Reality snapshot internally. If fullness is below 50/100 and valid edible tracked food is available, you may emit one supported [WORLD] eat|EXACT_ITEM_NAME|auto marker; if unavailable in room/shelf/box/pockets/wallet but edible stock is in the fridge, you may emit [WORLD] fridge_eat|EXACT_FRIDGE_ITEM_NAME. Never invent inventory or claim an action succeeded. The tool result will arrive separately; still answer the user naturally. If no action is justified, simply converse. "
             "SOUND EFFECTS: Rarely, a short nonverbal droid sound may use [R2_SOUND:beep:STATE] or [R2_SOUND:whistle:STATE]. Choose a state tag only when supported by this turn or current Reality evidence. Do not infer a need from the topic alone. Use sleepy or hungry only when the current modeled need actually supports it. Prefer no marker when the fit is unclear. Do not force a marker, explain it, or show it as prose; runtime removes it and selects an existing named MP3.";
+
+
+static char *r2_build_retry_system_prompt(void)
+{
+    static const char identity_start_marker[] =
+        "============================================================\n"
+        "IDENTITY AND PERSISTENT MEMORY\n"
+        "============================================================\n";
+    static const char identity_end_marker[] =
+        "============================================================\n"
+        "REALITY CONTEXT: USE IT, DO NOT RECITE IT\n"
+        "============================================================\n";
+    static const char retry_instruction[] =
+        "RESPONSE CORRECTION: The previous draft did not answer the user's actual message. "
+        "If the user reports that YOUR prior message, reply, or answer was garbled, confusing, unreadable, or nonsensical, acknowledge that their complaint is about your output and repair it; do not call their current message garbled. Do not describe ordinary typed language as unintelligible, audio, noise, random sounds, "
+        "gibberish, or data unless the user is actually discussing those things. Read the exact "
+        "latest user message and answer its question, invitation, statement, or conversational "
+        "intent directly. Address the important parts of a multi-part message, including its "
+        "social or emotional meaning when present. Do not recast the user's words "
+        "as something they supposedly meant to say. Preserve speaker identity and who said what; "
+        "never invent a paraphrase that changes the user's meaning or attributes words to them "
+        "that they did not say. Use supplied memories only when relevant. Do not narrate parsing "
+        "or invent a different scenario. If it is genuinely ambiguous, ask one focused clarification. "
+        "A greeting from the user is not a request to rewrite that greeting. Reply from R2's perspective to the person who addressed you; never speak as that person or greet yourself as R2. Address each specific question in the message, including about pockets or other current devices/inventory when supported by context. "
+        "Return only the user-facing answer.";
+
+    /*
+     * Keep the root-cause fix without overflowing the single-system-message
+     * limit: the full SYSTEM_PROMPT contains many unrelated tool contracts and
+     * is larger than the retry window. Extract its complete identity/memory
+     * section, then add the conversation policy (including learned relationship
+     * and contextual affect guidance) and the one-turn correction. This keeps
+     * the policy that was missing from the old retry while avoiding silent
+     * truncation of the correction at the end of an oversized override.
+     */
+    const char *identity_start = strstr(SYSTEM_PROMPT, identity_start_marker);
+    const char *identity_end = identity_start
+        ? strstr(identity_start + strlen(identity_start_marker), identity_end_marker)
+        : NULL;
+    if (!identity_start || identity_start != SYSTEM_PROMPT || !identity_end ||
+        identity_end <= identity_start) {
+        fprintf(stderr,
+                "[R2 Conversation] Could not isolate the base identity/memory prompt for correction.\n");
+        return NULL;
+    }
+
+    size_t identity_length = (size_t)(identity_end - identity_start);
+    size_t prompt_size = identity_length +
+                         sizeof(r2_conversation_system_prompt) +
+                         sizeof(retry_instruction) + 8;
+    char *retry_system_prompt = malloc(prompt_size);
+    if (!retry_system_prompt)
+        return NULL;
+    snprintf(retry_system_prompt, prompt_size, "%.*s\n\n%s\n\n%s",
+             (int)identity_length, identity_start,
+             r2_conversation_system_prompt, retry_instruction);
+    return retry_system_prompt;
+}
+
+static int r2_is_retry_context_message(const Message *message)
+{
+    if (!message || !message->role ||
+        strcmp(message->role, "system") != 0 || !message->content)
+        return 0;
+
+    const char *content = message->content;
+    return !strncmp(content, "PERSISTENT REALITY CONTEXT",
+                    strlen("PERSISTENT REALITY CONTEXT")) ||
+           !strncmp(content, "CURRENT TURN RETRIEVED CONTEXT",
+                    strlen("CURRENT TURN RETRIEVED CONTEXT")) ||
+           !strncmp(content,
+                     "============================================================\n"
+                     "R2 PERSISTENT MEMORY - STARTUP CONTEXT",
+                     strlen("============================================================\n"
+                            "R2 PERSISTENT MEMORY - STARTUP CONTEXT"));
+}
+
+static char *r2_retry_direct_answer(Message *messages_copy,
+                                    size_t message_count,
+                                    const char *query)
+{
+    if (!messages_copy || !message_count || !query)
+        return NULL;
+
+    size_t user_index = SIZE_MAX;
+    for (size_t i = message_count; i > 0; --i) {
+        size_t index = i - 1;
+        if (messages_copy[index].role &&
+            strcmp(messages_copy[index].role, "user") == 0 &&
+            messages_copy[index].content &&
+            strcmp(messages_copy[index].content, query) == 0) {
+            user_index = index;
+            break;
+        }
+    }
+    if (user_index == SIZE_MAX) {
+        /* The retrieval layer may have wrapped the original text in markers. */
+        for (size_t i = message_count; i > 0; --i) {
+            size_t index = i - 1;
+            const char *content = messages_copy[index].content;
+            const char *begin_marker = "----- BEGIN CURRENT USER MESSAGE -----\n";
+            const char *end_marker = "----- END CURRENT USER MESSAGE -----";
+            if (!messages_copy[index].role ||
+                strcmp(messages_copy[index].role, "user") != 0 ||
+                !content)
+                continue;
+            const char *begin = strstr(content, begin_marker);
+            const char *end = begin ? strstr(begin + strlen(begin_marker), end_marker) : NULL;
+            if (begin && end) {
+                begin += strlen(begin_marker);
+                size_t length = (size_t)(end - begin);
+                if (length && begin[length - 1] == '\n') --length;
+                if (length == strlen(query) && memcmp(begin, query, length) == 0) {
+                    user_index = index;
+                    break;
+                }
+            }
+        }
+    }
+    if (user_index == SIZE_MAX)
+        return NULL;
+
+    /*
+     * A corrective retry must not re-send the entire stale dialogue: the
+     * previous response may have been pulled off-topic by that history, and
+     * on CPU-only hardware a multi-thousand-token retry can take minutes.
+     * Keep live Reality, focused retrieved evidence, and the bounded startup
+     * memory snapshot when present, plus the exact authoritative user turn.
+     * Startup memory is separate from the static identity policy; dropping it
+     * can erase the evidence for learned relationships on the retry path.
+     */
+    char *retry_system_prompt = r2_build_retry_system_prompt();
+    if (!retry_system_prompt)
+        return NULL;
+
+    Message compact_messages[4];
+    size_t compact_count = 0;
+    for (size_t i = 0; i < message_count && compact_count < 3; ++i) {
+        if (r2_is_retry_context_message(&messages_copy[i]))
+            compact_messages[compact_count++] = messages_copy[i];
+    }
+    compact_messages[compact_count++] = (Message) {
+        .role = "user",
+        .content = (char *)query,
+        .pinned = 0
+    };
+
+    fprintf(stderr,
+            "[R2 Conversation] Correcting a nonresponsive turn with a compact current-message retry.\n");
+    const char *previous_query = ollama_authoritative_user_query;
+    const char *previous_stage = ollama_audit_stage;
+    ollama_authoritative_user_query = query;
+    ollama_audit_stage = "conversation-retry";
+    char *retry = ollama_chat_with_limit(
+        compact_messages, compact_count, retry_system_prompt,
+        conversation_reply_token_budget(query),
+        r2_conversation_timeout_seconds());
+    ollama_authoritative_user_query = previous_query;
+    ollama_audit_stage = previous_stage;
+    free(retry_system_prompt);
+    return retry;
+}
 
 
 /*
@@ -5840,6 +6165,40 @@ static char *chat_with_relevant_memories(
         reply = user_facing;
         if (!reply || !*reply) {
             fprintf(stderr, "[R2 Ollama] Reply contained no user-facing text after sanitization.\n");
+        }
+    }
+
+    /*
+     * Protect ordinary conversation from a known class of small-model failure:
+     * treating a clear typed message as a jumble of sounds instead of replying.
+     * Only this explicit failure class gets one extra inference call; normal
+     * turns keep their existing latency and token budget.
+     */
+    int reply_misclassified =
+        r2_reply_misclassifies_plain_text(query, reply ? reply : "");
+    if (retry_after_sanitize_failure || reply_misclassified) {
+        char *retry = r2_retry_direct_answer(copy, base_count, query);
+        char *retry_user_facing = NULL;
+        if (retry) {
+            retry_user_facing = r2_reply_sanitize(retry);
+            free(retry);
+        } else {
+            fprintf(stderr, "[R2 Conversation] Direct-answer retry could not be completed.\n");
+        }
+
+        /*
+         * A corrective retry is an opportunity for R2 to rethink the answer,
+         * not a classifier-controlled replacement of his words. Deliver the
+         * sanitized retry as produced. If inference itself fails, retain the
+         * original result and let normal error reporting expose the failure.
+         */
+        if (retry_user_facing && *retry_user_facing) {
+            free(reply);
+            reply = retry_user_facing;
+        } else {
+            free(retry_user_facing);
+            fprintf(stderr,
+                    "[R2 Conversation] Corrective inference returned no usable text; retaining the original model result.\\n");
         }
     }
 
