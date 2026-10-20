@@ -3496,12 +3496,21 @@ char *r2_reality_status(void)
     if (rc == SQLITE_OK) {
         rc = sqlite3_step(st);
         if (rc == SQLITE_ROW) {
-            hunger = sqlite3_column_double(st, 0);
-            since = sqlite3_column_double(st, 1);
-            sleepiness = sqlite3_column_double(st, 2);
-            energy = sqlite3_column_double(st, 3);
-            satisfaction = sqlite3_column_double(st, 4);
-            rc = SQLITE_OK;
+            for (int column = 0; column < 5; ++column) {
+                int type = sqlite3_column_type(st, column);
+                if (type != SQLITE_INTEGER && type != SQLITE_FLOAT) {
+                    rc = SQLITE_CORRUPT;
+                    break;
+                }
+            }
+            if (rc == SQLITE_ROW) {
+                hunger = sqlite3_column_double(st, 0);
+                since = sqlite3_column_double(st, 1);
+                sleepiness = sqlite3_column_double(st, 2);
+                energy = sqlite3_column_double(st, 3);
+                satisfaction = sqlite3_column_double(st, 4);
+                rc = SQLITE_OK;
+            }
         } else if (rc == SQLITE_DONE) {
             rc = SQLITE_NOTFOUND;
         }
@@ -4961,11 +4970,17 @@ char *r2_reality_tv_status(void)
     if (rc == SQLITE_OK) {
         rc = sqlite3_step(st);
         if (rc == SQLITE_ROW) {
-            power = sqlite3_column_int(st, 0);
-            const unsigned char *k = sqlite3_column_text(st, 1);
-            if (k) snprintf(kind, sizeof(kind), "%s", (const char *)k);
-            value = sqlite3_column_int(st, 2);
-            rc = SQLITE_OK;
+            if (sqlite3_column_type(st, 0) != SQLITE_INTEGER ||
+                sqlite3_column_type(st, 1) != SQLITE_TEXT ||
+                sqlite3_column_type(st, 2) != SQLITE_INTEGER) {
+                rc = SQLITE_CORRUPT;
+            } else {
+                power = sqlite3_column_int(st, 0);
+                const unsigned char *k = sqlite3_column_text(st, 1);
+                if (k) snprintf(kind, sizeof(kind), "%s", (const char *)k);
+                value = sqlite3_column_int(st, 2);
+                rc = SQLITE_OK;
+            }
         } else if (rc == SQLITE_DONE) {
             rc = SQLITE_NOTFOUND;
         }
@@ -5074,7 +5089,8 @@ char *r2_reality_tv_status(void)
                 rc = SQLITE_CORRUPT;
             } else if (tape) {
                 double position = sqlite3_column_double(st, 2);
-                if (sqlite3_column_type(st, 2) == SQLITE_NULL ||
+                if ((sqlite3_column_type(st, 2) != SQLITE_INTEGER &&
+                     sqlite3_column_type(st, 2) != SQLITE_FLOAT) ||
                     !isfinite(position) || position < 0.0 ||
                     append_tv_status(out, capacity, &len,
                         "Built-in VCR: tape inserted (%s), saved position %.1f seconds\n",
