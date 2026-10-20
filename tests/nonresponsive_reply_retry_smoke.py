@@ -125,7 +125,8 @@ for phrase, message in (
     ("small remainder budget", "builder documents why the corrective contract must remain compact"),
     ("R2-3PO: answer current message directly", "retry explicitly identifies R2 and prioritizes the actual current message"),
     ("don't deny " , "retry uses supplied context without denying persistent memory"),
-    ("memory or invent facts", "retry avoids inventing unsupported facts"),
+    ("persistent memory ", "retry preserves the persistent-memory premise"),
+    ("or invent facts", "retry avoids inventing unsupported facts"),
     ("Fix misreadings", "retry directly corrects a nonresponsive prior draft"),
     ("don't call user text unintelligible", "retry distinguishes feedback about R2's reply from unintelligible user input"),
 ):
@@ -154,8 +155,8 @@ require(
     "if corrective inference returns no text, the code does not substitute a canned user-facing answer",
 )
 require(
-    "don't call user text unintelligible" in core
-    and "when they complain about your reply" in core,
+    "Treat reply complaints as feedback" in core
+    and "not unintelligible text" in core,
     "the corrective prompt distinguishes feedback about R2's prior output from unintelligible user input",
 )
 require(
@@ -163,7 +164,7 @@ require(
     "primary conversation prompt discourages typed-text misclassification as audio",
 )
 require(
-    "answer current message and its important parts" in core.lower(),
+    "answer current message and key parts" in core.lower(),
     "primary prompt instructs R2 to handle multi-part messages",
 )
 require(
