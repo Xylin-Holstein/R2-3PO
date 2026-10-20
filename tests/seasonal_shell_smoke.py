@@ -26,7 +26,7 @@ require("date->tm_mon == 11" in source and "date->tm_mday == 1" in source,
         "December and New Year's Day select XmasShell")
 require('"XmasShell> "' in source and '"SpookyShell> "' in source,
         "seasonal themes have distinct interactive prompts")
-require('"shell theme [auto|classic|xmas|spooky]"' in help_text,
+require("shell theme [auto|classic|xmas|spooky]" in help_text,
         "help documents manual and automatic theme controls")
 require('"xmasshell"' in dispatch and '"spookyshell"' in dispatch,
         "XmasShell and SpookyShell have direct command aliases")
