@@ -50,9 +50,16 @@ for phrase, description in [
 require("compact_messages[compact_count++] = (Message) {" in core and
         ".content = (char *)query" in core,
         "corrective retry preserves the exact active user message")
-require("conversation_archive_insert_failed" in log,
-        "failed dedicated conversation archive writes produce a searchable error event")
-require("Conversation turn is searchable in the Life Log, but its dedicated archive row was not written." in log,
+log_start = log.find("int64_t r2_log_conversation_turn(")
+log_end = log.find("/* ------------------------------------------------------------\\n * SESSION / FIRSTS", log_start)
+require(log_start >= 0 and log_end > log_start,
+        "dedicated conversation archive writer is present")
+log_writer = log[log_start:log_end]
+archive_error_pos = log_writer.find('"conversation_archive_insert_failed"')
+archive_unlock_pos = log_writer.find("pthread_mutex_unlock(&log_lock);", log_writer.find("char archive_error[512]"))
+require(archive_error_pos >= 0 and archive_unlock_pos >= 0 and archive_error_pos > archive_unlock_pos,
+        "archive failure is logged after releasing the database mutex, avoiding recursive-lock deadlock")
+require("Conversation turn is searchable in the Life Log, but its dedicated archive row was not written." in log_writer,
         "archive failure is distinguished from loss of the primary Life Log event")
 require("r2_log_conversation_turn(message, reply)" in core,
         "completed visible turns are persisted through the conversation-log API")
