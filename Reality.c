@@ -3471,36 +3471,111 @@ char *r2_reality_room_look(void)
 
 char *r2_reality_status(void)
 {
-    if (r2_reality_tick() != 0) return NULL;
-    if (!r2_reality_is_initialized()) return NULL;
+    if (r2_reality_tick() != 0 || !r2_reality_is_initialized())
+        return NULL;
+
     char *out = malloc(4096);
-    if (!out) return NULL;
+    if (!out)
+        return NULL;
+
     pthread_mutex_lock(&reality_lock);
-    sqlite3_stmt *st=NULL;
-    double hunger=0, satisfaction=0, since=0, sleepiness=0, energy=100;
-    if (sqlite3_prepare_v2(reality_db,"SELECT hunger,seconds_since_meal,sleepiness,energy,satisfaction FROM r2_reality_self WHERE id=1",-1,&st,NULL)==SQLITE_OK &&
-        sqlite3_step(st)==SQLITE_ROW) {
-        hunger=sqlite3_column_double(st,0); since=sqlite3_column_double(st,1);
-        sleepiness=sqlite3_column_double(st,2); energy=sqlite3_column_double(st,3); satisfaction=sqlite3_column_double(st,4);
-    }
-    if(st) sqlite3_finalize(st);
-    int count=0;
-    if(sqlite3_prepare_v2(reality_db,"SELECT count(*) FROM r2_reality_objects",-1,&st,NULL)==SQLITE_OK &&
-       sqlite3_step(st)==SQLITE_ROW) count=sqlite3_column_int(st,0);
-    if(st) sqlite3_finalize(st);
-    st = NULL;
+    sqlite3_stmt *st = NULL;
+    double hunger = 0.0, satisfaction = 0.0, since = 0.0;
+    double sleepiness = 0.0, energy = 0.0;
     sqlite3_int64 world_elapsed = 0;
-    if (sqlite3_prepare_v2(reality_db,"SELECT value FROM r2_reality_meta WHERE key='world_elapsed_seconds'",-1,&st,NULL)==SQLITE_OK &&
-        sqlite3_step(st)==SQLITE_ROW) {
-        const unsigned char *v=sqlite3_column_text(st,0);
-        if(v) world_elapsed=(sqlite3_int64)atoll((const char*)v);
+    int object_count = 0;
+    int rc = sqlite3_prepare_v2(reality_db,
+        "SELECT hunger,seconds_since_meal,sleepiness,energy,satisfaction "
+        "FROM r2_reality_self WHERE id=1", -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        rc = sqlite3_step(st);
+        if (rc == SQLITE_ROW) {
+            hunger = sqlite3_column_double(st, 0);
+            since = sqlite3_column_double(st, 1);
+            sleepiness = sqlite3_column_double(st, 2);
+            energy = sqlite3_column_double(st, 3);
+            satisfaction = sqlite3_column_double(st, 4);
+            rc = SQLITE_OK;
+        } else if (rc == SQLITE_DONE) {
+            rc = SQLITE_NOTFOUND;
+        }
     }
-    if(st) sqlite3_finalize(st);
+    if (st) sqlite3_finalize(st);
+    st = NULL;
+
+    if (rc == SQLITE_OK &&
+        (!isfinite(hunger) || hunger < 0.0 || hunger > 100.0 ||
+         !isfinite(since) || since < 0.0 ||
+         !isfinite(sleepiness) || sleepiness < 0.0 || sleepiness > 100.0 ||
+         !isfinite(energy) || energy < 0.0 || energy > 100.0 ||
+         !isfinite(satisfaction) || satisfaction < 0.0 || satisfaction > 150.0))
+        rc = SQLITE_CORRUPT;
+
+    if (rc == SQLITE_OK) {
+        rc = sqlite3_prepare_v2(reality_db,
+            "SELECT count(*) FROM r2_reality_objects", -1, &st, NULL);
+        if (rc == SQLITE_OK) {
+            rc = sqlite3_step(st);
+            if (rc == SQLITE_ROW) {
+                object_count = sqlite3_column_int(st, 0);
+                rc = object_count >= 0 ? SQLITE_OK : SQLITE_CORRUPT;
+            } else if (rc == SQLITE_DONE) {
+                rc = SQLITE_NOTFOUND;
+            }
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    st = NULL;
+
+    if (rc == SQLITE_OK) {
+        rc = sqlite3_prepare_v2(reality_db,
+            "SELECT value FROM r2_reality_meta WHERE key='world_elapsed_seconds'",
+            -1, &st, NULL);
+        if (rc == SQLITE_OK) {
+            rc = sqlite3_step(st);
+            if (rc == SQLITE_ROW) {
+                const unsigned char *value = sqlite3_column_text(st, 0);
+                char *parse_end = NULL;
+                errno = 0;
+                long long parsed = value ? strtoll((const char *)value, &parse_end, 10) : -1;
+                if (!value || errno != 0 || parse_end == (const char *)value ||
+                    *parse_end != '\\0' || parsed < 0) {
+                    rc = SQLITE_CORRUPT;
+                } else {
+                    world_elapsed = (sqlite3_int64)parsed;
+                    rc = SQLITE_OK;
+                }
+            } else if (rc == SQLITE_DONE) {
+                rc = SQLITE_NOTFOUND;
+            }
+        }
+    }
+    if (st) sqlite3_finalize(st);
     pthread_mutex_unlock(&reality_lock);
-    const char *hstate = hunger < 10 ? "starving" : hunger < 25 ? "very hungry" : hunger < 50 ? "hungry" : hunger < 75 ? "getting hungry" : "satisfied";
-    snprintf(out,4096,"SELF CONTINUITY\nSatisfaction: %5.1f/150\nHunger: %04.1f/100 (%s)\nTime since meal: %.1f hours\nSleepiness: %.1f/100\nEnergy: %.1f/100\nModeled world time elapsed: %lld days, %lld hours\nObjects tracked in the world: %d\nFullness (the 0..100 hunger meter) decreases steadily to zero over roughly three modeled hours without food; eating raises it according to the configured food fullness value. Satisfaction is a separate 0..150 measure. Sleepiness rises 12.5/hour and energy falls 10/hour while awake or asleep; sleep then restores energy and reduces sleepiness.\nAfter 72 hours without food, prolonged starvation is recorded; needs persist across restarts.\n",
-        satisfaction,hunger,hstate,since/3600.0,sleepiness,energy,
-        (long long)(world_elapsed/86400),(long long)((world_elapsed%86400)/3600),count);
+
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "[R2 Reality] Could not build current needs/status from authoritative state; no synthetic defaults were used.\\n");
+        free(out);
+        return NULL;
+    }
+
+    const char *hstate = hunger < 10 ? "starving" :
+                         hunger < 25 ? "very hungry" :
+                         hunger < 50 ? "hungry" :
+                         hunger < 75 ? "getting hungry" : "satisfied";
+    int written = snprintf(out, 4096,
+        "SELF CONTINUITY\\nSatisfaction: %5.1f/150\\nHunger: %04.1f/100 (%s)\\n"
+        "Time since meal: %.1f hours\\nSleepiness: %.1f/100\\nEnergy: %.1f/100\\n"
+        "Modeled world time elapsed: %lld days, %lld hours\\nObjects tracked in the world: %d\\n"
+        "Fullness (the 0..100 hunger meter) decreases steadily to zero over roughly three modeled hours without food; eating raises it according to the configured food fullness value. Satisfaction is a separate 0..150 measure. Sleepiness rises 12.5/hour and energy falls 10/hour while awake or asleep; sleep then restores energy and reduces sleepiness.\\n"
+        "After 72 hours without food, prolonged starvation is recorded; needs persist across restarts.\\n",
+        satisfaction, hunger, hstate, since / 3600.0, sleepiness, energy,
+        (long long)(world_elapsed / 86400),
+        (long long)((world_elapsed % 86400) / 3600), object_count);
+    if (written < 0 || (size_t)written >= 4096) {
+        free(out);
+        return NULL;
+    }
     return out;
 }
 
