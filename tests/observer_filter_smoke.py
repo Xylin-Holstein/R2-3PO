@@ -4,6 +4,16 @@ import importlib.util
 from pathlib import Path
 path = Path(__file__).resolve().parents[1] / "Observer.py"
 source_text = path.read_text(encoding="utf-8")
+poll_start = source_text.index("    def poll():")
+poll_end = source_text.index("    def close():", poll_start)
+poll = source_text[poll_start:poll_end]
+assert "if not tree.exists(item_id):" in poll, "retries must not insert duplicate UI rows"
+assert "last_id = event_id" in poll and "if all_rows_persisted:" in poll, (
+    "the Life Log cursor must not skip an event when Activity.txt append fails"
+)
+assert "all_rows_persisted = False" in poll and "break" in poll, (
+    "failed Activity.txt writes must be retried before later events advance the cursor"
+)
 assert "/home/x/R2_Home/R2_Log/Activity.txt" in source_text
 assert "/home/x/R2_Home/R2_Diary/Activity.txt" not in source_text
 spec = importlib.util.spec_from_file_location("r2_observer", path)
