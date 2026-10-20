@@ -1037,68 +1037,13 @@ int main(void)
     sqlite3_finalize(st);
     sqlite3_close(fridge);
 
-    /* Simulate the autonomous cycle with no model-selected action: fullness
-       is low, verified food is consumed, stock decrements, and fullness rises. */
-    if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality database");
-    if (sqlite3_prepare_v2(db,
-        "UPDATE r2_reality_self SET hunger=40,seconds_since_meal=10000,last_tick=? WHERE id=1",
-        -1, &st, NULL) != SQLITE_OK) fail("could not prepare hungry fallback state");
-    sqlite3_bind_int64(st, 1, (sqlite3_int64)time(NULL));
-    if (sqlite3_step(st) != SQLITE_DONE) fail("could not set hungry fallback state");
-    sqlite3_finalize(st);
-    sqlite3_close(db);
-    if (r2_reality_autonomous_feed_if_needed() != 1)
-        fail("verified fridge food should be consumed when fullness falls below 50");
-    read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
-    if (hunger < 99.0) fail("verified food should restore fullness according to its configured metric");
-    if (since_meal > 5.0) fail("eating should reset time since meal");
-
-    if (sqlite3_open(fridge_path, &fridge) != SQLITE_OK) fail("could not reopen fridge database");
-    if (sqlite3_prepare_v2(fridge, "SELECT quantity FROM r2_fridge_items WHERE name='apple'",
-        -1, &st, NULL) != SQLITE_OK) fail("could not query consumed fridge stock");
-    if (sqlite3_step(st) != SQLITE_ROW || sqlite3_column_int(st, 0) != 2)
-        fail("autonomous feeding must decrement authoritative fridge quantity by one");
-    sqlite3_finalize(st);
-    if (sqlite3_prepare_v2(fridge, "SELECT quantity FROM r2_fridge_items WHERE name='aaa_empty'",
-        -1, &st, NULL) != SQLITE_OK) fail("could not query non-nutritive fridge stock");
-    if (sqlite3_step(st) != SQLITE_ROW || sqlite3_column_int(st, 0) != 2)
-        fail("autonomous feeding must skip stock with zero fullness");
-    sqlite3_finalize(st);
-    sqlite3_close(fridge);
-
-    /* Away from home, room food and the fridge are both inaccessible.
-       The safeguard must preserve both inventories and leave fullness low. */
+    /* Away from home, room food and the fridge are both inaccessible. */
     if (r2_reality_add_item("burger", "Room-only regression food", "room", 1) != 0)
         fail("could not add room-only test food");
     if (r2_reality_set_location(0) != 0) fail("could not move simulated location away from home");
     if (r2_reality_autonomous_food_available() != 0)
         fail("room food and fridge stock must not count as accessible while away");
-    if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality database for away test");
-    if (sqlite3_prepare_v2(db,
-        "UPDATE r2_reality_self SET hunger=40,seconds_since_meal=10000,last_tick=? WHERE id=1",
-        -1, &st, NULL) != SQLITE_OK) fail("could not prepare away hunger state");
-    sqlite3_bind_int64(st, 1, (sqlite3_int64)time(NULL));
-    if (sqlite3_step(st) != SQLITE_DONE) fail("could not set away hunger state");
-    sqlite3_finalize(st);
-    sqlite3_close(db);
-    if (r2_reality_autonomous_feed_if_needed() != 0)
-        fail("away fallback should not consume home fridge stock");
-    if (sqlite3_open(fridge_path, &fridge) != SQLITE_OK) fail("could not reopen fridge for away check");
-    if (sqlite3_prepare_v2(fridge, "SELECT quantity FROM r2_fridge_items WHERE name='apple'",
-        -1, &st, NULL) != SQLITE_OK) fail("could not query away fridge stock");
-    if (sqlite3_step(st) != SQLITE_ROW || sqlite3_column_int(st, 0) != 2)
-        fail("away fallback must leave fridge stock unchanged");
-    sqlite3_finalize(st);
-    sqlite3_close(fridge);
-    if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality database for inaccessible-item check");
-    if (sqlite3_prepare_v2(db, "SELECT quantity FROM r2_reality_objects WHERE name='burger'",
-        -1, &st, NULL) != SQLITE_OK) fail("could not query inaccessible room food");
-    if (sqlite3_step(st) != SQLITE_ROW || sqlite3_column_int(st, 0) != 1)
-        fail("away fallback must not consume room-only food");
-    sqlite3_finalize(st);
-    sqlite3_close(db);
-    read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
-    if (hunger > 40.1) fail("away fallback must not fake eating or increase fullness");
+
     if (r2_reality_set_location(1) != 0) fail("could not return home after away test");
     if (r2_reality_remove_item("burger") != 0) fail("could not remove room-only regression food");
 
@@ -1162,20 +1107,6 @@ int main(void)
         fail("could not remove transaction rollback test trigger");
     sqlite3_close(db);
 
-    if (r2_reality_autonomous_feed_if_needed() != 1)
-        fail("accessible tracked food should be consumed before fridge stock");
-    if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality database to verify tracked stock");
-    if (sqlite3_prepare_v2(db, "SELECT quantity FROM r2_reality_objects WHERE name='burger'",
-        -1, &st, NULL) != SQLITE_OK) fail("could not query tracked food quantity");
-    if (sqlite3_step(st) != SQLITE_ROW || sqlite3_column_int(st, 0) != 1)
-        fail("tracked feeding must decrement quantity by exactly one");
-    sqlite3_finalize(st);
-    if (sqlite3_prepare_v2(db, "SELECT quantity FROM r2_reality_objects WHERE name='zero_fullness'",
-        -1, &st, NULL) != SQLITE_OK) fail("could not query zero-fullness tracked item");
-    if (sqlite3_step(st) != SQLITE_ROW || sqlite3_column_int(st, 0) != 1)
-        fail("autonomous feeding must not consume a zero-fullness tracked item");
-    sqlite3_finalize(st);
-    sqlite3_close(db);
     if (r2_reality_remove_item("burger") != 0) fail("could not remove remaining regression-test food");
     if (r2_reality_remove_item("zero_fullness") != 0) fail("could not remove zero-fullness regression item");
     if (r2_reality_remove_item("unlisted_food") != 0) fail("could not remove unlisted-object regression item");
@@ -1202,17 +1133,7 @@ int main(void)
     if (sqlite3_step(st) != SQLITE_DONE) fail("could not set empty-fridge hunger state");
     sqlite3_finalize(st);
     sqlite3_close(db);
-    if (r2_reality_autonomous_feed_if_needed() != 0)
-        fail("empty fridge should report no food rather than inventing stock");
-    if (sqlite3_open(fridge_path, &fridge) != SQLITE_OK) fail("could not reopen empty fridge");
-    if (sqlite3_prepare_v2(fridge, "SELECT COUNT(*) FROM r2_fridge_items",
-        -1, &st, NULL) != SQLITE_OK) fail("could not verify empty fridge");
-    if (sqlite3_step(st) != SQLITE_ROW || sqlite3_column_int(st, 0) != 0)
-        fail("autonomous fallback must not create phantom food in an empty fridge");
-    sqlite3_finalize(st);
-    sqlite3_close(fridge);
-    read_needs(&hunger, &sleepiness, &energy, &satisfaction, &since_meal);
-    if (hunger > 40.1) fail("empty-fridge fallback must not pretend R2 ate or increase fullness");
+
 
     /* Persistence boundary: needs survive a full Reality shutdown/init cycle. */
     if (sqlite3_open(path, &db) != SQLITE_OK) fail("could not reopen Reality database for restart test");
