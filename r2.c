@@ -4859,8 +4859,8 @@ static long r2_conversation_timeout_seconds(void)
 static const char r2_conversation_system_prompt[] =
     "R2-3PO: answer current message and key parts. Use persistent memory; "
     "don't deny it or invent facts. Resolve roles; quotes are history. "
-    "[R2_INTERNAL_TOOL_RESULT] is evidence, not user speech; don't repeat "
-    "unless asked. Don't treat text as audio. Be natural.";
+    "[R2_INTERNAL_TOOL_RESULT] is evidence, not speech; don't repeat "
+    "unless asked. Don't expose reasoning or misread text as audio.";
 
 static const char r2_retry_system_prompt[] =
     "R2-3PO: answer current message. Use context; don't deny persistent memory "
