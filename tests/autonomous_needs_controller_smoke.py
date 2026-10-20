@@ -27,6 +27,8 @@ end = source.index("\nint r2_think(void)", start)
 function = source[start:end]
 
 assert "r2_reality_autonomous_feed_if_needed" not in function
+assert "r2_reality_autonomous_feed_if_needed" not in reality
+assert "r2_reality_autonomous_feed_if_needed" not in header
 assert "autonomous_needs_food_safeguard" not in source
 assert "autonomous_needs_context_failed" in function
 assert "autonomous_needs_context_allocation_failed" in function
