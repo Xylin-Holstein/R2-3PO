@@ -61,8 +61,8 @@ if [[ "$R2_NVIDIA_PCI_PRESENT" == "1" && "$R2_NVIDIA_QUERY_OK" != "1" ]]; then
 fi
 
 # The target GTX 1050 Ti has 4 GiB VRAM. The 9B multimodal model has
-# already shown allocation failures with 20 layers / 8192 context, so use the
-# conservative mixed-placement policy before the first probe, not as a retry.
+# failed allocation at 20 layers / 8192 context and later hit KV-cache OOM at
+# 12 layers / 4096 context; reserve more VRAM before the first probe.
 if [[ -z "${R2_OLLAMA_NUM_CTX:-}" && "$R2_NVIDIA_QUERY_OK" == "1" ]] &&
    printf '%s\n' "$R2_NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
     export R2_OLLAMA_NUM_CTX=4096
