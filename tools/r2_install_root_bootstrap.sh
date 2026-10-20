@@ -422,9 +422,9 @@ if ! root_run systemctl enable --now r2-ollama.service; then
     root_run journalctl -u r2-ollama.service -n 80 --no-pager || true
     fail "R2's private Ollama server could not start. The existing user's Ollama service was not modified."
 fi
-# Match the exact default policy used by r2_service_runner.sh. A generic
-# no-options probe can pass on CPU while the actual 20-layer/8192-context
-# service configuration fails, so test the real policy before replacing R2.
+# Match the exact conservative default policy used by r2_service_runner.sh.
+# The 9B multimodal model has already failed allocation at 20 layers / 8192
+# context on this 4 GiB card; test the known smaller budget before deployment.
 NVIDIA_PCI_PRESENT=0
 for vendor_file in /sys/bus/pci/devices/*/vendor; do
     [[ -r "$vendor_file" ]] || continue
@@ -451,13 +451,11 @@ fi
 
 PREFLIGHT_GPU=0
 PREFLIGHT_CTX=""
-PREFLIGHT_POLICY_DEFAULTED=0
 PREFLIGHT_GPU_ARGS=()
 if [[ "$NVIDIA_QUERY_OK" == "1" ]] &&
    printf '%s\n' "$NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
-    PREFLIGHT_GPU=20
-    PREFLIGHT_CTX=8192
-    PREFLIGHT_POLICY_DEFAULTED=1
+    PREFLIGHT_GPU=12
+    PREFLIGHT_CTX=4096
 fi
 if [[ "$NVIDIA_PCI_PRESENT" == "1" || "$PREFLIGHT_GPU" != "0" ]]; then
     PREFLIGHT_GPU_ARGS=(--require-gpu-offload)
@@ -466,20 +464,8 @@ log "Preflight GPU/context policy: R2_OLLAMA_NUM_GPU=$PREFLIGHT_GPU R2_OLLAMA_NU
 if ! run_as_r2 env R2_MODEL="$R2_MODEL" R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
     R2_OLLAMA_NUM_GPU="$PREFLIGHT_GPU" R2_OLLAMA_NUM_CTX="$PREFLIGHT_CTX" \
     python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 60 --timeout 180 "${PREFLIGHT_GPU_ARGS[@]}"; then
-    if [[ "$PREFLIGHT_POLICY_DEFAULTED" == "1" ]]; then
-        log "Default GTX 1050 Ti preflight failed; retrying with 12 GPU layers and 4096 context tokens."
-        PREFLIGHT_GPU=12
-        PREFLIGHT_CTX=4096
-        if ! run_as_r2 env R2_MODEL="$R2_MODEL" R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
-            R2_OLLAMA_NUM_GPU="$PREFLIGHT_GPU" R2_OLLAMA_NUM_CTX="$PREFLIGHT_CTX" \
-            python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 30 --timeout 180 "${PREFLIGHT_GPU_ARGS[@]}"; then
-            root_run systemctl stop r2-ollama.service >/dev/null 2>&1 || true
-            fail "R2's private Ollama server failed both the 20-layer/8192-context and 12-layer/4096-context generation preflights; the previous R2 executable was preserved."
-        fi
-    else
-        root_run systemctl stop r2-ollama.service >/dev/null 2>&1 || true
-        fail "R2's private Ollama server did not pass a real $R2_MODEL generation test; the previous R2 executable was preserved."
-    fi
+    root_run systemctl stop r2-ollama.service >/dev/null 2>&1 || true
+    fail "R2's private Ollama server did not pass the configured text-and-image inference preflight; the previous R2 executable was preserved."
 fi
 
 # Preserve the last known executable only after the private model is usable.
