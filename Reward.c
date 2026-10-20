@@ -690,6 +690,7 @@ char *r2_reward_context(void)
     if (rc != SQLITE_OK) {
         fprintf(stderr, "[R2 Reward] Could not prepare recent reward context: %s\\n",
                 sqlite3_errmsg(reward_db));
+        if (st) sqlite3_finalize(st);
         pthread_mutex_unlock(&reward_lock);
         free(out);
         return strdup("Reward context unavailable: recent reward events could not be read.\\n");
