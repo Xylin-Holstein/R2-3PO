@@ -422,9 +422,9 @@ if ! root_run systemctl enable --now r2-ollama.service; then
     root_run journalctl -u r2-ollama.service -n 80 --no-pager || true
     fail "R2's private Ollama server could not start. The existing user's Ollama service was not modified."
 fi
-# Match the exact conservative default policy used by r2_service_runner.sh.
-# The 9B multimodal model has already failed allocation at 20 layers / 8192
-# context on this 4 GiB card; test the known smaller budget before deployment.
+# Match the exact default policy used by r2_service_runner.sh.
+# The 9B multimodal model has also hit a KV-cache allocation failure under
+# the 12-layer / 4096-context budget; leave more VRAM for cache and vision.
 NVIDIA_PCI_PRESENT=0
 for vendor_file in /sys/bus/pci/devices/*/vendor; do
     [[ -r "$vendor_file" ]] || continue
@@ -454,7 +454,7 @@ PREFLIGHT_CTX=""
 PREFLIGHT_GPU_ARGS=()
 if [[ "$NVIDIA_QUERY_OK" == "1" ]] &&
    printf '%s\n' "$NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
-    PREFLIGHT_GPU=12
+    PREFLIGHT_GPU=8
     PREFLIGHT_CTX=4096
 fi
 if [[ "$NVIDIA_PCI_PRESENT" == "1" || "$PREFLIGHT_GPU" != "0" ]]; then
