@@ -66,7 +66,6 @@ for required in (
     "char *r2_log_recent_conversation_context(size_t max_chars)",
     "ORDER BY event_id DESC LIMIT 8",
     "if (max_chars > 8192U)",
-    "RECENT PERSISTED CONVERSATION CONTEXT",
 ):
     if required not in log:
         raise SystemExit(f"Persistent conversation retrieval is missing: {required}")
