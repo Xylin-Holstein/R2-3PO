@@ -1838,24 +1838,14 @@ static size_t extract_memory_keywords(
     }
 
     /*
-       Add a few relationship/name variants. This is deliberately
-       small and deterministic: it is not pretending to be semantic
-       AI retrieval. It simply makes common ways of referring to the
-       same relationship searchable in the persistent database.
+       Add only general recall-language variants. Relationship identity is
+       established by explicit linked Life Log evidence, not by hard-coded
+       mother/father keyword expansion.
     */
     static const struct {
         const char *a;
         const char *b;
     } aliases[] = {
-        {"mother", "mom"},
-        {"mother", "mommy"},
-        {"mother", "mama"},
-        {"mom", "mother"},
-        {"father", "dad"},
-        {"father", "daddy"},
-        {"dad", "father"},
-        {"parent", "mother"},
-        {"parent", "father"},
         {"remember", "memory"},
         {"remember", "remembered"},
         {"remember", "recall"},
