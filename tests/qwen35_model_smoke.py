@@ -33,7 +33,7 @@ require(
     "one shared model constant selects qwen3.5:9b",
 )
 require(
-    "answer current message and its important parts" in core.lower()
+    "answer current message and key parts" in core.lower()
     and "do not invent experiences or feelings as facts." in core
     and "Your user is your Mother (Mom)." not in core
     and "Do not call her Eli" not in core,
