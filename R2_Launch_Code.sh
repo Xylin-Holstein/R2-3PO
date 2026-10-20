@@ -162,7 +162,7 @@ fi
 # Start with the conservative fallback instead of deliberately provoking OOM.
 R2_OLLAMA_NUM_CTX_DEFAULTED=0
 if [[ -z "${R2_OLLAMA_NUM_CTX:-}" && "$R2_NVIDIA_QUERY_OK" == "1" ]] &&
-   printf '%s\\n' "$R2_NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
+   printf '%s\n' "$R2_NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
     export R2_OLLAMA_NUM_CTX=4096
     R2_OLLAMA_NUM_CTX_DEFAULTED=1
     echo "[GPU] GTX 1050 Ti detected; defaulting Ollama context to 4096 tokens for VRAM headroom."
@@ -173,7 +173,7 @@ fi
 R2_OLLAMA_NUM_GPU_DEFAULTED=0
 if [[ -z "${R2_OLLAMA_NUM_GPU+x}" ]]; then
     if [[ "$R2_NVIDIA_QUERY_OK" == "1" ]] &&
-       printf '%s\\n' "$R2_NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
+       printf '%s\n' "$R2_NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
         export R2_OLLAMA_NUM_GPU=12
         R2_OLLAMA_NUM_GPU_DEFAULTED=1
         echo "[GPU] NVIDIA GeForce GTX 1050 Ti detected; requesting 12 model layers on GPU."
