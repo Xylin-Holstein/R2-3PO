@@ -3235,8 +3235,12 @@ int r2_reality_init(void)
     }
     reality_ready = 1;
     pthread_mutex_unlock(&reality_lock);
-    if (r2_addiction_init() != 0)
-        fprintf(stderr, "[R2 Reality] Addiction/preference history is unavailable; core world remains available.\n");
+    if (r2_addiction_init() != 0) {
+        fprintf(stderr,
+                "[R2 Reality] Could not initialize required Addiction/preference history.\\n");
+        r2_reality_shutdown();
+        return -1;
+    }
     sync_room_mirrors();
 
     sqlite3_int64 carried_cash = 0, bank_cash = 0;
