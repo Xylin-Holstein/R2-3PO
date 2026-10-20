@@ -3905,6 +3905,20 @@ static char *ollama_chat_with_limit(
         }
     }
 
+    size_t included_message_count = 0;
+    for (size_t i = 0; i < count; ++i) {
+        if (include[i])
+            ++included_message_count;
+    }
+    fprintf(stderr,
+            "[R2 Prompt Budget] stage=%s context=%d output=%d required_input_chars=%zu "
+            "input_budget_chars=%zu system_budget_chars=%zu selected_chars=%zu "
+            "current_user_reserve=%zu included_messages=%zu/%zu\\n",
+            ollama_audit_stage ? ollama_audit_stage : "unspecified",
+            num_ctx, num_predict, required_input_chars, input_budget,
+            system_budget, total_chars, current_user_reserve,
+            included_message_count, count);
+
     size_t *message_order = count ? calloc(count, sizeof(*message_order)) : NULL;
     if (count && !message_order) {
         free(include);
