@@ -79,6 +79,16 @@ static int token_is_kind(const char *token, const char *kind)
     return 0;
 }
 
+static int token_is_state_label(const char *token, const char *kind)
+{
+    if (!token || !*token || !strcmp(token, "r2") || !strcmp(token, "mp3") ||
+        token_is_generic_state(token) || token_is_kind(token, kind))
+        return 0;
+    for (const unsigned char *p = (const unsigned char *)token; *p; ++p)
+        if (isalpha(*p)) return 1;
+    return 0;
+}
+
 static int tokenize_filename(const char *name, char tokens[][R2_SOUND_TOKEN_MAX],
                              size_t max_tokens)
 {
@@ -122,12 +132,14 @@ static int state_score(char tokens[][R2_SOUND_TOKEN_MAX], int count,
         }
         if (n) {
             requested[n] = '\0';
-            if (token_is_state(requested)) {
+            if (!token_is_generic_state(requested)) {
                 for (int i = 0; i < count; ++i)
                     if (!strcmp(tokens[i], requested)) return 100;
-                /* Match documented synonym families symmetrically. This keeps
-                   filename selection aligned with the read-only asset audit. */
-                if (state_alias_match(requested, tokens, count)) return 90;
+                /* Known synonyms help asset lookup, but do not restrict which
+                   state label R2 may choose for itself. */
+                if (token_is_state(requested) &&
+                    state_alias_match(requested, tokens, count))
+                    return 90;
             }
             n = 0;
         }
@@ -180,7 +192,7 @@ static int filename_score(const char *name, const char *kind, const char *state)
         if (token_is_kind(tokens[i], kind)) has_kind = 1;
         if (token_is_generic_state(tokens[i]))
             generic = 1;
-        else if (token_is_state(tokens[i]))
+        else if (token_is_state_label(tokens[i], kind))
             has_other_state = 1;
     }
     if (!has_kind) return -1;
@@ -408,16 +420,22 @@ static int valid_marker_state(const char *value)
     char normalized[R2_SOUND_MARKER_MAX];
     size_t n = value ? strlen(value) : 0;
     if (!n || n >= sizeof(normalized)) return 0;
+    int has_alpha = 0;
     for (size_t i = 0; i < n; ++i) {
         unsigned char ch = (unsigned char)value[i];
-        if (ch == '_' || ch == '-') normalized[i] = ' ';
-        else if (isalnum(ch)) normalized[i] = (char)tolower(ch);
-        else return 0;
+        if (ch == '_' || ch == '-') {
+            normalized[i] = ' ';
+        } else if (isalnum(ch)) {
+            normalized[i] = (char)tolower(ch);
+            if (isalpha(ch)) has_alpha = 1;
+        } else {
+            return 0;
+        }
     }
     normalized[n] = '\0';
     char tokens[2][R2_SOUND_TOKEN_MAX];
     int count = tokenize_filename(normalized, tokens, 2);
-    return count == 1 && token_is_state(tokens[0]);
+    return count == 1 && has_alpha;
 }
 
 static int sound_fence_line(const char *line, size_t length,
