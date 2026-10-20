@@ -48,13 +48,16 @@ require(
     and "pthread_mutex_unlock(&messages_lock);" in builder,
     "history selection and formatting remain protected by the message-history mutex",
 )
+serialization_start = core.find("size_t input_budget =")
+serialization_end = core.find("size_t *message_order =", serialization_start)
+serialization_window = core[serialization_start:serialization_end]
 require(
     "override_length = r2_utf8_safe_prefix_length(" in core
     and "content, OLLAMA_MAX_SYSTEM_MESSAGE_CHARS);" in core
     and core.count("content, OLLAMA_MAX_MESSAGE_CHARS);") == 2
-    and not re.search(r"^\s+length = OLLAMA_MAX_MESSAGE_CHARS;$", core, re.MULTILINE)
-    and not re.search(r"^\s+length = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;$", core, re.MULTILINE),
-    "Ollama hard byte caps clip system overrides and message bodies at UTF-8 boundaries",
+    and not re.search(r"^\s+length = OLLAMA_MAX_MESSAGE_CHARS;$", serialization_window, re.MULTILINE)
+    and not re.search(r"^\s+length = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;$", serialization_window, re.MULTILINE),
+    "Ollama hard byte caps clip serialized system overrides and message bodies at UTF-8 boundaries",
 )
 require(
     "cut = r2_utf8_safe_prefix_length(context, max_chars);" in core
