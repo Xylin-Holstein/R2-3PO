@@ -100,6 +100,16 @@ int main(void)
                     observed_bad_reply),
                 "observed fabricated paraphrase triggers corrective retry");
 
+    ok &= check(r2_reply_misclassifies_plain_text(
+                    mother_message,
+                    "I'm not sure what you mean. Could you please clarify your message?"),
+                "generic clarification refusal on an ordinary multi-part message triggers corrective retry");
+
+    ok &= check(!r2_reply_misclassifies_plain_text(
+                    "Can you clarify what you meant about the room and pockets?",
+                    "I'm not sure what you mean. Could you please clarify your message?"),
+                "a genuine user clarification request may receive a clarifying question");
+
     ok &= check(r2_keyword_is_low_signal("hello") &&
                     r2_keyword_is_low_signal("r2") &&
                     r2_keyword_is_low_signal("speaking") &&
