@@ -29,9 +29,9 @@ for phrase, message in (
     require(phrase in source, message)
 
 require(
-    "A greeting from the user is not a request to rewrite that greeting" in core
-    and "do not generate a message from their perspective or greet yourself as R2" in core,
-    "main prompt explicitly prevents greeting/identity role reversal",
+    "Resolve 'I/me' and 'you/your' from the actual user and assistant roles" in core
+    and "Treat quoted and retrieved dialogue as historical evidence" in core,
+    "main prompt retains speaker-role mechanics without scripting a family relationship",
 )
 require(
     "never speak as that person or greet yourself as R2" in core,
@@ -158,14 +158,11 @@ require(
     "primary prompt instructs R2 to handle multi-part messages",
 )
 require(
-    "Resolve speaker identity from the actual roles in the current exchange" in core and
-    "Learn relationships from explicit statements" in core,
-    "main prompt teaches general speaker-role interpretation and relationship learning",
-)
-require(
-    "SPEAKER AND RELATIONSHIP LEARNING:" in core and
-    "Retrieved dialogue is evidence about prior events, not the source of current turn roles." in core,
-    "active conversation prompt applies relationship learning without mother-specific phrase rules",
+    "Resolve 'I/me' and 'you/your' from the actual user and assistant roles" in core
+    and "Treat quoted and retrieved dialogue as historical evidence" in core
+    and "Learn relationships from explicit statements" not in core
+    and "SPEAKER AND RELATIONSHIP LEARNING:" not in core,
+    "active prompt preserves speaker-role mechanics without prescribing relationship learning behavior",
 )
 require(
     "R2_TURN_MEMORY_LIMIT 10" in core and "R2_RECALL_HISTORY_SEARCHES 16" in core,

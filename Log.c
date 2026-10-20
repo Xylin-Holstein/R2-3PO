@@ -887,13 +887,26 @@ int64_t r2_log_conversation_turn(const char *user_text,
         sqlite3_bind_text(statement, 3, assistant_text, (int)assistant_len, SQLITE_TRANSIENT);
         rc = sqlite3_step(statement);
     }
-    if (rc != SQLITE_DONE)
-        fprintf(stderr, "[R2 Life Log] Conversation archive insert failed: %s\n",
-                sqlite3_errmsg(log_db));
+    char archive_error[512] = {0};
+    if (rc != SQLITE_DONE) {
+        snprintf(archive_error, sizeof(archive_error),
+                 "SQLite rc=%d: %s", rc,
+                 log_db ? sqlite3_errmsg(log_db) : "Life Log database unavailable");
+    }
     sqlite3_finalize(statement);
     pthread_mutex_unlock(&log_lock);
 
-    /* The searchable event remains authoritative if the archive insert fails. */
+    /* The event-stream insert succeeded, but do not leave a failed archive
+       write silent: it breaks the dedicated full-turn conversation history. */
+    if (archive_error[0]) {
+        (void)r2_log_event(
+            R2_LOG_ERROR, "conversation_archive_insert_failed",
+            "Conversation turn is searchable in the Life Log, but its dedicated archive row was not written.",
+            archive_error, "r2_log_conversation_turn");
+        fprintf(stderr, "[R2 Life Log] Conversation archive insert failed: %s\n",
+                archive_error);
+    }
+
     return event_id;
 }
 

@@ -21,7 +21,7 @@ assert "r2_imagination_init()" in core and "r2_imagination_shutdown();" in core
 # A failed persistent-history query must not be represented as zero points or
 # an empty repeated-interest history.
 reward_start = reward.find("char *r2_reward_context(void)")
-reward_end = reward.find("\\nint r2_reward_review_diary(", reward_start)
+reward_end = reward.find("\nint r2_reward_review_diary(", reward_start)
 if reward_start < 0 or reward_end < 0:
     raise SystemExit("Could not locate reward context report.")
 reward_context = reward[reward_start:reward_end]

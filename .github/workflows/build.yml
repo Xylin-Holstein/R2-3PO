@@ -506,3 +506,13 @@ jobs:
         run: |
           python3 -m py_compile tests/r2_service_signal_integration.py
           python3 tests/r2_service_signal_integration.py
+
+      - name: Check experience-led conversation and durable logging
+        run: |
+          python3 -m py_compile tests/affect_mother_conversation_smoke.py
+          python3 tests/affect_mother_conversation_smoke.py
+
+      - name: Check clock-aware XmasShell and SpookyShell themes
+        run: |
+          python3 -m py_compile tests/seasonal_shell_smoke.py
+          python3 tests/seasonal_shell_smoke.py

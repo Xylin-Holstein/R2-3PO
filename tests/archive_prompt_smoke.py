@@ -34,6 +34,19 @@ if priority_loop < 0 or archive_priority < 0:
 
 if "Interpret the user's current message first." not in core:
     raise SystemExit("Direct current-message interpretation guidance is missing.")
+
+# An existing archive must be read in full and its context insertion must not
+# fail silently. Missing archives remain optional; unreadable/short reads do not
+# become apparently complete continuity context.
+for required in (
+    "got != (size_t)n",
+    "int read_error = ferror(f);",
+    "int close_error = fclose(f) != 0;",
+    "original conversation archive exists but could not be read completely",
+    "could not add original conversation archive to context",
+):
+    if required not in core:
+        raise SystemExit(f"Conversation archive failure handling is missing: {required}")
 if "int r2_reward_review_diary" not in reward or "diary_identity_correction" in reward:
     raise SystemExit("Diary reward feedback must not hard-code a particular identity/name error.")
 

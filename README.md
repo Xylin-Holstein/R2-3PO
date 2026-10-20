@@ -138,6 +138,10 @@ room move Toy | box
 world status
 ```
 
+### Seasonal shell themes
+
+The interactive shell selects its theme from R2's own process-local clock: October uses **SpookyShell**, December and January 1 use **XmasShell**, and other dates use the classic shell. This intentionally follows R2's private clock rather than the host's real calendar. Choose a session override with `shell theme classic`, `shell theme xmas`, or `shell theme spooky`; run `shell theme auto` to return to calendar selection. The `xmasshell` and `spookyshell` aliases switch themes directly. Manual choices last for the current session only. Set `NO_COLOR` to suppress ANSI colors while retaining the themed banner and prompt.
+
 R2 can use the `[WORLD]` tool marker to inspect the room, record or move
 objects, update hunger by eating, advance sleep recovery, and save reported
 dreams and explicitly evidenced self-state facts. Food fullness values are

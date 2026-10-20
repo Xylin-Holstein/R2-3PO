@@ -39,21 +39,28 @@ require(
     add_user >= 0 and first_generation > add_user,
     "the original user turn is stored before contextual generation begins",
 )
+# Relationship and affect understanding must not be scripted in the prompt.
+# Preserve only role mechanics and generic evidence retrieval; do not prescribe
+# a Mother role, a correction phrase, or a canned emotional response.
 require(
-    "RELATIONSHIP AND NAME CONTINUITY" in core
-    and "quoted message, an archived conversation, a diary" in core
-    and "prioritize the correction" in core,
-    "explicit family relationships survive name contamination from quoted/retrieved history while current corrections win",
+    "RELATIONSHIP AND NAME CONTINUITY" not in core
+    and "SPEAKER AND RELATIONSHIP LEARNING" not in core
+    and "AFFECT AND NONVERBAL EXPRESSION" not in core
+    and "If explicit persistent memory establishes that the current user is your mother" not in core
+    and "do not rely on a hard-coded emotion-to-response table" not in core
+    and "mother/father keyword expansion" in core,
+    "relationship and affect behavior is not prescribed, and hard-coded family keyword expansion stays absent",
 )
-
-# Affect should be interpreted contextually by R2, not routed through a
-# hard-coded emotion-to-response mapping in the system prompt.
 require(
-    "AFFECT AND NONVERBAL EXPRESSION" in core
-    and "do not rely on a hard-coded emotion-to-response table" in core
-    and "choose any state tag as your own contextual judgment, not by a fixed mapping" in core
-    and "Use sleepy or hungry only when the current modeled need actually supports it" not in core,
-    "affect and nonverbal expression are learned from context rather than fixed state-to-reaction rules",
+    "Resolve 'I/me' and 'you/your' from the actual user and assistant roles" in core
+    and "Treat quoted and retrieved dialogue as historical evidence" in core,
+    "current speaker-role mechanics remain while historical dialogue is treated as evidence",
+)
+require(
+    "Nonverbal output is optional, not a required response pattern" in core
+    and "[R2_SOUND:beep:STATE]" in core
+    and "[R2_SOUND:whistle:STATE]" in core,
+    "optional sound output remains available without prescribing an affect-to-sound mapping",
 )
 
 retry_builder = function_slice(
@@ -64,7 +71,7 @@ require(
     "SYSTEM_PROMPT" in retry_builder
     and "r2_conversation_system_prompt" in retry_builder
     and "RESPONSE CORRECTION" in retry_builder,
-    "corrective retry preserves the full identity/relationship policy instead of replacing it with a narrow prompt",
+    "corrective retry preserves base identity/memory and current-turn mechanics without reinstating prescriptive relationship coaching",
 )
 
 require(
