@@ -93,9 +93,14 @@ if priority_start < 0 or priority_end < 0:
 priority = core[priority_start:priority_end]
 if 'strstr(content, "R2 PERSISTENT MEMORY - STARTUP CONTEXT")' not in priority or "return 5;" not in priority:
     raise SystemExit("Startup persistent memory is not explicitly prioritized.")
-if "for (int priority = 0; priority < 9" not in core:
-    raise SystemExit("Inference serialization does not iterate all nine context priorities.")
-if "int message_priority = r2_inference_system_priority(" not in core or "if (message_priority != priority) continue;" not in core:
+serializer_start = core.find("static char *ollama_chat_with_limit(")
+serializer_end = core.find("\nstatic char *ollama_chat(", serializer_start)
+if serializer_start < 0 or serializer_end < 0:
+    raise SystemExit("Could not locate the Ollama message serializer.")
+serializer = core[serializer_start:serializer_end]
+if "for (int priority = 0; priority < 9 &&" not in serializer:
+    raise SystemExit("Inference serialization omits one of the nine context priorities, including archived dialogue.")
+if "int message_priority = r2_inference_system_priority(" not in serializer or "if (message_priority != priority) continue;" not in serializer:
     raise SystemExit("Serialized context budgeting does not apply the shared context-priority function.")
 
 # Startup memory is part of the learned-relationship evidence, not an optional
