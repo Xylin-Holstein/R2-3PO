@@ -103,6 +103,35 @@ assert "Imagination.c" in workflow
 assert 'extract_marker(reply, "[WORLD]"' in core
 assert "r2_reality_move_item" in core and "r2_eat_and_learn" in core
 
+# TV status must not trust malformed persistent rows or let snprintf's required
+# length advance the buffer cursor beyond the allocation.
+tv_start = reality.find("static int append_tv_status(")
+tv_end = reality.find("\\nint r2_reality_tv_display_event(", tv_start)
+if tv_start < 0 or tv_end < 0:
+    raise SystemExit("Could not locate bounded TV status builder.")
+tv_status = reality[tv_start:tv_end]
+for marker in (
+    "vsnprintf(out + *length, capacity - *length, format, args)",
+    "if (written < 0 || (size_t)written >= capacity - *length) return -1;",
+    "if (sqlite3_column_type(st, 0) != SQLITE_INTEGER",
+    "SQLITE_CORRUPT",
+    "tv_status_error:",
+    "pthread_mutex_unlock(&reality_lock);",
+):
+    if marker not in tv_status:
+        raise SystemExit(f"TV status must validate data and append bounds: {marker!r}")
+
+reality_init_start = reality.find("int r2_reality_init(void)")
+reality_init_end = reality.find("\\nvoid r2_reality_shutdown(void)", reality_init_start)
+reality_init = reality[reality_init_start:reality_init_end]
+for marker in (
+    "Could not read a valid persistent location; refusing to assume home",
+    "Could not initialize required Addiction/preference history.",
+    "Could not refresh authoritative wallet state after initialization.",
+):
+    if marker not in reality_init:
+        raise SystemExit(f"Reality startup must propagate authoritative state failure: {marker!r}")
+
 # Ensure this integration retains current-turn identity and the reply-recovery path.
 assert "conversation_turn_lock" in core
 assert "r2_reply_reverses_speaker_roles" in core
