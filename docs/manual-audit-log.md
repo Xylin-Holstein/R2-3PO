@@ -220,3 +220,12 @@ This remains a bounded manual review, not a claim that every subsystem has been 
 - **Validation:** exact code/test head `ed013aac011f0ea238ab56af1f92ad054c22fa40` passed the full GitHub Actions workflow, including both runtime fault-injection cases and the strict production compile: [workflow run 39229363923](https://github.com/Xylin48/R2-3PO/actions/runs/39229363923), 91/91 steps successful.
 - **Scope:** this closes the identified CI coverage gap; it does not replace host-side acceptance of live Qwen inference, measured GPU/RAM behavior, persistent databases, or physical devices.
 
+
+
+### R2-AUD-024 — deterministic feeding overrode the autonomous needs model
+
+- **Area:** `r2.c`, `Reality.c`, `Reality.h`, and autonomous-needs tests.
+- **Finding:** If the autonomous model decision failed or its context could not be built, the controller invoked a deterministic feeding routine that consumed verified food without a model-selected action. That made a programmatic fallback, rather than R2's own decision, determine the simulated behavior.
+- **Fix:** Removed the deterministic feed function and its API, removed fallback calls from all controller failure paths, and made failures log and leave the modeled world unchanged. Kept authoritative inventory checks, food-metric validation, transaction rollback, and conversation-turn coordination.
+- **Regression coverage:** Replaced the old safeguard source test with `tests/autonomous_needs_controller_smoke.py`; removed automatic-feed expectations from `tests/reality_needs_smoke.c`; updated conversation recovery/context integration contracts and CI workflow wiring.
+- **Validation:** exact head `78f97471831f1fd9743cb25703ae6a4568eb3d6f` passed [workflow 39357732761](https://github.com/Xylin48/R2-3PO/actions/runs/39357732761), 91/91 steps. Live autonomous decisions still require target-host testing.
