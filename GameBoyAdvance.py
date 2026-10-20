@@ -656,6 +656,9 @@ def press_button(db: sqlite3.Connection, button: str, duration_ms: int) -> dict[
         return {"ok": False, "message": "xdotool is not installed; controller input was not sent. Install xdotool to enable R2 button presses.",
                 **status_data(db)}
     pid = str(row["emulator_pid"])
+    key = BUTTON_KEYS[name]
+    pressed_window: str | None = None
+    input_error: str | None = None
     try:
         found = subprocess.run(
             ["xdotool", "search", "--onlyvisible", "--pid", pid],
@@ -666,16 +669,33 @@ def press_button(db: sqlite3.Connection, button: str, duration_ms: int) -> dict[
             return {"ok": False, "message": "Could not find the running mGBA window; no button press was sent.",
                     **status_data(db)}
         window = windows[0]
-        key = BUTTON_KEYS[name]
+        # Record the target before keydown: even if xdotool reports an error
+        # after delivering the press, finally still attempts to release it.
+        pressed_window = window
         subprocess.run(["xdotool", "windowactivate", "--sync", window],
                        check=True, timeout=3, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         subprocess.run(["xdotool", "keydown", "--window", window, key],
                        check=True, timeout=3, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         time.sleep(duration_ms / 1000.0)
-        subprocess.run(["xdotool", "keyup", "--window", window, key],
-                       check=True, timeout=3, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     except (OSError, subprocess.SubprocessError) as exc:
-        return {"ok": False, "message": f"Button input failed: {exc}", **status_data(db)}
+        input_error = f"Button input failed: {exc}"
+    finally:
+        # Always attempt keyup after a target window is identified. A failed
+        # keydown can still have reached the emulator before xdotool exits.
+        if pressed_window is not None:
+            try:
+                released = subprocess.run(
+                    ["xdotool", "keyup", "--window", pressed_window, key],
+                    check=False, timeout=3,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                )
+                if released.returncode != 0 and input_error is None:
+                    input_error = "Button release failed; xdotool did not confirm keyup."
+            except (OSError, subprocess.SubprocessError) as exc:
+                if input_error is None:
+                    input_error = f"Button release failed: {exc}"
+    if input_error is not None:
+        return {"ok": False, "message": input_error, **status_data(db)}
     title = row["cartridge_title"] or "unknown game"
     record_event(db, "physical", "controller_input",
                  f"R2 pressed {name} while playing {title}.",
