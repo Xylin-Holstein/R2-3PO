@@ -22,6 +22,14 @@ assert "r2_imagination_feedback(branch_id, assessment, notes)" in core
 
 assert '#include "SensoryJournal.h"' in core
 assert "r2_sj_init()" in core and "r2_sj_shutdown();" in core
+for init_failure in (
+    'R2_INIT_FAIL("could not initialize R2 Sensory Journal")',
+    'R2_INIT_FAIL("could not initialize R2 reward ledger")',
+    'R2_INIT_FAIL("could not initialize R2 Visual Experience Library")',
+    'R2_INIT_FAIL("could not initialize R2 Alternate-Self Lab")',
+    'R2_INIT_FAIL("could not initialize R2 Imagination")',
+):
+    assert init_failure in core, f"core startup silently degrades instead of requiring {init_failure}"
 assert "r2_sj_recent((int)limit)" in core
 assert "r2_sj_search(arg1, (int)limit)" in core
 assert "r2_sj_note(arg1" in core
@@ -48,7 +56,7 @@ assert "Imagination.c" in workflow
 assert 'extract_marker(reply, "[WORLD]"' in core
 assert "r2_reality_move_item" in core and "r2_eat_and_learn" in core
 
-# Ensure this integration doesn't discard the current-turn and reply safeguards.
+# Ensure this integration retains current-turn identity and the reply-recovery path.
 assert "conversation_turn_lock" in core
 assert "r2_reply_reverses_speaker_roles" in core
 assert 'if (strcmp(m->role, "user") == 0 &&\n            r2_recent_message_is_tool_payload(m->content))' not in core
