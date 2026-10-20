@@ -124,7 +124,7 @@ retry_prompt = core[retry_prompt_start:retry_prompt_end]
 for phrase, message in (
     ("return xstrdup(r2_retry_system_prompt);", "builder returns the compact retry contract without clipping its correction off the end"),
     ("small remainder budget", "builder documents why the corrective contract must remain compact"),
-    ("R2-3PO: answer current message directly", "retry explicitly identifies R2 and prioritizes the actual current message"),
+    ("R2-3PO: answer current message", "retry explicitly identifies R2 and prioritizes the actual current message"),
     ("don't deny " , "retry uses supplied context without denying persistent memory"),
     ("persistent memory ", "retry preserves the persistent-memory premise"),
     ("or invent facts", "retry avoids inventing unsupported facts"),
