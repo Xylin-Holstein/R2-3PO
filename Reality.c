@@ -18,6 +18,7 @@
 #include <limits.h>
 #include <pthread.h>
 #include <sqlite3.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -4915,84 +4916,187 @@ char *r2_reality_get_self(const char *key)
  * the built-in VCR; external AV inputs and RF signals exist only when a
  * device has been explicitly connected. An empty tuned channel stays empty:
  * no snow-show or synthetic signal is generated here. */
+static int append_tv_status(char *out, size_t capacity, size_t *length,
+                             const char *format, ...)
+{
+    if (!out || !length || !format || *length >= capacity) return -1;
+    va_list args;
+    va_start(args, format);
+    int written = vsnprintf(out + *length, capacity - *length, format, args);
+    va_end(args);
+    if (written < 0 || (size_t)written >= capacity - *length) return -1;
+    *length += (size_t)written;
+    return 0;
+}
+
+/* TV is a persistent device model, not the video player itself. Input 1 is
+ * the built-in VCR; external AV inputs and RF signals exist only when a
+ * device has been explicitly connected. An empty tuned channel stays empty:
+ * no snow-show or synthetic signal is generated here. */
 char *r2_reality_tv_status(void)
 {
-    if (!reality_db || !reality_ready) return strdup("TV state is unavailable: Reality is not initialized.\n");
-    char *out = calloc(1, 8192);
-    if (!out) return NULL;
-    size_t len = 0;
     pthread_mutex_lock(&reality_lock);
+    if (!reality_db || !reality_ready) {
+        pthread_mutex_unlock(&reality_lock);
+        return strdup("TV state is unavailable: Reality is not initialized.\n");
+    }
+    char *out = calloc(1, 8192);
+    if (!out) {
+        pthread_mutex_unlock(&reality_lock);
+        return NULL;
+    }
+    const size_t capacity = 8192;
+    size_t len = 0;
     sqlite3_stmt *st = NULL;
-    int power = 0, value = 1;
-    char kind[16] = "input";
-    if (sqlite3_prepare_v2(reality_db, "SELECT power,source_kind,source_value FROM r2_tv_state WHERE id=1", -1, &st, NULL) == SQLITE_OK &&
-        sqlite3_step(st) == SQLITE_ROW) {
-        power = sqlite3_column_int(st, 0);
-        const unsigned char *k = sqlite3_column_text(st, 1);
-        if (k) snprintf(kind, sizeof(kind), "%s", (const char *)k);
-        value = sqlite3_column_int(st, 2);
+    int rc = sqlite3_prepare_v2(reality_db,
+        "SELECT power,source_kind,source_value FROM r2_tv_state WHERE id=1",
+        -1, &st, NULL);
+    int power = 0, value = 0;
+    char kind[16] = {0};
+    if (rc == SQLITE_OK) {
+        rc = sqlite3_step(st);
+        if (rc == SQLITE_ROW) {
+            power = sqlite3_column_int(st, 0);
+            const unsigned char *k = sqlite3_column_text(st, 1);
+            if (k) snprintf(kind, sizeof(kind), "%s", (const char *)k);
+            value = sqlite3_column_int(st, 2);
+            rc = SQLITE_OK;
+        } else if (rc == SQLITE_DONE) {
+            rc = SQLITE_NOTFOUND;
+        }
     }
     if (st) sqlite3_finalize(st);
-    len += (size_t)snprintf(out + len, 8192 - len,
+    st = NULL;
+    if (rc != SQLITE_OK ||
+        (power != 0 && power != 1) ||
+        (strcmp(kind, "input") != 0 && strcmp(kind, "rf") != 0 && strcmp(kind, "vcr") != 0) ||
+        (strcmp(kind, "input") == 0 && (value < 1 || value > 4)) ||
+        (strcmp(kind, "rf") == 0 && (value < 2 || value > 13)) ||
+        (strcmp(kind, "vcr") == 0 && value != 1))
+        goto tv_status_error;
+
+    if (append_tv_status(out, capacity, &len,
         "CRT TV: %s\nSelected source: %s %d\n",
         power ? "ON" : "OFF",
         !strcmp(kind, "vcr") ? "built-in VCR/input" :
-        !strcmp(kind, "rf") ? "RF channel" : (value == 1 ? "built-in VCR/input" : "AV input"), value);
+        !strcmp(kind, "rf") ? "RF channel" :
+        (value == 1 ? "built-in VCR/input" : "AV input"), value) != 0)
+        goto tv_status_error;
+
     int signal = 0;
     if (!strcmp(kind, "rf") || (!strcmp(kind, "input") && value > 1)) {
-        if (sqlite3_prepare_v2(reality_db,
+        rc = sqlite3_prepare_v2(reality_db,
             "SELECT name FROM r2_tv_devices WHERE connected=1 AND connection_kind=? AND port=? LIMIT 1",
-            -1, &st, NULL) == SQLITE_OK) {
+            -1, &st, NULL);
+        if (rc == SQLITE_OK) {
             bind_text(st, 1, !strcmp(kind, "rf") ? "rf" : "input");
             sqlite3_bind_int(st, 2, value);
-            if (sqlite3_step(st) == SQLITE_ROW) signal = 1;
+            rc = sqlite3_step(st);
+            if (rc == SQLITE_ROW) {
+                signal = 1;
+                rc = SQLITE_OK;
+            } else if (rc == SQLITE_DONE) {
+                signal = 0;
+                rc = SQLITE_OK;
+            }
         }
         if (st) sqlite3_finalize(st);
-    } else if (!strcmp(kind, "vcr") || (!strcmp(kind, "input") && value == 1)) {
-        if (sqlite3_prepare_v2(reality_db,
+        st = NULL;
+        if (rc != SQLITE_OK) goto tv_status_error;
+    } else {
+        rc = sqlite3_prepare_v2(reality_db,
             "SELECT cassette_path FROM r2_tv_vcr_state WHERE id=1",
-            -1, &st, NULL) == SQLITE_OK && sqlite3_step(st) == SQLITE_ROW)
-            signal = sqlite3_column_type(st, 0) != SQLITE_NULL;
+            -1, &st, NULL);
+        if (rc == SQLITE_OK) {
+            rc = sqlite3_step(st);
+            if (rc == SQLITE_ROW) {
+                signal = sqlite3_column_type(st, 0) != SQLITE_NULL;
+                rc = SQLITE_OK;
+            } else if (rc == SQLITE_DONE) {
+                rc = SQLITE_NOTFOUND;
+            }
+        }
         if (st) sqlite3_finalize(st);
+        st = NULL;
+        if (rc != SQLITE_OK) goto tv_status_error;
     }
-    len += (size_t)snprintf(out + len, 8192 - len, "Selected source signal: %s\n",
-                            signal ? "available" : "NO SIGNAL (nothing is connected/transmitting)");
-    if (sqlite3_prepare_v2(reality_db,
-        "SELECT name,connection_kind,port FROM r2_tv_devices WHERE connected=1 ORDER BY connection_kind,port,name",
-        -1, &st, NULL) == SQLITE_OK) {
-        int count = 0;
-        while (sqlite3_step(st) == SQLITE_ROW && len < 7600) {
+    if (append_tv_status(out, capacity, &len, "Selected source signal: %s\n",
+        signal ? "available" : "NO SIGNAL (nothing is connected/transmitting)") != 0)
+        goto tv_status_error;
+
+    rc = sqlite3_prepare_v2(reality_db,
+        "SELECT name,connection_kind,port FROM r2_tv_devices "
+        "WHERE connected=1 ORDER BY connection_kind,port,name",
+        -1, &st, NULL);
+    int count = 0;
+    if (rc == SQLITE_OK) {
+        while ((rc = sqlite3_step(st)) == SQLITE_ROW) {
             const char *name = (const char *)sqlite3_column_text(st, 0);
             const char *dkind = (const char *)sqlite3_column_text(st, 1);
             int port = sqlite3_column_int(st, 2);
-            if (!count) len += (size_t)snprintf(out + len, 8192 - len, "Detected external devices:\n");
-            len += (size_t)snprintf(out + len, 8192 - len, "  %s — %s %d\n",
-                                    name ? name : "unnamed device",
-                                    dkind && !strcmp(dkind, "rf") ? "RF channel" : "AV input",
-                                    port);
+            if (!count && append_tv_status(out, capacity, &len,
+                                            "Detected external devices:\n") != 0)
+                goto tv_status_error;
+            if (append_tv_status(out, capacity, &len, "  %s — %s %d\n",
+                    name ? name : "unnamed device",
+                    dkind && !strcmp(dkind, "rf") ? "RF channel" : "AV input",
+                    port) != 0)
+                goto tv_status_error;
             count++;
         }
-        if (!count) len += (size_t)snprintf(out + len, 8192 - len, "Detected external devices: none\n");
+        if (rc == SQLITE_DONE) rc = SQLITE_OK;
     }
     if (st) sqlite3_finalize(st);
-    if (sqlite3_prepare_v2(reality_db,
+    st = NULL;
+    if (rc != SQLITE_OK) goto tv_status_error;
+    if (!count && append_tv_status(out, capacity, &len,
+                                    "Detected external devices: none\n") != 0)
+        goto tv_status_error;
+
+    rc = sqlite3_prepare_v2(reality_db,
         "SELECT s.cassette_path,s.transport,t.position_seconds "
         "FROM r2_tv_vcr_state s LEFT JOIN r2_tv_vcr_tapes t ON t.media_path=s.cassette_path WHERE s.id=1",
-        -1, &st, NULL) == SQLITE_OK && sqlite3_step(st) == SQLITE_ROW) {
-        const char *tape = (const char *)sqlite3_column_text(st, 0);
-        const char *transport = (const char *)sqlite3_column_text(st, 1);
-        if (tape) {
-            len += (size_t)snprintf(out + len, 8192 - len,
-                "Built-in VCR: tape inserted (%s), saved position %.1f seconds\n",
-                transport ? transport : "stop", sqlite3_column_double(st, 2));
-            len += (size_t)snprintf(out + len, 8192 - len, "Tape path: %s\n", tape);
-        } else {
-            len += (size_t)snprintf(out + len, 8192 - len, "Built-in VCR: empty\n");
+        -1, &st, NULL);
+    if (rc == SQLITE_OK) {
+        rc = sqlite3_step(st);
+        if (rc == SQLITE_ROW) {
+            const char *tape = (const char *)sqlite3_column_text(st, 0);
+            const char *transport = (const char *)sqlite3_column_text(st, 1);
+            if (tape) {
+                double position = sqlite3_column_double(st, 2);
+                if (!isfinite(position) || position < 0.0 ||
+                    append_tv_status(out, capacity, &len,
+                        "Built-in VCR: tape inserted (%s), saved position %.1f seconds\n",
+                        transport ? transport : "stop", position) != 0 ||
+                    append_tv_status(out, capacity, &len, "Tape path: %s\n", tape) != 0) {
+                    rc = SQLITE_CORRUPT;
+                } else {
+                    rc = SQLITE_OK;
+                }
+            } else if (sqlite3_column_type(st, 0) == SQLITE_NULL) {
+                if (append_tv_status(out, capacity, &len, "Built-in VCR: empty\n") != 0)
+                    rc = SQLITE_TOOBIG;
+                else
+                    rc = SQLITE_OK;
+            } else {
+                rc = SQLITE_CORRUPT;
+            }
+        } else if (rc == SQLITE_DONE) {
+            rc = SQLITE_NOTFOUND;
         }
     }
     if (st) sqlite3_finalize(st);
+    st = NULL;
+    if (rc != SQLITE_OK) goto tv_status_error;
+
     pthread_mutex_unlock(&reality_lock);
     return out;
+
+tv_status_error:
+    if (st) sqlite3_finalize(st);
+    pthread_mutex_unlock(&reality_lock);
+    free(out);
+    return NULL;
 }
 
 int r2_reality_tv_display_event(int opened)
