@@ -2922,7 +2922,7 @@ int r2_reality_init(void)
         "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;",
         NULL, NULL, NULL);
     if (rc != SQLITE_OK) {
-        fprintf(stderr, "[R2 Reality] Could not configure persistent database durability: %s\\n",
+        fprintf(stderr, "[R2 Reality] Could not configure persistent database durability: %s\n",
                 sqlite3_errmsg(reality_db));
         sqlite3_close(reality_db);
         reality_db = NULL;
@@ -3088,7 +3088,7 @@ int r2_reality_init(void)
     }
     if (seed_st) sqlite3_finalize(seed_st);
     if (seed_rc != SQLITE_OK) {
-        fprintf(stderr, "[R2 Reality] Could not read authoritative cash-seeding state; refusing to guess: %s\\n",
+        fprintf(stderr, "[R2 Reality] Could not read authoritative cash-seeding state; refusing to guess: %s\n",
                 sqlite3_errmsg(reality_db));
         sqlite3_close(reality_db);
         reality_db = NULL;
@@ -3206,7 +3206,7 @@ int r2_reality_init(void)
     }
     if (loc_st) sqlite3_finalize(loc_st);
     if (location_rc != SQLITE_OK) {
-        fprintf(stderr, "[R2 Reality] Could not read a valid persistent location; refusing to assume home: %s\\n",
+        fprintf(stderr, "[R2 Reality] Could not read a valid persistent location; refusing to assume home: %s\n",
                 sqlite3_errmsg(reality_db));
         r2_fridge_shutdown();
         sqlite3_close(reality_db);
@@ -3225,7 +3225,7 @@ int r2_reality_init(void)
     int money_read_rc = money_read_locked(&carried_cash, &bank_cash);
     pthread_mutex_unlock(&reality_lock);
     if (money_read_rc != 0) {
-        fprintf(stderr, "[R2 Reality] Could not refresh authoritative wallet state after initialization.\\n");
+        fprintf(stderr, "[R2 Reality] Could not refresh authoritative wallet state after initialization.\n");
         r2_reality_shutdown();
         return -1;
     }
