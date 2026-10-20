@@ -233,11 +233,15 @@ int main(void)
                     context_budget.reality_reserve > 0 &&
                     context_budget.retrieval_reserve >= 9468 / 8 &&
                     context_budget.capabilities_reserve >= 9468 / 16 &&
+                    context_budget.startup_reserve > 0 &&
+                    context_budget.learning_reserve > 0 &&
                     context_budget.override_budget +
                         context_budget.identity_budget +
                         context_budget.reality_reserve +
                         context_budget.retrieval_reserve +
-                        context_budget.capabilities_reserve == 9468,
+                        context_budget.capabilities_reserve +
+                        context_budget.startup_reserve +
+                        context_budget.learning_reserve == 9468,
                 "the constrained 8k-context prompt budget reserves identity, Reality, retrieved memory, and capability guidance");
     R2SystemContextBudget small_context_budget =
         r2_compute_system_context_budget(1276);
@@ -245,7 +249,9 @@ int main(void)
                     small_context_budget.identity_budget +
                     small_context_budget.reality_reserve +
                     small_context_budget.retrieval_reserve +
-                    small_context_budget.capabilities_reserve == 1276,
+                    small_context_budget.capabilities_reserve +
+                    small_context_budget.startup_reserve +
+                    small_context_budget.learning_reserve == 1276,
                 "small adaptive contexts keep budget arithmetic bounded while reserving memory and capability context");
 
     ok &= check(conversation_reply_token_budget("Show me your room") == 1024,
