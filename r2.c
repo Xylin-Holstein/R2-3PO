@@ -4633,7 +4633,24 @@ static int r2_reply_contains_known_failure_phrase(const char *reply)
         "random string of words",
         "that's a bit garbled",
         "that’s a bit garbled",
-        "that is a bit garbled"
+        "that is a bit garbled",
+        "i didn't understand your message",
+        "i didn’t understand your message",
+        "i didn't quite understand your message",
+        "i didn’t quite understand your message",
+        "i'm not sure what you mean",
+        "i’m not sure what you mean",
+        "i am not sure what you mean",
+        "i don't understand what you mean",
+        "i don’t understand what you mean",
+        "i don't understand your message",
+        "i don’t understand your message",
+        "could you please clarify your message",
+        "could you clarify your message",
+        "please clarify your message",
+        "could you please rephrase your message",
+        "could you rephrase your message",
+        "please rephrase your message"
     };
     for (size_t i = 0; i < sizeof(failure_phrases) / sizeof(failure_phrases[0]); ++i) {
         if (strcasestr(reply, failure_phrases[i]))
@@ -4715,6 +4732,24 @@ static int r2_reply_misclassifies_plain_text(const char *query, const char *repl
             if (strcasestr(query, topic_terms[i]))
                 return 0;
         }
+    }
+
+    /*
+     * A model sometimes rejects an ordinary, meaningful message with a generic
+     * clarification request instead of the explicit "gibberish" wording above.
+     * Do not retry when the user's actual request is itself asking for an
+     * explanation or rephrasing; in that case a clarification is appropriate.
+     */
+    static const char *const user_clarification_terms[] = {
+        "can you clarify", "could you clarify", "please clarify",
+        "can you explain", "could you explain",
+        "what do you mean", "what does that mean", "what is meant by",
+        "can you rephrase", "could you rephrase", "please rephrase"
+    };
+    for (size_t i = 0; i < sizeof(user_clarification_terms) /
+                            sizeof(user_clarification_terms[0]); ++i) {
+        if (strcasestr(query, user_clarification_terms[i]))
+            return 0;
     }
 
     int reply_has_failure_phrase = r2_reply_contains_known_failure_phrase(reply);
