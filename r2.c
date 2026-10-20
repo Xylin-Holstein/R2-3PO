@@ -11448,25 +11448,19 @@ int r2_init(void)
         R2_INIT_FAIL("could not initialize R2 Life Log");
     }
 
-    /* Index original Life Log event IDs without copying raw sensory data. */
+    /* Sensory indexing is part of the connected persistent-memory system. */
     if (r2_sj_init() != 0)
-        r2_log_event(R2_LOG_ERROR, "sensory_journal_init_failed",
-                     "R2 Sensory Journal could not initialize.",
-                     "The Life Log remains available; sensory indexing/search are disabled.",
-                     "r2_init");
+        R2_INIT_FAIL("could not initialize R2 Sensory Journal");
 
-    /* The reinforcement ledger is separate durable state, bridged to the
-       Life Log and existing habit evaluator through the shared API. */
-    if (r2_reward_init() != 0) {
-        fprintf(stderr, "[R2 Reward] Initialization failed; reinforcement will retry lazily.\n");
-    } else {
-        int reward_links = r2_reward_reconnect_history(100);
-        if (reward_links < 0)
-            fprintf(stderr, "[R2 Reward] History reconciliation is pending.\n");
-        else if (reward_links > 0)
-            fprintf(stderr, "[R2 Reward] Reconnected %d reward events to the Life Log.\n",
-                    reward_links);
-    }
+    /* The reinforcement ledger is required for durable learning signals. */
+    if (r2_reward_init() != 0)
+        R2_INIT_FAIL("could not initialize R2 reward ledger");
+    int reward_links = r2_reward_reconnect_history(100);
+    if (reward_links < 0)
+        fprintf(stderr, "[R2 Reward] History reconciliation is pending.\n");
+    else if (reward_links > 0)
+        fprintf(stderr, "[R2 Reward] Reconnected %d reward events to the Life Log.\n",
+                reward_links);
 
     /* Reconnect older diary history in bounded, restart-safe batches. The
        original diary rows and Markdown mirrors are preserved unchanged. */
@@ -11558,33 +11552,22 @@ int r2_init(void)
      * Vision is a separate local perception model. R2's existing
      * conversational model, tools, and memory architecture remain intact.
      */
-    if (r2_visual_init(DB_PATH, R2_ROOT "/Visual_Library") != 0) {
-        r2_log_event(R2_LOG_ERROR, "visual_library_init_failed",
-                     "R2 Visual Experience Library could not initialize.",
-                     "Text conversation remains available; visual analysis is disabled.",
-                     "r2_init");
-    }
+    if (r2_visual_init(DB_PATH, R2_ROOT "/Visual_Library") != 0)
+        R2_INIT_FAIL("could not initialize R2 Visual Experience Library");
 
-    /* The Alternate-Self Lab uses the existing Life Log database. */
+    /* The Alternate-Self Lab is part of R2's integrated learning system. */
     if (r2_altself_init() != 0)
-        r2_log_event(R2_LOG_ERROR, "alternate_self_init_failed",
-                     "Alternate-Self Lab could not initialize.",
-                     "Factual memory and the Life Log remain available.",
-                     "r2_init");
-    else
-        r2_log_continuity("r2_alternate_self_lab", "subsystem",
-                          "Alternate-Self Lab",
-                          "What-if branches are kept distinct from factual events and memories.",
-                          "completed",
-                          "Counterfactual sensory reasoning receives learned preferences and self-facts; imagined sensations remain predictions and do not update experiential preferences.",
-                          "r2_init");
+        R2_INIT_FAIL("could not initialize R2 Alternate-Self Lab");
+    r2_log_continuity("r2_alternate_self_lab", "subsystem",
+                      "Alternate-Self Lab",
+                      "What-if branches are kept distinct from factual events and memories.",
+                      "completed",
+                      "Counterfactual sensory reasoning receives learned preferences and self-facts; imagined sensations remain predictions and do not update experiential preferences.",
+                      "r2_init");
 
-    /* Counterfactual exploration remains separate from factual memory and Reality. */
+    /* Counterfactual exploration is required for the complete learning system. */
     if (r2_imagination_init() != 0)
-        r2_log_event(R2_LOG_ERROR, "imagination_init_failed",
-                     "R2 Imagination could not initialize.",
-                     "Ordinary conversation and real-world state remain available.",
-                     "r2_init");
+        R2_INIT_FAIL("could not initialize R2 Imagination");
 
     /* --------------------------------------------------------
        INITIAL SYSTEM MESSAGE
