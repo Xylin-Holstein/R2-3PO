@@ -1110,12 +1110,30 @@ static int update_hunger_locked(double elapsed)
     if (rc != SQLITE_OK) return -1;
     rc = sqlite3_step(st);
     if (rc != SQLITE_ROW) { sqlite3_finalize(st); return -1; }
-    double hunger = sqlite3_column_double(st, 0) - elapsed * HUNGER_PER_SECOND;
-    double since_meal = sqlite3_column_double(st, 1) + elapsed;
-    double sleepiness = sqlite3_column_double(st, 2) + elapsed * SLEEPINESS_PER_SECOND;
-    double energy = sqlite3_column_double(st, 3) - elapsed * ENERGY_DRAIN_PER_SECOND;
-    double satisfaction = sqlite3_column_double(st, 4) - elapsed * SATIETY_PER_SECOND;
+    for (int column = 0; column < 5; ++column) {
+        int type = sqlite3_column_type(st, column);
+        if (type != SQLITE_INTEGER && type != SQLITE_FLOAT) {
+            sqlite3_finalize(st);
+            return -1;
+        }
+    }
+    double stored_hunger = sqlite3_column_double(st, 0);
+    double stored_since_meal = sqlite3_column_double(st, 1);
+    double stored_sleepiness = sqlite3_column_double(st, 2);
+    double stored_energy = sqlite3_column_double(st, 3);
+    double stored_satisfaction = sqlite3_column_double(st, 4);
     sqlite3_finalize(st);
+    if (!isfinite(stored_hunger) || stored_hunger < 0.0 || stored_hunger > 100.0 ||
+        !isfinite(stored_since_meal) || stored_since_meal < 0.0 ||
+        !isfinite(stored_sleepiness) || stored_sleepiness < 0.0 || stored_sleepiness > 100.0 ||
+        !isfinite(stored_energy) || stored_energy < 0.0 || stored_energy > 100.0 ||
+        !isfinite(stored_satisfaction) || stored_satisfaction < 0.0 || stored_satisfaction > 150.0)
+        return -1;
+    double hunger = stored_hunger - elapsed * HUNGER_PER_SECOND;
+    double since_meal = stored_since_meal + elapsed;
+    double sleepiness = stored_sleepiness + elapsed * SLEEPINESS_PER_SECOND;
+    double energy = stored_energy - elapsed * ENERGY_DRAIN_PER_SECOND;
+    double satisfaction = stored_satisfaction - elapsed * SATIETY_PER_SECOND;
     if (!isfinite(hunger) || !isfinite(since_meal) || !isfinite(sleepiness) ||
         !isfinite(energy) || !isfinite(satisfaction)) return -1;
     if (hunger < 0.0) hunger = 0.0;
