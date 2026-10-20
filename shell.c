@@ -498,25 +498,37 @@ static void shell_prompt(void)
 }
 
 
-static void shell_theme_command(char *argument)
+static void shell_theme_command(const char *argument)
 {
-    argument = argument ? shell_trim(argument) : NULL;
-    if (!argument || !*argument || !strcasecmp(argument, "status")) {
+    char option[32] = {0};
+    if (argument) {
+        while (isspace((unsigned char)*argument)) argument++;
+        size_t length = strlen(argument);
+        while (length > 0 && isspace((unsigned char)argument[length - 1])) length--;
+        if (length >= sizeof(option)) {
+            printf("Usage: shell theme [auto|classic|xmas|spooky]\n");
+            return;
+        }
+        memcpy(option, argument, length);
+        option[length] = '\0';
+    }
+
+    if (!option[0] || !strcasecmp(option, "status")) {
         printf("[R2 Shell] Theme: %s (%s).\n", shell_theme_name(),
                shell_theme_auto ? "automatic, based on R2's local clock" : "manual for this session");
         return;
     }
 
-    if (!strcasecmp(argument, "auto") || !strcasecmp(argument, "reset")) {
+    if (!strcasecmp(option, "auto") || !strcasecmp(option, "reset")) {
         shell_theme_auto = 1;
         shell_theme_refresh_auto();
-    } else if (!strcasecmp(argument, "classic")) {
+    } else if (!strcasecmp(option, "classic")) {
         shell_theme_auto = 0;
         shell_theme = R2_SHELL_THEME_CLASSIC;
-    } else if (!strcasecmp(argument, "xmas") || !strcasecmp(argument, "christmas")) {
+    } else if (!strcasecmp(option, "xmas") || !strcasecmp(option, "christmas")) {
         shell_theme_auto = 0;
         shell_theme = R2_SHELL_THEME_XMAS;
-    } else if (!strcasecmp(argument, "spooky") || !strcasecmp(argument, "halloween")) {
+    } else if (!strcasecmp(option, "spooky") || !strcasecmp(option, "halloween")) {
         shell_theme_auto = 0;
         shell_theme = R2_SHELL_THEME_SPOOKY;
     } else {
