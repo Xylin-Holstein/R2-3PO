@@ -226,9 +226,9 @@ require(
     "ordinary replies use a bounded, task-sensitive generation budget",
 )
 require(
-    "Lead with the direct answer." in core
-    and "Do not become terse at the cost of correctness" in core,
-    "reply guidance favors concise answers without sacrificing technical depth",
+    "answer current message and key parts" in core.lower()
+    and "Be natural, concise." in core,
+    "compact reply guidance favors direct multi-part answers in a natural, concise voice",
 )
 require(
     "REALITY CONTEXT: USE IT, DO NOT RECITE IT" in core
