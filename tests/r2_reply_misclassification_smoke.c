@@ -287,7 +287,7 @@ int main(void)
 
     Message identity_message = {
         .role = "system",
-        .content = "============================================================\\nIDENTITY AND PERSISTENT MEMORY\\n",
+        .content = "============================================================\\nIDENTITY AND PERSISTENT MEMORY\n",
     };
     Message visual_message = {
         .role = "system",
