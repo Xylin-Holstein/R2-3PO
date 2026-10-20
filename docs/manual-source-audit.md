@@ -278,3 +278,18 @@ This document keeps historical audit snapshots; it is not a live CI dashboard. T
 ## Superseding inference-budget finding — 2026-10-20
 
 The earlier 20-layer / 8192-context default and its post-failure 12-layer / 4096-context retry described above are historical and no longer describe the current launch path. The target host has a 4 GiB GTX 1050 Ti and the multimodal Qwen 3.5 9B inference path has already shown CUDA allocation failure under the larger initial policy. The interactive launcher, overnight runner, and trusted root installer now begin with 12 GPU layers and 4096 context tokens, avoiding the known oversized first allocation; they preserve explicit operator settings where the launch path supports them and stop startup if the real text-and-image preflight fails. The GPU-policy regression test now checks all three entry paths. This source change still requires a fresh hardware run to establish that the smaller budget is sufficient and that Ollama reports mixed CPU/GPU placement.
+
+
+### AUDIT-032 — deployment preflight omitted the shared inference probe from its source inventory
+- **Files:** `tools/preflight_r2_hardware.sh`, `tests/r2_hardware_preflight_smoke.py`.
+- **Severity:** Medium / startup diagnostics and incomplete preflight.
+- **Evidence:** The launcher and overnight runner require `tools/preflight_ollama_model.py` to run real text-and-image generations before starting R2, but the read-only deployment inventory did not report that helper as missing. Startup would eventually stop, but the first preflight could incorrectly appear complete.
+- **Fix:** Add the shared inference probe to the deployment file inventory and regression contract so missing-file failures are surfaced in the read-only preflight itself.
+- **Validation:** Exact integration head `b0a9f7c34a011bcc4b954c3c468a92bc39f2b022` passed workflow [#5561](https://github.com/Xylin48/R2-3PO/actions/runs/39492437986), all 94 steps.
+
+### AUDIT-033 — target-host RAM headroom was not reported by the inference probe
+- **Files:** `tools/preflight_ollama_model.py`, `tests/ollama_preflight_smoke.py`, `docs/rollout-readiness.md`.
+- **Severity:** Medium / hardware acceptance evidence was incomplete.
+- **Evidence:** The probe verified real text and image-bearing generations and queried Ollama's reported VRAM placement, but did not capture host `MemAvailable` while the model remained warm. That left the user's approximately 3.8 GiB free-RAM target without a direct measurement in the same acceptance output.
+- **Fix:** Report Linux `MemAvailable` after both generations and document recording that value beside the `/api/ps` mixed-placement evidence. This is a diagnostic target, not an unconditional startup gate.
+- **Validation:** Exact integration head `b0a9f7c34a011bcc4b954c3c468a92bc39f2b022` passed workflow [#5561](https://github.com/Xylin48/R2-3PO/actions/runs/39492437986), all 94 steps. The target host still needs a fresh inference run to record its actual RAM headroom.
