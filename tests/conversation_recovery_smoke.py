@@ -67,11 +67,15 @@ retry_builder = function_slice(
     "static char *r2_build_retry_system_prompt(void)",
     "static int r2_is_retry_context_message(",
 )
+retry_prompt_start = core.find("static const char r2_retry_system_prompt[] =")
+retry_prompt_end = core.find(";", retry_prompt_start)
+retry_prompt = core[retry_prompt_start:retry_prompt_end]
 require(
-    "SYSTEM_PROMPT" in retry_builder
-    and "r2_conversation_system_prompt" in retry_builder
-    and "RESPONSE CORRECTION" in retry_builder,
-    "corrective retry preserves base identity/memory and current-turn mechanics without reinstating prescriptive relationship coaching",
+    "return xstrdup(r2_retry_system_prompt);" in retry_builder
+    and "small remainder budget" in retry_builder
+    and "R2-3PO: answer the current message directly" in retry_prompt
+    and "Fix misreadings" in retry_prompt,
+    "corrective retry uses a complete compact identity/memory correction prompt that fits the remaining budget",
 )
 
 retry_context_classifier = function_slice(
