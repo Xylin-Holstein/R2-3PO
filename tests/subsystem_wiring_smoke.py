@@ -21,7 +21,7 @@ assert "r2_imagination_init()" in core and "r2_imagination_shutdown();" in core
 # A failed persistent-history query must not be represented as zero points or
 # an empty repeated-interest history.
 reward_start = reward.find("char *r2_reward_context(void)")
-reward_end = reward.find("\\nint r2_reward_review_diary(", reward_start)
+reward_end = reward.find("\nint r2_reward_review_diary(", reward_start)
 if reward_start < 0 or reward_end < 0:
     raise SystemExit("Could not locate reward context report.")
 reward_context = reward[reward_start:reward_end]
@@ -106,7 +106,7 @@ assert "r2_reality_move_item" in core and "r2_eat_and_learn" in core
 # TV status must not trust malformed persistent rows or let snprintf's required
 # length advance the buffer cursor beyond the allocation.
 tv_start = reality.find("static int append_tv_status(")
-tv_end = reality.find("\\nint r2_reality_tv_display_event(", tv_start)
+tv_end = reality.find("\nint r2_reality_tv_display_event(", tv_start)
 if tv_start < 0 or tv_end < 0:
     raise SystemExit("Could not locate bounded TV status builder.")
 tv_status = reality[tv_start:tv_end]
@@ -122,7 +122,7 @@ for marker in (
         raise SystemExit(f"TV status must validate data and append bounds: {marker!r}")
 
 reality_init_start = reality.find("int r2_reality_init(void)")
-reality_init_end = reality.find("\\nvoid r2_reality_shutdown(void)", reality_init_start)
+reality_init_end = reality.find("\nvoid r2_reality_shutdown(void)", reality_init_start)
 reality_init = reality[reality_init_start:reality_init_end]
 for marker in (
     "Could not read a valid persistent location; refusing to assume home",
