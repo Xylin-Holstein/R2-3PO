@@ -110,6 +110,21 @@ def _vision_probe_image_base64() -> str:
     return base64.b64encode(png).decode("ascii")
 
 
+def _available_memory_mib() -> int | None:
+    """Read Linux MemAvailable, which estimates RAM usable without swapping."""
+    try:
+        with open("/proc/meminfo", "r", encoding="ascii") as stream:
+            for line in stream:
+                if line.startswith("MemAvailable:"):
+                    fields = line.split()
+                    if len(fields) >= 2 and fields[1].isdigit():
+                        # Linux reports meminfo values in KiB.
+                        return int(fields[1]) // 1024
+    except (OSError, UnicodeError):
+        pass
+    return None
+
+
 def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload: bool = False) -> bool:
     """Check local model availability and one real, bounded inference."""
     try:
@@ -272,6 +287,16 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
             file=sys.stderr,
         )
         return False
+
+    available_ram_mib = _available_memory_mib()
+    if available_ram_mib is None:
+        print("Host RAM headroom: unavailable (could not read /proc/meminfo).")
+    else:
+        print(
+            f"Host RAM headroom after text and image inference: "
+            f"{available_ram_mib / 1024:.2f} GiB available "
+            f"({available_ram_mib} MiB MemAvailable; Linux estimate before swapping)."
+        )
 
     gpu_offload_verified = False
     mixed_placement_verified = False
