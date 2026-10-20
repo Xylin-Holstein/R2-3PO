@@ -293,3 +293,11 @@ The earlier 20-layer / 8192-context default and its post-failure 12-layer / 4096
 - **Evidence:** The probe verified real text and image-bearing generations and queried Ollama's reported VRAM placement, but did not capture host `MemAvailable` while the model remained warm. That left the user's approximately 3.8 GiB free-RAM target without a direct measurement in the same acceptance output.
 - **Fix:** Report Linux `MemAvailable` after both generations and document recording that value beside the `/api/ps` mixed-placement evidence. This is a diagnostic target, not an unconditional startup gate.
 - **Validation:** Exact integration head `b0a9f7c34a011bcc4b954c3c468a92bc39f2b022` passed workflow [#5561](https://github.com/Xylin48/R2-3PO/actions/runs/39492437986), all 94 steps. The target host still needs a fresh inference run to record its actual RAM headroom.
+
+### AUDIT-034 — runtime Ollama HTTP diagnostics truncated the server error
+- **Files:** `r2.c`, `tests/ollama_request_config_smoke.py`.
+- **Severity:** Medium / diagnosis of inference failures.
+- **Evidence:** The preflight reports the Ollama error detail, but R2's runtime HTTP failure path printed only the first 400 characters of the response body. A longer CUDA allocation/KV-cache error could therefore be cut off in the terminal even though the bounded response buffer and persistent event already retained the body.
+- **Fix:** Runtime HTTP failures now print the response byte count and the complete response body accepted by the existing bounded response reader; a regression contract rejects the old precision-limited format.
+- **Validation:** Added a focused regression assertion. CI status for this new commit has not yet been reported by GitHub; the target-host GPU/Ollama inference still has not been run in this session.
+
