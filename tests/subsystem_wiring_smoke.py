@@ -14,6 +14,7 @@ for path in ("Imagination.c", "Imagination.h", "SensoryJournal.c", "SensoryJourn
 
 assert '#include "Imagination.h"' in core
 assert "r2_imagination_init()" in core and "r2_imagination_shutdown();" in core
+assert "r2_addiction_init()" in core and "r2_addiction_shutdown();" in core
 assert 'extract_marker(reply, "[IMAGINE]"' in core
 assert 'extract_marker(reply, "[IMAGINE_FEEDBACK]"' in core
 assert "[END IMAGINE]" in core and "[END IMAGINE_FEEDBACK]" in core
@@ -25,6 +26,7 @@ assert "r2_sj_init()" in core and "r2_sj_shutdown();" in core
 for init_failure in (
     'R2_INIT_FAIL("could not initialize R2 Sensory Journal")',
     'R2_INIT_FAIL("could not initialize R2 reward ledger")',
+    'R2_INIT_FAIL("could not initialize R2 Addiction learning database")',
     'R2_INIT_FAIL("could not initialize R2 Visual Experience Library")',
     'R2_INIT_FAIL("could not initialize R2 Alternate-Self Lab")',
     'R2_INIT_FAIL("could not initialize R2 Imagination")',
