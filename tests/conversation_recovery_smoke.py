@@ -58,7 +58,7 @@ require(
 
 retry_builder = function_slice(
     "static char *r2_build_retry_system_prompt(void)",
-    "static char *r2_validate_corrective_reply(",
+    "static int r2_is_retry_context_message(",
 )
 require(
     "SYSTEM_PROMPT" in retry_builder
