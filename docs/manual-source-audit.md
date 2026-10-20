@@ -322,3 +322,12 @@ The earlier 20-layer / 8192-context default and its post-failure 12-layer / 4096
 - **Fix:** Added the missing trouble/difficulty-understanding and couldn't-understand variants to the existing generic clarification detector. The existing exemptions for genuine user clarification requests and short greetings remain in place. Added a production-guard regression case for a clear multi-part message.
 - **Validation:** Included in the current integration CI candidate; results are pending. This tests the recovery decision path, not a live Qwen inference on the target PC.
 
+### AUDIT-038 — Corrective retry dropped live learning context; archive priority loop skipped priority 8
+- **Files:** `r2.c`; regressions in `tests/conversation_recovery_smoke.py` and `tests/context_integration_smoke.py`.
+- **Severity:** High for consistent learned behavior; Medium for older conversation continuity.
+- **Manual source finding 1:** `r2_is_retry_context_message()` recognized live Reality, current-turn retrieval, startup memory, and recent persisted dialogue, but omitted `PERSISTENT LEARNING CONTEXT`. Therefore, when R2 generated a generic “trouble understanding” response and entered corrective retry, the retry discarded the live reward and repeated-interest summary even though the normal request had it.
+- **Fix 1:** Classify the live learning context as retry evidence and increase the compact retry message array/selection from four to five independent context sources, retaining space for recent dialogue and the exact current user turn.
+- **Manual source finding 2:** `r2_inference_system_priority()` assigns archived conversation context priority 8, and `r2_order_inference_messages()` iterates priorities 0–8. The serializer budget loop incorrectly used `priority < 8`, so priority-8 archive messages could never be selected. The existing regression test passed because it searched the whole `r2.c` file and matched the ordering helper's correct `priority < 9` loop instead of checking the serializer itself.
+- **Fix 2:** Extend the serializer loop through priority 8 and scope the regression assertion specifically to `ollama_chat_with_limit()`, so the test cannot be satisfied by an unrelated loop.
+- **Validation:** New targeted checks are in the current integration candidate. This is a manually identified control-flow omission that a compile/syntax-only test would not catch. Awaiting exact-head CI; no claim of target-host validation.
+ 
