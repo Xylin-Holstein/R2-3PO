@@ -131,25 +131,19 @@ require(
     'r2_reply_misclassifies_plain_text(query, reply ? reply : "")' in core,
     "recognized text misclassification triggers the retry",
 )
-fallback_start = core.find("static char *r2_validate_corrective_reply(")
-fallback_end = core.find("static char *r2_retry_direct_answer(", fallback_start)
 require(
-    fallback_start >= 0 and fallback_end > fallback_start,
-    "corrective retry result validation exists",
-)
-fallback = core[fallback_start:fallback_end]
-require(
-    "r2_reply_misclassifies_plain_text(query, retry_reply)" in fallback,
-    "a repeated misclassification is rejected after the retry",
+    "static char *r2_validate_corrective_reply(" not in core,
+    "corrective model output is not gated by a response classifier or replaced with a canned clarification",
 )
 require(
-    "couldn't form a reliable response" in fallback and
-    "which part you'd like me to respond to" in fallback,
-    "failed correction uses an honest clarification rather than repeating fabricated intent",
+    "reply = retry_user_facing;" in core
+    and "if (retry_user_facing && *retry_user_facing)" in core,
+    "a nonempty sanitized corrective response is delivered as produced by R2",
 )
 require(
-    "r2_validate_corrective_reply(query, retry_user_facing)" in core,
-    "sanitized retry result is validated before delivery",
+    "retaining the original model result" in core
+    and "couldn't form a reliable response" not in core,
+    "if corrective inference returns no text, the code does not substitute a canned user-facing answer",
 )
 require(
     "If the user says YOUR prior message, answer, or reply was garbled" in core,
