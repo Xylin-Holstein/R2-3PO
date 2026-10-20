@@ -244,7 +244,7 @@ if TAGS="$(curl --silent --show-error --fail --max-time 4 "$OLLAMA_URL" 2>/dev/n
 else fail "Ollama API unreachable at $OLLAMA_URL"; fi
 if have ollama; then
   printf 'Ollama placement (when a model is loaded):\n'
-  OLLAMA_PS_OUTPUT="$(ollama ps 2>&1)"
+  OLLAMA_PS_OUTPUT="$(env -u OLLAMA_HOST ollama ps 2>&1)"
   OLLAMA_PS_RC=$?
   printf '%s\n' "$OLLAMA_PS_OUTPUT" | sed 's/^/  /'
   if [[ "$OLLAMA_PS_RC" -ne 0 ]]; then
