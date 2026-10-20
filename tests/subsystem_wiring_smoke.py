@@ -16,14 +16,14 @@ for path in ("Imagination.c", "Imagination.h", "SensoryJournal.c", "SensoryJourn
 assert '#include "Imagination.h"' in core
 assert "r2_imagination_init()" in core and "r2_imagination_shutdown();" in core
 reality_init_start = reality.find("int r2_reality_init(void)")
-reality_init_end = reality.find("\\nvoid r2_reality_shutdown(void)", reality_init_start)
+reality_init_end = reality.find("\nvoid r2_reality_shutdown(void)", reality_init_start)
 if reality_init_start < 0 or reality_init_end < 0:
     raise SystemExit("Could not locate Reality-owned Addiction lifecycle.")
 reality_init = reality[reality_init_start:reality_init_end]
 if "if (r2_addiction_init() != 0)" not in reality_init or "r2_reality_shutdown();" not in reality_init:
     raise SystemExit("Reality must propagate Addiction initialization failure instead of continuing without preference history.")
 reality_shutdown_start = reality.find("void r2_reality_shutdown(void)")
-reality_shutdown_end = reality.find("\\nint r2_reality_is_initialized(void)", reality_shutdown_start)
+reality_shutdown_end = reality.find("\nint r2_reality_is_initialized(void)", reality_shutdown_start)
 if reality_shutdown_start < 0 or reality_shutdown_end < 0:
     raise SystemExit("Could not locate Reality shutdown ownership.")
 if "r2_addiction_shutdown();" not in reality[reality_shutdown_start:reality_shutdown_end]:
