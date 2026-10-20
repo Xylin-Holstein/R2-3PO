@@ -9871,6 +9871,10 @@ static void autonomous_needs_check(void)
                                      ? "R2's autonomous needs controller completed its selected world action."
                                      : "R2's autonomous needs controller attempted its selected world action, but the action handler reported failure.",
                                  result, "autonomous_needs_check");
+                } else {
+                    r2_log_event(R2_LOG_ERROR, "autonomous_needs_action_result_missing",
+                                 "The selected needs action returned no result; success was not confirmed.",
+                                 safe_action, "autonomous_needs_check");
                 }
                 free(result);
                 pthread_mutex_unlock(&conversation_turn_lock);
