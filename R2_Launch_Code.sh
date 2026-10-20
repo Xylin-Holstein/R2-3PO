@@ -171,8 +171,8 @@ fi
 if [[ -z "${R2_OLLAMA_NUM_GPU+x}" ]]; then
     if [[ "$R2_NVIDIA_QUERY_OK" == "1" ]] &&
        printf '%s\n' "$R2_NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
-        export R2_OLLAMA_NUM_GPU=12
-        echo "[GPU] NVIDIA GeForce GTX 1050 Ti detected; requesting 12 model layers on GPU."
+        export R2_OLLAMA_NUM_GPU=8
+        echo "[GPU] NVIDIA GeForce GTX 1050 Ti detected; requesting 8 model layers on GPU."
     else
         export R2_OLLAMA_NUM_GPU=0
         echo "[GPU] GTX 1050 Ti not detected; leaving placement automatic."
