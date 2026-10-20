@@ -105,6 +105,11 @@ int main(void)
                     "I'm not sure what you mean. Could you please clarify your message?"),
                 "generic clarification refusal on an ordinary multi-part message triggers corrective retry");
 
+    ok &= check(r2_reply_misclassifies_plain_text(
+                    mother_message,
+                    "I'm having trouble understanding your message."),
+                "trouble-understanding refusal on a clear multi-part message triggers corrective retry");
+
     ok &= check(!r2_reply_misclassifies_plain_text(
                     "Can you clarify what you meant about the room and pockets?",
                     "I'm not sure what you mean. Could you please clarify your message?"),
