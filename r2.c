@@ -5675,9 +5675,9 @@ static char *chat_with_relevant_memories(
     char *memory_context = context_cache_get(query ? query : "", memory_limit);
     if (!memory_context) {
         memory_context = get_relevant_memories(associative_query, memory_limit);
-        if (!memory_context)
-            memory_context = xstrdup("");
         if (!memory_context) {
+            fprintf(stderr,
+                    "[R2 Context] Persistent-memory retrieval failed; refusing to continue with silently missing evidence.\\n");
             free(associative_query);
             return NULL;
         }
