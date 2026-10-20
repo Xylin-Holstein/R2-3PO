@@ -48,7 +48,7 @@ assert "New memories written during this session can be retrieved" not in startu
 # a burst of newer low-value records cannot erase learned continuity.
 startup_fn_start = source.find("static char *get_startup_memories(")
 startup_sql_start = source.find("const char *sql =", startup_fn_start)
-startup_sql_end = source.find(";\\n", startup_sql_start)
+startup_sql_end = source.find(";\n", startup_sql_start)
 assert startup_fn_start >= 0 and startup_sql_start > startup_fn_start and startup_sql_end > startup_sql_start
 startup_sql = source[startup_sql_start:startup_sql_end]
 for clause in (
