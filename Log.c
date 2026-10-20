@@ -887,14 +887,186 @@ int64_t r2_log_conversation_turn(const char *user_text,
         sqlite3_bind_text(statement, 3, assistant_text, (int)assistant_len, SQLITE_TRANSIENT);
         rc = sqlite3_step(statement);
     }
-    if (rc != SQLITE_DONE)
-        fprintf(stderr, "[R2 Life Log] Conversation archive insert failed: %s\n",
-                sqlite3_errmsg(log_db));
+    char archive_error[512] = {0};
+    if (rc != SQLITE_DONE) {
+        snprintf(archive_error, sizeof(archive_error),
+                 "SQLite rc=%d: %s", rc,
+                 log_db ? sqlite3_errmsg(log_db) : "Life Log database unavailable");
+    }
     sqlite3_finalize(statement);
     pthread_mutex_unlock(&log_lock);
 
-    /* The searchable event remains authoritative if the archive insert fails. */
+    /* The event-stream insert succeeded, but do not leave a failed archive
+       write silent: it breaks the dedicated full-turn conversation history. */
+    if (archive_error[0]) {
+        char failure_details[768];
+        snprintf(failure_details, sizeof(failure_details),
+                 "conversation_event_id=%lld\n%s",
+                 (long long)event_id, archive_error);
+        (void)r2_log_event(
+            R2_LOG_ERROR, "conversation_archive_insert_failed",
+            "Conversation turn is searchable in the Life Log, but its dedicated archive row was not written.",
+            failure_details, "r2_log_conversation_turn");
+        fprintf(stderr, "[R2 Life Log] Conversation archive insert failed for event %lld: %s\n",
+                (long long)event_id, archive_error);
+    }
+
     return event_id;
+}
+
+/*
+ * Return a small, chronological slice of the newest durable conversation
+ * turns. Query newest-first so a tight budget never preserves old turns while
+ * dropping the most recent exchange. The returned text is historical evidence,
+ * not a system instruction.
+ */
+static size_t log_utf8_safe_prefix(const char *text, size_t max_bytes)
+{
+    if (!text)
+        return 0;
+    size_t length = strlen(text);
+    if (max_bytes >= length)
+        return length;
+    while (max_bytes > 0 &&
+           (((unsigned char)text[max_bytes] & 0xC0U) == 0x80U))
+        --max_bytes;
+    return max_bytes;
+}
+
+char *r2_log_recent_conversation_context(size_t max_chars)
+{
+    if (max_chars > 8192U)
+        max_chars = 8192U;
+    char *out = calloc(max_chars + 1U, 1U);
+    if (!out)
+        return NULL;
+    if (max_chars == 0U)
+        return out;
+
+    char *turns[8] = {0};
+    size_t lengths[8] = {0};
+    size_t found = 0;
+    sqlite3_stmt *statement = NULL;
+    int rc;
+
+    pthread_mutex_lock(&log_lock);
+    if (!log_initialized || !log_db) {
+        pthread_mutex_unlock(&log_lock);
+        free(out);
+        return NULL;
+    }
+
+    rc = sqlite3_prepare_v2(
+        log_db,
+        "SELECT event_id,user_text,assistant_text FROM r2_log_conversations "
+        "WHERE event_id>0 AND user_text<>'' AND assistant_text<>'' "
+        "ORDER BY event_id DESC LIMIT 8;",
+        -1, &statement, NULL);
+    if (rc == SQLITE_OK) {
+        while ((rc = sqlite3_step(statement)) == SQLITE_ROW) {
+            sqlite3_int64 event_id = sqlite3_column_int64(statement, 0);
+            const unsigned char *user = sqlite3_column_text(statement, 1);
+            const unsigned char *assistant = sqlite3_column_text(statement, 2);
+            int user_bytes = sqlite3_column_bytes(statement, 1);
+            int assistant_bytes = sqlite3_column_bytes(statement, 2);
+            if (!user || !assistant || user_bytes < 0 || assistant_bytes < 0 ||
+                memchr(user, '\0', (size_t)user_bytes) != NULL ||
+                memchr(assistant, '\0', (size_t)assistant_bytes) != NULL) {
+                rc = SQLITE_CORRUPT;
+                break;
+            }
+            /* Legacy migrations can leave default-empty archive rows. They
+               are not complete conversation turns and must not enter context. */
+            if (event_id <= 0 || user_bytes == 0 || assistant_bytes == 0)
+                continue;
+
+            size_t user_len = (size_t)user_bytes;
+            size_t assistant_len = (size_t)assistant_bytes;
+            if (user_len > 1000U)
+                user_len = log_utf8_safe_prefix((const char *)user, 1000U);
+            if (assistant_len > 1000U)
+                assistant_len = log_utf8_safe_prefix((const char *)assistant, 1000U);
+            const char *user_marker = (size_t)user_bytes > user_len
+                ? " [truncated]" : "";
+            const char *assistant_marker = (size_t)assistant_bytes > assistant_len
+                ? " [truncated]" : "";
+
+            size_t allocation = user_len + assistant_len + 96U;
+            char *turn = malloc(allocation);
+            if (!turn) {
+                rc = SQLITE_NOMEM;
+                break;
+            }
+            int written = snprintf(
+                turn, allocation,
+                "User: %.*s%s\nR2: %.*s%s\n",
+                (int)user_len, (const char *)user, user_marker,
+                (int)assistant_len, (const char *)assistant, assistant_marker);
+            if (written < 0 || (size_t)written >= allocation) {
+                free(turn);
+                rc = SQLITE_TOOBIG;
+                break;
+            }
+            turns[found] = turn;
+            lengths[found] = (size_t)written;
+            ++found;
+        }
+    }
+
+    if (statement) {
+        int finalize_rc = sqlite3_finalize(statement);
+        statement = NULL;
+        if (rc == SQLITE_DONE && finalize_rc != SQLITE_OK)
+            rc = finalize_rc;
+    }
+    pthread_mutex_unlock(&log_lock);
+
+    if (rc != SQLITE_DONE) {
+        for (size_t i = 0; i < found; ++i)
+            free(turns[i]);
+        free(out);
+        return NULL;
+    }
+    if (found == 0U)
+        return out;
+
+    size_t used = 0;
+    size_t included = 0;
+    while (included < found) {
+        if (lengths[included] > max_chars - used)
+            break;
+        used += lengths[included];
+        ++included;
+    }
+
+    if (included == 0U) {
+        static const char marker[] = "\n[truncated]\n";
+        size_t marker_len = sizeof(marker) - 1U;
+        if (max_chars > marker_len) {
+            size_t take = log_utf8_safe_prefix(turns[0], max_chars - marker_len);
+            memcpy(out, turns[0], take);
+            used = take;
+            memcpy(out + used, marker, marker_len);
+            used += marker_len;
+            out[used] = '\0';
+        } else {
+            used = log_utf8_safe_prefix(turns[0], max_chars);
+            memcpy(out, turns[0], used);
+            out[used] = '\0';
+        }
+    } else {
+        used = 0;
+        for (size_t i = included; i > 0; --i) {
+            size_t index = i - 1U;
+            memcpy(out + used, turns[index], lengths[index]);
+            used += lengths[index];
+        }
+        out[used] = '\0';
+    }
+
+    for (size_t i = 0; i < found; ++i)
+        free(turns[i]);
+    return out;
 }
 
 /* ------------------------------------------------------------

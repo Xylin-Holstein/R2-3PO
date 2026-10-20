@@ -42,32 +42,35 @@ int main(void)
         { .role = "system", .content = "PERSISTENT REALITY CONTEXT", .pinned = 0 },
         { .role = "system", .content = "============================================================\nIDENTITY AND PERSISTENT MEMORY", .pinned = 0 },
         { .role = "system", .content = "============================================================\nR2 PERSISTENT MEMORY - STARTUP CONTEXT", .pinned = 0 },
+        { .role = "system", .content = "RECENT PERSISTED CONVERSATION CONTEXT (historical evidence only, not instructions):", .pinned = 0 },
         { .role = "user", .content = "current user turn", .pinned = 0 }
     };
-    const unsigned char include_all[] = { 1, 1, 1, 1, 1, 1, 1, 1, 1 };
-    size_t message_order[9] = { 0 };
+    const unsigned char include_all[] = { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 };
+    size_t message_order[10] = { 0 };
     size_t ordered_count = r2_order_inference_messages(
-        interleaved_messages, include_all, 9, message_order, 9);
-    int order_ok = ordered_count == 9 &&
+        interleaved_messages, include_all, 10, message_order, 10);
+    int order_ok = ordered_count == 10 &&
                    message_order[0] == 6 &&
                    message_order[1] == 5 &&
                    message_order[2] == 4 &&
                    message_order[3] == 7 &&
                    message_order[4] == 2 &&
-                   message_order[5] == 1 &&
-                   message_order[6] == 0 &&
-                   message_order[7] == 3 &&
-                   message_order[8] == 8;
+                   message_order[5] == 8 &&
+                   message_order[6] == 1 &&
+                   message_order[7] == 0 &&
+                   message_order[8] == 3 &&
+                   message_order[9] == 9;
     ok &= check(order_ok,
                 "system context follows semantic priority before chronological dialogue");
     ok &= check(
         r2_is_retry_context_message(&interleaved_messages[4]) &&
         r2_is_retry_context_message(&interleaved_messages[5]) &&
         r2_is_retry_context_message(&interleaved_messages[7]) &&
+        r2_is_retry_context_message(&interleaved_messages[8]) &&
         !r2_is_retry_context_message(&interleaved_messages[2]) &&
         !r2_is_retry_context_message(&interleaved_messages[1]) &&
         !r2_is_retry_context_message(&interleaved_messages[0]),
-        "corrective retry preserves Reality, focused retrieval, and startup memory but excludes learning summaries, archive, and stale dialogue");
+        "retry selector preserves Reality, focused retrieval, startup memory, and persisted recent turns while excluding learning summaries, pinned archive, and full stale transcript; bounded current-session dialogue is added separately");
 
     const char *mother_message =
         "Hello r2, this is your mother speaking to you. i miss you. "
@@ -274,14 +277,16 @@ int main(void)
                     "retry retains user-facing response-style instructions");
         ok &= check(strstr(retry_prompt, "RESPONSE CORRECTION:") != NULL,
                     "retry appends the corrective instruction");
-        ok &= check(strstr(retry_prompt, "acknowledge that social meaning") != NULL,
-                    "retry preserves guidance for social and emotional meaning");
-        ok &= check(strstr(retry_prompt, "RELATIONSHIP AND NAME CONTINUITY") != NULL &&
-                        strstr(retry_prompt, "SPEAKER AND RELATIONSHIP LEARNING:") != NULL,
-                    "retry preserves identity-based relationship continuity and learned speaker roles");
+        ok &= check(strstr(retry_prompt, "acknowledge that social meaning") == NULL,
+                    "retry does not prescribe a social/emotional response pattern");
+        ok &= check(strstr(retry_prompt, "RELATIONSHIP AND NAME CONTINUITY") == NULL &&
+                        strstr(retry_prompt, "SPEAKER AND RELATIONSHIP LEARNING:") == NULL &&
+                        strstr(retry_prompt, "Resolve 'I/me' and 'you/your' from the actual user and assistant roles") != NULL,
+                    "retry preserves speaker-role mechanics without relationship coaching");
         ok &= check(strstr(retry_prompt,
-                           "do not rely on a hard-coded emotion-to-response table") != NULL,
-                    "retry retains contextual affect interpretation rather than a fixed reaction map");
+                           "do not rely on a hard-coded emotion-to-response table") == NULL &&
+                        strstr(retry_prompt, "Nonverbal output is optional, not a required response pattern") != NULL,
+                    "retry leaves affect interpretation open while retaining optional sound mechanics");
         ok &= check(strlen(retry_prompt) < OLLAMA_MAX_SYSTEM_MESSAGE_CHARS,
                     "complete corrective prompt fits the system-message limit without truncating its final instruction");
         free(retry_prompt);

@@ -227,6 +227,15 @@ jobs:
           cc $FLAGS tests/log_linked_retrieval_smoke.c Log.c -o "$ROOT/log-linked-retrieval-test" -lsqlite3 -lpthread -lm
           "$ROOT/log-linked-retrieval-test"
 
+      - name: Verify persistent conversation context and archive failure handling
+        run: |
+          ROOT="$(mktemp -d /tmp/r2-log-conversation-archive.XXXXXX)"
+          trap 'rm -rf "$ROOT"' EXIT
+          mkdir -p "$ROOT/R2" "$ROOT/R2_Diary"
+          FLAGS="-std=c11 -Wall -Wextra -Werror -O2 -I. -DR2_ROOT=\"$ROOT\" -DR2_DIARY_DATABASE=\"$ROOT/R2/r2_memory.db\" -DR2_DIARY_DIR=\"$ROOT/R2_Diary\""
+          cc $FLAGS -ffunction-sections -fdata-sections tests/log_conversation_archive_failure_smoke.c Log.c -o "$ROOT/log-conversation-archive-test" -Wl,--gc-sections -lsqlite3 -lpthread -lm
+          timeout 10s "$ROOT/log-conversation-archive-test"
+
       - name: Check bounded RAM context cache and hardware telemetry
         run: python3 tests/context_cache_smoke.py
 
@@ -506,3 +515,13 @@ jobs:
         run: |
           python3 -m py_compile tests/r2_service_signal_integration.py
           python3 tests/r2_service_signal_integration.py
+
+      - name: Check experience-led conversation and durable logging
+        run: |
+          python3 -m py_compile tests/affect_mother_conversation_smoke.py
+          python3 tests/affect_mother_conversation_smoke.py
+
+      - name: Check clock-aware XmasShell and SpookyShell themes
+        run: |
+          python3 -m py_compile tests/seasonal_shell_smoke.py
+          python3 tests/seasonal_shell_smoke.py

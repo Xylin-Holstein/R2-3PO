@@ -170,6 +170,10 @@ int r2_log_system_snapshot(const char *reason);
 int64_t r2_log_conversation_turn(const char *user_text,
                                 const char *assistant_text);
 
+/* Bounded recent persisted turns for restart continuity; returns allocated
+   historical-context text (empty when no turns exist), or NULL on query/allocation failure. */
+char *r2_log_recent_conversation_context(size_t max_chars);
+
 /*
  * Structured self-state. Confidence is 0.0..1.0, or negative if unknown.
  * Records describe R2's expressed or explicitly evidenced state, not
