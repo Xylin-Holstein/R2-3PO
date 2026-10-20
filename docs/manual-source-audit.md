@@ -1,7 +1,7 @@
 # Manual source audit — rollout candidate
 
-Candidate branch: `integrate/affect-and-mother-chat-root-fix-2026-10-19`
-PR: #162 (draft; do not merge while rollout blockers remain)
+Candidate branch: `integrate/r2-hardware-ready-2026-10-20`
+PR: [#167](https://github.com/Xylin48/R2-3PO/pull/167) (open; do not merge while target-host rollout blockers remain)
 
 This is a code-review log, not a CI report. Each finding must be tied to the actual source behavior and marked fixed only after the implementation and its regression coverage are updated. A passing workflow does not close a finding by itself.
 
@@ -264,3 +264,12 @@ This document keeps historical audit snapshots; it is not a live CI dashboard. T
 - **Fix:** Add `r2_log_recent_conversation_context()`, which reads only the newest eight complete rows, filters empty legacy rows, preserves chronological order, clips individual text at UTF-8 boundaries, and enforces an 8,192-character API ceiling. Startup injects at most 3,000 characters as historical evidence, not instructions. Corrective retries can retain that persisted context alongside live Reality, focused retrieval, startup memory, a bounded current-session dialogue slice, and the exact current user turn.
 - **Regression coverage:** The runtime test writes two distinct turns, shuts down/reopens the Life Log, then asserts the persisted context contains both turns in chronological order and within the 3,000-character bound. It then injects a SQLite archive-write failure and verifies the primary event and linked failure diagnostic.
 - **Status:** Integrated head `9be23f212168691c7f67a2f421319f9af0cafcd5` passed exact-head GitHub Actions workflow [#5472](https://github.com/Xylin48/R2-3PO/actions/runs/39398984552), all 94/94 steps, including the restart-continuity and archive-failure runtime checks.
+
+
+### AUDIT-031 — generic clarification refusals could bypass the corrective retry
+- **File:** `r2.c`; regression coverage in `tests/r2_reply_misclassification_smoke.c`.
+- **Severity:** High / ordinary conversational turns can be misclassified as unintelligible.
+- **Evidence:** The detector recognized explicit failure wording such as “garbled” and “gibberish,” but a generic refusal such as “I'm not sure what you mean. Could you please clarify your message?” could bypass recovery even for a long, grammatical multi-part message.
+- **Fix:** Add a separate generic-clarification detector after the ordinary query-length and word-count guards. Keep explicit output-error feedback on its existing short-message path; exclude direct user requests for clarification/rephrasing and avoid retrying short greetings automatically.
+- **Regression coverage:** The C smoke test covers a substantive Mother/room/pockets message that receives a generic clarification refusal, an explicit user clarification request, and a short greeting.
+- **Status:** Exact integration head `770e3e3756af90c78e0d5a821ab31a0b4e847806` passed GitHub Actions workflow [#5492](https://github.com/Xylin48/R2-3PO/actions/runs/39474767159), including the production reply-misclassification test, strict build, and remaining regression suite. Target-host Ollama behavior remains unverified.
