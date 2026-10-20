@@ -163,7 +163,7 @@ require(
     "primary conversation prompt discourages typed-text misclassification as audio",
 )
 require(
-    "Answer the current message and its important parts" in core,
+    "answer current message and its important parts" in core.lower(),
     "primary prompt instructs R2 to handle multi-part messages",
 )
 require(
