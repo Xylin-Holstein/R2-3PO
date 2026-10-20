@@ -436,8 +436,9 @@ char *r2_addiction_report(void)
     pthread_mutex_lock(&addiction_lock);
     if (ensure_db_locked() != 0) {
         pthread_mutex_unlock(&addiction_lock);
-        return strdup("Addiction database unavailable.\n");
+        return strdup("Addiction context unavailable: the database could not be opened.\\n");
     }
+
     const char *sql =
         "SELECT t.target,t.target_type,t.enjoyment,t.status,"
         "(SELECT COUNT(*) FROM addiction_events e WHERE e.target=t.target COLLATE NOCASE AND e.event_kind='choice' AND e.occurred_at>=?),"
@@ -446,20 +447,38 @@ char *r2_addiction_report(void)
     sqlite3_stmt *st = NULL;
     int rc = sqlite3_prepare_v2(addiction_db, sql, -1, &st, NULL);
     if (rc != SQLITE_OK) {
+        fprintf(stderr, "[R2 Addiction] Could not prepare learning context: %s\\n",
+                sqlite3_errmsg(addiction_db));
+        if (st) sqlite3_finalize(st);
         pthread_mutex_unlock(&addiction_lock);
-        return strdup("Could not read addiction records.\n");
+        return strdup("Addiction context unavailable: learning records could not be read.\\n");
     }
+
     sqlite3_int64 since = (sqlite3_int64)time(NULL) - 14 * 86400;
-    sqlite3_bind_int64(st, 1, since);
-    sqlite3_bind_int64(st, 2, since);
+    rc = sqlite3_bind_int64(st, 1, since);
+    if (rc == SQLITE_OK)
+        rc = sqlite3_bind_int64(st, 2, since);
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "[R2 Addiction] Could not bind learning-context window: %s\\n",
+                sqlite3_errmsg(addiction_db));
+        sqlite3_finalize(st);
+        pthread_mutex_unlock(&addiction_lock);
+        return strdup("Addiction context unavailable: learning records could not be read.\\n");
+    }
+
     size_t cap = 2048, len = 0;
     char *out = malloc(cap);
-    if (!out) { sqlite3_finalize(st); pthread_mutex_unlock(&addiction_lock); return NULL; }
+    if (!out) {
+        sqlite3_finalize(st);
+        pthread_mutex_unlock(&addiction_lock);
+        return NULL;
+    }
     out[0] = '\0';
     int rows = 0;
     int omitted = 0;
-    while (sqlite3_step(st) == SQLITE_ROW) {
-        /* Keep this context bounded so a long-running R2 cannot grow prompts forever. */
+    int failed = 0;
+
+    while ((rc = sqlite3_step(st)) == SQLITE_ROW) {
         if (rows >= 16) {
             omitted = 1;
             break;
@@ -469,39 +488,78 @@ char *r2_addiction_report(void)
         const unsigned char *status = sqlite3_column_text(st, 3);
         char line[512];
         int n = snprintf(line, sizeof(line),
-            "%.160s [%.24s] enjoyment=%d/100; choices/14d=%d; choice_days=%d; status=%.24s\n",
+            "%.160s [%.24s] enjoyment=%d/100; choices/14d=%d; choice_days=%d; status=%.24s\\n",
             target ? (const char *)target : "unknown",
             type ? (const char *)type : "activity",
             sqlite3_column_int(st, 2), sqlite3_column_int(st, 4),
             sqlite3_column_int(st, 5), status ? (const char *)status : "inactive");
-        if (n <= 0 || (size_t)n >= sizeof(line)) continue;
-        if (len + (size_t)n + 1 > cap) {
-            size_t next = cap * 2;
-            while (next < len + (size_t)n + 1) next *= 2;
-            char *grown = realloc(out, next);
-            if (!grown) break;
-            out = grown; cap = next;
+        if (n <= 0 || (size_t)n >= sizeof(line)) {
+            failed = 1;
+            break;
         }
-        memcpy(out + len, line, (size_t)n);
-        len += (size_t)n;
+        size_t add = (size_t)n;
+        if (add > SIZE_MAX - len - 1) {
+            failed = 1;
+            break;
+        }
+        size_t needed = len + add + 1;
+        if (needed > cap) {
+            size_t next = cap;
+            while (next < needed) {
+                if (next > SIZE_MAX / 2) {
+                    next = needed;
+                    break;
+                }
+                next *= 2;
+            }
+            char *grown = realloc(out, next);
+            if (!grown) {
+                failed = 1;
+                break;
+            }
+            out = grown;
+            cap = next;
+        }
+        memcpy(out + len, line, add);
+        len += add;
         out[len] = '\0';
         rows++;
     }
+
+    if (!omitted && !failed && rc != SQLITE_DONE)
+        failed = 1;
+    if (failed)
+        fprintf(stderr, "[R2 Addiction] Learning-context query/serialization failed: %s\\n",
+                sqlite3_errmsg(addiction_db));
     sqlite3_finalize(st);
     pthread_mutex_unlock(&addiction_lock);
+
+    if (failed) {
+        free(out);
+        return strdup("Addiction context unavailable: learning records could not be read completely.\\n");
+    }
     if (!rows) {
-        snprintf(out, cap, "No repeated-interest records yet. A single enjoyable experience does not establish an addiction.\n");
+        snprintf(out, cap,
+            "No repeated-interest records yet. A single enjoyable experience does not establish an addiction.\\n");
     } else if (omitted) {
-        const char *note = "Additional repeated-interest records omitted from chat context; full history remains stored.\n";
+        const char *note = "Additional repeated-interest records omitted from chat context; full history remains stored.\\n";
         size_t note_len = strlen(note);
-        if (len + note_len + 1 > cap) {
-            char *grown = realloc(out, len + note_len + 1);
-            if (grown) { out = grown; cap = len + note_len + 1; }
+        if (note_len > SIZE_MAX - len - 1) {
+            free(out);
+            return NULL;
         }
-        if (len + note_len + 1 <= cap) {
-            memcpy(out + len, note, note_len);
-            out[len + note_len] = '\0';
+        size_t needed = len + note_len + 1;
+        if (needed > cap) {
+            char *grown = realloc(out, needed);
+            if (!grown) {
+                free(out);
+                return NULL;
+            }
+            out = grown;
+            cap = needed;
         }
+        memcpy(out + len, note, note_len);
+        out[len + note_len] = '\0';
     }
     return out;
 }
