@@ -201,3 +201,12 @@ The full 86-step GitHub Actions workflow passed for candidate code head `5bb6ff4
 
 ## Verification record
 This document keeps historical audit snapshots; it is not a live CI dashboard. The source/test candidate at commit `17383017c974e7a745acf980961a9e97cfc91ffb` passed [workflow run #5058](https://github.com/Xylin48/R2-3PO/actions/runs/39332907670) (91/91 workflow steps). Subsequent changes to this audit record are documentation-only; consult the latest workflow attached to [PR #162](https://github.com/Xylin48/R2-3PO/pull/162) to verify the current branch ref. The previous consolidated candidate also passed [run #5040](https://github.com/Xylin48/R2-3PO/actions/runs/39244434014). Neither source review nor CI establishes actual Qwen 3.5 9B behavior, GTX 1050 Ti allocation, physical device access, or the installed root-bootstrap state. Target-host acceptance remains a separate open gate.
+
+
+### AUDIT-023 — deterministic feeding bypassed the autonomous model decision
+- **Files:** `r2.c`, `Reality.c`, `Reality.h`, and autonomous-needs regression tests.
+- **Severity:** Medium / autonomy and behavioral consistency.
+- **Evidence:** When Reality-context allocation, model inference, or action execution failed, `autonomous_needs_food_safeguard()` called `r2_reality_autonomous_feed_if_needed()` and could consume tracked food without a successful model-selected action. That substituted a deterministic decision for R2's own controller.
+- **Fix:** Removed the deterministic feed API and all automatic calls to it. Context/model/action failures are logged and do not trigger a substitute behavior. R2's controller remains responsible for selecting an eat, fridge-eat, sleep, or no-op decision. The authoritative inventory/food-metric checks, transaction integrity, and turn-concurrency handling remain because they preserve the modeled world's actual state rather than dictate a response.
+- **Regression coverage:** Replaced the old safeguard test with `tests/autonomous_needs_controller_smoke.py`; updated the Reality regression to stop expecting automatic consumption; updated the conversation-recovery and context-integration tests.
+- **Validation:** Exact branch head `78f97471831f1fd9743cb25703ae6a4568eb3d6f` passed the full GitHub Actions workflow [#39357732761](https://github.com/Xylin48/R2-3PO/actions/runs/39357732761), 91/91 steps. This validates source/test integration, not live model behavior on the target machine.
