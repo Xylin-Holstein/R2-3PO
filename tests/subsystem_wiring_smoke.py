@@ -47,7 +47,6 @@ for marker in (
         raise SystemExit(f"Addiction context masks an incomplete read: {marker!r}")
 
 reality_init_start = reality.find("int r2_reality_init(void)")
-reality_init_start = reality.find("int r2_reality_init(void)")
 reality_init_end = reality.find("\nvoid r2_reality_shutdown(void)", reality_init_start)
 if reality_init_start < 0 or reality_init_end < 0:
     raise SystemExit("Could not locate Reality-owned Addiction lifecycle.")
