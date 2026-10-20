@@ -39,8 +39,11 @@ with tempfile.TemporaryDirectory() as directory:
     output = Path(directory) / "R2_Diary" / "Activity.txt"
     module.append_activity_line(output, "2026-10-09 09:15:00", "R2 moved to kitchen.", 17)
     module.append_activity_line(output, "2026-10-09 09:16:00", "R2 picked up a book.", 18)
+    # Retrying the same event after a reported write error must not duplicate it.
+    module.append_activity_line(output, "2026-10-09 09:16:00", "R2 picked up a book.", 18)
     contents = output.read_text(encoding="utf-8")
     assert contents.count("R2-3PO Activity Log") == 1
+    assert contents.count("(event #18)") == 1
     assert "[2026-10-09 09:15:00] R2 moved to kitchen. (event #17)" in contents
     assert "[2026-10-09 09:16:00] R2 picked up a book. (event #18)" in contents
     assert contents.index("R2 moved to kitchen") < contents.index("R2 picked up a book")
