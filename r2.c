@@ -1965,8 +1965,8 @@ static char *get_relevant_memories(const char *query, int limit)
 
             size_t memory_length = strlen(memory);
             size_t category_length = strlen(category);
-            if (category_length > SIZE_MAX - 2 ||
-                memory_length > SIZE_MAX - category_length - 2) {
+            if (category_length > SIZE_MAX - 3 ||
+                memory_length > SIZE_MAX - category_length - 3) {
                 failed = 1;
                 break;
             }
