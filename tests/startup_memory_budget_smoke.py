@@ -43,6 +43,25 @@ assert "newest %d records;" in startup_builder
 assert "This startup memory does NOT represent the entirety" not in startup_builder
 assert "New memories written during this session can be retrieved" not in startup_builder
 
+# The startup block is later truncated at a record boundary. Order durable
+# identity/person/relationship categories before miscellaneous recent facts so
+# a burst of newer low-value records cannot erase learned continuity.
+startup_fn_start = source.find("static char *get_startup_memories(")
+startup_sql_start = source.find("const char *sql =", startup_fn_start)
+startup_sql_end = source.find(";\\n", startup_sql_start)
+assert startup_fn_start >= 0 and startup_sql_start > startup_fn_start and startup_sql_end > startup_sql_start
+startup_sql = source[startup_sql_start:startup_sql_end]
+for clause in (
+    "ORDER BY CASE lower(category)",
+    "WHEN 'self' THEN 0",
+    "WHEN 'identity' THEN 0",
+    "WHEN 'relationship' THEN 1",
+    "WHEN 'person' THEN 2",
+    "updated_at DESC",
+    "LIMIT ?",
+):
+    assert clause in startup_sql, f"startup memory ordering omits {clause!r}"
+
 # Verify the context builder still connects the separate durable stores; budget
 # changes must not substitute a prompt-only identity shortcut for DB evidence.
 learning_start = source.find("static char *build_learning_context(void)")
