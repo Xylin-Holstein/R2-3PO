@@ -3308,46 +3308,27 @@ typedef struct {
     size_t learning_reserve;
 } R2SystemContextBudget;
 
-/* Reserve separate shares for the active conversation contract, core identity,
-   live Reality, current-turn retrieval, capabilities, and startup memory. The
-   previous budget let the override consume every remaining byte, so the newest
-   100 persistent memories were usually omitted whenever the prompt was full.
-   That made learned identity/relationships disappear on the exact low-context
-   hardware where R2 needs the database evidence most. */
-static R2SystemContextBudget r2_compute_system_context_budget(size_t system_budget)
+/* Reserve the full explicit instruction override first. The remaining
+   system budget is shared with evidence; instruction sections are prioritized
+   by relevance and are never assigned an arbitrary fraction of the context. */
+static R2SystemContextBudget r2_compute_system_context_budget(
+    size_t system_budget, size_t override_length)
 {
     R2SystemContextBudget budget = {0};
-    budget.reality_reserve = system_budget / 10;
-    if (budget.reality_reserve > 3000)
-        budget.reality_reserve = 3000;
+    size_t context_budget = system_budget > override_length
+        ? system_budget - override_length : 0;
 
-    /* Keep the fixed identity block compact enough to leave room for learned
-       database evidence and the direct conversation contract on 4k contexts. */
-    budget.identity_budget = system_budget / 4;
-    if (budget.identity_budget < 1000 &&
-        system_budget > budget.reality_reserve + 2000)
-        budget.identity_budget = 1000;
-    if (budget.identity_budget > system_budget - budget.reality_reserve)
-        budget.identity_budget = system_budget - budget.reality_reserve;
-
-    budget.retrieval_reserve = system_budget / 8;
-    budget.capabilities_reserve = system_budget / 16;
-    budget.startup_reserve = system_budget / 10;
+    budget.override_budget = override_length;
+    budget.identity_budget = context_budget;
+    budget.reality_reserve = context_budget;
+    budget.retrieval_reserve = context_budget / 8;
+    budget.capabilities_reserve = context_budget;
+    budget.startup_reserve = context_budget / 10;
     if (budget.startup_reserve > 1600)
         budget.startup_reserve = 1600;
-    budget.learning_reserve = system_budget / 10;
+    budget.learning_reserve = context_budget / 10;
     if (budget.learning_reserve > 1000)
         budget.learning_reserve = 1000;
-
-    size_t reserved = budget.reality_reserve +
-                      budget.identity_budget +
-                      budget.retrieval_reserve +
-                      budget.capabilities_reserve +
-                      budget.startup_reserve +
-                      budget.learning_reserve;
-    budget.override_budget = system_budget > reserved
-        ? system_budget - reserved
-        : system_budget / 4;
     return budget;
 }
 
@@ -3441,13 +3422,13 @@ static char *ollama_chat_with_limit(
     /* Foreground reasoning needs room for both internal deliberation and the
        final answer. Keep generation inside the active context so input-budget
        arithmetic below cannot underflow on a small adaptive context. */
-    int max_predict = num_ctx >= 16384 ? 8192 :
-                      num_ctx >= 12288 ? 6144 :
-                      num_ctx >= 8192 ? 4096 :
-                      num_ctx >= 4096 ? 2048 : 512;
-    int context_output_ceiling = num_ctx > 1536 ? num_ctx - 1536 : 256;
-    if (max_predict > context_output_ceiling)
-        max_predict = context_output_ceiling;
+    /* Preserve enough input context for R2's full identity, relevant
+       subsystem instructions, retrieved memories, and the current turn.
+       Large output ceilings previously consumed most of a 4k context before
+       the serializer could send those instructions. */
+    int max_predict = num_ctx / 4;
+    if (max_predict < 512)
+        max_predict = 512;
     /* Omitted budgets are for helper calls; foreground calls request a
        complexity-based budget and can use the full context-dependent ceiling. */
     if (num_predict < 1) num_predict = num_ctx >= 12288 ? 2048 : 1024;
@@ -3668,8 +3649,8 @@ static char *ollama_chat_with_limit(
     if (current_user_reserve > max_user_reserve)
         current_user_reserve = max_user_reserve;
 
-    size_t system_budget = input_budget > current_user_reserve + 500
-        ? input_budget - current_user_reserve - 500 : 0;
+    size_t system_budget = input_budget > current_user_reserve
+        ? input_budget - current_user_reserve : 0;
     if (system_budget > OLLAMA_MAX_SYSTEM_TOTAL_CHARS)
         system_budget = OLLAMA_MAX_SYSTEM_TOTAL_CHARS;
     if (system_budget > input_budget)
@@ -3683,7 +3664,7 @@ static char *ollama_chat_with_limit(
      * conversation contract. Lower-priority startup/archive context yields first.
      */
     R2SystemContextBudget context_budgets =
-        r2_compute_system_context_budget(system_budget);
+        r2_compute_system_context_budget(system_budget, override_length);
     size_t reality_reserve = context_budgets.reality_reserve;
     size_t identity_budget = context_budgets.identity_budget;
     size_t retrieval_reserve = context_budgets.retrieval_reserve;
@@ -3764,9 +3745,9 @@ static char *ollama_chat_with_limit(
                 length = r2_safe_prompt_prefix_length(content, identity_budget, 0);
             if (message_priority == 1 && length > reality_reserve)
                 length = r2_safe_prompt_prefix_length(content, reality_reserve, 1);
-            if (message_priority == 2 && length > retrieval_reserve)
+            if (message_priority == 3 && length > retrieval_reserve)
                 length = r2_safe_prompt_prefix_length(content, retrieval_reserve, 1);
-            if (message_priority == 3 || message_priority == 4) {
+            if (message_priority == 4) {
                 size_t capability_remaining =
                     capabilities_reserve > capabilities_used
                         ? capabilities_reserve - capabilities_used : 0;
@@ -3786,7 +3767,14 @@ static char *ollama_chat_with_limit(
                     length = r2_safe_prompt_prefix_length(content, learning_remaining, 1);
             }
             size_t remaining = system_budget > total_chars ? system_budget - total_chars : 0;
-            if (length > remaining) length = r2_utf8_safe_prefix_length(content, remaining);
+            if (length > remaining) {
+                /* Keep instruction sections whole. Evidence can be shortened,
+                   but a partial capability/identity instruction changes its
+                   meaning; lower-priority sections yield instead. */
+                if (message_priority <= 2 || message_priority == 4)
+                    continue;
+                length = r2_utf8_safe_prefix_length(content, remaining);
+            }
             if (length == 0) continue;
             include[i] = 1;
             limits[i] = length;
