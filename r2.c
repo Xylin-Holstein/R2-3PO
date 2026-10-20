@@ -4157,8 +4157,8 @@ static char *ollama_chat_with_limit(
     }
 
     if (http_status < 200 || http_status >= 300) {
-        fprintf(stderr, "[R2 Ollama] HTTP %ld response: %.400s\n",
-                http_status, b.data ? b.data : "(empty response)");
+        fprintf(stderr, "[R2 Ollama] HTTP %ld response (%zu bytes):\n%s\n",
+                http_status, b.size, b.data ? b.data : "(empty response)");
         if (r2_log_is_initialized())
             r2_log_event(R2_LOG_ERROR, "ollama_http_failure",
                          "R2's text-model endpoint returned a non-success HTTP status.",
