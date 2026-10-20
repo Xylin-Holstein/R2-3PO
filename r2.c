@@ -5121,20 +5121,6 @@ static char *r2_build_retry_system_prompt(void)
     return retry_system_prompt;
 }
 
-static char *r2_validate_corrective_reply(const char *query, char *retry_reply)
-{
-    if (retry_reply && *retry_reply &&
-        !r2_reply_misclassifies_plain_text(query, retry_reply))
-        return retry_reply;
-
-    free(retry_reply);
-    fprintf(stderr,
-            "[R2 Conversation] Corrective reply was unavailable or repeated the misclassification; asking for clarification instead.\n");
-    return xstrdup(
-        "I'm sorry—I misread your message and couldn't form a reliable response. "
-        "Could you tell me which part you'd like me to respond to?");
-}
-
 static int r2_is_retry_context_message(const Message *message)
 {
     if (!message || !message->role ||
@@ -6293,14 +6279,19 @@ static char *chat_with_relevant_memories(
             fprintf(stderr, "[R2 Conversation] Direct-answer retry could not be completed.\n");
         }
 
-        char *validated_retry =
-            r2_validate_corrective_reply(query, retry_user_facing);
-        if (validated_retry) {
+        /*
+         * A corrective retry is an opportunity for R2 to rethink the answer,
+         * not a classifier-controlled replacement of his words. Deliver the
+         * sanitized retry as produced. If inference itself fails, retain the
+         * original result and let normal error reporting expose the failure.
+         */
+        if (retry_user_facing && *retry_user_facing) {
             free(reply);
-            reply = validated_retry;
+            reply = retry_user_facing;
         } else {
-            free(reply);
-            reply = NULL;
+            free(retry_user_facing);
+            fprintf(stderr,
+                    "[R2 Conversation] Corrective inference returned no usable text; retaining the original model result.\\n");
         }
     }
 
