@@ -46,6 +46,7 @@ required = (
     'for tool in bash make gcc curl python3 sudo setpriv pgrep date find grep cmp iptables ip6tables',
     'run_as_r2_with_audio_group()',
     'r2-ollama.service is active on 127.0.0.1:11435',
+    'env -u OLLAMA_HOST ollama ps 2>&1',
     'http://127.0.0.1:11435/api/tags',
     'a separate Ollama API is responding on 127.0.0.1:11435',
     "pgrep -af '[l]lama-server'",
