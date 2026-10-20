@@ -20,8 +20,8 @@ for token, message in (
     ("#define R2_CONTEXT_CACHE_MAX_VALUE (32U * 1024U)", "each cached value has a hard size limit"),
     ("clock_gettime(CLOCK_MONOTONIC", "cache expiry uses monotonic time rather than the private wall clock"),
     ("context_cache_invalidate();", "writes invalidate cached evidence"),
-    ("context_cache_store(query ? query : \"\", memory_limit,", "focused and recall memory results are cached under their selected limit"),
-    ("context_cache_get(query ? query : \"\",", "the conversation path reuses cached persistent-memory results"),
+    ("context_cache_store(associative_query, memory_limit, memory_context)", "memory results are cached under the exact semantic query and selected limit"),
+    ("context_cache_get(associative_query, memory_limit)", "the conversation path reuses only results for the exact semantic retrieval query"),
     ("char *visual_context = NULL;", "live visual context is still assembled separately on each turn"),
     ("char *context = r2_reality_context();", "Reality remains refreshed rather than served from historical cache"),
     ("prompt_tokens=%lld prompt_s=%.3f", "inference logs include prompt processing metrics"),
@@ -31,7 +31,7 @@ for token, message in (
     require(token in core, message)
 
 require(
-    core.find("context_cache_store(query ? query : \"\", memory_limit,") < core.find("Conversation continuity: the Life Log"),
+    ("context_cache_store(associative_query, memory_limit, memory_context)", "memory results are cached under the exact semantic query and selected limit"),
     "Life Log history is searched fresh after the cached memory lookup",
 )
 print("RAM context cache and hardware telemetry smoke passed.")
