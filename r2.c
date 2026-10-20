@@ -5216,7 +5216,7 @@ static char *r2_retry_direct_answer(Message *messages_copy,
      * because it avoids resending the entire history. This is bounded evidence,
      * not a keyword-based identity shortcut or a substitute for R2's judgment.
      */
-    char *recent_context = r2_recent_conversation_context(query, 1800U);
+    char *recent_context = r2_recent_conversation_context(query, 3000U);
     char *recent_context_message = NULL;
     if (recent_context && *recent_context) {
         static const char recent_context_heading[] =
