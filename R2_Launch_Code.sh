@@ -36,6 +36,7 @@ if [[ ! "$R2_UID" =~ ^[0-9]+$ || ! "$R2_GID" =~ ^[0-9]+$ || -z "$R2_HOME_DIR" ]]
 fi
 
 R2_NETWORK_LOCK_ACTIVE=0
+R2_OLLAMA_SERVICE_PAUSED=0
 OBSERVER_XHOST_GRANTED=0
 OBSERVER_PID=""
 
@@ -82,6 +83,17 @@ r2_network_cleanup() {
             echo "[Network] R2-only network lock removed."
         else
             echo "WARNING: Could not fully remove R2-only network rules; inspect iptables/ip6tables." >&2
+        fi
+    fi
+    # Restore the dedicated overnight Ollama runner if it was active before
+    # interactive launch. It is intentionally paused while the 11434 runner
+    # owns the GTX 1050 Ti, then returned to its prior state on every exit path.
+    if [[ "$R2_OLLAMA_SERVICE_PAUSED" -eq 1 ]]; then
+        if sudo -n systemctl start r2-ollama.service; then
+            echo "[GPU] Restored r2-ollama.service after interactive R2 exited."
+        else
+            echo "WARNING: Could not restore previously active r2-ollama.service; start it with: sudo systemctl start r2-ollama.service" >&2
+            [[ "$exit_status" -ne 0 ]] || exit_status=1
         fi
     fi
     exit "$exit_status"
@@ -192,6 +204,21 @@ if command -v systemctl >/dev/null 2>&1 &&
     echo "Stop it with: sudo systemctl stop r2-3po.service"
     echo "This prevents two R2 cores from writing the same databases concurrently."
     exit 1
+fi
+
+# The isolated overnight Ollama runner uses a separate process and can retain
+# several GiB of VRAM even while the overnight R2 core is stopped. Do not let
+# that idle runner compete with the interactive endpoint on the 4 GiB GPU.
+# Preserve its prior state and restore it from the EXIT trap, including failures.
+if command -v systemctl >/dev/null 2>&1 &&
+   systemctl is-active --quiet r2-ollama.service 2>/dev/null; then
+    if ! sudo -n systemctl stop r2-ollama.service; then
+        echo "ERROR: Could not stop the dedicated overnight Ollama runner before interactive inference." >&2
+        echo "R2 was NOT launched; the two local model runners must not compete for GTX 1050 Ti VRAM." >&2
+        exit 1
+    fi
+    R2_OLLAMA_SERVICE_PAUSED=1
+    echo "[GPU] Paused the idle r2-ollama.service runner to release VRAM for interactive R2."
 fi
 
 # The service check alone does not catch a second interactive launcher.
