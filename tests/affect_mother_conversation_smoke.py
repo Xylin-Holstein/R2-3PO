@@ -51,7 +51,7 @@ require("compact_messages[compact_count++] = (Message) {" in core and
         ".content = (char *)query" in core,
         "corrective retry preserves the exact active user message")
 log_start = log.find("int64_t r2_log_conversation_turn(")
-log_end = log.find("int64_t r2_log_event_with_memory(", log_start)
+log_end = log.find("int r2_log_session_start(void)", log_start)
 require(log_start >= 0 and log_end > log_start,
         "dedicated conversation archive writer is present")
 log_writer = log[log_start:log_end]
