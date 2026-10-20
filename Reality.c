@@ -3148,24 +3148,59 @@ int r2_reality_init(void)
         return -1;
     }
     sqlite3_stmt *loc_st = NULL;
-    reality_home_state = 1;
-    if (sqlite3_prepare_v2(reality_db, "SELECT value FROM r2_reality_meta WHERE key='current_location'",
-                           -1, &loc_st, NULL) == SQLITE_OK && sqlite3_step(loc_st) == SQLITE_ROW) {
-        const unsigned char *v = sqlite3_column_text(loc_st, 0);
-        if (v && (!strcasecmp((const char *)v, "outside") || !strcasecmp((const char *)v, "away")))
-            reality_home_state = 0;
+    int location_rc = sqlite3_prepare_v2(
+        reality_db,
+        "SELECT value FROM r2_reality_meta WHERE key='current_location'",
+        -1, &loc_st, NULL);
+    if (location_rc == SQLITE_OK) {
+        location_rc = sqlite3_step(loc_st);
+        if (location_rc == SQLITE_ROW) {
+            const unsigned char *v = sqlite3_column_text(loc_st, 0);
+            if (!v) {
+                location_rc = SQLITE_CORRUPT;
+            } else if (!strcasecmp((const char *)v, "outside") ||
+                       !strcasecmp((const char *)v, "away")) {
+                reality_home_state = 0;
+                location_rc = SQLITE_OK;
+            } else if (!strcasecmp((const char *)v, "home")) {
+                reality_home_state = 1;
+                location_rc = SQLITE_OK;
+            } else {
+                location_rc = SQLITE_CORRUPT;
+            }
+        } else if (location_rc == SQLITE_DONE) {
+            location_rc = SQLITE_NOTFOUND;
+        }
     }
     if (loc_st) sqlite3_finalize(loc_st);
+    if (location_rc != SQLITE_OK) {
+        fprintf(stderr, "[R2 Reality] Could not read a valid persistent location; refusing to assume home: %s\n",
+                sqlite3_errmsg(reality_db));
+        r2_fridge_shutdown();
+        sqlite3_close(reality_db);
+        reality_db = NULL;
+        pthread_mutex_unlock(&reality_lock);
+        return -1;
+    }
     reality_ready = 1;
     pthread_mutex_unlock(&reality_lock);
-    if (r2_addiction_init() != 0)
-        fprintf(stderr, "[R2 Reality] Addiction/preference history is unavailable; core world remains available.\n");
+    if (r2_addiction_init() != 0) {
+        fprintf(stderr,
+                "[R2 Reality] Could not initialize required Addiction/preference history.\n");
+        r2_reality_shutdown();
+        return -1;
+    }
     sync_room_mirrors();
 
     sqlite3_int64 carried_cash = 0, bank_cash = 0;
     pthread_mutex_lock(&reality_lock);
-    (void)money_read_locked(&carried_cash, &bank_cash);
+    int money_read_rc = money_read_locked(&carried_cash, &bank_cash);
     pthread_mutex_unlock(&reality_lock);
+    if (money_read_rc != 0) {
+        fprintf(stderr, "[R2 Reality] Could not refresh authoritative wallet state after initialization.\\n");
+        r2_reality_shutdown();
+        return -1;
+    }
     money_mirror_write(carried_cash, bank_cash);
     bridge_event("reality_engine_started", "R2's persistent reality engine started.",
         "Self-continuity and world-continuity are stored in dedicated r2_reality.db; Life Log and searchable memory remain in r2_memory.db. Physical hierarchy: room/shelf/box and piggybank under room; portable pockets/wallet and fixed home fridge under R2_Home; factual events in log/log.txt.", 1, 0);
