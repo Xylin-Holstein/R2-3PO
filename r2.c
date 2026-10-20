@@ -3702,7 +3702,8 @@ static char *ollama_chat_with_limit(
        message.thinking is measured for diagnostics but never displayed. Short
        structured/background helper calls stay in non-thinking mode. */
     int allow_reasoning = ollama_audit_stage &&
-        !strcmp(ollama_audit_stage, "conversation-answer");
+        (!strcmp(ollama_audit_stage, "conversation-answer") ||
+         !strcmp(ollama_audit_stage, "conversation-retry"));
     if (ollama_json_object_add_checked(root, "think",
                                        json_object_new_boolean(allow_reasoning)) != 0 ||
         ollama_json_object_add_checked(root, "keep_alive",
