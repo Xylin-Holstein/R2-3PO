@@ -47,6 +47,10 @@ int main(void)
     char path[4096];
     assert(r2_sounds_select_file(root, "beep", "curious", path, sizeof(path)) == 0);
     assert(strstr(path, "R2_Beep_Curious.mp3"));
+    /* State vocabulary belongs to R2, not to a hard-coded allowlist. An
+       unfamiliar label may use a generic asset when no matching clip exists. */
+    assert(r2_sounds_select_file(root, "beep", "banana", path, sizeof(path)) == 0);
+    assert(strstr(path, "R2_Beep_Default.mp3"));
     assert(r2_sounds_select_file(root, "beep", "silly", path, sizeof(path)) == 0);
     assert(strstr(path, "R2_Beep_Default.mp3"));
     assert(r2_sounds_select_file(root, "beep", "sleepy", path, sizeof(path)) == 0);
@@ -100,6 +104,11 @@ int main(void)
     assert(clean);
     assert(!strstr(clean, "[R2_SOUND:"));
     assert(strstr(clean, "Hello!") && strstr(clean, "I found the right effect."));
+    free(clean);
+
+    clean = r2_sounds_process_reply("Open state [R2_SOUND:beep:banana] label.");
+    assert(clean && !strstr(clean, "[R2_SOUND:") && strstr(clean, "Open state ") &&
+           strstr(clean, " label."));
     free(clean);
 
     /* Marker syntax quoted as code is documentation, not a hidden action. */
@@ -156,13 +165,6 @@ int main(void)
     fclose(player);
     assert(chmod(player_path, 0700) == 0);
     assert(setenv("PATH", root, 1) == 0);
-    /* An unknown model-invented state must be stripped without triggering a
-       generic sound; otherwise the following real play would be rate-limited. */
-    clean = r2_sounds_process_reply("Before [R2_SOUND:beep:banana] after");
-    assert(clean && !strstr(clean, "[R2_SOUND:") && strstr(clean, "Before ") &&
-           strstr(clean, " after"));
-    free(clean);
-
     clean = r2_sounds_strip_markers("Before [R2_SOUND:beep:curious] after");
     assert(clean && !strstr(clean, "[R2_SOUND:") &&
            strstr(clean, "Before ") && strstr(clean, " after"));
