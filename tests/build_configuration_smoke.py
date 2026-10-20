@@ -161,6 +161,30 @@ require(
     "legacy hunger values migrate to the new fullness scale exactly once",
 )
 
+status_start = reality.index("char *r2_reality_status(void)")
+status_end = reality.index("static sqlite3_int64 real_epoch_seconds(void)", status_start)
+status_block = reality[status_start:status_end]
+require(
+    "if (rc != SQLITE_OK)" in status_block
+    and "if (!isfinite(hunger)" in status_block
+    and "free(out);" in status_block
+    and "return NULL;" in status_block
+    and "if (written < 0 || (size_t)written >= 4096)" in status_block,
+    "needs/status context refuses unreadable or corrupt authoritative values instead of reporting synthetic zero defaults",
+)
+tv_start = reality.index("static int append_tv_status(")
+tv_end = reality.index("int r2_reality_tv_display_event(int opened)", tv_start)
+tv_block = reality[tv_start:tv_end]
+require(
+    "written < 0 || (size_t)written >= capacity - *length" in tv_block
+    and "tv_status_error:" in tv_block
+    and "if (rc != SQLITE_OK ||" in tv_block
+    and "return NULL;" in tv_block
+    and "len += (size_t)snprintf" not in tv_block,
+    "TV status checks every database read and bounds every append before advancing its output cursor",
+)
+
+
 require(
     'rc = sqlite3_exec(reality_db,' in reality
     and '"PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;"' in reality
