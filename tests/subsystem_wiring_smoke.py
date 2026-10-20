@@ -6,6 +6,8 @@ ROOT = Path(__file__).resolve().parents[1]
 core = (ROOT / "r2.c").read_text(encoding="utf-8")
 log = (ROOT / "Log.c").read_text(encoding="utf-8")
 reality = (ROOT / "Reality.c").read_text(encoding="utf-8")
+reward = (ROOT / "Reward.c").read_text(encoding="utf-8")
+addiction = (ROOT / "Addiction.c").read_text(encoding="utf-8")
 makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 launcher = (ROOT / "R2_Launch_Code.sh").read_text(encoding="utf-8")
 workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
@@ -15,6 +17,36 @@ for path in ("Imagination.c", "Imagination.h", "SensoryJournal.c", "SensoryJourn
 
 assert '#include "Imagination.h"' in core
 assert "r2_imagination_init()" in core and "r2_imagination_shutdown();" in core
+
+# A failed persistent-history query must not be represented as zero points or
+# an empty repeated-interest history.
+reward_start = reward.find("char *r2_reward_context(void)")
+reward_end = reward.find("\\nint r2_reward_review_diary(", reward_start)
+if reward_start < 0 or reward_end < 0:
+    raise SystemExit("Could not locate reward context report.")
+reward_context = reward[reward_start:reward_end]
+for marker in (
+    "if (rc != SQLITE_ROW)",
+    "if (!omitted && !failed && rc != SQLITE_DONE)",
+    "Reward context unavailable: the cumulative reward total could not be read.",
+    "Reward context unavailable: recent reward events could not be read completely.",
+):
+    if marker not in reward_context:
+        raise SystemExit(f"Reward context masks an incomplete read: {marker!r}")
+
+addiction_start = addiction.find("char *r2_addiction_report(void)")
+if addiction_start < 0:
+    raise SystemExit("Could not locate Addiction context report.")
+addiction_context = addiction[addiction_start:]
+for marker in (
+    "if (rc != SQLITE_OK)",
+    "if (!omitted && !failed && rc != SQLITE_DONE)",
+    "Addiction context unavailable: learning records could not be read completely.",
+):
+    if marker not in addiction_context:
+        raise SystemExit(f"Addiction context masks an incomplete read: {marker!r}")
+
+reality_init_start = reality.find("int r2_reality_init(void)")
 reality_init_start = reality.find("int r2_reality_init(void)")
 reality_init_end = reality.find("\nvoid r2_reality_shutdown(void)", reality_init_start)
 if reality_init_start < 0 or reality_init_end < 0:
