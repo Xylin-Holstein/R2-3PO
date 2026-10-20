@@ -3237,16 +3237,16 @@ static int r2_inference_system_priority(const char *content, const char *query)
     }
     if (strstr(content, "R2 PERSISTENT MEMORY - STARTUP CONTEXT"))
         return 5;
-    if (!strncmp(content, "RECENT PERSISTED CONVERSATION CONTEXT",
-                  strlen("RECENT PERSISTED CONVERSATION CONTEXT")))
-        return 6;
     if (!strncmp(content, "PERSISTENT LEARNING CONTEXT",
                   strlen("PERSISTENT LEARNING CONTEXT")))
         return 6;
+    if (!strncmp(content, "RECENT PERSISTED CONVERSATION CONTEXT",
+                  strlen("RECENT PERSISTED CONVERSATION CONTEXT")))
+        return 7;
     if (!strncmp(content, "PAST CONVERSATION ARCHIVE — CONTEXT ONLY.",
                   strlen("PAST CONVERSATION ARCHIVE — CONTEXT ONLY.")))
         return 7;
-    return 6;
+    return 7;
 }
 
 static size_t r2_order_inference_messages(const Message *msgs,
@@ -3376,6 +3376,7 @@ typedef struct {
     size_t retrieval_reserve;
     size_t capabilities_reserve;
     size_t startup_reserve;
+    size_t learning_reserve;
 } R2SystemContextBudget;
 
 /* Reserve separate shares for the active conversation contract, core identity,
@@ -3403,12 +3404,16 @@ static R2SystemContextBudget r2_compute_system_context_budget(size_t system_budg
     budget.startup_reserve = system_budget / 8;
     if (budget.startup_reserve > 1600)
         budget.startup_reserve = 1600;
+    budget.learning_reserve = system_budget / 16;
+    if (budget.learning_reserve > 1000)
+        budget.learning_reserve = 1000;
 
     size_t reserved = budget.reality_reserve +
                       budget.identity_budget +
                       budget.retrieval_reserve +
                       budget.capabilities_reserve +
-                      budget.startup_reserve;
+                      budget.startup_reserve +
+                      budget.learning_reserve;
     budget.override_budget = system_budget > reserved
         ? system_budget - reserved
         : system_budget / 4;
@@ -3806,6 +3811,8 @@ static char *ollama_chat_with_limit(
      * Every category has a cap so one long block cannot crowd the others out.
      */
     size_t capabilities_used = 0;
+    size_t startup_used = 0;
+    size_t learning_used = 0;
     for (int priority = 0; priority < 8 &&
          total_chars < system_budget; ++priority) {
         for (size_t i = 0; i < count && total_chars < system_budget; ++i) {
@@ -3833,6 +3840,18 @@ static char *ollama_chat_with_limit(
                 if (length > capability_remaining)
                     length = r2_safe_prompt_prefix_length(content, capability_remaining, 0);
             }
+            if (message_priority == 5) {
+                size_t startup_remaining = startup_reserve > startup_used
+                    ? startup_reserve - startup_used : 0;
+                if (length > startup_remaining)
+                    length = r2_safe_prompt_prefix_length(content, startup_remaining, 1);
+            }
+            if (message_priority == 6) {
+                size_t learning_remaining = learning_reserve > learning_used
+                    ? learning_reserve - learning_used : 0;
+                if (length > learning_remaining)
+                    length = r2_safe_prompt_prefix_length(content, learning_remaining, 1);
+            }
             size_t remaining = system_budget > total_chars ? system_budget - total_chars : 0;
             if (length > remaining) length = r2_utf8_safe_prefix_length(content, remaining);
             if (length == 0) continue;
@@ -3841,6 +3860,10 @@ static char *ollama_chat_with_limit(
             total_chars += length;
             if (message_priority == 3 || message_priority == 4)
                 capabilities_used += length;
+            if (message_priority == 5)
+                startup_used += length;
+            if (message_priority == 6)
+                learning_used += length;
         }
     }
 
