@@ -40,7 +40,7 @@ for symbol in (
     require(symbol in core, f"bounded corrective recovery component is present: {symbol}")
 
 retry_start = core.find("static char *r2_retry_direct_answer(")
-retry_end = core.find("/*", retry_start)
+retry_end = core.find("/*\n * Ordinary conversation and explicit recall", retry_start)
 retry = core[retry_start:retry_end] if retry_start >= 0 and retry_end > retry_start else ""
 require(
     "compact_messages[4]" in retry
