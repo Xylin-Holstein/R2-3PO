@@ -9711,8 +9711,8 @@ static int autonomous_needs_action_allowed(const char *action)
 }
 
 /* Re-check the authoritative need immediately before executing a model
- * action. The prompt is only a snapshot; a foreground turn may have changed
- * hunger or sleepiness while inference was running. Fail closed on missing state. */
+ * action. The prompt is a snapshot; a foreground turn may have changed hunger
+ * or sleepiness while inference was running. Require current state before acting. */
 static int autonomous_needs_action_still_needed(const char *action)
 {
     if (!action) return 0;
