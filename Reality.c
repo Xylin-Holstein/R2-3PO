@@ -3197,7 +3197,7 @@ int r2_reality_init(void)
     int money_read_rc = money_read_locked(&carried_cash, &bank_cash);
     pthread_mutex_unlock(&reality_lock);
     if (money_read_rc != 0) {
-        fprintf(stderr, "[R2 Reality] Could not refresh authoritative wallet state after initialization.\\n");
+        fprintf(stderr, "[R2 Reality] Could not refresh authoritative wallet state after initialization.\n");
         r2_reality_shutdown();
         return -1;
     }
