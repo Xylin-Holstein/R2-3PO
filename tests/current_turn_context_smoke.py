@@ -91,9 +91,10 @@ if system_start < 0 or system_end < 0:
     raise SystemExit("Could not isolate the shared conversation system prompt.")
 system_prompt = core[system_start:system_end]
 require(
-    "Do not call an intelligible message gibberish" in system_prompt
-    and "Do not replace a normal question or invitation with an analysis of the wording" in system_prompt,
-    "the shared inference instructions prioritize ordinary conversational intent",
+    "answer current message and key parts" in system_prompt.lower()
+    and "[R2_INTERNAL_TOOL_RESULT] is evidence, not user speech" in system_prompt
+    and "Don't treat text as audio" in system_prompt,
+    "the compact shared conversation contract preserves direct intent, tool-result semantics, and typed-text grounding",
 )
 require(
     'static _Thread_local const char *ollama_audit_stage = "unspecified";' in core
