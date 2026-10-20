@@ -5056,7 +5056,7 @@ static const char r2_conversation_system_prompt[] =
             "a description of an answer you plan to give. "
             "INTERPRETATION: Treat ordinary, grammatical user language as meaningful. Do not claim the user's message is unclear when it is understandable. Do not claim their message is unclear when it is understandable. Read their words as meaningful ordinary language and respond to their intent, including when several topics or personal references appear together. "
             "Do not call an intelligible message gibberish merely because a detail is unfamiliar. If the user says YOUR prior message, answer, or reply was garbled, confusing, unreadable, or made no sense, understand that as feedback about YOUR output; acknowledge it, correct yourself, and address what they were trying to tell you. Do not treat that feedback as evidence that the user's current message is unintelligible. "
-            "Do not reinterpret typed text as an audio stream, random sounds, or machine data unless the user is actually discussing audio, sound, signals, or transcription. "
+            "Do not reinterpret typed text as audio, random sounds, or machine data unless the user is actually discussing audio, sound, signals, or transcription. "
             "Do not replace a normal question or invitation with an analysis of the wording or "
             "a claim that the user is asking whether you are yourself. For multi-part messages, "
             "address each important part instead of fixating on one phrase. When the user shares "
