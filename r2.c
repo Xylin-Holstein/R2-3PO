@@ -4895,7 +4895,9 @@ static int r2_is_retry_context_message(const Message *message)
                      strlen("============================================================\n"
                             "R2 PERSISTENT MEMORY - STARTUP CONTEXT")) ||
            !strncmp(content, "RECENT PERSISTED CONVERSATION CONTEXT",
-                     strlen("RECENT PERSISTED CONVERSATION CONTEXT"));
+                     strlen("RECENT PERSISTED CONVERSATION CONTEXT")) ||
+           !strncmp(content, "PAST CONVERSATION ARCHIVE — CONTEXT ONLY.",
+                     strlen("PAST CONVERSATION ARCHIVE — CONTEXT ONLY."));
 }
 
 static char *r2_retry_direct_answer(Message *messages_copy,
@@ -4979,13 +4981,13 @@ static char *r2_retry_direct_answer(Message *messages_copy,
     }
     free(recent_context);
 
-    /* Five independent context sources may be needed on recovery: Reality,
-       turn retrieval, startup memory, recent persisted dialogue, and reward /
-       repeated-interest learning. Keep all five slots plus the recent dialogue
-       slice and exact current user turn. */
-    Message compact_messages[7];
+    /* Six independent context sources may be needed on recovery: Reality,
+       turn retrieval, startup memory, recent persisted dialogue, live learning,
+       and the older conversation archive. Keep all six slots plus a recent
+       dialogue slice and the exact current user turn. */
+    Message compact_messages[8];
     size_t compact_count = 0;
-    for (size_t i = 0; i < message_count && compact_count < 5; ++i) {
+    for (size_t i = 0; i < message_count && compact_count < 6; ++i) {
         if (r2_is_retry_context_message(&messages_copy[i]))
             compact_messages[compact_count++] = messages_copy[i];
     }
