@@ -82,6 +82,7 @@ for required in (
     "r2_inference_system_priority(",
     ") > 4",
     "Count every static instruction section",
+    "if (active_user_chars < 1500U)",
     "if (message_priority <= 2 || message_priority == 4)",
     "if (message_priority == 3 && length > retrieval_reserve)",
     "return 2;",
