@@ -15,7 +15,6 @@ for label, source in (("interactive launcher", launcher), ("overnight service", 
     assert "export R2_OLLAMA_NUM_CTX=4096" in source, label
     assert 'if [[ -z "${R2_OLLAMA_NUM_GPU+x}" ]]; then' in source, label
     assert "export R2_OLLAMA_NUM_GPU=12" in source, label
-    assert 'R2_OLLAMA_NUM_CTX="${R2_OLLAMA_NUM_CTX:-}"' in source, label
     assert "R2_OLLAMA_NUM_CTX_DEFAULTED" not in source, label
     assert "R2_OLLAMA_NUM_GPU_DEFAULTED" not in source, label
     assert "export R2_OLLAMA_NUM_CTX=8192" not in source, label
@@ -23,6 +22,8 @@ for label, source in (("interactive launcher", launcher), ("overnight service", 
     assert "retrying with 12 GPU layers and 4096 context tokens" not in source, label
 
 assert 'R2_OLLAMA_NUM_GPU="${R2_OLLAMA_NUM_GPU}"' in launcher
+assert 'R2_OLLAMA_NUM_CTX="${R2_OLLAMA_NUM_CTX:-}"' in launcher
+assert '"R2_OLLAMA_NUM_CTX=${R2_OLLAMA_NUM_CTX:-}"' in runner
 assert '"R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU"' in runner
 assert 'requested >= 2048 && requested <= 16384' in core
 assert 'if (requested < safe_max) safe_max = (int)requested;' in core
