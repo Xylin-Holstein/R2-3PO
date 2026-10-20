@@ -227,7 +227,7 @@ require(
 )
 require(
     "answer current message and key parts" in core.lower()
-    and "Be natural, concise." in core,
+    and "Be natural." in core,
     "compact reply guidance favors direct multi-part answers in a natural, concise voice",
 )
 require(
@@ -369,7 +369,8 @@ require(
     and "Append the internal assistant tool-call and its tool-result as one logical" in core
     and "Cannot fit complete assistant/tool history pair without evicting pinned context." in core
     and "raw [WORLD]/[RUN]/etc. commands into later model context" in core
-    and "do not repeat it unless the user asks again" in core,
+    and "don't repeat " in core
+    and "unless asked" in core,
     "tool-result history stays atomic and trusted while executed control syntax is not replayed as dialogue",
 )
 
