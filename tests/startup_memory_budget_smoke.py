@@ -14,7 +14,12 @@ assert "size_t startup_reserve;" in budget
 assert "budget.startup_reserve = system_budget / 8;" in budget
 assert "if (budget.startup_reserve > 1600)" in budget
 assert "budget.startup_reserve = 1600;" in budget
+assert "size_t learning_reserve;" in budget
+assert "budget.learning_reserve = system_budget / 16;" in budget
+assert "if (budget.learning_reserve > 1000)" in budget
+assert "budget.learning_reserve = 1000;" in budget
 assert "budget.startup_reserve +" in budget
+assert "budget.learning_reserve;" in budget
 assert "system_budget - reserved" in budget
 assert "system_budget / 4" in budget
 
@@ -23,19 +28,26 @@ priority_end = source.find("\nstatic size_t r2_order_inference_messages", priori
 assert priority_start >= 0 and priority_end > priority_start
 priority = source[priority_start:priority_end]
 assert 'strstr(content, "R2 PERSISTENT MEMORY - STARTUP CONTEXT")' in priority
-assert "return 5;" in priority
+assert '"PERSISTENT LEARNING CONTEXT"' in priority
+assert "return 5;" in priority and "return 6;" in priority
+assert '"RECENT PERSISTED CONVERSATION CONTEXT"' in priority
+assert "return 7;" in priority
 
 # The old budget assigned all unreserved bytes to the system override. With
 # a full prompt, no bytes remained for priority-5 startup memory. The new
 # reserve must be a positive, bounded slice before the override is computed.
 for system_budget in (3415, 6200, 12000, 40000):
     startup_reserve = min(system_budget // 8, 1600)
+    learning_reserve = min(system_budget // 16, 1000)
     reality = min(system_budget // 8, 3000)
     identity = min(system_budget // 3, system_budget - reality)
     retrieval = system_budget // 8
     capabilities = system_budget // 16
-    reserved = reality + identity + retrieval + capabilities + startup_reserve
+    reserved = (reality + identity + retrieval + capabilities +
+                startup_reserve + learning_reserve)
     override = system_budget - reserved if system_budget > reserved else system_budget // 4
-    assert startup_reserve > 0
-    assert override < system_budget - (reality + identity + retrieval + capabilities)
+    assert startup_reserve > 0 and learning_reserve > 0
+    assert override < system_budget - (
+        reality + identity + retrieval + capabilities + startup_reserve
+    )
 print("Startup persistent-memory prompt budget regression passed.")
