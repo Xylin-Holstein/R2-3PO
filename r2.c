@@ -3388,11 +3388,13 @@ typedef struct {
 static R2SystemContextBudget r2_compute_system_context_budget(size_t system_budget)
 {
     R2SystemContextBudget budget = {0};
-    budget.reality_reserve = system_budget / 8;
+    budget.reality_reserve = system_budget / 10;
     if (budget.reality_reserve > 3000)
         budget.reality_reserve = 3000;
 
-    budget.identity_budget = system_budget / 3;
+    /* Keep the fixed identity block compact enough to leave room for learned
+       database evidence and the direct conversation contract on 4k contexts. */
+    budget.identity_budget = system_budget / 4;
     if (budget.identity_budget < 1000 &&
         system_budget > budget.reality_reserve + 2000)
         budget.identity_budget = 1000;
