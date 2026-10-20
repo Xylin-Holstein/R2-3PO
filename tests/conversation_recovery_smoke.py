@@ -148,15 +148,20 @@ require(
 )
 
 # Background needs work must never wait behind or mutate a live user turn.
-food = function_slice(
-    "static void autonomous_needs_food_safeguard(void)",
-    "/* Keep the autonomous controller on the smallest safe action allowlist. */",
+needs = function_slice(
+    "static void autonomous_needs_check(void)",
+    "int r2_think(void)",
 )
 require(
-    "pthread_mutex_trylock(&conversation_turn_lock)" in food
-    and "atomic_load(&foreground_ollama_waiting) > 0" in food
-    and "atomic_load(&foreground_conversation_waiting) > 0" in food,
-    "autonomous needs safeguard yields to foreground model and conversation work",
+    "pthread_mutex_trylock(&conversation_turn_lock)" in needs
+    and "atomic_load(&foreground_ollama_waiting) > 0" in needs
+    and "atomic_load(&foreground_conversation_waiting) > 0" in needs,
+    "model-selected autonomous needs work yields to foreground model and conversation work",
+)
+require(
+    "autonomous_needs_food_safeguard" not in core
+    and "r2_reality_autonomous_feed_if_needed" not in core,
+    "a failed or missing model decision must not trigger deterministic feeding",
 )
 require(
     "pthread_mutex_trylock(&conversation_turn_lock)" in core
