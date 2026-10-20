@@ -9695,36 +9695,7 @@ int r2_sleep_and_dream(double hours)
 }
 
 
-/* Keep the deterministic body-needs safeguard independent of whether the
- * model, context retrieval, or action parser succeeds. */
-static void autonomous_needs_food_safeguard(void)
-{
-    /* A foreground turn owns the world until it finishes. If it already owns
-       the turn lock, skip rather than mutate needs in the middle of a reply. */
-    if (shutting_down ||
-        pthread_mutex_trylock(&conversation_turn_lock) != 0)
-        return;
-    if (shutting_down ||
-        atomic_load(&foreground_ollama_waiting) > 0 ||
-        atomic_load(&foreground_conversation_waiting) > 0) {
-        pthread_mutex_unlock(&conversation_turn_lock);
-        return;
-    }
-
-    int feed_rc = r2_reality_autonomous_feed_if_needed();
-    if (feed_rc > 0)
-        r2_log_event(R2_LOG_WORLD, "autonomous_needs_food_fallback",
-                     "R2's deterministic needs safeguard consumed verified food because the fullness meter was low.",
-                     "Food was selected from accessible tracked inventory or the authoritative fridge database.",
-                     "autonomous_needs_check");
-    else if (feed_rc < 0)
-        r2_log_event(R2_LOG_ERROR, "autonomous_needs_food_fallback_failed",
-                     "The deterministic food safeguard could not inspect or update Reality state.",
-                     NULL, "autonomous_needs_check");
-    pthread_mutex_unlock(&conversation_turn_lock);
-}
-
-/* Keep the autonomous controller on the smallest safe action allowlist. */
+/* Keep autonomous needs actions within the capabilities of this controller. */
 static int autonomous_needs_action_allowed(const char *action)
 {
     if (!action || strncmp(action, "[WORLD] ", 8) != 0)
@@ -9789,7 +9760,9 @@ static void autonomous_needs_check(void)
     if (shutting_down || !r2_reality_is_initialized()) return;
     char *state = r2_reality_context();
     if (!state) {
-        autonomous_needs_food_safeguard();
+        r2_log_event(R2_LOG_ERROR, "autonomous_needs_context_failed",
+                     "The autonomous needs controller could not read current Reality state; no action was taken.",
+                     NULL, "autonomous_needs_check");
         return;
     }
     const char *prompt =
@@ -9804,13 +9777,15 @@ static void autonomous_needs_check(void)
         "If sleepiness is at least 85/100 "
         "and there is no urgent hunger with available food, emit exactly one line: [WORLD] sleep|8. "
         "Sleeping advances modeled time and generates a private simulated dream. Never invent objects "
-        "or food. Do not move/delete objects. If no safe action is warranted, return exactly NONE. "
+        "or food. Do not move/delete objects. If no action is warranted, return exactly NONE. "
         "Return no explanations and no other tool markers.\n\n";
     size_t n = strlen(state) + 2048;
     char *input = malloc(n);
     if (!input) {
         free(state);
-        autonomous_needs_food_safeguard();
+        r2_log_event(R2_LOG_ERROR, "autonomous_needs_context_allocation_failed",
+                     "The autonomous needs controller could not allocate its input; no action was taken.",
+                     NULL, "autonomous_needs_check");
         return;
     }
     snprintf(input, n, "%s%s", prompt, state);
@@ -9824,11 +9799,9 @@ static void autonomous_needs_check(void)
         r2_log_event(R2_LOG_ERROR, "autonomous_needs_check_failed",
                      "The autonomous needs controller could not obtain a model decision.",
                      NULL, "autonomous_needs_check");
-        autonomous_needs_food_safeguard();
         return;
     }
 
-    int world_action_succeeded = 0;
     const char *marker = find_control_marker_line(decision, "[WORLD]", 0);
     if (marker) {
         const char *end = strpbrk(marker, "\r\n");
@@ -9870,10 +9843,12 @@ static void autonomous_needs_check(void)
                 /* The action handler reports its actual persistence result. Do
                    not infer success by searching user-facing output prose: that
                    text may change or fail to allocate after the world changed. */
-                world_action_succeeded = action_succeeded;
                 if (result && *result) {
-                    r2_log_event(R2_LOG_WORLD, "autonomous_needs_action",
-                                 "R2's autonomous needs check performed a world action.",
+                    r2_log_event(action_succeeded ? R2_LOG_WORLD : R2_LOG_ERROR,
+                                 action_succeeded ? "autonomous_needs_action" : "autonomous_needs_action_failed",
+                                 action_succeeded
+                                     ? "R2's model-selected needs action completed."
+                                     : "R2's model-selected needs action failed; no substitute action was performed.",
                                  result, "autonomous_needs_check");
                 }
                 free(result);
@@ -9882,11 +9857,6 @@ static void autonomous_needs_check(void)
             free(safe_action);
         }
     }
-    /* Model output is advisory, not the sole safeguard for a simulated
-       physical need. Fall back only when the model did not complete a valid
-       action successfully; this avoids duplicate meals and post-sleep feeding. */
-    if (!world_action_succeeded)
-        autonomous_needs_food_safeguard();
     free(decision);
 }
 
