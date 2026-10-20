@@ -10860,6 +10860,11 @@ static char *build_learning_context(void)
 {
     char *reward = r2_reward_context();
     char *addiction = r2_addiction_report();
+    /* Reward context starts with general rules; prefer the newest durable
+       reward event when present, or that rules/total header when none exists. */
+    const char *reward_summary = reward ? strstr(reward, "Recent:") : NULL;
+    if (!reward_summary)
+        reward_summary = reward;
     /* Keep both persistent stores visible in the smallest normal prompt window.
        The detailed records remain in their databases; these are concise cues. */
     size_t cap = 512;
@@ -10869,7 +10874,7 @@ static char *build_learning_context(void)
             "PERSISTENT LEARNING CONTEXT\n"
             "REWARD: %.110s\n"
             "REPEATED INTERESTS: %.110s\n",
-            reward ? reward : "(reinforcement context unavailable)",
+            reward_summary ? reward_summary : "(reinforcement context unavailable)",
             addiction ? addiction : "(repeated-interest history unavailable)");
     }
     free(reward);
