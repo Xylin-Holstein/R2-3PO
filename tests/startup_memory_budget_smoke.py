@@ -44,7 +44,7 @@ assert "New memories written during this session can be retrieved" not in startu
 # Verify the context builder still connects the separate durable stores; budget
 # changes must not substitute a prompt-only identity shortcut for DB evidence.
 learning_start = source.find("static char *build_learning_context(void)")
-learning_end = source.find("\\n/* Refresh Reality and learning", learning_start)
+learning_end = source.find("\n/* Refresh Reality and learning", learning_start)
 assert learning_start >= 0 and learning_end > learning_start
 learning_builder = source[learning_start:learning_end]
 assert "r2_reward_context()" in learning_builder
@@ -52,7 +52,7 @@ assert "r2_addiction_report()" in learning_builder
 assert "PERSISTENT LEARNING CONTEXT" in learning_builder
 
 refresh_start = source.find("static int refresh_reality_context_message(void)")
-refresh_end = source.find("\\n}", refresh_start)
+refresh_end = source.find("\n}", refresh_start)
 assert refresh_start >= 0 and refresh_end > refresh_start
 refresh = source[refresh_start:refresh_end]
 assert "r2_reality_context()" in refresh
