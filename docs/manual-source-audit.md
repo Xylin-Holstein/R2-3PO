@@ -234,9 +234,9 @@ This document keeps historical audit snapshots; it is not a live CI dashboard. T
 - **Regression coverage:** The subsystem wiring smoke test asserts that each required initialization failure propagates to core startup failure.
 
 
-### AUDIT-027 — Addiction database lifecycle was not wired into the core
-- **Files:** `r2.c`, `Addiction.c`, `Addiction.h`, and `tests/subsystem_wiring_smoke.py`.
-- **Severity:** High / persistent learning lifecycle.
-- **Evidence:** Core conversation context called `r2_addiction_report()`, which could open the Addiction database lazily, but `r2_init()` did not explicitly initialize it and `r2_shutdown()` did not close it. That left the subsystem's lifecycle implicit and made its connection failures appear only when context was assembled.
-- **Fix:** Core initialization now explicitly initializes the Addiction database and fails with a subsystem-specific diagnostic if it cannot open or prepare its schema. Central shutdown and the existing partial-startup unwind paths close the Addiction handle.
-- **Regression coverage:** `tests/subsystem_wiring_smoke.py` now requires the Addiction init, shutdown, and startup-failure propagation alongside the other core learning subsystems.
+### AUDIT-027 — Addiction initialization failure was treated as an optional feature loss
+- **Files:** `Reality.c`, `Addiction.c`, and `tests/subsystem_wiring_smoke.py`.
+- **Severity:** High / persistent food-preference and repeated-interest learning.
+- **Evidence:** Reality owns the Addiction database lifecycle because Reality records food choices and enjoyment ratings there. Its initializer called `r2_addiction_init()` but only logged a warning on failure, then continued with the world marked ready. The core's previous lazy report path could expose a placeholder rather than proving the learning database was initialized.
+- **Fix:** Reality now treats Addiction initialization as a required dependency: if it fails, it shuts down the partially initialized Reality/fridge state and returns failure. Reality remains the sole owner of Addiction init/shutdown; the core does not duplicate those calls.
+- **Regression coverage:** `tests/subsystem_wiring_smoke.py` checks that Reality propagates the initialization failure and closes its owned Addiction handle during shutdown.
