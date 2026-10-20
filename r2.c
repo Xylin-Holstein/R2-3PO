@@ -6231,12 +6231,15 @@ static char *chat_with_relevant_memories(
     /* Ollama's content field can occasionally include private reasoning tags.
        Sanitize only the user-facing conversation result, not structured
        planner/diary calls which have separate machine-readable contracts. */
+    int retry_after_sanitize_failure = 0;
     if (reply) {
         char *user_facing = r2_reply_sanitize(reply);
         free(reply);
         reply = user_facing;
         if (!reply || !*reply) {
-            fprintf(stderr, "[R2 Ollama] Reply contained no user-facing text after sanitization.\n");
+            retry_after_sanitize_failure = 1;
+            fprintf(stderr,
+                    "[R2 Ollama] Reply contained no safe user-facing text after sanitization; a corrective retry will be attempted.\n");
         }
     }
 
