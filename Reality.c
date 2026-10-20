@@ -5067,12 +5067,18 @@ char *r2_reality_tv_status(void)
         if (rc == SQLITE_ROW) {
             const char *tape = (const char *)sqlite3_column_text(st, 0);
             const char *transport = (const char *)sqlite3_column_text(st, 1);
-            if (tape) {
+            if (!transport ||
+                (strcmp(transport, "play") != 0 &&
+                 strcmp(transport, "pause") != 0 &&
+                 strcmp(transport, "stop") != 0)) {
+                rc = SQLITE_CORRUPT;
+            } else if (tape) {
                 double position = sqlite3_column_double(st, 2);
-                if (!isfinite(position) || position < 0.0 ||
+                if (sqlite3_column_type(st, 2) == SQLITE_NULL ||
+                    !isfinite(position) || position < 0.0 ||
                     append_tv_status(out, capacity, &len,
                         "Built-in VCR: tape inserted (%s), saved position %.1f seconds\n",
-                        transport ? transport : "stop", position) != 0 ||
+                        transport, position) != 0 ||
                     append_tv_status(out, capacity, &len, "Tape path: %s\n", tape) != 0) {
                     rc = SQLITE_CORRUPT;
                 } else {
