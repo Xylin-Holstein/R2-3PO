@@ -157,27 +157,26 @@ if [[ "$R2_NVIDIA_PCI_PRESENT" == "1" && "$R2_NVIDIA_QUERY_OK" != "1" ]]; then
     exit 1
 fi
 
-# Keep the default KV cache within a safer budget on the 4 GiB GTX 1050 Ti.
-# Remember which values are defaults so failed preflight can retry conservatively
-# without overriding explicit operator settings.
+# The known target has only 4 GiB VRAM and the 9B multimodal model previously
+# failed allocation at the more aggressive 20-layer / 8192-context policy.
+# Start with the conservative fallback instead of deliberately provoking OOM.
 R2_OLLAMA_NUM_CTX_DEFAULTED=0
 if [[ -z "${R2_OLLAMA_NUM_CTX:-}" && "$R2_NVIDIA_QUERY_OK" == "1" ]] &&
-   printf '%s\n' "$R2_NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
-    export R2_OLLAMA_NUM_CTX=8192
+   printf '%s\\n' "$R2_NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
+    export R2_OLLAMA_NUM_CTX=4096
     R2_OLLAMA_NUM_CTX_DEFAULTED=1
-    echo "[GPU] GTX 1050 Ti detected; limiting default Ollama context to 8192 tokens."
+    echo "[GPU] GTX 1050 Ti detected; defaulting Ollama context to 4096 tokens for VRAM headroom."
 fi
 
-# On this host the GTX 1050 Ti has 4 GiB VRAM. Request a partial layer
-# offload by default instead of forcing the entire model into limited VRAM.
-# An explicit environment value always wins; 0 leaves placement automatic.
+# Request mixed CPU/GPU execution within the known 4 GiB VRAM budget. An
+# explicit operator value always wins; 0 leaves placement automatic.
 R2_OLLAMA_NUM_GPU_DEFAULTED=0
 if [[ -z "${R2_OLLAMA_NUM_GPU+x}" ]]; then
     if [[ "$R2_NVIDIA_QUERY_OK" == "1" ]] &&
-       printf '%s\n' "$R2_NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
-        export R2_OLLAMA_NUM_GPU=20
+       printf '%s\\n' "$R2_NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
+        export R2_OLLAMA_NUM_GPU=12
         R2_OLLAMA_NUM_GPU_DEFAULTED=1
-        echo "[GPU] NVIDIA GeForce GTX 1050 Ti detected; requesting 20 model layers on GPU."
+        echo "[GPU] NVIDIA GeForce GTX 1050 Ti detected; requesting 12 model layers on GPU."
     else
         export R2_OLLAMA_NUM_GPU=0
         R2_OLLAMA_NUM_GPU_DEFAULTED=1
@@ -329,32 +328,12 @@ if ! sudo -n -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
     R2_OLLAMA_NUM_GPU="$R2_OLLAMA_NUM_GPU" \
     R2_OLLAMA_TIMEOUT_SECONDS="${R2_OLLAMA_TIMEOUT_SECONDS:-}" \
     python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --timeout 180 "${R2_OLLAMA_PREFLIGHT_ARGS[@]}"; then
-    if [[ "$R2_OLLAMA_NUM_GPU_DEFAULTED" == "1" &&
-          "$R2_OLLAMA_NUM_CTX_DEFAULTED" == "1" ]]; then
-        echo "[GPU] Default inference preflight failed; retrying with 12 GPU layers and 4096 context tokens."
-        export R2_OLLAMA_NUM_GPU=12
-        export R2_OLLAMA_NUM_CTX=4096
-        if ! sudo -n -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
-            R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
-            R2_OLLAMA_NUM_CTX="$R2_OLLAMA_NUM_CTX" \
-            R2_OLLAMA_NUM_GPU="$R2_OLLAMA_NUM_GPU" \
-            R2_OLLAMA_TIMEOUT_SECONDS="${R2_OLLAMA_TIMEOUT_SECONDS:-}" \
-            python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --timeout 180 "${R2_OLLAMA_PREFLIGHT_ARGS[@]}"; then
-            echo "ERROR: Default and conservative GPU/context preflights both failed."
-            echo "R2 was NOT launched; check the local model/server logs."
-            read -p "Press Enter to exit..."
-            exit 1
-        fi
-    else
-        echo
-        echo "R2 was NOT launched."
-        echo "The explicitly configured GPU/context policy failed the real model preflight."
-        echo "Start the local Ollama service and ensure 'ollama list' includes qwen3.5:9b."
-        echo "If the model is missing, run: ollama pull qwen3.5:9b"
-        echo "Then launch R2 again."
-        read -p "Press Enter to exit..."
-        exit 1
-    fi
+    echo
+    echo "R2 was NOT launched."
+    echo "The configured GPU/context policy failed the real text-and-image model preflight."
+    echo "The startup check preserves Ollama's error body above; correct the allocation/server error before retrying."
+    read -p "Press Enter to exit..."
+    exit 1
 fi
 echo
 
