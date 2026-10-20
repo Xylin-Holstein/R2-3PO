@@ -11455,8 +11455,6 @@ int r2_init(void)
     /* The reinforcement ledger is required for durable learning signals. */
     if (r2_reward_init() != 0)
         R2_INIT_FAIL("could not initialize R2 reward ledger");
-    if (r2_addiction_init() != 0)
-        R2_INIT_FAIL("could not initialize R2 Addiction learning database");
     int reward_links = r2_reward_reconnect_history(100);
     if (reward_links < 0)
         fprintf(stderr, "[R2 Reward] History reconciliation is pending.\n");
@@ -11483,7 +11481,6 @@ int r2_init(void)
                      "r2_init");
         r2_imagination_shutdown();
         r2_altself_shutdown();
-        r2_addiction_shutdown();
         r2_reward_shutdown();
         r2_sj_shutdown();
         r2_log_shutdown();
@@ -11497,7 +11494,6 @@ int r2_init(void)
     if (r2_eyes_init(&eyes) != 0) {
         r2_imagination_shutdown();
         r2_altself_shutdown();
-        r2_addiction_shutdown();
         r2_reward_shutdown();
         r2_sj_shutdown();
         r2_log_shutdown();
@@ -11515,7 +11511,6 @@ int r2_init(void)
         r2_imagination_shutdown();
 
         r2_altself_shutdown();
-        r2_addiction_shutdown();
         r2_reward_shutdown();
         r2_sj_shutdown();
         r2_log_shutdown();
@@ -11539,7 +11534,6 @@ int r2_init(void)
         r2_imagination_shutdown();
 
         r2_altself_shutdown();
-        r2_addiction_shutdown();
         r2_reward_shutdown();
         r2_sj_shutdown();
         r2_log_shutdown();
@@ -11602,7 +11596,6 @@ int r2_init(void)
         r2_imagination_shutdown();
 
         r2_altself_shutdown();
-        r2_addiction_shutdown();
         r2_reward_shutdown();
         r2_sj_shutdown();
         r2_log_shutdown();
@@ -11972,7 +11965,6 @@ void r2_shutdown(void)
 
     /* Close independent persistent engines before the shared Life Log/diary/core DB. */
     r2_reality_shutdown();
-    r2_addiction_shutdown();
     r2_reward_shutdown();
 
     if (r2_log_is_initialized()) {
