@@ -227,8 +227,8 @@ require(
 )
 require(
     "answer current message and key parts" in core.lower()
-    and "Be natural." in core,
-    "compact reply guidance favors direct multi-part answers in a natural, concise voice",
+    and "Don't expose reasoning" in core,
+    "compact reply guidance favors direct multi-part answers without exposing private reasoning",
 )
 require(
     "REALITY CONTEXT: USE IT, DO NOT RECITE IT" in core
