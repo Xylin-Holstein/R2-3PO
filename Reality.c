@@ -3539,7 +3539,7 @@ char *r2_reality_status(void)
                 errno = 0;
                 long long parsed = value ? strtoll((const char *)value, &parse_end, 10) : -1;
                 if (!value || errno != 0 || parse_end == (const char *)value ||
-                    *parse_end != '\\0' || parsed < 0) {
+                    *parse_end != '\0' || parsed < 0) {
                     rc = SQLITE_CORRUPT;
                 } else {
                     world_elapsed = (sqlite3_int64)parsed;
@@ -3554,7 +3554,7 @@ char *r2_reality_status(void)
     pthread_mutex_unlock(&reality_lock);
 
     if (rc != SQLITE_OK) {
-        fprintf(stderr, "[R2 Reality] Could not build current needs/status from authoritative state; no synthetic defaults were used.\\n");
+        fprintf(stderr, "[R2 Reality] Could not build current needs/status from authoritative state; no synthetic defaults were used.\n");
         free(out);
         return NULL;
     }
@@ -3564,11 +3564,11 @@ char *r2_reality_status(void)
                          hunger < 50 ? "hungry" :
                          hunger < 75 ? "getting hungry" : "satisfied";
     int written = snprintf(out, 4096,
-        "SELF CONTINUITY\\nSatisfaction: %5.1f/150\\nHunger: %04.1f/100 (%s)\\n"
-        "Time since meal: %.1f hours\\nSleepiness: %.1f/100\\nEnergy: %.1f/100\\n"
-        "Modeled world time elapsed: %lld days, %lld hours\\nObjects tracked in the world: %d\\n"
-        "Fullness (the 0..100 hunger meter) decreases steadily to zero over roughly three modeled hours without food; eating raises it according to the configured food fullness value. Satisfaction is a separate 0..150 measure. Sleepiness rises 12.5/hour and energy falls 10/hour while awake or asleep; sleep then restores energy and reduces sleepiness.\\n"
-        "After 72 hours without food, prolonged starvation is recorded; needs persist across restarts.\\n",
+        "SELF CONTINUITY\nSatisfaction: %5.1f/150\nHunger: %04.1f/100 (%s)\n"
+        "Time since meal: %.1f hours\nSleepiness: %.1f/100\nEnergy: %.1f/100\n"
+        "Modeled world time elapsed: %lld days, %lld hours\nObjects tracked in the world: %d\n"
+        "Fullness (the 0..100 hunger meter) decreases steadily to zero over roughly three modeled hours without food; eating raises it according to the configured food fullness value. Satisfaction is a separate 0..150 measure. Sleepiness rises 12.5/hour and energy falls 10/hour while awake or asleep; sleep then restores energy and reduces sleepiness.\n"
+        "After 72 hours without food, prolonged starvation is recorded; needs persist across restarts.\n",
         satisfaction, hunger, hstate, since / 3600.0, sleepiness, energy,
         (long long)(world_elapsed / 86400),
         (long long)((world_elapsed % 86400) / 3600), object_count);
