@@ -32,11 +32,21 @@ def is_observer_event(category: str, event_type: str) -> bool:
     """True only for explicitly approved factual event types/categories."""
     return event_type in PUBLIC_EVENT_TYPES and category in {"world", "media"}
 def append_activity_line(path: Path, local_time: str, summary: str, event_id: int) -> None:
-    """Append one approved public event; never overwrite R2's activity history."""
+    """Append one public event idempotently; never overwrite activity history."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    is_new = not path.exists()
-    with path.open("a", encoding="utf-8") as stream:
-        if is_new:
+    with path.open("a+", encoding="utf-8") as stream:
+        stream.seek(0, os.SEEK_END)
+        size = stream.tell()
+        # The observer retries a failed write at the same event id. Since it
+        # processes events in order, the latest complete marker is enough to
+        # distinguish a write that reached disk before a later flush error.
+        if size:
+            stream.seek(max(0, size - 4096))
+            tail = stream.read()
+            if f"(event #{event_id})" in tail:
+                return
+            stream.seek(0, os.SEEK_END)
+        if size == 0:
             stream.write("R2-3PO Activity Log\n")
             stream.write("Factual observer events only; private thoughts and notifications excluded.\n")
             stream.write("-" * 72 + "\n")
@@ -127,18 +137,32 @@ def main() -> int:
                         f"AND event_type IN ({allowed_placeholders}) ORDER BY id ASC",
                         (last_id, latest, *allowed_types),
                     ).fetchall()
+                    all_rows_persisted = True
                     for row in rows:
+                        event_id = int(row["id"])
                         summary = " ".join((row["summary"] or "").split())
                         local_time = row["local_time"] or "time unavailable"
-                        tree.insert("", "end", iid=str(row["id"]),
-                                    values=(local_time, summary))
+                        item_id = str(event_id)
+                        if not tree.exists(item_id):
+                            tree.insert("", "end", iid=item_id,
+                                        values=(local_time, summary))
                         try:
-                            append_activity_line(ACTIVITY_FILE, local_time, summary, int(row["id"]))
+                            append_activity_line(ACTIVITY_FILE, local_time, summary, event_id)
                             activity_file_error = False
+                            last_id = event_id
                         except OSError as exc:
+                            # Leave the cursor at the last persisted event. The
+                            # next poll retries this event and all later events;
+                            # already displayed rows are not inserted twice.
                             activity_file_error = True
+                            all_rows_persisted = False
                             status.set(f"Live window · Activity.txt write failed: {exc}")
-                    last_id = int(latest)
+                            break
+                    if all_rows_persisted:
+                        # Advance over event ids that are intentionally excluded
+                        # by the public-event query, as well as successfully
+                        # persisted rows, without repeatedly scanning old ids.
+                        last_id = int(latest)
                 children = tree.get_children()
                 if len(children) > MAX_ROWS:
                     for item in children[:len(children) - MAX_ROWS]:
