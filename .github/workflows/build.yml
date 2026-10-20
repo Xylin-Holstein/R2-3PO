@@ -227,7 +227,7 @@ jobs:
           cc $FLAGS tests/log_linked_retrieval_smoke.c Log.c -o "$ROOT/log-linked-retrieval-test" -lsqlite3 -lpthread -lm
           "$ROOT/log-linked-retrieval-test"
 
-      - name: Verify conversation archive failure is reported without deadlock
+      - name: Verify persistent conversation context and archive failure handling
         run: |
           ROOT="$(mktemp -d /tmp/r2-log-conversation-archive.XXXXXX)"
           trap 'rm -rf "$ROOT"' EXIT
