@@ -4787,6 +4787,78 @@ static int conversation_reply_token_budget(const char *query)
  * reply repeats the same greeting to R2 as though it were a message the user
  * wanted to send. Do not apply this guard to explicit writing/quoting tasks.
  */
+static int r2_reply_reverses_speaker_roles(const char *query, const char *reply)
+{
+    if (!query || !reply)
+        return 0;
+
+    const char *q = query;
+    const char *r = reply;
+    while (*q && isspace((unsigned char)*q)) ++q;
+    while (*r && isspace((unsigned char)*r)) ++r;
+
+    int query_greets_r2 =
+        !strncasecmp(q, "hello r2", 8) ||
+        !strncasecmp(q, "hello, r2", 9) ||
+        !strncasecmp(q, "hi r2", 5) ||
+        !strncasecmp(q, "hi, r2", 6) ||
+        !strncasecmp(q, "hey r2", 6) ||
+        !strncasecmp(q, "hey, r2", 7);
+    int reply_greets_r2 =
+        !strncasecmp(r, "hello r2", 8) ||
+        !strncasecmp(r, "hello, r2", 9) ||
+        !strncasecmp(r, "hi r2", 5) ||
+        !strncasecmp(r, "hi, r2", 6) ||
+        !strncasecmp(r, "hey r2", 6) ||
+        !strncasecmp(r, "hey, r2", 7);
+
+    if (!query_greets_r2 || !reply_greets_r2)
+        return 0;
+
+    static const char *const writing_task_terms[] = {
+        "write ", "draft ", "compose ", "generate ", "quote ",
+        "repeat ", "say exactly", "start with", "begin with",
+        "write a dialogue", "write a script", "fictional conversation"
+    };
+    for (size_t i = 0; i < sizeof(writing_task_terms) /
+                            sizeof(writing_task_terms[0]); ++i) {
+        if (strcasestr(query, writing_task_terms[i]))
+            return 0;
+    }
+    return 1;
+}
+
+static int r2_reply_contains_known_failure_phrase(const char *reply)
+{
+    if (!reply)
+        return 0;
+    static const char *const failure_phrases[] = {
+        "jumbled set of sounds",
+        "jumbled set of words",
+        "appears to be gibberish",
+        "appears to be nonsense",
+        "your message is unintelligible",
+        "message is unintelligible",
+        "unable to understand your message",
+        "cannot understand your message",
+        "can't understand what you're saying",
+        "cannot make sense of your message",
+        "can't make sense of your message",
+        "not a coherent question",
+        "random assortment of sounds",
+        "random string of words",
+        "that's a bit garbled",
+        "that’s a bit garbled",
+        "that is a bit garbled"
+    };
+    for (size_t i = 0; i < sizeof(failure_phrases) / sizeof(failure_phrases[0]); ++i) {
+        if (strcasestr(reply, failure_phrases[i]))
+            return 1;
+    }
+
+    return 0;
+}
+
 static int r2_reply_misclassifies_plain_text(const char *query, const char *reply)
 {
     if (!query || !reply)
