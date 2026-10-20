@@ -15,6 +15,18 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 CONSOLE = REPO / "GameBoyAdvance.py"
 
+# A controller key must be released even if the keydown command reports failure.
+source = CONSOLE.read_text(encoding="utf-8")
+press_start = source.index("def press_button(")
+press_end = source.index("\n\ndef print_result", press_start)
+press_source = source[press_start:press_end]
+finally_start = press_source.find("    finally:")
+assert finally_start >= 0, "button handling must release held input in a finally block"
+finally_source = press_source[finally_start:]
+assert '["xdotool", "keyup", "--window", pressed_window, key]' in finally_source
+assert "input_error = f\"Button input failed: {exc}\"" in press_source
+
+
 
 def run(root: Path, emulator: Path, *args: str, expect_ok: bool = True) -> dict:
     env = os.environ.copy()
