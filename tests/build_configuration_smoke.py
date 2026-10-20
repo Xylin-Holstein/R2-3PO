@@ -160,6 +160,48 @@ require(
     and "100-hunger" in reality,
     "legacy hunger values migrate to the new fullness scale exactly once",
 )
+
+require(
+    'rc = sqlite3_exec(reality_db,' in reality
+    and '"PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;"' in reality
+    and 'if (rc != SQLITE_OK) {' in reality
+    and "Could not configure persistent database durability" in reality,
+    "Reality startup checks database durability/foreign-key configuration errors",
+)
+seed_start = reality.index("sqlite3_stmt *seed_st = NULL;")
+seed_end = reality.index("if (money_initialize_files(cash_seeded) != 0)", seed_start)
+seed_block = reality[seed_start:seed_end]
+require(
+    "int seed_rc = sqlite3_prepare_v2" in seed_block
+    and "seed_rc = sqlite3_step(seed_st)" in seed_block
+    and "seed_rc == SQLITE_DONE" in seed_block
+    and "seed_rc = SQLITE_NOTFOUND" in seed_block
+    and "SQLITE_CORRUPT" in seed_block
+    and "if (seed_rc != SQLITE_OK)" in seed_block,
+    "Reality does not guess wallet seeding state when its authoritative metadata query fails",
+)
+location_start = reality.index("sqlite3_stmt *loc_st = NULL;")
+location_end = reality.index("reality_ready = 1;", location_start)
+location_block = reality[location_start:location_end]
+require(
+    "int location_rc = sqlite3_prepare_v2" in location_block
+    and "location_rc = sqlite3_step(loc_st)" in location_block
+    and "location_rc == SQLITE_NOTFOUND" in location_block
+    and "location_rc = SQLITE_CORRUPT" in location_block
+    and "Could not read a valid persistent location; refusing to assume home" in location_block
+    and "r2_fridge_shutdown();" in location_block,
+    "Reality does not substitute home when persistent location is missing, corrupt, or unreadable",
+)
+wallet_start = reality.index("sqlite3_int64 carried_cash = 0, bank_cash = 0;")
+wallet_end = reality.index("bridge_event(", wallet_start)
+wallet_block = reality[wallet_start:wallet_end]
+require(
+    "int money_read_rc = money_read_locked(&carried_cash, &bank_cash);" in wallet_block
+    and "if (money_read_rc != 0)" in wallet_block
+    and wallet_block.index("if (money_read_rc != 0)") < wallet_block.index("money_mirror_write(carried_cash, bank_cash);"),
+    "Reality never overwrites derived wallet mirrors with zero defaults after a failed balance read",
+)
+
 compare_start = shell.find('if (shell_starts_with(argument, "compare "))')
 compare_end = shell.find('if (shell_starts_with(argument, "create "))', compare_start)
 compare_block = shell[compare_start:compare_end] if compare_start >= 0 and compare_end > compare_start else ""
