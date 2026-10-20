@@ -38,8 +38,8 @@ if ('getenv("R2_OLLAMA_NUM_GPU")' not in visual
     raise SystemExit("Vision requests must use the same GPU layer policy as chat.")
 if "GTX 1050 Ti" not in runner or "export R2_OLLAMA_NUM_GPU=8" not in runner:
     raise SystemExit("Overnight service runner must start with the conservative 8-layer offload policy.")
-if "export R2_OLLAMA_NUM_CTX=4096" not in runner:
-    raise SystemExit("Overnight service runner must default to 4096 context tokens on the 4 GiB GTX 1050 Ti.")
+if "export R2_OLLAMA_NUM_CTX=8192" not in runner:
+    raise SystemExit("Overnight service runner must default to 8192 context tokens on the 4 GiB GTX 1050 Ti.")
 if "retrying with 12 GPU layers and 4096 context tokens" in runner:
     raise SystemExit("Overnight service must not deliberately run an oversized probe before retrying conservatively.")
 if '"R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU"' not in runner:
@@ -51,7 +51,7 @@ if "size_vram" not in preflight or "nvidia-smi" not in preflight:
 if "R2_OLLAMA_NUM_GPU=8" not in readme or "4096" not in readme or "4 GiB VRAM" not in readme:
     raise SystemExit("Documentation must explain the conservative GTX 1050 Ti mixed-placement policy.")
 if 'PREFLIGHT_GPU=8' not in bootstrap or 'PREFLIGHT_CTX=8192' not in bootstrap:
-    raise SystemExit("Trusted installer must preflight the same conservative 8-layer / 4096-context policy.")
+    raise SystemExit("Trusted installer must preflight the same 8-layer / 8192-context full-prompt policy.")
 if "20-layer/8192-context" in bootstrap or "retrying with 12 GPU layers and 4096 context tokens" in bootstrap:
     raise SystemExit("Trusted installer must not provoke the known oversized allocation before falling back.")
 
