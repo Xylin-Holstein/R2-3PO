@@ -46,14 +46,14 @@ if len(prompt) > per_message:
 # context. Keep the identity/memory contract compact enough to survive intact,
 # rather than testing only the size of the complete (mostly lower-priority) prompt.
 identity_start_marker = (
-    "============================================================\\n"
-    "IDENTITY AND PERSISTENT MEMORY\\n"
-    "============================================================\\n"
+    "============================================================\n"
+    "IDENTITY AND PERSISTENT MEMORY\n"
+    "============================================================\n"
 )
 identity_end_marker = (
-    "============================================================\\n"
-    "REALITY CONTEXT: USE IT, DO NOT RECITE IT\\n"
-    "============================================================\\n"
+    "============================================================\n"
+    "REALITY CONTEXT: USE IT, DO NOT RECITE IT\n"
+    "============================================================\n"
 )
 identity_start = prompt.find(identity_start_marker)
 identity_end = prompt.find(identity_end_marker, identity_start + 1)
