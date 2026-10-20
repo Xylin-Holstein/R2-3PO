@@ -132,13 +132,15 @@ static int state_score(char tokens[][R2_SOUND_TOKEN_MAX], int count,
         }
         if (n) {
             requested[n] = '\0';
-            for (int i = 0; i < count; ++i)
-                if (!strcmp(tokens[i], requested)) return 100;
-            /* Known synonyms help asset lookup, but do not restrict which
-               state label R2 may choose for itself. */
-            if (token_is_state(requested) &&
-                state_alias_match(requested, tokens, count))
-                return 90;
+            if (!token_is_generic_state(requested)) {
+                for (int i = 0; i < count; ++i)
+                    if (!strcmp(tokens[i], requested)) return 100;
+                /* Known synonyms help asset lookup, but do not restrict which
+                   state label R2 may choose for itself. */
+                if (token_is_state(requested) &&
+                    state_alias_match(requested, tokens, count))
+                    return 90;
+            }
             n = 0;
         }
         if (!*p) break;
