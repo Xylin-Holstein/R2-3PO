@@ -1850,401 +1850,262 @@ static int r2_memory_has_keyword(const char *text, const char *keyword)
     return 0;
 }
 
-static char *get_relevant_memories(
-    const char *query,
-    int limit)
+static int append_memory_record(char **out, size_t *length, size_t *capacity,
+                                const char *category, const char *memory)
+{
+    if (!out || !*out || !length || !capacity || !category || !memory)
+        return -1;
+
+    size_t category_length = strlen(category);
+    size_t memory_length = strlen(memory);
+    if (category_length > SIZE_MAX - 4 ||
+        memory_length > SIZE_MAX - category_length - 4)
+        return -1;
+    size_t needed = category_length + memory_length + 4;
+    if (needed >= SIZE_MAX - *length)
+        return -1;
+    size_t required = *length + needed + 1;
+
+    if (required > *capacity) {
+        size_t new_capacity = *capacity ? *capacity : 1024;
+        while (new_capacity < required) {
+            if (new_capacity > SIZE_MAX / 2) {
+                new_capacity = required;
+                break;
+            }
+            new_capacity *= 2;
+        }
+        char *grown = realloc(*out, new_capacity);
+        if (!grown)
+            return -1;
+        *out = grown;
+        *capacity = new_capacity;
+    }
+
+    int written = snprintf(*out + *length, *capacity - *length,
+                           "[%s] %s\n", category, memory);
+    if (written < 0 || (size_t)written >= *capacity - *length)
+        return -1;
+    *length += (size_t)written;
+    return 0;
+}
+
+static char *get_relevant_memories(const char *query, int limit)
 {
     if (limit <= 0)
         return xstrdup("");
-
     if (limit > MAX_RELEVANT_MEMORIES)
         limit = MAX_RELEVANT_MEMORIES;
 
     char keywords[MAX_MEMORY_KEYWORDS][64];
-
-    size_t keyword_count =
-        extract_memory_keywords(
-            query,
-            keywords
-        );
-
-    size_t cap = 1024;
-    size_t len = 0;
-
-    char *out =
-        malloc(cap);
-
+    size_t keyword_count = extract_memory_keywords(query, keywords);
+    size_t capacity = 1024;
+    size_t length = 0;
+    char *out = malloc(capacity);
     if (!out)
         return NULL;
-
     out[0] = '\0';
 
     pthread_mutex_lock(&db_lock);
+    if (!db) {
+        fprintf(stderr, "[R2 memory] Current-turn retrieval has no open memory database.\n");
+        pthread_mutex_unlock(&db_lock);
+        free(out);
+        return NULL;
+    }
 
-    /*
-       If useful keywords exist, score memories according to how
-       many query words occur in the memory text/category.
-
-       SQLite performs the initial candidate search. The C side
-       then scores candidates so a memory matching several terms
-       outranks one matching only one.
-    */
+    int failed = 0;
+    sqlite3_stmt *st = NULL;
+    int rc = SQLITE_OK;
 
     if (keyword_count > 0) {
+        const char *sql = "SELECT id,memory,category,updated_at FROM memories";
+        rc = sqlite3_prepare_v2(db, sql, -1, &st, NULL);
+        if (rc != SQLITE_OK) {
+            fprintf(stderr, "[R2 memory] Could not prepare current-turn retrieval: %s\n",
+                    sqlite3_errmsg(db));
+            failed = 1;
+        }
 
-        /* Ranking below compares score and timestamp directly, so SQLite
-           need not sort the entire table before the bounded top-k scan. */
-        const char *sql =
-            "SELECT id,memory,category,updated_at "
-            "FROM memories";
+        typedef struct {
+            sqlite3_int64 id;
+            char *memory;
+            char *category;
+            char *updated_at;
+            int score;
+        } MemoryCandidate;
 
-        sqlite3_stmt *st = NULL;
+        MemoryCandidate *candidates = NULL;
+        size_t count = 0;
+        if (!failed) {
+            candidates = calloc((size_t)limit, sizeof(*candidates));
+            if (!candidates) {
+                fprintf(stderr, "[R2 memory] Could not allocate current-turn retrieval ranking.\n");
+                failed = 1;
+            }
+        }
 
-        if (
-            sqlite3_prepare_v2(
-                db,
-                sql,
-                -1,
-                &st,
-                NULL
-            ) == SQLITE_OK
-        ) {
-
-            typedef struct {
-                sqlite3_int64 id;
-                char *memory;
-                char *category;
-                char *updated_at;
-                int score;
-            } MemoryCandidate;
-
-            /* Keep only the best `limit` records, avoiding an unbounded
-             * candidate array and a quadratic full-database sort. */
-            MemoryCandidate *candidates =
-                calloc((size_t)limit, sizeof(*candidates));
-            size_t count = 0;
-
-            if (candidates) {
-                while (sqlite3_step(st) == SQLITE_ROW) {
-                    const char *memory = (const char *)sqlite3_column_text(st, 1);
-                    const char *category = (const char *)sqlite3_column_text(st, 2);
-                    const char *updated = (const char *)sqlite3_column_text(st, 3);
-                    if (!memory) memory = "";
-                    if (!category) category = "";
-                    if (!updated) updated = "";
-
-                    size_t combined_len = strlen(memory) + strlen(category) + 2;
-                    char *combined = malloc(combined_len + 1);
-                    if (!combined)
-                        break;
-                    snprintf(combined, combined_len + 1, "%s %s", memory, category);
-                    for (char *p = combined; *p; ++p)
-                        *p = (char)tolower((unsigned char)*p);
-
-                    int score = 0;
-                    int matched_keywords = 0;
-                    for (size_t k = 0; k < keyword_count; ++k) {
-                        if (r2_memory_has_keyword(combined, keywords[k])) {
-                            size_t keyword_length = strlen(keywords[k]);
-                            score += keyword_length >= 9 ? 4 :
-                                     keyword_length >= 6 ? 2 : 1;
-                            ++matched_keywords;
-                        }
-                    }
-                    if (matched_keywords > 1)
-                        score += matched_keywords - 1;
-                    free(combined);
-                    if (score <= 0)
-                        continue;
-
-                    /* Rank by score, timestamp, then durable ID. The final
-                     * tie-break keeps retrieval deterministic even when legacy
-                     * records share the same timestamp. */
-                    sqlite3_int64 candidate_id = sqlite3_column_int64(st, 0);
-                    size_t insert_at = 0;
-                    while (insert_at < count &&
-                           (candidates[insert_at].score > score ||
-                            (candidates[insert_at].score == score &&
-                             (strcmp(candidates[insert_at].updated_at, updated) > 0 ||
-                              (strcmp(candidates[insert_at].updated_at, updated) == 0 &&
-                               candidates[insert_at].id >= candidate_id)))))
-                        ++insert_at;
-                    if (insert_at >= (size_t)limit)
-                        continue;
-
-                    char *memory_copy = xstrdup(memory);
-                    char *category_copy = xstrdup(category);
-                    char *updated_copy = xstrdup(updated);
-                    if (!memory_copy || !category_copy || !updated_copy) {
-                        free(memory_copy);
-                        free(category_copy);
-                        free(updated_copy);
-                        break;
-                    }
-
-                    if (count == (size_t)limit) {
-                        free(candidates[count - 1].memory);
-                        free(candidates[count - 1].category);
-                        free(candidates[count - 1].updated_at);
-                    } else {
-                        ++count;
-                    }
-                    for (size_t j = count - 1; j > insert_at; --j)
-                        candidates[j] = candidates[j - 1];
-
-                    candidates[insert_at].id = sqlite3_column_int64(st, 0);
-                    candidates[insert_at].memory = memory_copy;
-                    candidates[insert_at].category = category_copy;
-                    candidates[insert_at].updated_at = updated_copy;
-                    candidates[insert_at].score = score;
-                }
+        while (!failed) {
+            rc = sqlite3_step(st);
+            if (rc == SQLITE_DONE)
+                break;
+            if (rc != SQLITE_ROW) {
+                fprintf(stderr, "[R2 memory] Current-turn retrieval failed while reading rows: %s\n",
+                        sqlite3_errmsg(db));
+                failed = 1;
+                break;
             }
 
+            const char *memory = (const char *)sqlite3_column_text(st, 1);
+            const char *category = (const char *)sqlite3_column_text(st, 2);
+            const char *updated = (const char *)sqlite3_column_text(st, 3);
+            if (!memory) memory = "";
+            if (!category) category = "";
+            if (!updated) updated = "";
+
+            size_t memory_length = strlen(memory);
+            size_t category_length = strlen(category);
+            if (category_length > SIZE_MAX - 2 ||
+                memory_length > SIZE_MAX - category_length - 2) {
+                failed = 1;
+                break;
+            }
+            size_t combined_length = memory_length + category_length + 2;
+            char *combined = malloc(combined_length + 1);
+            if (!combined) {
+                fprintf(stderr, "[R2 memory] Could not allocate a retrieval candidate.\n");
+                failed = 1;
+                break;
+            }
+            snprintf(combined, combined_length + 1, "%s %s", memory, category);
+            for (char *p = combined; *p; ++p)
+                *p = (char)tolower((unsigned char)*p);
+
+            int score = 0;
+            int matched_keywords = 0;
+            for (size_t k = 0; k < keyword_count; ++k) {
+                if (r2_memory_has_keyword(combined, keywords[k])) {
+                    size_t keyword_length = strlen(keywords[k]);
+                    score += keyword_length >= 9 ? 4 :
+                             keyword_length >= 6 ? 2 : 1;
+                    ++matched_keywords;
+                }
+            }
+            if (matched_keywords > 1)
+                score += matched_keywords - 1;
+            free(combined);
+            if (score <= 0)
+                continue;
+
+            sqlite3_int64 candidate_id = sqlite3_column_int64(st, 0);
+            size_t insert_at = 0;
+            while (insert_at < count &&
+                   (candidates[insert_at].score > score ||
+                    (candidates[insert_at].score == score &&
+                     (strcmp(candidates[insert_at].updated_at, updated) > 0 ||
+                      (strcmp(candidates[insert_at].updated_at, updated) == 0 &&
+                       candidates[insert_at].id >= candidate_id)))))
+                ++insert_at;
+            if (insert_at >= (size_t)limit)
+                continue;
+
+            char *memory_copy = xstrdup(memory);
+            char *category_copy = xstrdup(category);
+            char *updated_copy = xstrdup(updated);
+            if (!memory_copy || !category_copy || !updated_copy) {
+                free(memory_copy);
+                free(category_copy);
+                free(updated_copy);
+                fprintf(stderr, "[R2 memory] Could not retain a ranked retrieval candidate.\n");
+                failed = 1;
+                break;
+            }
+
+            if (count == (size_t)limit) {
+                free(candidates[count - 1].memory);
+                free(candidates[count - 1].category);
+                free(candidates[count - 1].updated_at);
+            } else {
+                ++count;
+            }
+            for (size_t j = count - 1; j > insert_at; --j)
+                candidates[j] = candidates[j - 1];
+            candidates[insert_at].id = candidate_id;
+            candidates[insert_at].memory = memory_copy;
+            candidates[insert_at].category = category_copy;
+            candidates[insert_at].updated_at = updated_copy;
+            candidates[insert_at].score = score;
+        }
+
+        if (st) {
             sqlite3_finalize(st);
             st = NULL;
-
-            size_t selected = 0;
-
-            for (
-                size_t i = 0;
-                i < count &&
-                selected < (size_t)limit;
-                ++i
-            ) {
-
-                size_t needed =
-                    strlen(
-                        candidates[i].memory
-                    ) +
-                    strlen(
-                        candidates[i].category
-                    ) +
-                    16;
-
-                if (
-                    len +
-                    needed +
-                    1 >
-                    cap
-                ) {
-
-                    size_t new_cap =
-                        cap;
-
-                    while (
-                        len +
-                        needed +
-                        1 >
-                        new_cap
-                    )
-                        new_cap *= 2;
-
-                    char *grown =
-                        realloc(
-                            out,
-                            new_cap
-                        );
-
-                    if (!grown) {
-
-                        for (
-                            size_t j = 0;
-                            j < count;
-                            ++j
-                        ) {
-                            free(
-                                candidates[j].memory
-                            );
-                            free(
-                                candidates[j].category
-                            );
-                            free(
-                                candidates[j].updated_at
-                            );
-                        }
-
-                        free(candidates);
-
-                        pthread_mutex_unlock(
-                            &db_lock
-                        );
-
-                        free(out);
-
-                        return NULL;
-                    }
-
-                    out = grown;
-                    cap = new_cap;
-                }
-
-                int added =
-                    snprintf(
-                        out + len,
-                        cap - len,
-                        "[%s] %s\n",
-                        candidates[i].category,
-                        candidates[i].memory
-                    );
-
-                if (added > 0)
-                    len += (size_t)added;
-
-                selected++;
-            }
-
-            for (
-                size_t i = 0;
-                i < count;
-                ++i
-            ) {
-
-                free(
-                    candidates[i].memory
-                );
-
-                free(
-                    candidates[i].category
-                );
-
-                free(
-                    candidates[i].updated_at
-                );
-            }
-
-            free(candidates);
         }
-
+        if (!failed) {
+            for (size_t i = 0; i < count; ++i) {
+                if (append_memory_record(&out, &length, &capacity,
+                                         candidates[i].category,
+                                         candidates[i].memory) != 0) {
+                    fprintf(stderr, "[R2 memory] Could not serialize complete retrieved memory context.\n");
+                    failed = 1;
+                    break;
+                }
+            }
+        }
+        for (size_t i = 0; i < count; ++i) {
+            free(candidates[i].memory);
+            free(candidates[i].category);
+            free(candidates[i].updated_at);
+        }
+        free(candidates);
     } else {
-
-        /*
-           Generic exchanges may not contain useful searchable
-           keywords. In that case provide a small recent-memory
-           fallback rather than dumping the entire memory database.
-        */
-
         const char *sql =
-            "SELECT memory,category "
-            "FROM memories "
-            "ORDER BY updated_at DESC "
-            "LIMIT ?";
-
-        sqlite3_stmt *st = NULL;
-
-        if (
-            sqlite3_prepare_v2(
-                db,
-                sql,
-                -1,
-                &st,
-                NULL
-            ) == SQLITE_OK
-        ) {
-
-            sqlite3_bind_int(
-                st,
-                1,
-                limit
-            );
-
-            while (
-                sqlite3_step(st) ==
-                SQLITE_ROW
-            ) {
-
-                const char *memory =
-                    (const char *)
-                    sqlite3_column_text(
-                        st,
-                        0
-                    );
-
-                const char *category =
-                    (const char *)
-                    sqlite3_column_text(
-                        st,
-                        1
-                    );
-
-                memory =
-                    memory
-                        ? memory
-                        : "";
-
-                category =
-                    category
-                        ? category
-                        : "general";
-
-                size_t needed =
-                    strlen(memory) +
-                    strlen(category) +
-                    16;
-
-                if (
-                    len +
-                    needed +
-                    1 >
-                    cap
-                ) {
-
-                    size_t new_cap =
-                        cap;
-
-                    while (
-                        len +
-                        needed +
-                        1 >
-                        new_cap
-                    )
-                        new_cap *= 2;
-
-                    char *grown =
-                        realloc(
-                            out,
-                            new_cap
-                        );
-
-                    if (!grown) {
-
-                        sqlite3_finalize(st);
-
-                        pthread_mutex_unlock(
-                            &db_lock
-                        );
-
-                        free(out);
-
-                        return NULL;
-                    }
-
-                    out = grown;
-                    cap = new_cap;
-                }
-
-                int added =
-                    snprintf(
-                        out + len,
-                        cap - len,
-                        "[%s] %s\n",
-                        category,
-                        memory
-                    );
-
-                if (added > 0)
-                    len +=
-                        (size_t)added;
+            "SELECT memory,category FROM memories ORDER BY updated_at DESC LIMIT ?";
+        rc = sqlite3_prepare_v2(db, sql, -1, &st, NULL);
+        if (rc != SQLITE_OK) {
+            fprintf(stderr, "[R2 memory] Could not prepare recent-memory context: %s\n",
+                    sqlite3_errmsg(db));
+            failed = 1;
+        }
+        if (!failed) {
+            rc = sqlite3_bind_int(st, 1, limit);
+            if (rc != SQLITE_OK) {
+                fprintf(stderr, "[R2 memory] Could not bind recent-memory limit: %s\n",
+                        sqlite3_errmsg(db));
+                failed = 1;
             }
         }
-
-        sqlite3_finalize(st);
+        while (!failed) {
+            rc = sqlite3_step(st);
+            if (rc == SQLITE_DONE)
+                break;
+            if (rc != SQLITE_ROW) {
+                fprintf(stderr, "[R2 memory] Recent-memory query failed while reading rows: %s\n",
+                        sqlite3_errmsg(db));
+                failed = 1;
+                break;
+            }
+            const char *memory = (const char *)sqlite3_column_text(st, 0);
+            const char *category = (const char *)sqlite3_column_text(st, 1);
+            if (!memory) memory = "";
+            if (!category) category = "general";
+            if (append_memory_record(&out, &length, &capacity, category, memory) != 0) {
+                fprintf(stderr, "[R2 memory] Could not serialize recent-memory context.\n");
+                failed = 1;
+                break;
+            }
+        }
+        if (st)
+            sqlite3_finalize(st);
     }
 
     pthread_mutex_unlock(&db_lock);
-
+    if (failed) {
+        free(out);
+        return NULL;
+    }
     return out;
 }
-
 
 /* ============================================================
    SAFE WORKSPACE PATHS
