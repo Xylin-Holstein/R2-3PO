@@ -899,12 +899,16 @@ int64_t r2_log_conversation_turn(const char *user_text,
     /* The event-stream insert succeeded, but do not leave a failed archive
        write silent: it breaks the dedicated full-turn conversation history. */
     if (archive_error[0]) {
+        char failure_details[768];
+        snprintf(failure_details, sizeof(failure_details),
+                 "conversation_event_id=%lld\\n%s",
+                 (long long)event_id, archive_error);
         (void)r2_log_event(
             R2_LOG_ERROR, "conversation_archive_insert_failed",
             "Conversation turn is searchable in the Life Log, but its dedicated archive row was not written.",
-            archive_error, "r2_log_conversation_turn");
-        fprintf(stderr, "[R2 Life Log] Conversation archive insert failed: %s\n",
-                archive_error);
+            failure_details, "r2_log_conversation_turn");
+        fprintf(stderr, "[R2 Life Log] Conversation archive insert failed for event %lld: %s\\n",
+                (long long)event_id, archive_error);
     }
 
     return event_id;
