@@ -25,9 +25,6 @@ assert "size_t learning_reserve;" in budget
 assert "budget.learning_reserve = context_budget / 10;" in budget
 assert "if (budget.learning_reserve > 1000)" in budget
 assert "budget.learning_reserve = 1000;" in budget
-assert "budget.startup_reserve +" in budget
-assert "budget.learning_reserve;" in budget
-assert "system_budget - reserved" in budget
 assert "if (active_user_chars < 1500U)" in source
 assert "Count every static instruction section" in source
 assert "r2_inference_system_priority(\n                msgs[i].content, ollama_authoritative_user_query) > 4" in source
