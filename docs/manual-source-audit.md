@@ -308,3 +308,10 @@ The earlier 20-layer / 8192-context default and its post-failure 12-layer / 4096
 - **Fix:** Keep the 4096-token context but lower the GTX 1050 Ti default to 8 GPU layers across interactive launch, overnight service, and trusted installer preflight. This moves more layer memory into system RAM and leaves additional VRAM for multimodal cache/vision allocations. Updated the installer’s pinned bootstrap blob and commit together with the documentation and policy tests.
 - **Validation:** The previous diagnostic-only commit passed workflow run #5573 (94/94 steps). The new 8-layer policy has not yet completed its own CI run and has not been verified by a live target-host inference; neither is claimed as complete.
 
+### AUDIT-036 — Startup persistent memories could be starved by the system-prompt budget
+- **Files:** `r2.c`, `tests/startup_memory_budget_smoke.py`.
+- **Severity:** High / learned identity and continuity regression under a tight context window.
+- **Evidence:** `r2_compute_system_context_budget()` previously assigned every byte left after the identity, Reality, retrieval, and capability reserves to `override_budget`. The serializer begins `total_chars` at the system override length and only considers startup memories at priority 5, after those earlier categories. When the earlier budgets were filled, the startup block containing the newest 100 database memories could receive zero bytes. That can make a learned relationship or other persistent fact disappear from the model's actual prompt, even while the database and startup context exist in process memory.
+- **Fix:** Reserve a bounded, explicit share for `R2 PERSISTENT MEMORY - STARTUP CONTEXT` before computing the override budget. This is a general database-evidence allocation, not a hard-coded identity or relationship rule. The current user turn and current-turn retrieved evidence retain their existing independent path and priority.
+- **Validation:** Added a regression smoke test for the startup reserve and priority contract. CI has not yet validated this change; target-host inference and database round-trip compatibility remain unverified and are not claimed complete.
+
