@@ -511,3 +511,8 @@ jobs:
         run: |
           python3 -m py_compile tests/affect_mother_conversation_smoke.py
           python3 tests/affect_mother_conversation_smoke.py
+
+      - name: Check clock-aware XmasShell and SpookyShell themes
+        run: |
+          python3 -m py_compile tests/seasonal_shell_smoke.py
+          python3 tests/seasonal_shell_smoke.py
