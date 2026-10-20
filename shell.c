@@ -380,29 +380,84 @@ static int shell_starts_with(
    OUTPUT
    ============================================================ */
 
-static void shell_banner(void)
+static const char *shell_theme(void)
 {
-    printf(
-        "\n"
-        "============================================================\n"
-        "                     ROBOBOT3000\n"
-        "                         R2-3PO\n"
-        "============================================================\n"
-        "%s\n"
-        "\n"
-        "Type 'help' for commands.\n"
-        "Normal text is sent directly to R2.\n"
-        "============================================================\n"
-        "\n",
-        VERSION_STRING
-    );
+    const char *requested = getenv("R2_SHELL_THEME");
+    if (requested && *requested) {
+        if (!strcasecmp(requested, "xmas") ||
+            !strcasecmp(requested, "christmas") ||
+            !strcasecmp(requested, "xmasshell"))
+            return "xmas";
+        if (!strcasecmp(requested, "spooky") ||
+            !strcasecmp(requested, "halloween") ||
+            !strcasecmp(requested, "spookyshell"))
+            return "spooky";
+        if (!strcasecmp(requested, "classic"))
+            return "classic";
+    }
+
+    /* R2's libfaketime clock intentionally drives seasonal presentation. */
+    time_t now = time(NULL);
+    struct tm local_now;
+    if (now != (time_t)-1 && localtime_r(&now, &local_now)) {
+        if (local_now.tm_mon == 9)
+            return "spooky";
+        if (local_now.tm_mon == 11)
+            return "xmas";
+    }
+    return "classic";
 }
 
+static void shell_banner(void)
+{
+    const char *theme = shell_theme();
+    if (!strcmp(theme, "spooky")) {
+        printf(
+            "\n"
+            " .-=========-.\n"
+            " | SPOOKYSHELL |\n"
+            " '--- R2-3PO --'\n"
+            "%s\n"
+            "Type 'help' for commands. Normal text is sent directly to R2.\n\n",
+            VERSION_STRING);
+    } else if (!strcmp(theme, "xmas")) {
+        printf(
+            "\n"
+            "       *\n"
+            "      /\\\n"
+            "     /R2\\\n"
+            "    / *  \\\n"
+            "   /______\\\n"
+            "    XMAS SHELL\n"
+            "      R2-3PO\n"
+            "%s\n"
+            "Type 'help' for commands. Normal text is sent directly to R2.\n\n",
+            VERSION_STRING);
+    } else {
+        printf(
+            "\n"
+            "============================================================\n"
+            "                     ROBOBOT3000\n"
+            "                         R2-3PO\n"
+            "============================================================\n"
+            "%s\n"
+            "\n"
+            "Type 'help' for commands.\n"
+            "Normal text is sent directly to R2.\n"
+            "============================================================\n"
+            "\n",
+            VERSION_STRING
+        );
+    }
+}
 
 static void shell_prompt(void)
 {
+    const char *theme = shell_theme();
+    const char *prompt = !strcmp(theme, "spooky") ? "[SPOOKY] R2> " :
+                         !strcmp(theme, "xmas") ? "[XMAS] R2> " : SHELL_PROMPT;
     fflush(stdout);
-    printf("%s", SHELL_PROMPT);
+    printf("%s", prompt);
     fflush(stdout);
 }
 
