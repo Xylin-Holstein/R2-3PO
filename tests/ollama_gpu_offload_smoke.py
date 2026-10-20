@@ -24,8 +24,8 @@ for needle in required:
 
 if "GTX 1050 Ti" not in launcher or "export R2_OLLAMA_NUM_GPU=8" not in launcher:
     raise SystemExit("Interactive launcher must start with the conservative 8-layer offload policy on the GTX 1050 Ti.")
-if "export R2_OLLAMA_NUM_CTX=4096" not in launcher:
-    raise SystemExit("Interactive launcher must default to 4096 context tokens on the 4 GiB GTX 1050 Ti.")
+if "export R2_OLLAMA_NUM_CTX=8192" not in launcher:
+    raise SystemExit("Interactive launcher must default to 8192 context tokens on the 4 GiB GTX 1050 Ti.")
 if "retrying with 12 GPU layers and 4096 context tokens" in launcher:
     raise SystemExit("Interactive launcher must not deliberately run an oversized probe before retrying conservatively.")
 if 'R2_OLLAMA_NUM_GPU="${R2_OLLAMA_NUM_GPU}"' not in launcher:
@@ -50,7 +50,7 @@ if "size_vram" not in preflight or "nvidia-smi" not in preflight:
     raise SystemExit("Ollama preflight must report model VRAM and visible NVIDIA hardware.")
 if "R2_OLLAMA_NUM_GPU=8" not in readme or "4096" not in readme or "4 GiB VRAM" not in readme:
     raise SystemExit("Documentation must explain the conservative GTX 1050 Ti mixed-placement policy.")
-if 'PREFLIGHT_GPU=8' not in bootstrap or 'PREFLIGHT_CTX=4096' not in bootstrap:
+if 'PREFLIGHT_GPU=8' not in bootstrap or 'PREFLIGHT_CTX=8192' not in bootstrap:
     raise SystemExit("Trusted installer must preflight the same conservative 8-layer / 4096-context policy.")
 if "20-layer/8192-context" in bootstrap or "retrying with 12 GPU layers and 4096 context tokens" in bootstrap:
     raise SystemExit("Trusted installer must not provoke the known oversized allocation before falling back.")
