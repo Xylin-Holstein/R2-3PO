@@ -144,7 +144,6 @@ static _Thread_local int vision_watch_worker_context = 0;
 static int vision_watch_thread_started = 0;
 static int query_requests_visual_context(const char *query);
 static char *vision_analyze_current_frame(const char *question, int open_camera);
-char *r2_recent_conversation_context(const char *exclude_latest, size_t max_chars);
 
 static pthread_mutex_t db_lock =
     PTHREAD_MUTEX_INITIALIZER;
