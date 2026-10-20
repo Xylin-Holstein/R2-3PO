@@ -1185,7 +1185,13 @@ int64_t r2_log_activity_start(const char *activity_key,
         -1, &statement, NULL);
     if (rc == SQLITE_OK) {
         sqlite3_bind_text(statement, 1, activity_key, -1, SQLITE_TRANSIENT);
-        rc = sqlite3_step(statement) == SQLITE_ROW ? SQLITE_CONSTRAINT : SQLITE_OK;
+        int step_rc = sqlite3_step(statement);
+        if (step_rc == SQLITE_ROW)
+            rc = SQLITE_CONSTRAINT;
+        else if (step_rc == SQLITE_DONE)
+            rc = SQLITE_OK;
+        else
+            rc = step_rc;
     }
     if (statement) sqlite3_finalize(statement);
     pthread_mutex_unlock(&log_lock);
@@ -1207,8 +1213,6 @@ int64_t r2_log_activity_start(const char *activity_key,
         "start_monotonic_ms,start_event_id,status) VALUES (?,?,?,?,?,?,?,'active')",
         -1, &statement, NULL);
     if (rc == SQLITE_OK) {
-        char summary[1024];
-        (void)summary;
         sqlite3_bind_text(statement, 1, activity_key, -1, SQLITE_TRANSIENT);
         sqlite3_bind_text(statement, 2, activity_name, -1, SQLITE_TRANSIENT);
         sqlite3_bind_text(statement, 3, utc, -1, SQLITE_TRANSIENT);
