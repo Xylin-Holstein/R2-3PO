@@ -60,8 +60,8 @@ for required in (
     "budget.identity_budget = system_budget / 4;",
     "budget.retrieval_reserve = system_budget / 8;",
     "budget.capabilities_reserve = system_budget / 16;",
-    "budget.startup_reserve = system_budget / 8;",
-    "budget.learning_reserve = system_budget / 16;",
+    "budget.startup_reserve = system_budget / 10;",
+    "budget.learning_reserve = system_budget / 10;",
     "budget.startup_reserve +",
     "budget.learning_reserve;",
     "budget.override_budget = system_budget > reserved",
@@ -128,8 +128,8 @@ def allocation_for_context(num_ctx: int, num_predict: int, override_length: int,
         identity_minimum = 1000
     retrieval_reserve = system_budget // 8
     capabilities_reserve = system_budget // 16
-    startup_reserve = min(system_budget // 8, 1600)
-    learning_reserve = min(system_budget // 16, 1000)
+    startup_reserve = min(system_budget // 10, 1600)
+    learning_reserve = min(system_budget // 10, 1000)
     identity_budget = min(identity_minimum, system_budget - reality_reserve)
     reserved = (reality_reserve + identity_budget + retrieval_reserve
                 + capabilities_reserve + startup_reserve + learning_reserve)
