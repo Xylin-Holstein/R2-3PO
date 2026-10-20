@@ -436,7 +436,7 @@ char *r2_addiction_report(void)
     pthread_mutex_lock(&addiction_lock);
     if (ensure_db_locked() != 0) {
         pthread_mutex_unlock(&addiction_lock);
-        return strdup("Addiction context unavailable: the database could not be opened.\\n");
+        return strdup("Addiction context unavailable: the database could not be opened.\n");
     }
 
     const char *sql =
@@ -447,11 +447,11 @@ char *r2_addiction_report(void)
     sqlite3_stmt *st = NULL;
     int rc = sqlite3_prepare_v2(addiction_db, sql, -1, &st, NULL);
     if (rc != SQLITE_OK) {
-        fprintf(stderr, "[R2 Addiction] Could not prepare learning context: %s\\n",
+        fprintf(stderr, "[R2 Addiction] Could not prepare learning context: %s\n",
                 sqlite3_errmsg(addiction_db));
         if (st) sqlite3_finalize(st);
         pthread_mutex_unlock(&addiction_lock);
-        return strdup("Addiction context unavailable: learning records could not be read.\\n");
+        return strdup("Addiction context unavailable: learning records could not be read.\n");
     }
 
     sqlite3_int64 since = (sqlite3_int64)time(NULL) - 14 * 86400;
@@ -459,11 +459,11 @@ char *r2_addiction_report(void)
     if (rc == SQLITE_OK)
         rc = sqlite3_bind_int64(st, 2, since);
     if (rc != SQLITE_OK) {
-        fprintf(stderr, "[R2 Addiction] Could not bind learning-context window: %s\\n",
+        fprintf(stderr, "[R2 Addiction] Could not bind learning-context window: %s\n",
                 sqlite3_errmsg(addiction_db));
         sqlite3_finalize(st);
         pthread_mutex_unlock(&addiction_lock);
-        return strdup("Addiction context unavailable: learning records could not be read.\\n");
+        return strdup("Addiction context unavailable: learning records could not be read.\n");
     }
 
     size_t cap = 2048, len = 0;
@@ -488,7 +488,7 @@ char *r2_addiction_report(void)
         const unsigned char *status = sqlite3_column_text(st, 3);
         char line[512];
         int n = snprintf(line, sizeof(line),
-            "%.160s [%.24s] enjoyment=%d/100; choices/14d=%d; choice_days=%d; status=%.24s\\n",
+            "%.160s [%.24s] enjoyment=%d/100; choices/14d=%d; choice_days=%d; status=%.24s\n",
             target ? (const char *)target : "unknown",
             type ? (const char *)type : "activity",
             sqlite3_column_int(st, 2), sqlite3_column_int(st, 4),
@@ -529,20 +529,20 @@ char *r2_addiction_report(void)
     if (!omitted && !failed && rc != SQLITE_DONE)
         failed = 1;
     if (failed)
-        fprintf(stderr, "[R2 Addiction] Learning-context query/serialization failed: %s\\n",
+        fprintf(stderr, "[R2 Addiction] Learning-context query/serialization failed: %s\n",
                 sqlite3_errmsg(addiction_db));
     sqlite3_finalize(st);
     pthread_mutex_unlock(&addiction_lock);
 
     if (failed) {
         free(out);
-        return strdup("Addiction context unavailable: learning records could not be read completely.\\n");
+        return strdup("Addiction context unavailable: learning records could not be read completely.\n");
     }
     if (!rows) {
         snprintf(out, cap,
-            "No repeated-interest records yet. A single enjoyable experience does not establish an addiction.\\n");
+            "No repeated-interest records yet. A single enjoyable experience does not establish an addiction.\n");
     } else if (omitted) {
-        const char *note = "Additional repeated-interest records omitted from chat context; full history remains stored.\\n";
+        const char *note = "Additional repeated-interest records omitted from chat context; full history remains stored.\n";
         size_t note_len = strlen(note);
         if (note_len > SIZE_MAX - len - 1) {
             free(out);
