@@ -50,8 +50,6 @@ int r2_reality_remove_item(const char *name);
 /* Tracked food always uses its configured XML metric; fullness is retained for
    API compatibility but cannot override the authoritative metric. */
 int r2_reality_eat(const char *food, double fullness);
-/* Deterministic safety fallback: if fullness is below 50/100, consume verified accessible food. Returns 1 if fed, 0 if unnecessary/unavailable, -1 on error. */
-int r2_reality_autonomous_feed_if_needed(void);
 int r2_reality_autonomous_food_available(void);
 char *r2_reality_food_context(const char *food);
 int r2_reality_rate_food(const char *food, int satisfaction, const char *notes);
