@@ -33,8 +33,8 @@ assert "return 5;" in priority and "return 6;" in priority
 assert '"RECENT PERSISTED CONVERSATION CONTEXT"' in priority
 assert "return 7;" in priority
 
-startup_start = source.find("snprintf(\\n        startup_context,")
-startup_end = source.find("\\n    );", startup_start)
+startup_start = source.find("snprintf(\n        startup_context,")
+startup_end = source.find("\n    );", startup_start)
 assert startup_start >= 0 and startup_end > startup_start
 startup_builder = source[startup_start:startup_end]
 assert "newest %d records;" in startup_builder
