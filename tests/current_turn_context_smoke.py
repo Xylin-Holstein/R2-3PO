@@ -100,9 +100,9 @@ require(
     'static _Thread_local const char *ollama_audit_stage = "unspecified";' in core
     and 'ollama_audit_stage = "association-planner";' in core
     and 'ollama_audit_stage = "conversation-answer";' in core
-    and '"[R2 Prompt Audit] stage=%s payload_chars=%zu' in core
-    and '"conversation-retry"' not in core,
-    "prompt diagnostics distinguish associative planning from the actual answer without a heuristic retry stage",
+    and 'ollama_audit_stage = "conversation-retry";' in core
+    and '"[R2 Prompt Audit] stage=%s payload_chars=%zu' in core,
+    "prompt diagnostics distinguish associative planning, the primary answer, and the corrective recovery inference",
 )
 recent_start = core.find("char *r2_recent_conversation_context(")
 recent_end = core.find("static char *chat_with_relevant_memories(", recent_start)
