@@ -11973,7 +11973,6 @@ void r2_shutdown(void)
     /* Close independent persistent engines before the shared Life Log/diary/core DB. */
     r2_reality_shutdown();
     r2_addiction_shutdown();
-    r2_addiction_shutdown();
     r2_reward_shutdown();
 
     if (r2_log_is_initialized()) {
