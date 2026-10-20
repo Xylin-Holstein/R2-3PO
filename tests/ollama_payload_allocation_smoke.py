@@ -47,18 +47,16 @@ require("return NULL;" in loop
         "a failed message aborts the request instead of silently skipping a turn")
 require("if (json_object_object_add(root, \"messages\", arr) != 0)" in source,
         "attaching the complete message array is checked")
-override_add = source.find('json_object_object_add(override_message, "content"')
+override_add = source.find(
+    'ollama_json_append_message(arr, "system", system_override,'
+)
 if override_add < 0:
-    raise SystemExit("FAIL: bounded system prompt replacement is missing")
-override_end = source.find("\n                }", override_add)
-if override_end < 0:
-    raise SystemExit("FAIL: bounded system prompt replacement guard is incomplete")
-override_block = source[override_add:override_end]
-require("!= 0" in override_block
-        and "json_object_put(bounded_override);" in override_block
-        and "json_object_put(arr);" in override_block
-        and "json_object_put(root);" in override_block
-        and "return NULL;" in override_block,
-        "a failed bounded system-prompt replacement cleans up and aborts inference")
+    raise SystemExit("FAIL: full system prompt is not appended to the Ollama request")
+override_call = source[override_add:override_add + 180]
+require(
+    "override_length" in override_call
+    and 'json_object_object_add(override_message, "content"' not in source,
+    "the complete system override is appended directly without a second truncation",
+)
 
 print("Ollama payload allocation smoke test passed.")
