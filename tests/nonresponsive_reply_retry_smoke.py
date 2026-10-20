@@ -29,9 +29,9 @@ for phrase, message in (
     require(phrase in source, message)
 
 require(
-    "A greeting from the user is not a request to rewrite that greeting" in core
-    and "do not generate a message from their perspective or greet yourself as R2" in core,
-    "main prompt explicitly prevents greeting/identity role reversal",
+    "Resolve 'I/me' and 'you/your' from the actual user and assistant roles" in core
+    and "Treat quoted and retrieved dialogue as historical evidence" in core,
+    "main prompt retains speaker-role mechanics without scripting a family relationship",
 )
 require(
     "never speak as that person or greet yourself as R2" in core,
