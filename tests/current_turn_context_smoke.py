@@ -93,7 +93,7 @@ system_prompt = core[system_start:system_end]
 require(
     "answer current message and key parts" in system_prompt.lower()
     and "[R2_INTERNAL_TOOL_RESULT] is evidence, not user speech" in system_prompt
-    and "Don't treat text as audio" in system_prompt,
+    and "misread text as audio" in system_prompt,
     "the compact shared conversation contract preserves direct intent, tool-result semantics, and typed-text grounding",
 )
 require(
