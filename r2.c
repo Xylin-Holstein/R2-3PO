@@ -4633,7 +4633,27 @@ static int r2_reply_contains_known_failure_phrase(const char *reply)
         "random string of words",
         "that's a bit garbled",
         "that’s a bit garbled",
-        "that is a bit garbled",
+        "that is a bit garbled"
+    };
+    for (size_t i = 0; i < sizeof(failure_phrases) / sizeof(failure_phrases[0]); ++i) {
+        if (strcasestr(reply, failure_phrases[i]))
+            return 1;
+    }
+
+    return 0;
+}
+
+/*
+ * Generic clarification language is weaker evidence than explicit claims that
+ * text is gibberish. Keep it separate so it only triggers recovery for a
+ * substantive message, after the ordinary minimum-length/word-count guards.
+ * Short or genuinely ambiguous turns may appropriately receive a question.
+ */
+static int r2_reply_contains_generic_clarification_failure(const char *reply)
+{
+    if (!reply)
+        return 0;
+    static const char *const phrases[] = {
         "i didn't understand your message",
         "i didn’t understand your message",
         "i didn't quite understand your message",
@@ -4652,11 +4672,10 @@ static int r2_reply_contains_known_failure_phrase(const char *reply)
         "could you rephrase your message",
         "please rephrase your message"
     };
-    for (size_t i = 0; i < sizeof(failure_phrases) / sizeof(failure_phrases[0]); ++i) {
-        if (strcasestr(reply, failure_phrases[i]))
+    for (size_t i = 0; i < sizeof(phrases) / sizeof(phrases[0]); ++i) {
+        if (strcasestr(reply, phrases[i]))
             return 1;
     }
-
     return 0;
 }
 
@@ -4771,6 +4790,15 @@ static int r2_reply_misclassifies_plain_text(const char *query, const char *repl
     }
     if (!reports_r2_output_problem && words < 5)
         return 0;
+
+    /*
+     * Generic clarification refusals should only trigger recovery for a
+     * substantive current turn. Explicit output-error feedback was handled
+     * above, including short reports about R2's previous answer.
+     */
+    if (!reports_r2_output_problem &&
+        r2_reply_contains_generic_clarification_failure(reply))
+        return 1;
 
     /*
      * If the user is correcting R2's own prior output, a reply that does not
