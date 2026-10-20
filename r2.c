@@ -9275,7 +9275,9 @@ static void autonomous_needs_check(void)
     if (shutting_down || !r2_reality_is_initialized()) return;
     char *state = r2_reality_context();
     if (!state) {
-
+        r2_log_event(R2_LOG_ERROR, "autonomous_needs_context_failed",
+                     "Reality context retrieval failed; no substitute action was performed.",
+                     NULL, "autonomous_needs_check");
         return;
     }
     const char *prompt =
@@ -9296,7 +9298,9 @@ static void autonomous_needs_check(void)
     char *input = malloc(n);
     if (!input) {
         free(state);
-
+        r2_log_event(R2_LOG_ERROR, "autonomous_needs_context_allocation_failed",
+                     "Autonomous needs context allocation failed; no substitute action was performed.",
+                     NULL, "autonomous_needs_check");
         return;
     }
     snprintf(input, n, "%s%s", prompt, state);
@@ -9308,9 +9312,8 @@ static void autonomous_needs_check(void)
     free(input);
     if (!decision) {
         r2_log_event(R2_LOG_ERROR, "autonomous_needs_check_failed",
-                     "The autonomous needs controller could not obtain a model decision.",
+                     "The autonomous needs controller could not obtain a model decision; no substitute action was performed.",
                      NULL, "autonomous_needs_check");
-
         return;
     }
 
