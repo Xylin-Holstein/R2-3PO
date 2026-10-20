@@ -158,8 +158,8 @@ if [[ "$R2_NVIDIA_PCI_PRESENT" == "1" && "$R2_NVIDIA_QUERY_OK" != "1" ]]; then
 fi
 
 # The known target has only 4 GiB VRAM and the 9B multimodal model previously
-# failed allocation at the more aggressive 20-layer / 8192-context policy.
-# Start with the conservative fallback instead of deliberately provoking OOM.
+# failed allocation at 20 layers / 8192 context, and the 12-layer / 4096
+# multimodal run also hit a KV-cache allocation failure. Leave more VRAM free.
 if [[ -z "${R2_OLLAMA_NUM_CTX:-}" && "$R2_NVIDIA_QUERY_OK" == "1" ]] &&
    printf '%s\n' "$R2_NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
     export R2_OLLAMA_NUM_CTX=4096
