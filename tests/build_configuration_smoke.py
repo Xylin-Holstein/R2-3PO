@@ -153,7 +153,7 @@ require(
     "return valid_hunger && hunger < 50.0;" in core
     and "if (hunger < 50.0) {" in core
     and "If the fullness meter is below 50/100" in core,
-    "model and autonomous feeding thresholds match decreasing fullness semantics",
+    "model prompt and model-selected needs-action thresholds match decreasing fullness semantics",
 )
 require(
     "hunger_fullness_semantics_v2" in reality
@@ -167,7 +167,7 @@ status_block = reality[status_start:status_end]
 require(
     "if (rc != SQLITE_OK)" in status_block
     and "sqlite3_column_type(st, column)" in status_block
-    and "if (!isfinite(hunger)" in status_block
+    and "!isfinite(hunger)" in status_block
     and "free(out);" in status_block
     and "return NULL;" in status_block
     and "if (written < 0 || (size_t)written >= 4096)" in status_block,
