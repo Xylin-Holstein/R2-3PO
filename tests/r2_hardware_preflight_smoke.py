@@ -41,6 +41,7 @@ required = (
     'deploy/r2-ollama.service',
     'tools/r2_ollama_runner.sh',
     'tools/copy_ollama_model.py',
+    'tools/preflight_ollama_model.py',
     'tools/audit_r2_sound_assets.py',
     'tools/preflight_r2_hardware.sh',
     'for tool in bash make gcc curl python3 sudo setpriv pgrep date find grep cmp iptables ip6tables',

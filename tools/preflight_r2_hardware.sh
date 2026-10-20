@@ -166,6 +166,7 @@ for file in \
   deploy/r2-ollama.service \
   tools/r2_ollama_runner.sh \
   tools/copy_ollama_model.py \
+  tools/preflight_ollama_model.py \
   tools/install_r2_overnight.sh \
   tools/audit_r2_databases.py \
   tools/audit_r2_sound_assets.py \
