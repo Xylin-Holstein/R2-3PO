@@ -229,9 +229,9 @@ fi
 # the same physical GPU; leaving it active can consume VRAM while the
 # interactive preflight sees an empty ollama ps on 11434.
 if have systemctl && systemctl is-active --quiet r2-ollama.service 2>/dev/null; then
-  fail "r2-ollama.service is active on 127.0.0.1:11435 and may be occupying the shared GPU; stop that service manually before interactive launch."
+  fail "r2-ollama.service is active on 127.0.0.1:11435 and may be occupying the shared GPU. This read-only preflight will not stop it; the interactive launcher pauses this unit automatically when the overnight R2 core is inactive."
 elif curl --silent --show-error --fail --max-time 2 http://127.0.0.1:11435/api/tags >/dev/null 2>&1; then
-  fail "a separate Ollama API is responding on 127.0.0.1:11435; it may be using the shared GPU. Stop that server before interactive launch, then retry."
+  fail "a separate Ollama API is responding on 127.0.0.1:11435 while r2-ollama.service is inactive. Inspect ss -ltnp and identify the owning process before stopping a stale runner; the launcher will not kill an unowned server blindly."
 else
   pass "no competing R2 Ollama server detected on 127.0.0.1:11435"
 fi
