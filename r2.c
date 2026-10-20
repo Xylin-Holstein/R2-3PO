@@ -4877,8 +4877,8 @@ static char *r2_build_retry_system_prompt(void)
      * Keep the root-cause fix without overflowing the single-system-message
      * limit: the full SYSTEM_PROMPT contains many unrelated tool contracts and
      * is larger than the retry window. Extract its complete identity/memory
-     * section, then add the conversation policy (including learned relationship
-     * and contextual affect guidance) and the one-turn correction. This keeps
+     * section, then add the general conversation mechanics and the one-turn
+     * correction. This keeps
      * the policy that was missing from the old retry while avoiding silent
      * truncation of the correction at the end of an oversized override.
      */
