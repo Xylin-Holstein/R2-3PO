@@ -63,21 +63,10 @@ require(
     "optional sound output remains available without prescribing an affect-to-sound mapping",
 )
 
-retry_builder = function_slice(
-    "static char *r2_build_retry_system_prompt(void)",
+static_prompt_selector = function_slice(
+    "static int r2_is_static_system_prompt_section(",
     "static int r2_is_retry_context_message(",
 )
-retry_prompt_start = core.find("static const char r2_retry_system_prompt[] =")
-retry_prompt_end = core.find(";\n", retry_prompt_start)
-retry_prompt = core[retry_prompt_start:retry_prompt_end]
-require(
-    "return xstrdup(r2_retry_system_prompt);" in retry_builder
-    and "small remainder budget" in retry_builder
-    and "R2-3PO: answer current message" in retry_prompt
-    and "Fix misreadings" in retry_prompt,
-    "corrective retry uses a complete compact identity/memory correction prompt that fits the remaining budget",
-)
-
 retry_context_classifier = function_slice(
     "static int r2_is_retry_context_message(",
     "static char *r2_retry_direct_answer(",
@@ -87,10 +76,20 @@ retry_builder_body = function_slice(
     "/*\n * Give ordinary turns a substantial bounded evidence budget:",
 )
 require(
+    "IDENTITY AND PERSISTENT MEMORY" in static_prompt_selector
+    and "REAL FILE TOOLS" in static_prompt_selector
+    and "ALTERNATE-SELF / CHOICE LAB" in static_prompt_selector
+    and "GENERAL" in static_prompt_selector,
+    "retry selector recognizes every full static R2 instruction section",
+)
+require(
     '"PERSISTENT LEARNING CONTEXT"' in retry_context_classifier
-    and "Message compact_messages[8]" in retry_builder_body
-    and "compact_count < 6" in retry_builder_body,
-    "corrective retry preserves the learning database context alongside Reality, retrieval, and startup memory",
+    and "Message *compact_messages = calloc(message_count + 2U" in retry_builder_body
+    and "r2_is_static_system_prompt_section(&messages_copy[i])" in retry_builder_body
+    and "dynamic_context_count < 6" in retry_builder_body
+    and "compact_messages, compact_count, NULL," in retry_builder_body
+    and "free(compact_messages);" in retry_builder_body,
+    "corrective retry carries complete static instructions and dynamic database context through the same allocator",
 )
 
 require(
