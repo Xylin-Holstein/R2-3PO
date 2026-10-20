@@ -69,6 +69,62 @@
 
 #define VERSION_STRING        "R2-3PO Shell 1.0"
 
+typedef enum {
+    R2_SHELL_THEME_CLASSIC = 0,
+    R2_SHELL_THEME_XMAS,
+    R2_SHELL_THEME_SPOOKY
+} R2ShellTheme;
+
+/* Auto mode follows R2's process clock, including the private faketime clock. */
+static R2ShellTheme shell_theme = R2_SHELL_THEME_CLASSIC;
+static int shell_theme_auto = 1;
+
+static R2ShellTheme shell_theme_for_date(const struct tm *date)
+{
+    if (!date) return R2_SHELL_THEME_CLASSIC;
+    if (date->tm_mon == 9) return R2_SHELL_THEME_SPOOKY; /* October */
+    if (date->tm_mon == 11 || (date->tm_mon == 0 && date->tm_mday == 1))
+        return R2_SHELL_THEME_XMAS; /* December and New Year's Day */
+    return R2_SHELL_THEME_CLASSIC;
+}
+
+static void shell_theme_refresh_auto(void)
+{
+    if (!shell_theme_auto) return;
+    time_t now = time(NULL);
+    struct tm local_date;
+    if (localtime_r(&now, &local_date))
+        shell_theme = shell_theme_for_date(&local_date);
+}
+
+static const char *shell_theme_name(void)
+{
+    switch (shell_theme) {
+        case R2_SHELL_THEME_XMAS: return "XmasShell";
+        case R2_SHELL_THEME_SPOOKY: return "SpookyShell";
+        default: return "Classic";
+    }
+}
+
+static const char *shell_theme_color(void)
+{
+    if (getenv("NO_COLOR")) return "";
+    switch (shell_theme) {
+        case R2_SHELL_THEME_XMAS: return "\033[1;31m";
+        case R2_SHELL_THEME_SPOOKY: return "\033[1;35m";
+        default: return "";
+    }
+}
+
+static const char *shell_theme_prompt(void)
+{
+    switch (shell_theme) {
+        case R2_SHELL_THEME_XMAS: return "XmasShell> ";
+        case R2_SHELL_THEME_SPOOKY: return "SpookyShell> ";
+        default: return SHELL_PROMPT;
+    }
+}
+
 
 /* ============================================================
    SHELL STATE
@@ -382,28 +438,95 @@ static int shell_starts_with(
 
 static void shell_banner(void)
 {
-    printf(
-        "\n"
-        "============================================================\n"
-        "                     ROBOBOT3000\n"
-        "                         R2-3PO\n"
-        "============================================================\n"
-        "%s\n"
-        "\n"
-        "Type 'help' for commands.\n"
-        "Normal text is sent directly to R2.\n"
-        "============================================================\n"
-        "\n",
-        VERSION_STRING
-    );
+    const char *color = shell_theme_color();
+    const char *reset = color[0] ? "\033[0m" : "";
+    if (shell_theme == R2_SHELL_THEME_XMAS) {
+        printf(
+            "\n%s"
+            "============================================================\n"
+            "                 *  X M A S S H E L L  *\n"
+            "                      R2-3PO\n"
+            "============================================================\n"
+            "%s%s\n\n"
+            "Type 'help' for commands; 'shell theme auto' restores the calendar theme.\n"
+            "Normal text is sent directly to R2.\n"
+            "============================================================\n\n",
+            color, VERSION_STRING, reset
+        );
+    } else if (shell_theme == R2_SHELL_THEME_SPOOKY) {
+        printf(
+            "\n%s"
+            "============================================================\n"
+            "                /!\\  S P O O K Y S H E L L  /!\\\n"
+            "                      R2-3PO\n"
+            "============================================================\n"
+            "%s%s\n\n"
+            "Type 'help' for commands; 'shell theme auto' restores the calendar theme.\n"
+            "Normal text is sent directly to R2.\n"
+            "============================================================\n\n",
+            color, VERSION_STRING, reset
+        );
+    } else {
+        printf(
+            "\n"
+            "============================================================\n"
+            "                     ROBOBOT3000\n"
+            "                         R2-3PO\n"
+            "============================================================\n"
+            "%s\n"
+            "\n"
+            "Type 'help' for commands.\n"
+            "Normal text is sent directly to R2.\n"
+            "============================================================\n"
+            "\n",
+            VERSION_STRING
+        );
+    }
 }
 
 
 static void shell_prompt(void)
 {
     fflush(stdout);
-    printf("%s", SHELL_PROMPT);
+    shell_theme_refresh_auto();
+    const char *color = shell_theme_color();
+    if (color[0])
+        printf("%s%s\033[0m", color, shell_theme_prompt());
+    else
+        printf("%s", shell_theme_prompt());
     fflush(stdout);
+}
+
+
+static void shell_theme_command(char *argument)
+{
+    argument = argument ? shell_trim(argument) : NULL;
+    if (!argument || !*argument || !strcasecmp(argument, "status")) {
+        printf("[R2 Shell] Theme: %s (%s).\n", shell_theme_name(),
+               shell_theme_auto ? "automatic, based on R2's local clock" : "manual for this session");
+        return;
+    }
+
+    if (!strcasecmp(argument, "auto") || !strcasecmp(argument, "reset")) {
+        shell_theme_auto = 1;
+        shell_theme_refresh_auto();
+    } else if (!strcasecmp(argument, "classic")) {
+        shell_theme_auto = 0;
+        shell_theme = R2_SHELL_THEME_CLASSIC;
+    } else if (!strcasecmp(argument, "xmas") || !strcasecmp(argument, "christmas")) {
+        shell_theme_auto = 0;
+        shell_theme = R2_SHELL_THEME_XMAS;
+    } else if (!strcasecmp(argument, "spooky") || !strcasecmp(argument, "halloween")) {
+        shell_theme_auto = 0;
+        shell_theme = R2_SHELL_THEME_SPOOKY;
+    } else {
+        printf("Usage: shell theme [auto|classic|xmas|spooky]\n");
+        return;
+    }
+
+    shell_banner();
+    printf("[R2 Shell] Theme: %s (%s).\n", shell_theme_name(),
+           shell_theme_auto ? "automatic, based on R2's local clock" : "manual for this session");
 }
 
 
@@ -571,6 +694,13 @@ static void shell_help(void)
         "\n"
         "  watch stop\n"
         "      Stop Watch mode.\n"
+        "\n"
+        "  shell theme [auto|classic|xmas|spooky]\n"
+        "      Choose a shell theme; auto follows R2's private local clock.\n"
+        "      October uses SpookyShell; December and January 1 use XmasShell.\n"
+        "\n"
+        "  xmasshell / spookyshell\n"
+        "      Switch directly to the Christmas or Halloween shell for this session.\n"
         "\n"
         "  clear\n"
         "      Clear the terminal.\n"
@@ -2671,6 +2801,27 @@ static int shell_dispatch(char *input)
 
 
     /* --------------------------------------------------------
+       SEASONAL SHELL THEMES
+       -------------------------------------------------------- */
+
+    if (!strcasecmp(command, "shell theme")) {
+        shell_theme_command(NULL);
+        return 1;
+    }
+    if (shell_starts_with(command, "shell theme ")) {
+        shell_theme_command(command + 12);
+        return 1;
+    }
+    if (!strcasecmp(command, "xmasshell") || !strcasecmp(command, "christmasshell")) {
+        shell_theme_command("xmas");
+        return 1;
+    }
+    if (!strcasecmp(command, "spookyshell") || !strcasecmp(command, "halloweenshell")) {
+        shell_theme_command("spooky");
+        return 1;
+    }
+
+    /* --------------------------------------------------------
        CLEAR
        -------------------------------------------------------- */
 
@@ -2787,6 +2938,8 @@ int r2_shell_run(void)
     if (tv_control_start() != 0)
         fprintf(stderr, "[TV] GUI control socket unavailable; shell TV commands remain available.\n");
 
+    shell_theme_auto = 1;
+    shell_theme_refresh_auto();
     shell_banner();
 
     while (
