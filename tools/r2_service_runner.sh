@@ -72,7 +72,7 @@ log "Ollama context policy: R2_OLLAMA_NUM_CTX=${R2_OLLAMA_NUM_CTX:-adaptive}"
 if [[ -z "${R2_OLLAMA_NUM_GPU+x}" ]]; then
     if [[ "$R2_NVIDIA_QUERY_OK" == "1" ]] &&
        printf '%s\n' "$R2_NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
-        export R2_OLLAMA_NUM_GPU=12
+        export R2_OLLAMA_NUM_GPU=8
     else
         export R2_OLLAMA_NUM_GPU=0
     fi
