@@ -480,9 +480,6 @@ int main(void)
         fail("migrated legacy TV power/source/VCR state was not represented in device status");
     }
     free(initial_tv_status);
-        fail("migrated legacy TV/VCR state was not represented in device status");
-    }
-    free(initial_tv_status);
     verify_legacy_fridge_migration();
     verify_legacy_shared_reality_migration();
     double initial_hunger, initial_sleepiness, initial_energy;
