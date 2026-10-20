@@ -152,10 +152,10 @@ require(
 require(
     'int allow_reasoning = ollama_audit_stage &&' in core
     and '"conversation-answer"' in core
-    and '"conversation-retry"' not in core
+    and '"conversation-retry"' in core
     and 'ollama_json_object_add_checked(root, "think",' in core
     and "message.thinking is measured for diagnostics but never displayed" in core,
-    "foreground answer can reason while only final content is user-facing, without a corrective-retry stage",
+    "primary and corrective conversation inferences can reason while only final content is user-facing",
 )
 require(
     "double temperature = allow_reasoning ? 1.0 : 0.7;" in core
