@@ -25,6 +25,7 @@ for phrase in (
     "If explicit persistent memory establishes that the current user is your mother",
     "acknowledge that social meaning naturally",
     "Respond naturally to affection, concern, excitement, humor, frustration",
+    "affectionate, childlike, and conversational without forced C-3PO formality",
 ):
     require(phrase not in core, f"prompt does not prescribe relationship/affect behavior: {phrase}")
 
