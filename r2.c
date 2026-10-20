@@ -5672,7 +5672,7 @@ static char *chat_with_relevant_memories(
     if (!associative_query)
         return NULL;
 
-    char *memory_context = context_cache_get(query ? query : "", memory_limit);
+    char *memory_context = context_cache_get(associative_query, memory_limit);
     if (!memory_context) {
         memory_context = get_relevant_memories(associative_query, memory_limit);
         if (!memory_context) {
@@ -5681,7 +5681,7 @@ static char *chat_with_relevant_memories(
             free(associative_query);
             return NULL;
         }
-        context_cache_store(query ? query : "", memory_limit, memory_context);
+        context_cache_store(associative_query, memory_limit, memory_context);
     } else {
         fprintf(stderr, "[R2 Context] Reused persistent-memory retrieval from RAM cache.\n");
     }
