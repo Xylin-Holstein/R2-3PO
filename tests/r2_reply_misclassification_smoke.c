@@ -134,14 +134,14 @@ int main(void)
                     strcmp(first_history_searches[0], "mother") == 0 &&
                     strcmp(first_history_searches[1], "miss") == 0,
                 "current affectionate message searches relationship/meaning, not generic Hello/R2 history");
-    int has_pockets_keyword = 0, has_mom_alias = 0, has_low_signal_keyword = 0;
+    int has_pockets_keyword = 0, has_mother_keyword = 0, has_low_signal_keyword = 0;
     for (size_t i = 0; i < history_keyword_count; ++i) {
         if (!strcmp(history_keywords[i], "pockets")) has_pockets_keyword = 1;
-        if (!strcmp(history_keywords[i], "mom")) has_mom_alias = 1;
+        if (!strcmp(history_keywords[i], "mother")) has_mother_keyword = 1;
         if (r2_keyword_is_low_signal(history_keywords[i])) has_low_signal_keyword = 1;
     }
-    ok &= check(has_pockets_keyword && has_mom_alias && !has_low_signal_keyword,
-                "memory keyword budget retains concrete pocket topic and relationship aliases instead of filler");
+    ok &= check(has_pockets_keyword && has_mother_keyword && !has_low_signal_keyword,
+                "memory keyword budget retains the actual relationship term and concrete pocket topic without filler");
 
     ok &= check(r2_reply_misclassifies_plain_text(mother_message,
                     "That's a bit garbled, but I think you're trying to say "
