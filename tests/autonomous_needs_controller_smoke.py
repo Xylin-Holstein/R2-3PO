@@ -33,6 +33,8 @@ assert "autonomous_needs_food_safeguard" not in source
 assert "autonomous_needs_context_failed" in function
 assert "autonomous_needs_context_allocation_failed" in function
 assert "autonomous_needs_check_failed" in function
+assert "autonomous_needs_action_allocation_failed" in function
+assert "autonomous_needs_decision_unrecognized" in function
 assert "no substitute action was performed" in function
 assert "if (!world_action_succeeded)" not in function
 assert "r2_reality_autonomous_food_available()" in source
