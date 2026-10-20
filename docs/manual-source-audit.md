@@ -301,3 +301,10 @@ The earlier 20-layer / 8192-context default and its post-failure 12-layer / 4096
 - **Fix:** Runtime HTTP failures now print the response byte count and the complete response body accepted by the existing bounded response reader; a regression contract rejects the old precision-limited format.
 - **Validation:** Added a focused regression assertion. CI status for this new commit has not yet been reported by GitHub; the target-host GPU/Ollama inference still has not been run in this session.
 
+### AUDIT-035 — 12-layer GTX 1050 Ti policy still hit multimodal KV-cache allocation failure
+- **Files:** `R2_Launch_Code.sh`, `tools/r2_service_runner.sh`, `tools/r2_install_root_bootstrap.sh`, GPU-policy smoke tests, README and rollout documentation.
+- **Severity:** High / startup blocker on the target host.
+- **Evidence:** Prior target-host reports include a Qwen 3.5 9B CUDA allocation failure involving the KV cache and a roughly 335 MiB allocation after the earlier 20-layer / 8192-context policy had already been reduced to 12 layers / 4096 context.
+- **Fix:** Keep the 4096-token context but lower the GTX 1050 Ti default to 8 GPU layers across interactive launch, overnight service, and trusted installer preflight. This moves more layer memory into system RAM and leaves additional VRAM for multimodal cache/vision allocations. Updated the installer’s pinned bootstrap blob and commit together with the documentation and policy tests.
+- **Validation:** The previous diagnostic-only commit passed workflow run #5573 (94/94 steps). The new 8-layer policy has not yet completed its own CI run and has not been verified by a live target-host inference; neither is claimed as complete.
+
