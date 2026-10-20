@@ -30,6 +30,21 @@ require(
     and "particular relationship" in helper,
     "identity questions retrieve generic relationship evidence without hardcoding who the user is",
 )
+
+keyword_start = core.index("static size_t extract_memory_keywords(")
+keyword_end = core.index("static char *r2_build_associative_search_query(", keyword_start)
+keyword_block = core[keyword_start:keyword_end]
+require(
+    '{"mother", "mom"}' not in keyword_block
+    and '{"mother", "mommy"}' not in keyword_block
+    and '{"mother", "mama"}' not in keyword_block
+    and '{"father", "dad"}' not in keyword_block
+    and '{"parent", "mother"}' not in keyword_block
+    and '{"parent", "father"}' not in keyword_block
+    and '{"remember", "recall"}' in keyword_block,
+    "relationship identity is not inferred through hard-coded keyword aliases; generic recall retrieval remains available",
+)
+
 require(
     "original user text remains unchanged" in helper
     and "r2_reply_sanitize(generated)" in helper,
