@@ -232,32 +232,26 @@ int main(void)
                 "a constrained retrieved-memory block is clipped at a record boundary");
 
     R2SystemContextBudget context_budget =
-        r2_compute_system_context_budget(9468);
-    ok &= check(context_budget.override_budget > 0 &&
-                    context_budget.identity_budget > 0 &&
-                    context_budget.reality_reserve > 0 &&
-                    context_budget.retrieval_reserve >= 9468 / 8 &&
-                    context_budget.capabilities_reserve >= 9468 / 16 &&
-                    context_budget.startup_reserve > 0 &&
-                    context_budget.learning_reserve > 0 &&
-                    context_budget.override_budget +
-                        context_budget.identity_budget +
-                        context_budget.reality_reserve +
-                        context_budget.retrieval_reserve +
-                        context_budget.capabilities_reserve +
-                        context_budget.startup_reserve +
-                        context_budget.learning_reserve == 9468,
-                "the constrained 8k-context prompt budget reserves identity, Reality, retrieved memory, and capability guidance");
+        r2_compute_system_context_budget(9468, 0);
+    ok &= check(context_budget.retrieval_reserve == 9468 / 8 &&
+                    context_budget.capabilities_reserve == 9468 &&
+                    context_budget.startup_reserve == 9468 / 10 &&
+                    context_budget.learning_reserve == 9468 / 10,
+                "the 8k-context allocator preserves bounded retrieval, startup, and learning shares alongside complete instructions");
+    R2SystemContextBudget override_context_budget =
+        r2_compute_system_context_budget(9468, 1000);
+    ok &= check(override_context_budget.retrieval_reserve == 8468 / 8 &&
+                    override_context_budget.capabilities_reserve == 8468 &&
+                    override_context_budget.startup_reserve == 8468 / 10 &&
+                    override_context_budget.learning_reserve == 8468 / 10,
+                "an explicit system override is subtracted before allocating database and capability context");
     R2SystemContextBudget small_context_budget =
-        r2_compute_system_context_budget(1276);
-    ok &= check(small_context_budget.override_budget +
-                    small_context_budget.identity_budget +
-                    small_context_budget.reality_reserve +
-                    small_context_budget.retrieval_reserve +
-                    small_context_budget.capabilities_reserve +
-                    small_context_budget.startup_reserve +
-                    small_context_budget.learning_reserve == 1276,
-                "small adaptive contexts keep budget arithmetic bounded while reserving memory and capability context");
+        r2_compute_system_context_budget(1276, 0);
+    ok &= check(small_context_budget.retrieval_reserve == 1276 / 8 &&
+                    small_context_budget.capabilities_reserve == 1276 &&
+                    small_context_budget.startup_reserve == 1276 / 10 &&
+                    small_context_budget.learning_reserve == 1276 / 10,
+                "small adaptive contexts keep reserve arithmetic bounded without obsolete overlapping budgets");
 
     ok &= check(conversation_reply_token_budget("Show me your room") == 1024,
                 "ordinary 'show' wording keeps the normal conversational generation ceiling");
@@ -291,32 +285,26 @@ int main(void)
                 "direct reply to the user that addresses both topics is accepted");
 
 
-    char *retry_prompt = r2_build_retry_system_prompt();
-    ok &= check(retry_prompt != NULL,
-                "corrective system prompt can be constructed");
-    if (retry_prompt) {
-        ok &= check(strstr(retry_prompt, "You are R2-3PO.") != NULL,
-                    "retry retains R2's core identity instructions");
-        ok &= check(strstr(retry_prompt, "REALITY CONTEXT RULES:") != NULL,
-                    "retry retains live Reality/action constraints");
-        ok &= check(strstr(retry_prompt, "REPLY STYLE:") != NULL,
-                    "retry retains user-facing response-style instructions");
-        ok &= check(strstr(retry_prompt, "RESPONSE CORRECTION:") != NULL,
-                    "retry appends the corrective instruction");
-        ok &= check(strstr(retry_prompt, "acknowledge that social meaning") == NULL,
-                    "retry does not prescribe a social/emotional response pattern");
-        ok &= check(strstr(retry_prompt, "RELATIONSHIP AND NAME CONTINUITY") == NULL &&
-                        strstr(retry_prompt, "SPEAKER AND RELATIONSHIP LEARNING:") == NULL &&
-                        strstr(retry_prompt, "Resolve 'I/me' and 'you/your' from the actual user and assistant roles") != NULL,
-                    "retry preserves speaker-role mechanics without relationship coaching");
-        ok &= check(strstr(retry_prompt,
-                           "do not rely on a hard-coded emotion-to-response table") == NULL &&
-                        strstr(retry_prompt, "Nonverbal output is optional, not a required response pattern") != NULL,
-                    "retry leaves affect interpretation open while retaining optional sound mechanics");
-        ok &= check(strlen(retry_prompt) < OLLAMA_MAX_SYSTEM_MESSAGE_CHARS,
-                    "complete corrective prompt fits the system-message limit without truncating its final instruction");
-        free(retry_prompt);
-    }
+    Message identity_message = {
+        .role = "system",
+        .content = "============================================================\\nIDENTITY AND PERSISTENT MEMORY\\n",
+    };
+    Message visual_message = {
+        .role = "system",
+        .content = "CURRENT LIVE VISUAL OBSERVATION (newly analyzed frame; use as evidence)",
+    };
+    Message archive_message = {
+        .role = "system",
+        .content = "PAST CONVERSATION ARCHIVE — CONTEXT ONLY.",
+    };
+    ok &= check(r2_is_static_system_prompt_section(&identity_message),
+                "retry recognizes the full identity/memory prompt section");
+    ok &= check(r2_is_retry_context_message(&visual_message) &&
+                    r2_is_retry_context_message(&archive_message),
+                "corrective retry preserves live visual evidence and historical archive context");
+    ok &= check(strstr(SYSTEM_PROMPT, "Interpret the user's current message first.") != NULL &&
+                    strstr(SYSTEM_PROMPT, "Nonverbal output is optional, not a required response pattern") != NULL,
+                "the shared prompt retains direct-turn interpretation and optional sound capability");
 
     /* Tool results travel through a user-role message for the next model
        call, but are not human speech. A user mentioning the marker in ordinary
