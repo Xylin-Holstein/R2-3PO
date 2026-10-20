@@ -48,7 +48,7 @@ int main(void)
         "SECOND_PERSISTED_USER_MARKER",
         "SECOND_PERSISTED_REPLY_MARKER");
     if (first_turn <= 0 || second_turn <= first_turn) {
-        fprintf(stderr, "FAIL: could not persist ordered conversation fixtures.\\n");
+        fprintf(stderr, "FAIL: could not persist ordered conversation fixtures.\n");
         r2_log_shutdown();
         return 1;
     }
@@ -57,7 +57,7 @@ int main(void)
        rather than relying only on the in-memory message array. */
     r2_log_shutdown();
     if (r2_log_init() != 0) {
-        fprintf(stderr, "FAIL: Life Log did not reopen after conversation writes.\\n");
+        fprintf(stderr, "FAIL: Life Log did not reopen after conversation writes.\n");
         return 1;
     }
     char *recent_context = r2_log_recent_conversation_context(3000U);
@@ -67,7 +67,7 @@ int main(void)
         ? strstr(recent_context, "SECOND_PERSISTED_USER_MARKER") : NULL;
     if (!recent_context || strlen(recent_context) > 3000U ||
         !first_marker || !second_marker || first_marker >= second_marker) {
-        fprintf(stderr, "FAIL: recent persisted conversation was missing, unbounded, or out of order.\\n");
+        fprintf(stderr, "FAIL: recent persisted conversation was missing, unbounded, or out of order.\n");
         free(recent_context);
         r2_log_shutdown();
         return 1;
