@@ -75,7 +75,6 @@ for required in (
     "static R2SystemContextBudget r2_compute_system_context_budget(",
     "size_t system_budget, size_t override_length",
     "size_t context_budget = system_budget > override_length",
-    "budget.override_budget = override_length;",
     "budget.capabilities_reserve = context_budget;",
     "r2_compute_system_context_budget(system_budget, override_length)",
     "int max_predict = num_ctx / 4;",
