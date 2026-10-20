@@ -74,6 +74,21 @@ require(
     "corrective retry preserves base identity/memory and current-turn mechanics without reinstating prescriptive relationship coaching",
 )
 
+retry_context_classifier = function_slice(
+    "static int r2_is_retry_context_message(",
+    "static char *r2_retry_direct_answer(",
+)
+retry_builder_body = function_slice(
+    "static char *r2_retry_direct_answer(",
+    "/*\n * Give ordinary turns a substantial bounded evidence budget:",
+)
+require(
+    '"PERSISTENT LEARNING CONTEXT"' in retry_context_classifier
+    and "Message compact_messages[7]" in retry_builder_body
+    and "compact_count < 5" in retry_builder_body,
+    "corrective retry preserves the learning database context alongside Reality, retrieval, and startup memory",
+)
+
 require(
     impl.count("chat_with_relevant_memories(message)") >= 3
     and "first contextual response attempt failed" in impl
