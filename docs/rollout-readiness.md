@@ -4,9 +4,9 @@ This checklist separates repository/CI evidence from checks that must run on the
 
 ## 1. Confirm the candidate and CI
 
-- Current consolidated completion candidate: PR [#165](https://github.com/Xylin48/R2-3PO/pull/165), head branch `integrate/r2-final-code-completion-2026-10-20`, commit `69214901e1d4c62ac036aecb85d44b6c6663ce4d`. The hardware-readiness working branch `release/r2-hardware-readiness-2026-10-20` is based on that exact head.
-- Exact-head `R2 build` workflow [#5478](https://github.com/Xylin48/R2-3PO/actions/runs/39402852794) passed 94/94 steps. It covers strict launcher-equivalent compilation, subsystem and lifecycle regressions, reply-misclassification/context ordering, persisted conversation restoration after restart, archive-write failure handling, and seasonal shell selection.
-- The candidate integrates the conversation retry/history fixes, contextual (not scripted) affect interpretation, seasonal shell themes, subsystem/database compatibility, speech/vision wiring, Game Boy/TV, and launcher/service lifecycle work. Do not replace newer source files with older branch versions.
+- Consolidated integration PR: [#167](https://github.com/Xylin48/R2-3PO/pull/167), branch `integrate/r2-hardware-ready-2026-10-20`. This branch is cut from the integrated completion candidate plus the rollout checklist update, and includes all 146 relevant changed files in the complete runtime/test/tool/docs integration.
+- Runtime candidate PR [#165](https://github.com/Xylin48/R2-3PO/pull/165) head commit `69214901e1d4c62ac036aecb85d44b6c6663ce4d` passed exact-head `R2 build` workflow [#5478](https://github.com/Xylin48/R2-3PO/actions/runs/39402852794), 94/94 steps. The refreshed rollout checklist also passed workflow [#5482](https://github.com/Xylin48/R2-3PO/actions/runs/39403625708).
+- The integration carries conversation retry/history fixes, contextual (not scripted) affect interpretation, seasonal shell themes, subsystem/database compatibility, speech/vision wiring, Game Boy/TV, launcher/service lifecycle, and regression coverage. Do not replace newer source files with older branch versions.
 - Do not merge to `main` or call the candidate hardware-verified based on CI alone. Target-host acceptance remains required for live Qwen 3.5 9B multi-turn behavior, measured GTX 1050 Ti mixed CPU/GPU placement and RAM headroom, real database writes/restart persistence, and attached audio/video/device paths.
 
 ## 2. Preflight the target host before activation
