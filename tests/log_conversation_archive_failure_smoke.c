@@ -63,10 +63,16 @@ int main(void)
     char *recent_context = r2_log_recent_conversation_context(3000U);
     const char *first_marker = recent_context
         ? strstr(recent_context, "FIRST_PERSISTED_USER_MARKER") : NULL;
+    const char *first_reply = recent_context
+        ? strstr(recent_context, "FIRST_PERSISTED_REPLY_MARKER") : NULL;
     const char *second_marker = recent_context
         ? strstr(recent_context, "SECOND_PERSISTED_USER_MARKER") : NULL;
+    const char *second_reply = recent_context
+        ? strstr(recent_context, "SECOND_PERSISTED_REPLY_MARKER") : NULL;
     if (!recent_context || strlen(recent_context) > 3000U ||
-        !first_marker || !second_marker || first_marker >= second_marker) {
+        !first_marker || !first_reply || !second_marker || !second_reply ||
+        !(first_marker < first_reply && first_reply < second_marker &&
+          second_marker < second_reply)) {
         fprintf(stderr, "FAIL: recent persisted conversation was missing, unbounded, or out of order.\n");
         free(recent_context);
         r2_log_shutdown();
