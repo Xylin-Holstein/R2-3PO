@@ -5,25 +5,32 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 source = (ROOT / "r2.c").read_text(encoding="utf-8")
 
-start = source.find("typedef struct {\n    size_t override_budget;")
+start = source.find("typedef struct {\n    size_t retrieval_reserve;")
 end = source.find("/* Return a byte prefix ending at a UTF-8 code-point boundary. Prompt", start)
 assert start >= 0 and end > start, "could not isolate system-context budget implementation"
 budget = source[start:end]
 
 assert "size_t startup_reserve;" in budget
-assert "budget.reality_reserve = system_budget / 10;" in budget
-assert "budget.identity_budget = system_budget / 4;" in budget
-assert "budget.startup_reserve = system_budget / 10;" in budget
+assert "size_t retrieval_reserve;" in budget
+assert "size_t capabilities_reserve;" in budget
+assert "size_t startup_reserve;" in budget
+assert "size_t learning_reserve;" in budget
+assert "size_t context_budget = system_budget > override_length" in budget
+assert "budget.retrieval_reserve = context_budget / 8;" in budget
+assert "budget.capabilities_reserve = context_budget;" in budget
+assert "budget.startup_reserve = context_budget / 10;" in budget
 assert "if (budget.startup_reserve > 1600)" in budget
 assert "budget.startup_reserve = 1600;" in budget
 assert "size_t learning_reserve;" in budget
-assert "budget.learning_reserve = system_budget / 10;" in budget
+assert "budget.learning_reserve = context_budget / 10;" in budget
 assert "if (budget.learning_reserve > 1000)" in budget
 assert "budget.learning_reserve = 1000;" in budget
 assert "budget.startup_reserve +" in budget
 assert "budget.learning_reserve;" in budget
 assert "system_budget - reserved" in budget
-assert "system_budget / 4" in budget
+assert "if (active_user_chars < 1500U)" in source
+assert "Count every static instruction section" in source
+assert "r2_inference_system_priority(\n                msgs[i].content, ollama_authoritative_user_query) > 4" in source
 
 priority_start = source.find("static int r2_inference_system_priority(")
 priority_end = source.find("\nstatic size_t r2_order_inference_messages", priority_start)
@@ -80,21 +87,19 @@ assert "r2_reality_context()" in refresh
 assert "build_learning_context()" in refresh
 assert 'message_add_pair_locked("system", context' in refresh
 
-# The old budget assigned all unreserved bytes to the system override. With
-# a full prompt, no bytes remained for priority-5 startup memory. The new
-# reserve must be a positive, bounded slice before the override is computed.
-for system_budget in (3415, 6200, 12000, 40000):
-    startup_reserve = min(system_budget // 10, 1600)
-    learning_reserve = min(system_budget // 10, 1000)
-    reality = min(system_budget // 10, 3000)
-    identity = min(system_budget // 4, system_budget - reality)
-    retrieval = system_budget // 8
-    capabilities = system_budget // 16
-    reserved = (reality + identity + retrieval + capabilities +
-                startup_reserve + learning_reserve)
-    override = system_budget - reserved if system_budget > reserved else system_budget // 4
-    assert startup_reserve > 0 and learning_reserve > 0
-    assert override < system_budget - (
-        reality + identity + retrieval + capabilities + startup_reserve
-    )
+# The actual allocator reserves bounded startup and learning slices from
+# the context left after the explicit override, while complete static prompt
+# sections and current-turn evidence are selected by semantic priority.
+for system_budget, override_length in ((3415, 0), (6200, 700), (12000, 0), (40000, 4000)):
+    context_budget = max(0, system_budget - override_length)
+    retrieval_reserve = context_budget // 8
+    startup_reserve = min(context_budget // 10, 1600)
+    learning_reserve = min(context_budget // 10, 1000)
+    capabilities_reserve = context_budget
+    assert retrieval_reserve >= 0
+    assert startup_reserve <= 1600
+    assert learning_reserve <= 1000
+    assert capabilities_reserve == context_budget
+    if context_budget >= 10:
+        assert startup_reserve > 0 and learning_reserve > 0
 print("Startup persistent-memory prompt budget regression passed.")
