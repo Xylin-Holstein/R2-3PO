@@ -11,6 +11,8 @@ assert start >= 0 and end > start, "could not isolate system-context budget impl
 budget = source[start:end]
 
 assert "size_t startup_reserve;" in budget
+assert "budget.reality_reserve = system_budget / 10;" in budget
+assert "budget.identity_budget = system_budget / 4;" in budget
 assert "budget.startup_reserve = system_budget / 8;" in budget
 assert "if (budget.startup_reserve > 1600)" in budget
 assert "budget.startup_reserve = 1600;" in budget
@@ -65,8 +67,8 @@ assert 'message_add_pair_locked("system", context' in refresh
 for system_budget in (3415, 6200, 12000, 40000):
     startup_reserve = min(system_budget // 8, 1600)
     learning_reserve = min(system_budget // 16, 1000)
-    reality = min(system_budget // 8, 3000)
-    identity = min(system_budget // 3, system_budget - reality)
+    reality = min(system_budget // 10, 3000)
+    identity = min(system_budget // 4, system_budget - reality)
     retrieval = system_budget // 8
     capabilities = system_budget // 16
     reserved = (reality + identity + retrieval + capabilities +
