@@ -84,6 +84,8 @@ require(
 )
 require(
     '"PERSISTENT LEARNING CONTEXT"' in retry_context_classifier
+    and '"CURRENT LIVE VISUAL OBSERVATION"' in retry_context_classifier
+    and '"PRIOR VISUAL EXPERIENCES"' in retry_context_classifier
     and "Message *compact_messages = calloc(message_count + 2U" in retry_builder_body
     and "r2_is_static_system_prompt_section(&messages_copy[i])" in retry_builder_body
     and "dynamic_context_count < 8" in retry_builder_body
