@@ -5,6 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 core = (ROOT / "r2.c").read_text(encoding="utf-8")
 log = (ROOT / "Log.c").read_text(encoding="utf-8")
+reality = (ROOT / "Reality.c").read_text(encoding="utf-8")
 makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 launcher = (ROOT / "R2_Launch_Code.sh").read_text(encoding="utf-8")
 workflow = (ROOT / ".github/workflows/build.yml").read_text(encoding="utf-8")
@@ -14,7 +15,21 @@ for path in ("Imagination.c", "Imagination.h", "SensoryJournal.c", "SensoryJourn
 
 assert '#include "Imagination.h"' in core
 assert "r2_imagination_init()" in core and "r2_imagination_shutdown();" in core
-assert "r2_addiction_init()" in core and "r2_addiction_shutdown();" in core
+reality_init_start = reality.find("int r2_reality_init(void)")
+reality_init_end = reality.find("\\nvoid r2_reality_shutdown(void)", reality_init_start)
+if reality_init_start < 0 or reality_init_end < 0:
+    raise SystemExit("Could not locate Reality-owned Addiction lifecycle.")
+reality_init = reality[reality_init_start:reality_init_end]
+if "if (r2_addiction_init() != 0)" not in reality_init or "r2_reality_shutdown();" not in reality_init:
+    raise SystemExit("Reality must propagate Addiction initialization failure instead of continuing without preference history.")
+reality_shutdown_start = reality.find("void r2_reality_shutdown(void)")
+reality_shutdown_end = reality.find("\\nint r2_reality_is_initialized(void)", reality_shutdown_start)
+if reality_shutdown_start < 0 or reality_shutdown_end < 0:
+    raise SystemExit("Could not locate Reality shutdown ownership.")
+if "r2_addiction_shutdown();" not in reality[reality_shutdown_start:reality_shutdown_end]:
+    raise SystemExit("Reality must close the Addiction database it owns.")
+if "r2_addiction_init()" in core or "r2_addiction_shutdown();" in core:
+    raise SystemExit("Core must not duplicate the Addiction lifecycle owned by Reality.")
 assert 'extract_marker(reply, "[IMAGINE]"' in core
 assert 'extract_marker(reply, "[IMAGINE_FEEDBACK]"' in core
 assert "[END IMAGINE]" in core and "[END IMAGINE_FEEDBACK]" in core
@@ -26,7 +41,6 @@ assert "r2_sj_init()" in core and "r2_sj_shutdown();" in core
 for init_failure in (
     'R2_INIT_FAIL("could not initialize R2 Sensory Journal")',
     'R2_INIT_FAIL("could not initialize R2 reward ledger")',
-    'R2_INIT_FAIL("could not initialize R2 Addiction learning database")',
     'R2_INIT_FAIL("could not initialize R2 Visual Experience Library")',
     'R2_INIT_FAIL("could not initialize R2 Alternate-Self Lab")',
     'R2_INIT_FAIL("could not initialize R2 Imagination")',
