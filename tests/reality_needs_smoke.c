@@ -460,6 +460,20 @@ int main(void)
     seed_legacy_reality_owned_tables();
     seed_legacy_shared_reality_tables();
     if (r2_reality_init() != 0) fail("Reality initialization failed");
+    char *initial_status = r2_reality_status();
+    if (!initial_status || !strstr(initial_status, "SELF CONTINUITY") ||
+        !strstr(initial_status, "Hunger:")) {
+        free(initial_status);
+        fail("valid authoritative Reality state did not produce needs/status context");
+    }
+    free(initial_status);
+    char *initial_tv_status = r2_reality_tv_status();
+    if (!initial_tv_status || !strstr(initial_tv_status, "CRT TV: OFF") ||
+        !strstr(initial_tv_status, "Built-in VCR: empty")) {
+        free(initial_tv_status);
+        fail("valid initial TV/VCR state did not produce device status");
+    }
+    free(initial_tv_status);
     verify_legacy_fridge_migration();
     verify_legacy_shared_reality_migration();
     double initial_hunger, initial_sleepiness, initial_energy;
