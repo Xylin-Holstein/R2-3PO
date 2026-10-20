@@ -3817,7 +3817,7 @@ static char *ollama_chat_with_limit(
     size_t capabilities_used = 0;
     size_t startup_used = 0;
     size_t learning_used = 0;
-    for (int priority = 0; priority < 8 &&
+    for (int priority = 0; priority < 9 &&
          total_chars < system_budget; ++priority) {
         for (size_t i = 0; i < count && total_chars < system_budget; ++i) {
             if (!msgs[i].role || strcmp(msgs[i].role, "system") != 0)
