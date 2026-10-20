@@ -3485,6 +3485,12 @@ static char *ollama_chat_with_limit(
     }
     if (active_user_chars > OLLAMA_MAX_MESSAGE_CHARS)
         active_user_chars = OLLAMA_MAX_MESSAGE_CHARS;
+    /* Match the minimum current-user reserve used by the serializer below.
+       If token allocation counts only a 40-character greeting while the
+       serializer reserves 1500 bytes, that unaccounted 1460-byte difference
+       can evict complete static instruction sections after generation is sized. */
+    if (active_user_chars < 1500U)
+        active_user_chars = 1500U;
     if (active_user_chars <= SIZE_MAX - required_input_chars)
         required_input_chars += active_user_chars;
     else
