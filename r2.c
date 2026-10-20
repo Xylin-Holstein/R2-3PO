@@ -4925,6 +4925,10 @@ static int r2_is_retry_context_message(const Message *message)
                     strlen("PERSISTENT REALITY CONTEXT")) ||
            !strncmp(content, "CURRENT TURN RETRIEVED CONTEXT",
                     strlen("CURRENT TURN RETRIEVED CONTEXT")) ||
+           !strncmp(content, "CURRENT LIVE VISUAL OBSERVATION",
+                    strlen("CURRENT LIVE VISUAL OBSERVATION")) ||
+           !strncmp(content, "PRIOR VISUAL EXPERIENCES",
+                    strlen("PRIOR VISUAL EXPERIENCES")) ||
            !strncmp(content, "PERSISTENT LEARNING CONTEXT",
                     strlen("PERSISTENT LEARNING CONTEXT")) ||
            !strncmp(content,
@@ -5029,7 +5033,7 @@ static char *r2_retry_direct_answer(Message *messages_copy,
     for (size_t i = 0; i < message_count; ++i) {
         if (r2_is_static_system_prompt_section(&messages_copy[i])) {
             compact_messages[compact_count++] = messages_copy[i];
-        } else if (dynamic_context_count < 6 &&
+        } else if (dynamic_context_count < 8 &&
                    r2_is_retry_context_message(&messages_copy[i])) {
             compact_messages[compact_count++] = messages_copy[i];
             ++dynamic_context_count;
