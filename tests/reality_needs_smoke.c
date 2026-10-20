@@ -475,7 +475,7 @@ int main(void)
         !strstr(initial_tv_status, "Built-in VCR: tape inserted (pause)") ||
         !strstr(initial_tv_status, "legacy_tape.mkv")) {
         if (initial_tv_status)
-            fprintf(stderr, "Reality TV status fixture output:\\n%s\\n", initial_tv_status);
+            fprintf(stderr, "Reality TV status fixture output:\n%s\n", initial_tv_status);
         free(initial_tv_status);
         fail("migrated legacy TV power/source/VCR state was not represented in device status");
     }
