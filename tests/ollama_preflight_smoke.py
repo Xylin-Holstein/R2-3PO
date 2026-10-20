@@ -19,6 +19,15 @@ import preflight_ollama_model as probe  # noqa: E402
 
 
 class OllamaPreflightSmoke(unittest.TestCase):
+    def test_linux_available_memory_reader_reports_mib(self) -> None:
+        from unittest.mock import mock_open
+        with patch("builtins.open", mock_open(read_data=(
+            "MemTotal:       15728640 kB\\n"
+            "MemFree:         1024000 kB\\n"
+            "MemAvailable:    3984384 kB\\n"
+        ))):
+            self.assertEqual(probe._available_memory_mib(), 3891)
+
     def test_model_and_real_chat_completion_are_required(self) -> None:
         replies = [
             {"models": [{"name": "qwen3.5:9b"}]},
