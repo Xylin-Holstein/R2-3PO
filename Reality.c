@@ -4139,9 +4139,9 @@ int r2_reality_eat(const char *food, double fullness)
     return reality_eat_internal(food, fullness, 1, -1.0);
 }
 
-/* Model output may fail to choose an obvious meal. Feed only when the
- * fullness meter is low, using authoritative metrics from accessible inventory
- * or the fridge at home. Never invent food or bypass location. */
+/* Read-only availability check used to validate autonomous needs decisions.
+ * Returns 1 when an accessible, metric-backed meal exists, 0 when none exists,
+ * and -1 when authoritative inventory could not be checked safely. */
 int r2_reality_autonomous_food_available(void)
 {
     if (!r2_reality_is_initialized()) return -1;
