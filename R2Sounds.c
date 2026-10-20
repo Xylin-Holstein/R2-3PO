@@ -414,7 +414,7 @@ static int valid_marker_value(const char *value, size_t max_len)
     return 1;
 }
 
-/* Unknown model-invented labels must not trigger even a generic sound. */
+/* State labels are open-vocabulary; syntax is validated here and filename matching decides whether a specific or generic asset is usable. */
 static int valid_marker_state(const char *value)
 {
     char normalized[R2_SOUND_MARKER_MAX];
