@@ -31,7 +31,8 @@ for token, message in (
     require(token in core, message)
 
 require(
-    ("context_cache_store(associative_query, memory_limit, memory_context)", "memory results are cached under the exact semantic query and selected limit"),
+    core.find("context_cache_store(associative_query, memory_limit, memory_context)") <
+    core.find("Conversation continuity: the Life Log"),
     "Life Log history is searched fresh after the cached memory lookup",
 )
 print("RAM context cache and hardware telemetry smoke passed.")
