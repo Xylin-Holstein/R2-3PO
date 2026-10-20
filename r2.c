@@ -3723,8 +3723,6 @@ static char *ollama_chat_with_limit(
      */
     R2SystemContextBudget context_budgets =
         r2_compute_system_context_budget(system_budget, override_length);
-    size_t reality_reserve = context_budgets.reality_reserve;
-    size_t identity_budget = context_budgets.identity_budget;
     size_t retrieval_reserve = context_budgets.retrieval_reserve;
     size_t capabilities_reserve = context_budgets.capabilities_reserve;
     size_t startup_reserve = context_budgets.startup_reserve;
