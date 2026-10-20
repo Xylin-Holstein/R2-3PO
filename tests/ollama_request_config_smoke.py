@@ -71,7 +71,7 @@ response_failure_end = source.find("\n    if (!b.data || b.size == 0)", response
 if response_failure_start < 0 or response_failure_end <= response_failure_start:
     raise SystemExit("FAIL: could not isolate Ollama HTTP error reporting")
 http_failure = source[response_failure_start:response_failure_end]
-require('HTTP %ld response (%zu bytes):\n%s\n' in http_failure
+require(r'HTTP %ld response (%zu bytes):\n%s\n' in http_failure
         and "%.400s" not in http_failure,
         "HTTP failures print the complete bounded response body and its byte count")
 
