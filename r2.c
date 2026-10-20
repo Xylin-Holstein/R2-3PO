@@ -3403,10 +3403,10 @@ static R2SystemContextBudget r2_compute_system_context_budget(size_t system_budg
 
     budget.retrieval_reserve = system_budget / 8;
     budget.capabilities_reserve = system_budget / 16;
-    budget.startup_reserve = system_budget / 8;
+    budget.startup_reserve = system_budget / 10;
     if (budget.startup_reserve > 1600)
         budget.startup_reserve = 1600;
-    budget.learning_reserve = system_budget / 16;
+    budget.learning_reserve = system_budget / 10;
     if (budget.learning_reserve > 1000)
         budget.learning_reserve = 1000;
 
@@ -10848,13 +10848,15 @@ static char *build_learning_context(void)
 {
     char *reward = r2_reward_context();
     char *addiction = r2_addiction_report();
-    size_t cap = 2400;
+    /* Keep both persistent stores visible in the smallest normal prompt window.
+       The detailed records remain in their databases; these are concise cues. */
+    size_t cap = 512;
     char *context = malloc(cap);
     if (context) {
         snprintf(context, cap,
             "PERSISTENT LEARNING CONTEXT\n"
-            "REWARD/REINFORCEMENT SUMMARY:\n%.900s\n\n"
-            "REPEATED-INTEREST SUMMARY:\n%.900s\n",
+            "REWARD: %.110s\n"
+            "REPEATED INTERESTS: %.110s\n",
             reward ? reward : "(reinforcement context unavailable)",
             addiction ? addiction : "(repeated-interest history unavailable)");
     }
