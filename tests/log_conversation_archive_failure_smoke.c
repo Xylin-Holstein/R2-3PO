@@ -4,6 +4,7 @@
 #include <sqlite3.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* Isolate the Life Log test from the optional Sensory Journal database. */
@@ -39,6 +40,39 @@ int main(void)
         fprintf(stderr, "FAIL: Life Log initialization failed.\n");
         return 1;
     }
+
+    int64_t first_turn = r2_log_conversation_turn(
+        "FIRST_PERSISTED_USER_MARKER",
+        "FIRST_PERSISTED_REPLY_MARKER");
+    int64_t second_turn = r2_log_conversation_turn(
+        "SECOND_PERSISTED_USER_MARKER",
+        "SECOND_PERSISTED_REPLY_MARKER");
+    if (first_turn <= 0 || second_turn <= first_turn) {
+        fprintf(stderr, "FAIL: could not persist ordered conversation fixtures.\\n");
+        r2_log_shutdown();
+        return 1;
+    }
+
+    /* Restart the Life Log to prove recent turns are restored from SQLite,
+       rather than relying only on the in-memory message array. */
+    r2_log_shutdown();
+    if (r2_log_init() != 0) {
+        fprintf(stderr, "FAIL: Life Log did not reopen after conversation writes.\\n");
+        return 1;
+    }
+    char *recent_context = r2_log_recent_conversation_context(3000U);
+    const char *first_marker = recent_context
+        ? strstr(recent_context, "FIRST_PERSISTED_USER_MARKER") : NULL;
+    const char *second_marker = recent_context
+        ? strstr(recent_context, "SECOND_PERSISTED_USER_MARKER") : NULL;
+    if (!recent_context || strlen(recent_context) > 3000U ||
+        !first_marker || !second_marker || first_marker >= second_marker) {
+        fprintf(stderr, "FAIL: recent persisted conversation was missing, unbounded, or out of order.\\n");
+        free(recent_context);
+        r2_log_shutdown();
+        return 1;
+    }
+    free(recent_context);
 
     sqlite3 *inject_db = NULL;
     if (sqlite3_open(R2_DIARY_DATABASE, &inject_db) != SQLITE_OK) {
