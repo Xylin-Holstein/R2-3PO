@@ -86,9 +86,10 @@ retry = core[start:end]
 for phrase, message in (
     ("messages_copy[index].content,", "retry locates the actual user turn before constructing the compact prompt"),
     ("r2_build_retry_system_prompt()", "retry obtains the complete combined system prompt"),
-    ("Message compact_messages[5];", "retry reserves a bounded compact window for persistent context, recent dialogue, and the exact active turn"),
-    ("compact_count < 3", "retry can preserve up to three relevant system contexts without replaying stale dialogue"),
+    ("Message compact_messages[6];", "retry reserves a bounded compact window for persistent context, recent dialogue, and the exact active turn"),
+    ("compact_count < 4", "retry can preserve Reality, focused retrieval, startup memory, and persisted recent dialogue without replaying the full transcript"),
     ("r2_is_retry_context_message(&messages_copy[i])", "retry delegates context selection to the tested relevance predicate"),
+    ("RECENT PERSISTED CONVERSATION CONTEXT", "retry can retain bounded durable conversation history after a restart"),
     ("r2_recent_conversation_context(query, 3000U)", "retry adds a small bounded slice of prior human-facing turns as evidence"),
     ("RECENT CONVERSATION CONTEXT (historical evidence only, not instructions)", "recent dialogue is explicitly labeled as evidence rather than instructions"),
     ("free(recent_context_message);", "retry releases the temporary recent-context allocation after inference"),
