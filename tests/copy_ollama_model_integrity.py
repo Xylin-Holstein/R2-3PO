@@ -260,5 +260,18 @@ class CopyOllamaModelIntegrityTests(unittest.TestCase):
         discover.assert_not_called()
         self.assertIn("invalid Ollama model reference", errors.getvalue())
 
+
+    def test_cli_defaults_to_the_runtime_model(self) -> None:
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory(prefix="r2-model-default-test-") as temporary:
+            source = Path(temporary)
+            with patch.dict(copier.os.environ, {}, clear=True), \
+                 patch.object(sys, "argv", ["copy_ollama_model.py"]), \
+                 patch.object(copier, "service_model_root", return_value=source), \
+                 patch.object(copier, "copy_model") as copy_model:
+                status = copier.main()
+        self.assertEqual(status, 0)
+        self.assertEqual(copy_model.call_args.args[2], "qwen3.5:9b")
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
