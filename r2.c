@@ -1503,173 +1503,120 @@ static char *get_startup_memories(int limit)
 
     size_t cap = 4096;
     size_t len = 0;
-
-    char *out =
-        malloc(cap);
-
+    char *out = malloc(cap);
     if (!out)
         return NULL;
-
     out[0] = '\0';
 
     pthread_mutex_lock(&db_lock);
+    if (!db) {
+        pthread_mutex_unlock(&db_lock);
+        free(out);
+        fprintf(stderr, "[R2 memory] Startup memory query has no open memory database.\n");
+        return NULL;
+    }
 
     const char *sql =
         "SELECT memory,category,updated_at "
         "FROM memories "
         "ORDER BY updated_at DESC "
         "LIMIT ?";
-
     sqlite3_stmt *st = NULL;
-
-    int rc =
-        sqlite3_prepare_v2(
-            db,
-            sql,
-            -1,
-            &st,
-            NULL
-        );
-
+    int rc = sqlite3_prepare_v2(db, sql, -1, &st, NULL);
     if (rc != SQLITE_OK) {
-
+        fprintf(stderr, "[R2 memory] Could not prepare startup memory query: %s\n",
+                sqlite3_errmsg(db));
         pthread_mutex_unlock(&db_lock);
-
         free(out);
-
         return NULL;
     }
 
-    sqlite3_bind_int(
-        st,
-        1,
-        limit
-    );
+    rc = sqlite3_bind_int(st, 1, limit);
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "[R2 memory] Could not bind startup memory limit: %s\n",
+                sqlite3_errmsg(db));
+        sqlite3_finalize(st);
+        pthread_mutex_unlock(&db_lock);
+        free(out);
+        return NULL;
+    }
 
-    while (
-        sqlite3_step(st) ==
-        SQLITE_ROW
-    ) {
+    while ((rc = sqlite3_step(st)) == SQLITE_ROW) {
+        const char *memory = (const char *)sqlite3_column_text(st, 0);
+        const char *category = (const char *)sqlite3_column_text(st, 1);
+        const char *updated = (const char *)sqlite3_column_text(st, 2);
+        if (!memory) memory = "";
+        if (!category) category = "general";
+        if (!updated) updated = "";
 
-        const char *memory =
-            (const char *)
-            sqlite3_column_text(
-                st,
-                0
-            );
+        size_t memory_len = strlen(memory);
+        size_t category_len = strlen(category);
+        size_t updated_len = strlen(updated);
+        if (memory_len > SIZE_MAX - category_len ||
+            memory_len + category_len > SIZE_MAX - updated_len ||
+            memory_len + category_len + updated_len > SIZE_MAX - 32) {
+            fprintf(stderr, "[R2 memory] Startup memory row length overflow.\n");
+            sqlite3_finalize(st);
+            pthread_mutex_unlock(&db_lock);
+            free(out);
+            return NULL;
+        }
+        size_t needed = memory_len + category_len + updated_len + 32;
+        if (len > SIZE_MAX - needed - 1) {
+            fprintf(stderr, "[R2 memory] Startup memory context length overflow.\n");
+            sqlite3_finalize(st);
+            pthread_mutex_unlock(&db_lock);
+            free(out);
+            return NULL;
+        }
 
-        const char *category =
-            (const char *)
-            sqlite3_column_text(
-                st,
-                1
-            );
-
-        const char *updated =
-            (const char *)
-            sqlite3_column_text(
-                st,
-                2
-            );
-
-        if (!memory)
-            memory = "";
-
-        if (!category)
-            category = "general";
-
-        if (!updated)
-            updated = "";
-
-        size_t needed =
-            strlen(memory) +
-            strlen(category) +
-            strlen(updated) +
-            32;
-
-        if (
-            len +
-            needed +
-            1 >
-            cap
-        ) {
-
-            size_t new_cap =
-                cap;
-
-            while (
-                len +
-                needed +
-                1 >
-                new_cap
-            ) {
-
-                if (
-                    new_cap >
-                    SIZE_MAX / 2
-                ) {
-
+        if (len + needed + 1 > cap) {
+            size_t new_cap = cap;
+            while (len + needed + 1 > new_cap) {
+                if (new_cap > SIZE_MAX / 2) {
                     sqlite3_finalize(st);
-
-                    pthread_mutex_unlock(
-                        &db_lock
-                    );
-
+                    pthread_mutex_unlock(&db_lock);
                     free(out);
-
                     return NULL;
                 }
-
                 new_cap *= 2;
             }
-
-            char *grown =
-                realloc(
-                    out,
-                    new_cap
-                );
-
+            char *grown = realloc(out, new_cap);
             if (!grown) {
-
                 sqlite3_finalize(st);
-
-                pthread_mutex_unlock(
-                    &db_lock
-                );
-
+                pthread_mutex_unlock(&db_lock);
                 free(out);
-
                 return NULL;
             }
-
             out = grown;
             cap = new_cap;
         }
 
-        int added =
-            snprintf(
-                out + len,
-                cap - len,
-                "[%s | %s] %s\n",
-                category,
-                updated,
-                memory
-            );
+        int added = snprintf(out + len, cap - len, "[%s | %s] %s\n",
+                             category, updated, memory);
+        if (added < 0 || (size_t)added >= cap - len) {
+            fprintf(stderr, "[R2 memory] Could not append a complete startup memory row.\n");
+            sqlite3_finalize(st);
+            pthread_mutex_unlock(&db_lock);
+            free(out);
+            return NULL;
+        }
+        len += (size_t)added;
+    }
 
-        if (
-            added > 0 &&
-            (size_t)added < cap - len
-        )
-            len += (size_t)added;
+    if (rc != SQLITE_DONE) {
+        fprintf(stderr, "[R2 memory] Startup memory query failed while reading rows: %s\n",
+                sqlite3_errmsg(db));
+        sqlite3_finalize(st);
+        pthread_mutex_unlock(&db_lock);
+        free(out);
+        return NULL;
     }
 
     sqlite3_finalize(st);
-
     pthread_mutex_unlock(&db_lock);
-
     return out;
 }
-
 
 /* ============================================================
    MEMORY RETRIEVAL
@@ -11904,17 +11851,7 @@ int r2_init(void)
         );
 
     if (!startup_memories) {
-
-        fprintf(
-            stderr,
-            "[R2 memory] Could not load startup memories.\n"
-        );
-
-        startup_memories =
-            xstrdup(
-                "(Persistent memory database could not be "
-                "loaded into startup context.)\n"
-            );
+        R2_INIT_FAIL("could not load startup persistent memories");
     }
 
     size_t startup_context_size =
