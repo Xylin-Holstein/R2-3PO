@@ -646,7 +646,7 @@ char *r2_reward_context(void)
     pthread_mutex_lock(&reward_lock);
     if (ensure_db_locked() != 0) {
         pthread_mutex_unlock(&reward_lock);
-        return strdup("Reward context unavailable: the reward database could not be opened.\\n");
+        return strdup("Reward context unavailable: the reward database could not be opened.\n");
     }
 
     char *out = malloc(capacity);
@@ -661,21 +661,21 @@ char *r2_reward_context(void)
     if (rc == SQLITE_OK)
         rc = sqlite3_step(st);
     if (rc != SQLITE_ROW) {
-        fprintf(stderr, "[R2 Reward] Could not read cumulative reward total: %s\\n",
+        fprintf(stderr, "[R2 Reward] Could not read cumulative reward total: %s\n",
                 sqlite3_errmsg(reward_db));
         if (st) sqlite3_finalize(st);
         pthread_mutex_unlock(&reward_lock);
         free(out);
-        return strdup("Reward context unavailable: the cumulative reward total could not be read.\\n");
+        return strdup("Reward context unavailable: the cumulative reward total could not be read.\n");
     }
     int total = sqlite3_column_int(st, 0);
     sqlite3_finalize(st);
     st = NULL;
 
     int n = snprintf(out, capacity,
-        "LEARNING/REINFORCEMENT CONTEXT (simulated feedback, not objective worth):\\n"
-        "Cumulative points: %d. Positive feedback is +1..+5; corrective feedback is at most -7.\\n"
-        "Temporary enjoyment modifiers decay over 30 minutes and must not be treated as permanent preferences.\\n",
+        "LEARNING/REINFORCEMENT CONTEXT (simulated feedback, not objective worth):\n"
+        "Cumulative points: %d. Positive feedback is +1..+5; corrective feedback is at most -7.\n"
+        "Temporary enjoyment modifiers decay over 30 minutes and must not be treated as permanent preferences.\n",
         total);
     if (n < 0 || (size_t)n >= capacity) {
         pthread_mutex_unlock(&reward_lock);
@@ -688,12 +688,12 @@ char *r2_reward_context(void)
         "SELECT target,points,reason,occurred_at,expires_at FROM reward_events "
         "ORDER BY id DESC LIMIT 8", -1, &st, NULL);
     if (rc != SQLITE_OK) {
-        fprintf(stderr, "[R2 Reward] Could not prepare recent reward context: %s\\n",
+        fprintf(stderr, "[R2 Reward] Could not prepare recent reward context: %s\n",
                 sqlite3_errmsg(reward_db));
         if (st) sqlite3_finalize(st);
         pthread_mutex_unlock(&reward_lock);
         free(out);
-        return strdup("Reward context unavailable: recent reward events could not be read.\\n");
+        return strdup("Reward context unavailable: recent reward events could not be read.\n");
     }
 
     int omitted = 0;
@@ -717,7 +717,7 @@ char *r2_reward_context(void)
         }
         int modifier = (int)(points * 2.0 * remaining);
         n = snprintf(out + used, capacity - used,
-            "Recent: target=%.160s; points=%+d; temporary_modifier=%+d; reason=%.160s\\n",
+            "Recent: target=%.160s; points=%+d; temporary_modifier=%+d; reason=%.160s\n",
             target ? target : "unknown", points, modifier, reason ? reason : "");
         if (n < 0 || (size_t)n >= capacity - used) {
             failed = 1;
@@ -730,14 +730,14 @@ char *r2_reward_context(void)
     if (st) sqlite3_finalize(st);
 
     if (failed) {
-        fprintf(stderr, "[R2 Reward] Recent reward context query failed: %s\\n",
+        fprintf(stderr, "[R2 Reward] Recent reward context query failed: %s\n",
                 sqlite3_errmsg(reward_db));
         pthread_mutex_unlock(&reward_lock);
         free(out);
-        return strdup("Reward context unavailable: recent reward events could not be read completely.\\n");
+        return strdup("Reward context unavailable: recent reward events could not be read completely.\n");
     }
     if (omitted) {
-        const char *note = "Additional recent reward events omitted from context; full history remains stored.\\n";
+        const char *note = "Additional recent reward events omitted from context; full history remains stored.\n";
         size_t note_len = strlen(note);
         if (note_len < capacity - used) {
             memcpy(out + used, note, note_len);
