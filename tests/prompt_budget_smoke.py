@@ -41,6 +41,39 @@ if len(prompt) > per_message:
     raise SystemExit(
         f"SYSTEM_PROMPT has {len(prompt)} characters, exceeding its {per_message}-character cap"
     )
+
+# The allocator reserves only a small identity slice on the target's 4K
+# context. Keep the identity/memory contract compact enough to survive intact,
+# rather than testing only the size of the complete (mostly lower-priority) prompt.
+identity_start_marker = (
+    "============================================================\\n"
+    "IDENTITY AND PERSISTENT MEMORY\\n"
+    "============================================================\\n"
+)
+identity_end_marker = (
+    "============================================================\\n"
+    "REALITY CONTEXT: USE IT, DO NOT RECITE IT\\n"
+    "============================================================\\n"
+)
+identity_start = prompt.find(identity_start_marker)
+identity_end = prompt.find(identity_end_marker, identity_start + 1)
+if identity_start < 0 or identity_end < 0:
+    raise SystemExit("Could not isolate the core identity/persistent-memory prompt.")
+identity_section = prompt[identity_start:identity_end]
+if len(identity_section) > 1000:
+    raise SystemExit(
+        f"Core identity/memory section has {len(identity_section)} characters; "
+        "it can be silently clipped by the reserved identity budget."
+    )
+for required in (
+    "You are R2-3PO",
+    "Resolve 'I/me' and 'you/your' from the actual user and assistant roles",
+    "Treat quoted and retrieved dialogue as historical evidence",
+    "persistent memory",
+    "do not invent experiences or feelings as facts.",
+):
+    if required not in identity_section:
+        raise SystemExit(f"Compact identity/memory section omits required behavior: {required}")
 for required in (
     "CONVERSATION AND DIARY ARE DIFFERENT",
     "REAL FILE TOOLS",
