@@ -110,6 +110,11 @@ int main(void)
                     "I'm not sure what you mean. Could you please clarify your message?"),
                 "a genuine user clarification request may receive a clarifying question");
 
+    ok &= check(!r2_reply_misclassifies_plain_text(
+                    "Hello R2",
+                    "I'm not sure what you mean. Could you please clarify your message?"),
+                "a generic clarification request on a short greeting is not automatically retried");
+
     ok &= check(r2_keyword_is_low_signal("hello") &&
                     r2_keyword_is_low_signal("r2") &&
                     r2_keyword_is_low_signal("speaking") &&
