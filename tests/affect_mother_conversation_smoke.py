@@ -25,7 +25,7 @@ for phrase, description in [
     ("Learn relationships from explicit statements", "relationships are learned from evidence rather than fixed name shortcuts"),
     ("AFFECT AND NONVERBAL EXPRESSION", "normal answers receive contextual affect guidance"),
     ("do not rely on a hard-coded emotion-to-response table", "affect interpretation is not a canned emotion-response lookup"),
-    ("social or emotional meaning", "meaningful social tone is explicitly part of the response policy"),
+    ("acknowledge that social meaning", "meaningful social tone is explicitly part of the response policy"),
 ]:
     require(phrase in answer_policy, description)
 
