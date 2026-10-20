@@ -110,6 +110,8 @@ retry_context = core[context_start:context_end]
 for phrase, message in (
     ("PERSISTENT REALITY CONTEXT", "retry context selector retains live Reality"),
     ("CURRENT TURN RETRIEVED CONTEXT", "retry context selector retains focused active-turn evidence"),
+    ("CURRENT LIVE VISUAL OBSERVATION", "retry context selector retains the current visual observation"),
+    ("PRIOR VISUAL EXPERIENCES", "retry context selector retains prior visual evidence as history"),
     ("R2 PERSISTENT MEMORY - STARTUP CONTEXT", "retry context selector retains broad persistent relationship memory"),
     ("RECENT PERSISTED CONVERSATION CONTEXT", "retry context selector retains bounded durable conversation history after a restart"),
     ("PAST CONVERSATION ARCHIVE — CONTEXT ONLY.", "retry context selector retains older archived conversation evidence"),
