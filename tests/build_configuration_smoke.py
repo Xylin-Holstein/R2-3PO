@@ -267,13 +267,7 @@ require(
     "one-time trusted bootstrap pin matches the exact reviewed source blob",
 )
 pinned_installer_sha = re.search(
-    r'^EXPECTED_BOOTSTRAP_BLOB_SHA="([0-9a-f]{40})"require(
-    'https://raw.githubusercontent.com/Xylin48/R2-3PO/${BOOTSTRAP_COMMIT}/tools/r2_install_root_bootstrap.sh' in overnight_docs
-    and "raw.githubusercontent.com/Xylin-Holstein/R2-3PO/" not in overnight_docs,
-    "trusted bootstrap instructions use the current canonical raw-content namespace",
-)
-print("R2 build configuration smoke test passed.")
-,
+    r'^EXPECTED_BOOTSTRAP_BLOB_SHA="([0-9a-f]{40})"$',
     installer_wrapper,
     re.MULTILINE,
 )
