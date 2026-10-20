@@ -68,7 +68,7 @@ retry_builder = function_slice(
     "static int r2_is_retry_context_message(",
 )
 retry_prompt_start = core.find("static const char r2_retry_system_prompt[] =")
-retry_prompt_end = core.find(";", retry_prompt_start)
+retry_prompt_end = core.find(";\n", retry_prompt_start)
 retry_prompt = core[retry_prompt_start:retry_prompt_end]
 require(
     "return xstrdup(r2_retry_system_prompt);" in retry_builder
