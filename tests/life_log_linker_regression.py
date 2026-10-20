@@ -38,6 +38,15 @@ if missing:
     print("\n".join(missing), file=sys.stderr)
     raise SystemExit(1)
 
+activity_start = source[source.index("int64_t r2_log_activity_start("):source.index("int64_t r2_log_activity_end(")]
+if "int step_rc = sqlite3_step(statement);" not in activity_start:
+    missing.append("activity-start lookup does not preserve SQLite step errors")
+for required_status in ("step_rc == SQLITE_ROW", "step_rc == SQLITE_DONE", "rc = step_rc;"):
+    if required_status not in activity_start:
+        missing.append(f"activity-start lookup missing status branch: {required_status}")
+if "char summary[1024];" in activity_start:
+    missing.append("activity-start insert retains unused summary allocation")
+
 query_start = source.index("static char *query_events(")
 query_end = source.index("char *r2_log_recent(", query_start)
 query_impl = source[query_start:query_end]
