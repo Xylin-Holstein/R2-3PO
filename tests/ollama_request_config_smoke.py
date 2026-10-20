@@ -67,11 +67,11 @@ require("ollama_response_contract_valid(response_role, response_done)" in respon
         "only a complete assistant response is accepted as the final answer")
 
 response_failure_start = source.find('if (http_status < 200 || http_status >= 300) {')
-response_failure_end = source.find("\\n    if (!b.data || b.size == 0)", response_failure_start)
+response_failure_end = source.find("\n    if (!b.data || b.size == 0)", response_failure_start)
 if response_failure_start < 0 or response_failure_end <= response_failure_start:
     raise SystemExit("FAIL: could not isolate Ollama HTTP error reporting")
 http_failure = source[response_failure_start:response_failure_end]
-require('HTTP %ld response (%zu bytes):\\n%s\\n' in http_failure
+require('HTTP %ld response (%zu bytes):\n%s\n' in http_failure
         and "%.400s" not in http_failure,
         "HTTP failures print the complete bounded response body and its byte count")
 
