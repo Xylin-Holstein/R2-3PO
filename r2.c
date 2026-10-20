@@ -712,8 +712,14 @@ static char *read_entire_file(const char *path)
     }
 
     size_t got = fread(buf, 1, (size_t)n, f);
+    int read_error = ferror(f);
+    int close_error = fclose(f) != 0;
 
-    fclose(f);
+    /* A short read must never masquerade as a complete conversation archive. */
+    if (read_error || got != (size_t)n || close_error) {
+        free(buf);
+        return NULL;
+    }
 
     buf[got] = '\0';
 
@@ -11597,10 +11603,16 @@ int r2_init(void)
        LOAD ARCHIVED CONVERSATION
        ======================================================== */
 
-    char *original =
-        read_entire_file(
-            ORIGINAL_CONVERSATION
-        );
+    struct stat archive_stat;
+    char *original = NULL;
+    if (stat(ORIGINAL_CONVERSATION, &archive_stat) == 0) {
+        original = read_entire_file(ORIGINAL_CONVERSATION);
+        if (!original)
+            R2_INIT_FAIL("original conversation archive exists but could not be read completely");
+    } else if (errno != ENOENT) {
+        R2_INIT_FAIL("could not inspect original conversation archive: %s",
+                     strerror(errno));
+    }
 
     if (
         original &&
@@ -11642,7 +11654,7 @@ int r2_init(void)
             &messages_lock
         );
 
-        message_add_pinned(
+        int archive_context_rc = message_add_pinned(
             "system",
             c
         );
@@ -11650,6 +11662,12 @@ int r2_init(void)
         pthread_mutex_unlock(
             &messages_lock
         );
+
+        if (archive_context_rc != 0) {
+            free(c);
+            free(original);
+            R2_INIT_FAIL("could not add original conversation archive to context");
+        }
 
         free(c);
     }
