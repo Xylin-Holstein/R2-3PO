@@ -51,6 +51,15 @@ int main(void)
        unfamiliar label may use a generic asset when no matching clip exists. */
     assert(r2_sounds_select_file(root, "beep", "banana", path, sizeof(path)) == 0);
     assert(strstr(path, "R2_Beep_Default.mp3"));
+    char custom_state_dir[] = "/tmp/r2-fx-custom-state-XXXXXX";
+    assert(mkdtemp(custom_state_dir));
+    touch(custom_state_dir, "R2_Beep_Banana.mp3");
+    assert(r2_sounds_select_file(custom_state_dir, "beep", "banana", path, sizeof(path)) == 0);
+    assert(strstr(path, "R2_Beep_Banana.mp3"));
+    char custom_state_file[4096];
+    snprintf(custom_state_file, sizeof(custom_state_file), "%s/R2_Beep_Banana.mp3", custom_state_dir);
+    unlink(custom_state_file);
+    rmdir(custom_state_dir);
     assert(r2_sounds_select_file(root, "beep", "silly", path, sizeof(path)) == 0);
     assert(strstr(path, "R2_Beep_Default.mp3"));
     assert(r2_sounds_select_file(root, "beep", "sleepy", path, sizeof(path)) == 0);
