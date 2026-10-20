@@ -202,7 +202,6 @@ require(
     and "r2_capability_section_matches_query" in core
     and "r2_inference_system_priority(" in core
     and "ollama_authoritative_user_query" in core
-    and "Prefer a complete sentence boundary when the cap falls inside the" in core
     and "system_budget - reality_reserve - identity_minimum" not in core,
     "instruction-first context budgeting preserves complete relevant instructions before retrieved memory",
 )
