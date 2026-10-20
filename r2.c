@@ -3757,6 +3757,8 @@ static char *ollama_chat_with_limit(
     size_t identity_budget = context_budgets.identity_budget;
     size_t retrieval_reserve = context_budgets.retrieval_reserve;
     size_t capabilities_reserve = context_budgets.capabilities_reserve;
+    size_t startup_reserve = context_budgets.startup_reserve;
+    size_t learning_reserve = context_budgets.learning_reserve;
     size_t override_budget = context_budgets.override_budget;
     if (override_length > override_budget) {
         /*
