@@ -186,7 +186,7 @@ location_block = reality[location_start:location_end]
 require(
     "int location_rc = sqlite3_prepare_v2" in location_block
     and "location_rc = sqlite3_step(loc_st)" in location_block
-    and "location_rc == SQLITE_NOTFOUND" in location_block
+    and "location_rc = SQLITE_NOTFOUND" in location_block
     and "location_rc = SQLITE_CORRUPT" in location_block
     and "Could not read a valid persistent location; refusing to assume home" in location_block
     and "r2_fridge_shutdown();" in location_block,
