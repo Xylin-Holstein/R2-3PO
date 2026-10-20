@@ -67,7 +67,7 @@ int main(void)
         !r2_is_retry_context_message(&interleaved_messages[2]) &&
         !r2_is_retry_context_message(&interleaved_messages[1]) &&
         !r2_is_retry_context_message(&interleaved_messages[0]),
-        "corrective retry preserves Reality, focused retrieval, and startup memory but excludes learning summaries, archive, and stale dialogue");
+        "retry selector preserves Reality, focused retrieval, and startup memory while excluding learning summaries, pinned archive, and full stale transcript; bounded recent dialogue is added separately");
 
     const char *mother_message =
         "Hello r2, this is your mother speaking to you. i miss you. "
