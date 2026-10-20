@@ -96,6 +96,28 @@ if "for (int priority = 0; priority < 8" not in core:
 if "int message_priority = r2_inference_system_priority(" not in core or "if (message_priority != priority) continue;" not in core:
     raise SystemExit("Serialized context budgeting does not apply the shared context-priority function.")
 
+# Startup memory is part of the learned-relationship evidence, not an optional
+# decorative prompt block. Query/bind/step failures must be surfaced rather than
+# silently replacing the real database result with a fake memory placeholder.
+startup_start = core.find("static char *get_startup_memories(int limit)")
+startup_end = core.find("\n\n/* ============================================================\n   MEMORY RETRIEVAL", startup_start)
+if startup_start < 0 or startup_end < 0:
+    raise SystemExit("Could not locate startup persistent-memory retrieval.")
+startup_reader = core[startup_start:startup_end]
+for marker in (
+    "if (!db)",
+    "sqlite3_bind_int(st, 1, limit)",
+    "while ((rc = sqlite3_step(st)) == SQLITE_ROW)",
+    "if (rc != SQLITE_DONE)",
+    "sqlite3_errmsg(db)",
+):
+    if marker not in startup_reader:
+        raise SystemExit(f"Startup memory read does not correctly handle {marker!r}.")
+if "Persistent memory database could not be loaded into startup context" in core:
+    raise SystemExit("Startup memory failure is still being masked with placeholder context.")
+if 'R2_INIT_FAIL("could not load startup persistent memories")' not in core:
+    raise SystemExit("R2 can start without its startup persistent-memory query succeeding.")
+
 # Every real request should report whether the exact current user text and
 # the key context blocks actually survived serialization, without logging text.
 if "[R2 Prompt Audit]" not in core or "exact_user_turn=%d" not in core or "query_in_user_turn=%d" not in core:
