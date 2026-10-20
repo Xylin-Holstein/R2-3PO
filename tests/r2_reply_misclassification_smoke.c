@@ -90,7 +90,7 @@ int main(void)
     free(retry_prompt);
     Message startup_context = {
         .role = "system",
-        .content = "============================================================\\nR2 PERSISTENT MEMORY - STARTUP CONTEXT",
+        .content = "============================================================\nR2 PERSISTENT MEMORY - STARTUP CONTEXT",
         .pinned = 0
     };
     ok &= check(r2_is_retry_context_message(&startup_context),
