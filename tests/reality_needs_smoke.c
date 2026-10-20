@@ -468,14 +468,18 @@ int main(void)
     }
     free(initial_status);
     char *initial_tv_status = r2_reality_tv_status();
-    /* This fixture deliberately seeds a legacy inserted tape in the shared
-       memory DB; the migrated Reality status must show that preserved state. */
-    if (!initial_tv_status || !strstr(initial_tv_status, "CRT TV: OFF") ||
+    /* This fixture deliberately seeds the legacy TV's powered-on AV-input
+       state and inserted VCR tape; migration must preserve both exactly. */
+    if (!initial_tv_status || !strstr(initial_tv_status, "CRT TV: ON") ||
+        !strstr(initial_tv_status, "Selected source: AV input 2") ||
         !strstr(initial_tv_status, "Built-in VCR: tape inserted (pause)") ||
         !strstr(initial_tv_status, "legacy_tape.mkv")) {
         if (initial_tv_status)
             fprintf(stderr, "Reality TV status fixture output:\\n%s\\n", initial_tv_status);
         free(initial_tv_status);
+        fail("migrated legacy TV power/source/VCR state was not represented in device status");
+    }
+    free(initial_tv_status);
         fail("migrated legacy TV/VCR state was not represented in device status");
     }
     free(initial_tv_status);
