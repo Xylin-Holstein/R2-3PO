@@ -240,3 +240,19 @@ This document keeps historical audit snapshots; it is not a live CI dashboard. T
 - **Evidence:** Reality owns the Addiction database lifecycle because Reality records food choices and enjoyment ratings there. Its initializer called `r2_addiction_init()` but only logged a warning on failure, then continued with the world marked ready. The core's previous lazy report path could expose a placeholder rather than proving the learning database was initialized.
 - **Fix:** Reality now treats Addiction initialization as a required dependency: if it fails, it shuts down the partially initialized Reality/fridge state and returns failure. Reality remains the sole owner of Addiction init/shutdown; the core does not duplicate those calls.
 - **Regression coverage:** `tests/subsystem_wiring_smoke.py` checks that Reality propagates the initialization failure and closes its owned Addiction handle during shutdown.
+
+### AUDIT-028 — corrective retry dropped immediate conversational evidence
+- **File:** `r2.c`; regression coverage in `tests/nonresponsive_reply_retry_smoke.py`.
+- **Severity:** High / conversation continuity during recovery.
+- **Evidence:** The primary turn could have the recent dialogue in its live message history, but the compact corrective retry retained only pinned Reality, focused retrieval, startup memory, and the current query. A prior statement needed to interpret a follow-up could therefore disappear only on the retry path.
+- **Fix:** Add a bounded 3,000-character slice of recent human-facing turns to the compact retry, excluding the current query, pinned context, internal tool results, and assistant tool payloads. Label it as historical evidence, not instructions. Keep the active user message as the final authoritative user turn and free the temporary buffer after inference. No Mother-specific behavior is prescribed.
+- **Regression coverage:** The retry smoke test asserts the bounded-context call, evidence-only label, five-message maximum, and cleanup of the temporary allocation.
+- **Status:** Code and regression added on the integrated candidate; exact-head GitHub Actions validation is pending.
+
+### AUDIT-029 — conversation archive insert failures lacked source-turn linkage and runtime fault coverage
+- **File:** `Log.c`; runtime regression in `tests/log_conversation_archive_failure_smoke.c`; CI wiring in `.github/workflows/build.yml`.
+- **Severity:** Medium / diagnosability of persistent conversation history.
+- **Evidence:** The dedicated `r2_log_conversations` insert can fail after the primary Life Log event succeeds. The failure was reported, but its diagnostic details did not identify the source conversation event, and the branch lacked an injected SQLite failure test proving the error event could be written after releasing the database mutex.
+- **Fix:** Include `conversation_event_id` with the SQLite failure details, emit the error event only after unlocking, and keep the primary event available when only the dedicated archive insert fails.
+- **Regression coverage:** A runtime trigger deliberately aborts the dedicated archive insert, verifies the primary event remains searchable, verifies the archive row is absent, and verifies a linked failure event is persisted. CI bounds the test with a 10-second timeout to catch lock recursion/deadlock.
+- **Status:** Code, runtime test, and CI wiring added on the integrated candidate; exact-head GitHub Actions validation is pending.
