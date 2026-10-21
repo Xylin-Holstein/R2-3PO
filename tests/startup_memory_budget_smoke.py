@@ -17,7 +17,7 @@ assert "size_t startup_reserve;" in budget
 assert "size_t learning_reserve;" in budget
 assert "size_t context_budget = system_budget > override_length" in budget
 assert "budget.retrieval_reserve = context_budget / 8;" in budget
-assert "budget.capabilities_reserve = context_budget // 6 / 6;" in budget
+assert "budget.capabilities_reserve = context_budget / 6;" in budget
 assert "budget.startup_reserve = context_budget / 10;" in budget
 assert "if (budget.startup_reserve > 1600)" in budget
 assert "budget.startup_reserve = 1600;" in budget
