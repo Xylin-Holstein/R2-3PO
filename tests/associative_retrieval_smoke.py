@@ -120,9 +120,12 @@ association_end = core.find("static void r2_append_association_section(", associ
 association_search = core[association_start:association_end] if association_start >= 0 and association_end > association_start else ""
 require(
     "searches < 6" in association_search
-    and "r2_diary_search, 1400" in builder
-    and "r2_visual_search, 1400" in builder,
-    "diary and visual retrieval have enough search slots and context space to contribute more than one tiny snippet",
+    and "r2_diary_search, associated_source_limit" in builder
+    and "r2_visual_search, associated_source_limit" in builder
+    and "size_t memory_source_limit = 550U * context_scale;" in builder
+    and "size_t history_source_limit = 550U * context_scale;" in builder
+    and "size_t associated_source_limit = 300U * context_scale;" in builder,
+    "all four connected stores receive a meaningful, context-scaled evidence allowance",
 )
 require(
     "RELATED DIARY REFLECTIONS" in builder and "RELATED VISUAL EXPERIENCES" in builder,
