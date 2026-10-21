@@ -3832,6 +3832,26 @@ static char *ollama_chat_with_limit(
     size_t capabilities_used = 0;
     size_t startup_used = 0;
     size_t learning_used = 0;
+    int has_reality_evidence = 0;
+    int has_retrieved_context = 0;
+    int has_startup_memory = 0;
+    int has_learning_context = 0;
+    for (size_t i = 0; i < count; ++i) {
+        const char *content = msgs[i].content ? msgs[i].content : "";
+        if (!msgs[i].role || strcmp(msgs[i].role, "system") != 0)
+            continue;
+        if (!strncmp(content, "PERSISTENT REALITY CONTEXT",
+                      strlen("PERSISTENT REALITY CONTEXT")))
+            has_reality_evidence = 1;
+        else if (!strncmp(content, "CURRENT TURN RETRIEVED CONTEXT",
+                           strlen("CURRENT TURN RETRIEVED CONTEXT")))
+            has_retrieved_context = 1;
+        else if (strstr(content, "R2 PERSISTENT MEMORY - STARTUP CONTEXT"))
+            has_startup_memory = 1;
+        else if (!strncmp(content, "PERSISTENT LEARNING CONTEXT",
+                          strlen("PERSISTENT LEARNING CONTEXT")))
+            has_learning_context = 1;
+    }
     for (int priority = 0; priority < 9 &&
          total_chars < system_budget; ++priority) {
         for (size_t i = 0; i < count && total_chars < system_budget; ++i) {
@@ -3880,21 +3900,26 @@ static char *ollama_chat_with_limit(
                without this subtraction a large Reality snapshot can consume
                the entire system budget before retrieval/startup/learning run. */
             size_t protected_later = 0;
+            size_t retrieval_to_protect =
+                has_retrieved_context ? retrieval_reserve : 0;
+            size_t startup_to_protect =
+                has_startup_memory ? startup_reserve : 0;
+            size_t learning_to_protect =
+                has_learning_context ? learning_reserve : 0;
             if (message_priority == 1) {
-                protected_later = retrieval_reserve + capabilities_reserve +
-                                  startup_reserve + learning_reserve;
-                if (!is_reality_evidence)
+                protected_later = retrieval_to_protect + startup_to_protect +
+                                  learning_to_protect;
+                if (!is_reality_evidence && has_reality_evidence)
                     protected_later += reality_reserve;
             } else if (message_priority == 2) {
-                protected_later = retrieval_reserve + capabilities_reserve +
-                                  startup_reserve + learning_reserve;
+                protected_later = retrieval_to_protect + startup_to_protect +
+                                  learning_to_protect;
             } else if (message_priority == 3) {
-                protected_later = capabilities_reserve + startup_reserve +
-                                  learning_reserve;
+                protected_later = startup_to_protect + learning_to_protect;
             } else if (message_priority == 4) {
-                protected_later = startup_reserve + learning_reserve;
+                protected_later = startup_to_protect + learning_to_protect;
             } else if (message_priority == 5) {
-                protected_later = learning_reserve;
+                protected_later = learning_to_protect;
             }
             size_t available_for_message =
                 remaining > protected_later ? remaining - protected_later : 0;
