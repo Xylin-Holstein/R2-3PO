@@ -94,46 +94,23 @@ for required in (
 if "r2_conversation_system_prompt" in core or "r2_retry_system_prompt" in core:
     raise SystemExit("A compact substitute prompt still exists in the source.")
 
-# The active instructions are allocated as complete sections. Context/evidence
-# may use the remaining budget, but core instructions are not clipped to an
-# arbitrary fraction of it.
-def required_context_tier(required_input_chars: int, output_tokens: int, current_context: int) -> int:
+# The context returned by r2_ollama_context_tokens() is a hardware-aware
+# ceiling. Oversized estimates must not trigger growth beyond it or collapse
+# the reply to 128 tokens; the semantic allocator chooses which evidence fits.
+def allocated_context_and_output(required_input_chars: int, requested_output: int, context_ceiling: int) -> tuple[int, int]:
     required_input_tokens = (required_input_chars * 10 + 31) // 32 + 512
-    required_context_tokens = required_input_tokens + output_tokens
-    if current_context < required_context_tokens <= 16384:
-        tier = ((required_context_tokens + 2047) // 2048) * 2048
-        if tier <= 16384:
-            return tier
-    return current_context
+    max_predict = max(512, context_ceiling // 4)
+    output_tokens = min(requested_output, max_predict)
+    # If the estimate exceeds the ceiling, lower-priority evidence is allocated
+    # by the serializer; it is not a reason to expand the context or starve reply.
+    _estimate_exceeds_ceiling = required_input_tokens > context_ceiling
+    return context_ceiling, output_tokens
 
-# The complete identity section must not disappear merely because a request
-# starts with a 4k context. The allocator must expand before serialization.
-if required_context_tier(16445 + 1500, 1024, 4096) != 8192:
-    raise SystemExit("A 4k context was not expanded to fit the full prompt and current turn")
+if allocated_context_and_output(16445 + 1500, 4096, 4096) != (4096, 1024):
+    raise SystemExit("A 4k hardware ceiling was exceeded or the reply budget was starved")
 
-def allocated_context_and_output(required_input_chars: int, requested_output: int, current_context: int) -> tuple[int, int]:
-    required_input_tokens = (required_input_chars * 10 + 31) // 32 + 512
-    current_max = max(512, current_context // 4)
-    current_output = min(requested_output, current_max)
-    if required_input_tokens <= current_context and current_output <= current_context - required_input_tokens:
-        return current_context, current_output
-    tier = (current_context // 2048 + 1) * 2048
-    while tier <= 16384:
-        tier_output = min(requested_output, max(512, tier // 4))
-        if required_input_tokens <= tier:
-            available_output = tier - required_input_tokens
-            if tier_output <= available_output:
-                return tier, tier_output
-            if tier == 16384:
-                return tier, max(128, min(tier_output, available_output))
-        tier += 2048
-    return current_context, min(current_output, max(128, current_context - required_input_tokens))
-
-if allocated_context_and_output(16445 + 1500, 4096, 4096) != (8192, 2048):
-    raise SystemExit("Context growth did not restore the output ceiling allowed by the expanded context")
-
-if allocated_context_and_output(42000, 4096, 4096) != (16384, 2747):
-    raise SystemExit("The maximum context tier did not preserve high-priority input when output space is tight")
+if allocated_context_and_output(42000, 4096, 8192) != (8192, 2048):
+    raise SystemExit("An 8k hardware ceiling was exceeded or the reply budget was starved")
 
 for required in (
     "static R2SystemContextBudget r2_compute_system_context_budget(",
@@ -162,16 +139,20 @@ for required in (
     "remaining > protected_later ? remaining - protected_later : 0;",
     "size_t available_for_message =",
     "int max_predict = num_ctx / 4;",
-    "int requested_num_predict = num_predict;",
-    "int selected_output = num_predict;",
-    "int tier_max_predict = (int)(context_tier / 4U);",
-    "int selected_context = num_ctx;",
-    "size_t context_tier = ((size_t)num_ctx / 2048U + 1U) * 2048U;",
-    "if (required_input_tokens <= context_tier",
-    "size_t available_output =",
-    "context_tier - required_input_tokens;",
-    "if (context_tier < 16384U)",
-    "num_ctx = selected_context;",
+    "if (required_input_tokens > (size_t)num_ctx)",
+    "configured ceiling (%d); allocating by semantic priority",
+    "retaining the configured context ceiling",
+
+
+
+
+
+
+
+
+
+
+
     "size_t system_budget = input_budget > current_user_reserve",
     "r2_inference_system_priority(",
     "if (priority > 3 && priority != 5 && priority != 6)",
