@@ -4719,9 +4719,9 @@ static int r2_reply_misclassifies_plain_text(const char *query, const char *repl
          strcasestr(query, "cannot understand"));
 
     /*
-     * User feedback that R2's previous output was garbled is itself a clear,
-     * meaningful message. Do not let the words "gibberish" or "unintelligible"
-     * accidentally disable recovery for that case.
+     * If the user reports that YOUR prior message, answer, or reply was garbled,
+     * confusing, unreadable, or nonsensical, treat it as feedback about R2's
+     * output; those words must not disable recovery for that case.
      */
     /* Keep legitimate audio/transcription discussions out of this guard,
        except when the user is explicitly reporting a problem with R2's output. */
