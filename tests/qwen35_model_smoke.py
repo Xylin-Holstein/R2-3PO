@@ -197,7 +197,8 @@ require(
     and "return 8;" in core
     and "r2_compute_system_context_budget(budget_after_core, override_length)" in core
     and "r2_core_instruction_char_count(" in core
-    and "size_t output_room = (size_t)num_ctx - minimum_input_tokens;" in core
+    and "size_t output_room = (size_t)num_ctx - output_target_tokens;" in core
+    and "const size_t evidence_context_target_chars = 2500U;" in core
     and "The general action contract is core behavior" in core
     and "message_priority == 1 && is_reality_evidence" in core
     and "message_priority == 3 && length > retrieval_reserve" in core
