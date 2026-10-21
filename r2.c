@@ -3311,9 +3311,9 @@ typedef struct {
     size_t learning_reserve;
 } R2SystemContextBudget;
 
-/* Reserve the full explicit instruction override first. The remaining
-   system budget is shared with evidence; instruction sections are prioritized
-   by relevance and are never assigned an arbitrary fraction of the context. */
+/* Reserve the explicit override first. Keep bounded shares for focused
+   retrieval, unrelated capability sections, startup memories, and persistent
+   learning; identity and task-matched instructions remain higher priority. */
 static R2SystemContextBudget r2_compute_system_context_budget(
     size_t system_budget, size_t override_length)
 {
