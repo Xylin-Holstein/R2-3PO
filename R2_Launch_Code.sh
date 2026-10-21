@@ -160,7 +160,7 @@ fi
 # offload by default instead of forcing the entire model into limited VRAM.
 # An explicit environment value always wins; 0 leaves placement automatic.
 R2_OLLAMA_NUM_GPU_DEFAULTED=0
-if [[ -z "${R2_OLLAMA_NUM_GPU+x}" ]]; then
+if [[ -z "${R2_OLLAMA_NUM_GPU:-}" ]]; then
     if [[ "$R2_NVIDIA_QUERY_OK" == "1" ]] &&
        printf '%s\n' "$R2_NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
         export R2_OLLAMA_NUM_GPU=8
