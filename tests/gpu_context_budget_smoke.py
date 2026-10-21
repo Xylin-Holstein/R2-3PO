@@ -27,6 +27,10 @@ assert "export R2_OLLAMA_NUM_CTX_DEFAULTED" in runner
 assert "export R2_OLLAMA_NUM_GPU_DEFAULTED" in runner
 assert "R2_OLLAMA_NUM_CTX_DEFAULTED=0" in launcher
 assert "R2_OLLAMA_NUM_GPU_DEFAULTED=0" in launcher
+assert 'if [[ -z "${R2_OLLAMA_NUM_GPU:-}" ]]; then' in launcher
+assert 'if [[ -z "${R2_OLLAMA_NUM_GPU:-}" ]]; then' in runner
+assert 'if [[ -z "${R2_OLLAMA_NUM_GPU+x}" ]]; then' not in launcher
+assert 'if [[ -z "${R2_OLLAMA_NUM_GPU+x}" ]]; then' not in runner
 assert '"$R2_OLLAMA_NUM_GPU_DEFAULTED" == "1" &&' in runner
 assert '"$R2_OLLAMA_NUM_CTX_DEFAULTED" == "1" ]]; then' in runner
 assert "export R2_OLLAMA_NUM_GPU=4" in runner
