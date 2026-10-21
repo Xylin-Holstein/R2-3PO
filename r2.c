@@ -3836,22 +3836,46 @@ static char *ollama_chat_with_limit(
     int has_retrieved_context = 0;
     int has_startup_memory = 0;
     int has_learning_context = 0;
+    size_t reality_context_chars = 0;
+    size_t retrieved_context_chars = 0;
+    size_t startup_memory_chars = 0;
+    size_t learning_context_chars = 0;
     for (size_t i = 0; i < count; ++i) {
         const char *content = msgs[i].content ? msgs[i].content : "";
         if (!msgs[i].role || strcmp(msgs[i].role, "system") != 0)
             continue;
+        size_t length = strlen(content);
         if (!strncmp(content, "PERSISTENT REALITY CONTEXT",
-                      strlen("PERSISTENT REALITY CONTEXT")))
+                      strlen("PERSISTENT REALITY CONTEXT"))) {
             has_reality_evidence = 1;
-        else if (!strncmp(content, "CURRENT TURN RETRIEVED CONTEXT",
-                           strlen("CURRENT TURN RETRIEVED CONTEXT")))
+            if (length > reality_context_chars)
+                reality_context_chars = length;
+        } else if (!strncmp(content, "CURRENT TURN RETRIEVED CONTEXT",
+                             strlen("CURRENT TURN RETRIEVED CONTEXT"))) {
             has_retrieved_context = 1;
-        else if (strstr(content, "R2 PERSISTENT MEMORY - STARTUP CONTEXT"))
+            if (length > retrieved_context_chars)
+                retrieved_context_chars = length;
+        } else if (strstr(content, "R2 PERSISTENT MEMORY - STARTUP CONTEXT")) {
             has_startup_memory = 1;
-        else if (!strncmp(content, "PERSISTENT LEARNING CONTEXT",
-                          strlen("PERSISTENT LEARNING CONTEXT")))
+            if (length > startup_memory_chars)
+                startup_memory_chars = length;
+        } else if (!strncmp(content, "PERSISTENT LEARNING CONTEXT",
+                             strlen("PERSISTENT LEARNING CONTEXT"))) {
             has_learning_context = 1;
+            if (length > learning_context_chars)
+                learning_context_chars = length;
+        }
     }
+    /* Protect only bytes that each later source can actually use. Empty or
+       short reports must release their unused reservation to earlier context. */
+    size_t reality_to_protect = reality_context_chars < reality_reserve
+        ? reality_context_chars : reality_reserve;
+    size_t retrieval_to_protect = retrieved_context_chars < retrieval_reserve
+        ? retrieved_context_chars : retrieval_reserve;
+    size_t startup_to_protect = startup_memory_chars < startup_reserve
+        ? startup_memory_chars : startup_reserve;
+    size_t learning_to_protect = learning_context_chars < learning_reserve
+        ? learning_context_chars : learning_reserve;
     for (int priority = 0; priority < 9 &&
          total_chars < system_budget; ++priority) {
         for (size_t i = 0; i < count && total_chars < system_budget; ++i) {
@@ -3900,17 +3924,11 @@ static char *ollama_chat_with_limit(
                without this subtraction a large Reality snapshot can consume
                the entire system budget before retrieval/startup/learning run. */
             size_t protected_later = 0;
-            size_t retrieval_to_protect =
-                has_retrieved_context ? retrieval_reserve : 0;
-            size_t startup_to_protect =
-                has_startup_memory ? startup_reserve : 0;
-            size_t learning_to_protect =
-                has_learning_context ? learning_reserve : 0;
             if (message_priority == 1) {
                 protected_later = retrieval_to_protect + startup_to_protect +
                                   learning_to_protect;
-                if (!is_reality_evidence && has_reality_evidence)
-                    protected_later += reality_reserve;
+                if (!is_reality_evidence)
+                    protected_later += reality_to_protect;
             } else if (message_priority == 2) {
                 protected_later = retrieval_to_protect + startup_to_protect +
                                   learning_to_protect;
