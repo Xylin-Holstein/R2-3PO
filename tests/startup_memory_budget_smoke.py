@@ -28,10 +28,10 @@ assert "budget.learning_reserve = 8192;" in budget
 assert "if (active_user_chars < 1500U)" in source
 assert "Size for core instructions" in source
 assert "if (priority > 3 && priority != 5 && priority != 6)" in source
-assert "size_t required_context_tokens = required_input_tokens;" in source
-assert "required_context_tokens += (size_t)num_predict;" in source
-assert "required_context_tokens <= 16384U" in source
-assert "num_ctx = (int)context_tier;" in source
+assert "int requested_num_predict = num_predict;" in source
+assert "int selected_context = num_ctx;" in source
+assert "size_t context_tier = ((size_t)num_ctx / 2048U + 1U) * 2048U;" in source
+assert "num_ctx = selected_context;" in source
 
 priority_start = source.find("static int r2_inference_system_priority(")
 priority_end = source.find("\nstatic size_t r2_order_inference_messages", priority_start)
