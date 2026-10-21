@@ -158,7 +158,6 @@ for required in (
     "size_t reality_reserve = context_budgets.reality_reserve;",
     "int is_reality_evidence =",
     "length > reality_reserve",
-    "size_t reality_context_chars = 0;",
     "size_t retrieved_context_chars = 0;",
     "size_t startup_memory_chars = 0;",
     "size_t learning_context_chars = 0;",
