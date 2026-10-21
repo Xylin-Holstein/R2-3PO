@@ -3322,13 +3322,17 @@ static R2SystemContextBudget r2_compute_system_context_budget(
         ? system_budget - override_length : 0;
 
     budget.retrieval_reserve = context_budget / 8;
-    budget.capabilities_reserve = context_budget;
+    /* Unmatched capability sections must not consume room needed by this
+       turn's durable memory and learning. */
+    budget.capabilities_reserve = context_budget / 6;
     budget.startup_reserve = context_budget / 10;
     if (budget.startup_reserve > 1600)
         budget.startup_reserve = 1600;
-    budget.learning_reserve = context_budget / 10;
-    if (budget.learning_reserve > 1000)
-        budget.learning_reserve = 1000;
+    /* Reward and repeated-interest reports are already bounded at their
+       database readers. Reserve room for both reports, not 110-char fragments. */
+    budget.learning_reserve = context_budget / 3;
+    if (budget.learning_reserve > 8192)
+        budget.learning_reserve = 8192;
     return budget;
 }
 
@@ -3449,15 +3453,19 @@ static char *ollama_chat_with_limit(
     for (size_t i = 0; i < count; ++i) {
         if (!msgs[i].role || strcmp(msgs[i].role, "system") != 0)
             continue;
-        /* Size the request for mandatory identity, live Reality, task-matched
-           capability instructions, current-turn retrieval, and the exact user
-           turn. Unrelated capability sections remain eligible for the spare
-           context window, but must not inflate the minimum context needed by
-           this turn. */
-        if (r2_inference_system_priority(
-                msgs[i].content, ollama_authoritative_user_query) > 3)
+        /* Size for core instructions, task-matched capability instructions,
+           current-turn retrieval, and bounded persistent DB context. Unmatched
+           capabilities and archived dialogue may use spare context but cannot
+           crowd out identity, startup memory, learning, or this turn. */
+        int priority = r2_inference_system_priority(
+            msgs[i].content, ollama_authoritative_user_query);
+        if (priority > 3 && priority != 5 && priority != 6)
             continue;
         size_t length = msgs[i].content ? strlen(msgs[i].content) : 0;
+        if (priority == 5 && length > 1600U)
+            length = r2_safe_prompt_prefix_length(msgs[i].content, 1600U, 1);
+        if (priority == 6 && length > 8192U)
+            length = r2_safe_prompt_prefix_length(msgs[i].content, 8192U, 1);
         if (length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS)
             length = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;
         if (length > SIZE_MAX - required_input_chars) {
@@ -4010,6 +4018,8 @@ static char *ollama_chat_with_limit(
     size_t audit_system_chars = 0;
     int audit_exact_user_turn = 0;
     int audit_user_turn_contained = 0;
+    int audit_identity_prompt = 0;
+    size_t audit_identity_prompt_chars = 0;
     int audit_startup_memory = 0;
     int audit_retrieved_context = 0;
     int audit_reality_context = 0;
@@ -4039,6 +4049,10 @@ static char *ollama_chat_with_limit(
             }
         } else if (!strcmp(role, "system")) {
             audit_system_chars += strlen(content);
+            if (r2_inference_system_priority(content, audit_query) == 0) {
+                audit_identity_prompt = 1;
+                audit_identity_prompt_chars += strlen(content);
+            }
             if (strstr(content, "R2 PERSISTENT MEMORY - STARTUP CONTEXT"))
                 audit_startup_memory = 1;
             if (!strncmp(content, "CURRENT TURN RETRIEVED CONTEXT",
@@ -4057,13 +4071,15 @@ static char *ollama_chat_with_limit(
     fprintf(stderr,
             "[R2 Prompt Audit] stage=%s payload_chars=%zu messages=%zu user_messages=%zu "
             "current_query_chars=%zu exact_user_turn=%d query_in_user_turn=%d "
-            "startup_memory=%d retrieved_context=%d reality_context=%d capability_context=%d "
+            "identity_prompt=%d identity_prompt_chars=%zu startup_memory=%d "
+            "retrieved_context=%d reality_context=%d capability_context=%d "
             "learning_context=%d system_chars=%zu\n",
             ollama_audit_stage ? ollama_audit_stage : "unspecified",
             strlen(payload), audit_message_count, audit_user_messages,
             audit_query_chars, audit_exact_user_turn, audit_user_turn_contained,
-            audit_startup_memory, audit_retrieved_context, audit_reality_context,
-            audit_capability_context, audit_learning_context, audit_system_chars);
+            audit_identity_prompt, audit_identity_prompt_chars, audit_startup_memory,
+            audit_retrieved_context, audit_reality_context, audit_capability_context,
+            audit_learning_context, audit_system_chars);
 
     /* Capture exactly what will be sent to Ollama only when the owner opts in. */
     ollama_trace_prompt_if_enabled(payload);
@@ -10794,22 +10810,43 @@ static char *build_learning_context(void)
 {
     char *reward = r2_reward_context();
     char *addiction = r2_addiction_report();
-    /* Reward context starts with general rules; prefer the newest durable
-       reward event when present, or that rules/total header when none exists. */
-    const char *reward_summary = reward ? strstr(reward, "Recent:") : NULL;
-    if (!reward_summary)
-        reward_summary = reward;
-    /* Keep both persistent stores visible in the smallest normal prompt window.
-       The detailed records remain in their databases; these are concise cues. */
-    size_t cap = 512;
+    const char *reward_report = reward
+        ? reward : "(reinforcement context unavailable)\n";
+    const char *addiction_report = addiction
+        ? addiction : "(repeated-interest history unavailable)\n";
+    /*
+     * Pass the bounded reports from both persistent databases through intact.
+     * Their readers already cap reward history and repeated-interest rows;
+     * trimming them here to 110 characters discarded the actual evidence
+     * (often halfway through the first row) before prompt allocation began.
+     */
+    size_t reward_length = strlen(reward_report);
+    size_t addiction_length = strlen(addiction_report);
+    static const char prefix[] = "PERSISTENT LEARNING CONTEXT\nREWARD:\n";
+    static const char middle[] = "\nREPEATED INTERESTS:\n";
+    size_t prefix_length = sizeof(prefix) - 1;
+    size_t middle_length = sizeof(middle) - 1;
+    if (reward_length > SIZE_MAX - prefix_length ||
+        addiction_length > SIZE_MAX - prefix_length - reward_length ||
+        middle_length > SIZE_MAX - prefix_length - reward_length - addiction_length - 1) {
+        free(reward);
+        free(addiction);
+        return NULL;
+    }
+    size_t cap = prefix_length + reward_length + middle_length +
+                 addiction_length + 1;
     char *context = malloc(cap);
     if (context) {
-        snprintf(context, cap,
-            "PERSISTENT LEARNING CONTEXT\n"
-            "REWARD: %.110s\n"
-            "REPEATED INTERESTS: %.110s\n",
-            reward_summary ? reward_summary : "(reinforcement context unavailable)",
-            addiction ? addiction : "(repeated-interest history unavailable)");
+        size_t used = 0;
+        memcpy(context + used, prefix, prefix_length);
+        used += prefix_length;
+        memcpy(context + used, reward_report, reward_length);
+        used += reward_length;
+        memcpy(context + used, middle, middle_length);
+        used += middle_length;
+        memcpy(context + used, addiction_report, addiction_length);
+        used += addiction_length;
+        context[used] = '\0';
     }
     free(reward);
     free(addiction);
