@@ -96,7 +96,7 @@ for system_budget, override_length in ((3415, 0), (6200, 700), (12000, 0), (4000
     retrieval_reserve = context_budget // 8
     startup_reserve = min(context_budget // 10, 1600)
     learning_reserve = min(context_budget // 3, 8192)
-    capabilities_reserve = context_budget
+    capabilities_reserve = context_budget // 6
     assert retrieval_reserve >= 0
     assert startup_reserve <= 1600
     assert learning_reserve <= 8192
