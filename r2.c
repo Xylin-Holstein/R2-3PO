@@ -3334,19 +3334,20 @@ static R2SystemContextBudget r2_compute_system_context_budget(
 
     /* Reality is useful evidence, but a large room/inventory snapshot must
        not crowd focused retrieval or durable memory out of the actual request. */
-    budget.reality_reserve = context_budget / 6;
+    budget.reality_reserve = context_budget / 8;
     if (budget.reality_reserve > 6000)
         budget.reality_reserve = 6000;
-    budget.retrieval_reserve = context_budget / 8;
-    /* Unmatched capability sections must not consume room needed by this
-       turn's durable memory and learning. */
-    budget.capabilities_reserve = context_budget / 6;
-    budget.startup_reserve = context_budget / 10;
+    /* Current-turn retrieval spans the generic memory, Life Log, diary, and
+       visual stores. Give it the largest evidence share so one store cannot
+       crowd the others out of an already-small 4k context. */
+    budget.retrieval_reserve = context_budget * 9U / 16U;
+    /* Unmatched capability sections, startup memories, and learning all remain
+       represented, but yield to core instructions and current-turn retrieval. */
+    budget.capabilities_reserve = context_budget / 12U;
+    budget.startup_reserve = context_budget / 12U;
     if (budget.startup_reserve > 1600)
         budget.startup_reserve = 1600;
-    /* Reward and repeated-interest reports are already bounded at their
-       database readers. Reserve room for both reports, not 110-char fragments. */
-    budget.learning_reserve = context_budget / 3;
+    budget.learning_reserve = context_budget / 8U;
     if (budget.learning_reserve > 8192)
         budget.learning_reserve = 8192;
     return budget;
@@ -5853,10 +5854,23 @@ static char *chat_with_relevant_memories(
     int explicit_recall = r2_query_explicitly_requests_recall(query);
     int memory_limit = explicit_recall ? MAX_RELEVANT_MEMORIES
                                        : R2_TURN_MEMORY_LIMIT;
+    size_t context_scale = (size_t)r2_ollama_context_tokens() / 4096U;
+    if (context_scale < 1U) context_scale = 1U;
+    if (context_scale > 4U) context_scale = 4U;
+    /* The retrieval message is a shared window over four independent stores.
+       Cap each source before concatenation so generic memories cannot fill the
+       whole window and silently hide Life Log, diary, or visual records. */
+    size_t memory_source_limit = 300U * context_scale;
+    size_t history_source_limit = 300U * context_scale;
+    size_t associated_source_limit = 200U * context_scale;
     size_t memory_char_limit = explicit_recall ? R2_RECALL_MEMORY_CHARS
                                                : R2_TURN_MEMORY_CHARS;
+    if (memory_char_limit > memory_source_limit)
+        memory_char_limit = memory_source_limit;
     size_t history_char_limit = explicit_recall ? R2_RECALL_HISTORY_CHARS
                                                 : R2_TURN_HISTORY_CHARS;
+    if (history_char_limit > history_source_limit)
+        history_char_limit = history_source_limit;
     int history_search_limit = explicit_recall ? R2_RECALL_HISTORY_SEARCHES
                                                : R2_TURN_HISTORY_SEARCHES;
 
@@ -5970,7 +5984,7 @@ static char *chat_with_relevant_memories(
         extract_memory_keywords(associative_query, associated_keywords);
 
     char *diary_matches = r2_collect_associated_records(
-        associated_keywords, associated_count, r2_diary_search, 1400);
+        associated_keywords, associated_count, r2_diary_search, associated_source_limit);
     if (diary_matches && *diary_matches)
         r2_append_association_section(
             &memory_context,
@@ -5980,7 +5994,7 @@ static char *chat_with_relevant_memories(
 
     if (r2_visual_is_initialized()) {
         char *visual_matches = r2_collect_associated_records(
-            associated_keywords, associated_count, r2_visual_search, 1400);
+            associated_keywords, associated_count, r2_visual_search, associated_source_limit);
         if (visual_matches && *visual_matches)
             r2_append_association_section(
                 &memory_context,
@@ -6010,6 +6024,7 @@ static char *chat_with_relevant_memories(
         (visual_requested || (eyes && r2_eyes_is_open(eyes)))) {
         char *prior_visual = r2_visual_recent(3);
         if (prior_visual && *prior_visual) {
+            r2_bound_context_records(prior_visual, associated_source_limit);
             size_t old_n = strlen(memory_context);
             size_t visual_n = strlen(prior_visual);
             char *joined = malloc(old_n + visual_n + 160);
