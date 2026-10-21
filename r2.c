@@ -4820,9 +4820,9 @@ static int r2_reply_misclassifies_plain_text(const char *query, const char *repl
 }
 
 /*
- * Retry one clear misclassification using the full conversation system prompt
- * plus a corrective instruction. Preserve the existing history and active user
- * turn; discard the bad draft. The retry is bounded to one extra inference.
+ * Build a compact direct-answer retry policy. Relevant persistent memory,
+ * Reality, and retrieved evidence travel as separate context messages; keep
+ * the correction itself inside the serializer's actual system-override budget.
  */
 /*
  * Foreground reasoning may be slow on mixed CPU/GPU hardware. Allow up to six
