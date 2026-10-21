@@ -30,11 +30,10 @@ assert "if (budget.learning_reserve > 8192)" in budget
 assert "budget.learning_reserve = 8192;" in budget
 assert "if (active_user_chars < 1500U)" in source
 assert "Size for core instructions" in source
+assert "configured ceiling (%d); allocating by semantic priority" in source
+assert "retaining the configured context ceiling" in source
+assert "Growing context from" not in source
 assert "if (priority > 3 && priority != 5 && priority != 6)" in source
-assert "int requested_num_predict = num_predict;" in source
-assert "int selected_context = num_ctx;" in source
-assert "size_t context_tier = ((size_t)num_ctx / 2048U + 1U) * 2048U;" in source
-assert "num_ctx = selected_context;" in source
 
 priority_start = source.find("static int r2_inference_system_priority(")
 priority_end = source.find("\nstatic size_t r2_order_inference_messages", priority_start)
