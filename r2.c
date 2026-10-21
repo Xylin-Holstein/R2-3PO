@@ -3524,68 +3524,16 @@ static char *ollama_chat_with_limit(
     if (required_input_chars <= (SIZE_MAX - 31U) / 10U) {
         size_t required_input_tokens =
             (required_input_chars * 10U + 31U) / 32U + 512U;
-
-        /*
-         * Find the smallest 2k context tier that can carry the complete
-         * high-priority input plus the output ceiling allowed at that tier.
-         * A 4k context cannot hold the full prompt plus a normal turn; silently
-         * omitting the identity section is not an acceptable allocation result.
-         */
-        int selected_context = num_ctx;
-        int selected_output = num_predict;
-        int current_max_predict = num_ctx / 4;
-        if (current_max_predict < 512)
-            current_max_predict = 512;
-        int current_output = requested_num_predict < current_max_predict
-            ? requested_num_predict : current_max_predict;
-        if (required_input_tokens <= (size_t)num_ctx &&
-            (size_t)current_output <= (size_t)num_ctx - required_input_tokens) {
-            selected_output = current_output;
-        } else {
-            size_t context_tier = ((size_t)num_ctx / 2048U + 1U) * 2048U;
-            for (; context_tier <= 16384U; context_tier += 2048U) {
-                int tier_max_predict = (int)(context_tier / 4U);
-                if (tier_max_predict < 512)
-                    tier_max_predict = 512;
-                int tier_output = requested_num_predict < tier_max_predict
-                    ? requested_num_predict : tier_max_predict;
-                if (required_input_tokens <= context_tier) {
-                    size_t available_output =
-                        context_tier - required_input_tokens;
-                    if ((size_t)tier_output > available_output) {
-                        /* Prefer the next context tier over clipping a requested
-                           answer. At the hard context ceiling, keep the full
-                           input and use the output budget that still fits. */
-                        if (context_tier < 16384U)
-                            continue;
-                        tier_output = available_output >= 128U
-                            ? (int)available_output : 128;
-                    }
-                    selected_context = (int)context_tier;
-                    selected_output = tier_output;
-                    break;
-                }
-            }
-        }
-
-        if (selected_context > num_ctx) {
+        if (required_input_tokens > (size_t)num_ctx) {
             fprintf(stderr,
-                    "[R2 Prompt Budget] Growing context from %d to %d tokens "
-                    "to fit complete identity, relevant instructions, current "
-                    "turn, persistent learning, and answer allocation.\n",
-                    num_ctx, selected_context);
-            num_ctx = selected_context;
+                    "[R2 Prompt Budget] Estimated context (%zu tokens) exceeds "
+                    "configured ceiling (%d); allocating by semantic priority.\n",
+                    required_input_tokens, num_ctx);
         }
-        num_predict = selected_output;
-
-        int available_output_tokens = required_input_tokens < (size_t)num_ctx
-            ? num_ctx - (int)required_input_tokens : 128;
-        if (available_output_tokens < 128)
-            available_output_tokens = 128;
-        if (num_predict > available_output_tokens)
-            num_predict = available_output_tokens;
     } else {
-        num_predict = 128;
+        fprintf(stderr,
+                "[R2 Prompt Budget] Input-size estimate overflowed; retaining "
+                "the configured context ceiling.\n");
     }
 
     struct json_object *options = json_object_new_object();
