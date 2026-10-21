@@ -43,11 +43,11 @@ if len(prompt) > per_message:
     )
 
 retry_start = core.find("static const char R2_CORRECTIVE_RETRY_INSTRUCTION[] =")
-retry_end = core.find(";\\n", retry_start)
+retry_end = core.find(";\n", retry_start)
 if retry_start < 0 or retry_end < 0:
     raise SystemExit("Corrective retry instruction is missing or incomplete")
 retry_definition = core[retry_start:retry_end]
-retry_literals = re.findall(r'"(?:\\\\.|[^"\\\\])*"', retry_definition)
+retry_literals = re.findall(r'"(?:\\.|[^"\\])*"', retry_definition)
 try:
     retry_instruction = "".join(ast.literal_eval(literal) for literal in retry_literals)
 except (SyntaxError, ValueError) as exc:
