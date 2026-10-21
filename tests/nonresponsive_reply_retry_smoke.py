@@ -2,7 +2,6 @@
 """Test the bounded recovery path for nonresponsive typed-text interpretations."""
 from pathlib import Path
 import ast
-import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -139,7 +138,31 @@ def c_string_array_length(name: str, end_marker: str) -> int:
     end = core.find(end_marker, definition)
     if end < 0:
         raise SystemExit(f"Could not isolate {name}")
-    literals = re.findall(r'^\s*("(?:\\.|[^"\\])*")\s*;?
+    literals = []
+    for line in core[definition:end].splitlines():
+        literal = line.strip()
+        if literal.startswith('"') and (literal.endswith('"') or literal.endswith('";')):
+            if literal.endswith(';'):
+                literal = literal[:-1]
+            try:
+                literals.append(ast.literal_eval(literal))
+            except (SyntaxError, ValueError) as exc:
+                raise SystemExit(f"Could not decode {name}: {exc}") from exc
+    if not literals:
+        raise SystemExit(f"Could not decode string literals for {name}")
+    return len("".join(literals))
+
+main_prompt_chars = c_string_array_length(
+    "r2_conversation_system_prompt", "\\n\\nstatic char *r2_build_retry_system_prompt(void)"
+)
+retry_prompt_chars = c_string_array_length(
+    "retry_system_prompt", "return xstrdup(retry_system_prompt);"
+)
+require(main_prompt_chars <= 2193,
+        f"foreground policy fits the baseline 4096-context override budget ({main_prompt_chars} chars)")
+require(retry_prompt_chars <= 2193,
+        f"corrective policy and correction fit the baseline 4096-context override budget ({retry_prompt_chars} chars)")
+
 require(
     "if (retry_after_sanitize_failure ||" in core,
     "empty sanitized replies also receive one corrective retry",
