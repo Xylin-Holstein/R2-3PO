@@ -195,7 +195,11 @@ require(
     and "budget.learning_reserve = context_budget / 3;" in core
     and "message_add_system_prompt_sections_locked() != 0" in core
     and "return 8;" in core
-    and "r2_compute_system_context_budget(system_budget, override_length)" in core
+    and "r2_compute_system_context_budget(budget_after_core, override_length)" in core
+    and "r2_core_instruction_char_count(" in core
+    and "size_t output_room = (size_t)num_ctx - minimum_input_tokens;" in core
+    and "The general action contract is core behavior" in core
+    and "message_priority == 1 && is_reality_evidence" in core
     and "message_priority == 3 && length > retrieval_reserve" in core
     and "capabilities_reserve > capabilities_used" in core
     and "capability_remaining" in core
