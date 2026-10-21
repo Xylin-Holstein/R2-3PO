@@ -3517,7 +3517,7 @@ static char *ollama_chat_with_limit(
                 fprintf(stderr,
                         "[R2 Prompt Budget] Growing context from %d to %zu tokens "
                         "to fit complete identity, relevant instructions, current "
-                        "turn, and answer allocation.\\n",
+                        "turn, and answer allocation.\n",
                         num_ctx, context_tier);
                 num_ctx = (int)context_tier;
             }
