@@ -113,11 +113,24 @@ for required in (
     "static R2SystemContextBudget r2_compute_system_context_budget(",
     "size_t system_budget, size_t override_length",
     "size_t context_budget = system_budget > override_length",
+    "budget.reality_reserve = context_budget / 6;",
+    "if (budget.reality_reserve > 6000)",
+    "budget.retrieval_reserve = context_budget / 8;",
     "budget.capabilities_reserve = context_budget / 6;",
     "budget.learning_reserve = context_budget / 3;",
     "if (budget.learning_reserve > 8192)",
     "budget.learning_reserve = 8192;",
     "r2_compute_system_context_budget(system_budget, override_length)",
+    "size_t reality_reserve = context_budgets.reality_reserve;",
+    "int is_reality_evidence =",
+    "length > reality_reserve",
+    "int has_reality_evidence = 0;",
+    "int has_retrieved_context = 0;",
+    "int has_startup_memory = 0;",
+    "int has_learning_context = 0;",
+    "size_t protected_later = 0;",
+    "remaining > protected_later ? remaining - protected_later : 0;",
+    "size_t available_for_message =",
     "int max_predict = num_ctx / 4;",
     "int requested_num_predict = num_predict;",
     "int selected_output = num_predict;",
@@ -146,6 +159,29 @@ for required in (
 ):
     if required not in core:
         raise SystemExit(f"Instruction-first context allocation is missing: {required}")
+
+# A large live Reality snapshot must not consume the allocations reserved
+# for the later retrieval, startup-memory, and learning sources.
+def protected_room(system_budget: int, used: int, reserves: tuple[int, ...]) -> int:
+    return max(0, system_budget - used - sum(reserves))
+
+budget = 20000
+identity_chars = 1910
+static_reality_instruction_chars = 3766
+reality_reserve = min(budget // 6, 6000)
+retrieval_reserve = budget // 8
+startup_reserve = min(budget // 10, 1600)
+learning_reserve = min(budget // 3, 8192)
+future_db_reserves = (retrieval_reserve, startup_reserve, learning_reserve)
+if protected_room(
+    budget, identity_chars,
+    (reality_reserve, *future_db_reserves),
+) < static_reality_instruction_chars:
+    raise SystemExit("Reality evidence reserves unexpectedly crowd out the whole static action contract")
+dynamic_reality_chars = min(20000, reality_reserve)
+remaining_after_reality = budget - identity_chars - static_reality_instruction_chars - dynamic_reality_chars
+if remaining_after_reality < sum(future_db_reserves):
+    raise SystemExit("A large Reality snapshot can still crowd out retrieval/startup/learning reserves")
 
 # The full prompt is split at semantic boundaries so the query-specific section
 # is selected by priority instead of being truncated inside one giant message.
