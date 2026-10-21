@@ -3540,8 +3540,18 @@ static char *ollama_chat_with_limit(
                     tier_max_predict = 512;
                 int tier_output = requested_num_predict < tier_max_predict
                     ? requested_num_predict : tier_max_predict;
-                if (required_input_tokens <= context_tier &&
-                    (size_t)tier_output <= context_tier - required_input_tokens) {
+                if (required_input_tokens <= context_tier) {
+                    size_t available_output =
+                        context_tier - required_input_tokens;
+                    if ((size_t)tier_output > available_output) {
+                        /* Prefer the next context tier over clipping a requested
+                           answer. At the hard context ceiling, keep the full
+                           input and use the output budget that still fits. */
+                        if (context_tier < 16384U)
+                            continue;
+                        tier_output = available_output >= 128U
+                            ? (int)available_output : 128;
+                    }
                     selected_context = (int)context_tier;
                     selected_output = tier_output;
                     break;
