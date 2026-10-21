@@ -82,9 +82,10 @@ require(
 )
 require(
     "r2_capability_section_matches_query(content, query)" in priority_logic
-    and "r2_query_matches_specific_capability(query) ? 4 : 1" in priority_logic
+    and "The general action contract is core behavior" in priority_logic
+    and "return 1;" in priority_logic
     and "return 2;" in priority_logic,
-    "the active user request selects the relevant capability section ahead of generic capability guidance",
+    "task-matched capabilities outrank optional guidance while the complete general action contract stays core",
 )
 require(
     "RECOVERY AFTER A MISREAD" in core
