@@ -61,10 +61,11 @@ retry_builder = function_slice(
     "static int r2_is_retry_context_message(",
 )
 require(
-    "SYSTEM_PROMPT" in retry_builder
-    and "r2_conversation_system_prompt" in retry_builder
-    and "RESPONSE CORRECTION" in retry_builder,
-    "corrective retry preserves the full identity/relationship policy instead of replacing it with a narrow prompt",
+    "static const char retry_system_prompt[]" in retry_builder
+    and "RELATIONSHIP AND NAME CONTINUITY" in retry_builder
+    and "RESPONSE CORRECTION" in retry_builder
+    and "return xstrdup(retry_system_prompt);" in retry_builder,
+    "corrective retry uses a compact self-contained relationship policy and preserves the correction within the serializer budget",
 )
 
 require(
