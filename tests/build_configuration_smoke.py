@@ -69,6 +69,15 @@ require(
     "privileged bootstrap is root-only and installs embedded trusted unit definitions, not mutable source-tree units",
 )
 require(
+    'export R2_OLLAMA_NUM_CTX=4096' in launcher
+    and 'export R2_OLLAMA_NUM_CTX=4096' in service_runner
+    and 'PREFLIGHT_CTX=4096' in installer
+    and 'export R2_OLLAMA_NUM_CTX=8192' not in launcher
+    and 'export R2_OLLAMA_NUM_CTX=8192' not in service_runner
+    and 'PREFLIGHT_CTX=8192' not in installer,
+    "interactive launch, overnight service, and installer use the same 8-layer/4096-context GTX 1050 Ti policy",
+)
+require(
     "do not execute this mutable source-tree script as root" in installer_wrapper
     and "/usr/local/sbin/r2-3po-install" in installer_wrapper
     and "root_run " not in installer_wrapper,
