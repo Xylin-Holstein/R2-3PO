@@ -3127,23 +3127,6 @@ static int r2_capability_section_matches_query(const char *content,
     return 0;
 }
 
-static int r2_query_matches_specific_capability(const char *query)
-{
-    static const char *const markers[] = {
-        "============================================================\nGAMEPLAY IS A REAL-LIFE ACTIVITY, NOT PHYSICAL REALITY",
-        "============================================================\nCONVERSATION AND DIARY ARE DIFFERENT",
-        "============================================================\nREAL FILE TOOLS",
-        "============================================================\nREAL BACKGROUND HANDS",
-        "============================================================\nAUTONOMOUS REFLECTION",
-        "============================================================\nALTERNATE-SELF / CHOICE LAB"
-    };
-    for (size_t i = 0; i < sizeof(markers) / sizeof(markers[0]); ++i) {
-        if (r2_capability_section_matches_query(markers[i], query))
-            return 1;
-    }
-    return 0;
-}
-
 static int r2_inference_system_priority(const char *content, const char *query)
 {
     if (!content)
