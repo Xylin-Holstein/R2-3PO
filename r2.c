@@ -3832,10 +3832,6 @@ static char *ollama_chat_with_limit(
     size_t capabilities_used = 0;
     size_t startup_used = 0;
     size_t learning_used = 0;
-    int has_reality_evidence = 0;
-    int has_retrieved_context = 0;
-    int has_startup_memory = 0;
-    int has_learning_context = 0;
     size_t reality_context_chars = 0;
     size_t retrieved_context_chars = 0;
     size_t startup_memory_chars = 0;
@@ -3847,21 +3843,17 @@ static char *ollama_chat_with_limit(
         size_t length = strlen(content);
         if (!strncmp(content, "PERSISTENT REALITY CONTEXT",
                       strlen("PERSISTENT REALITY CONTEXT"))) {
-            has_reality_evidence = 1;
             if (length > reality_context_chars)
                 reality_context_chars = length;
         } else if (!strncmp(content, "CURRENT TURN RETRIEVED CONTEXT",
                              strlen("CURRENT TURN RETRIEVED CONTEXT"))) {
-            has_retrieved_context = 1;
             if (length > retrieved_context_chars)
                 retrieved_context_chars = length;
         } else if (strstr(content, "R2 PERSISTENT MEMORY - STARTUP CONTEXT")) {
-            has_startup_memory = 1;
             if (length > startup_memory_chars)
                 startup_memory_chars = length;
         } else if (!strncmp(content, "PERSISTENT LEARNING CONTEXT",
                              strlen("PERSISTENT LEARNING CONTEXT"))) {
-            has_learning_context = 1;
             if (length > learning_context_chars)
                 learning_context_chars = length;
         }
