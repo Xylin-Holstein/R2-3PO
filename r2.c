@@ -3449,15 +3449,13 @@ static char *ollama_chat_with_limit(
     for (size_t i = 0; i < count; ++i) {
         if (!msgs[i].role || strcmp(msgs[i].role, "system") != 0)
             continue;
-        /* Count every static instruction section, not only the identity,
-           Reality, and currently matched capability sections. The complete
-           instruction set must be included in input sizing before output
-           allocation; otherwise a large generation budget can crowd out
-           instructions that the serializer is required to preserve whole.
-           Current-turn retrieval and live Reality also count because they are
-           higher priority than startup/archive memory. */
+        /* Size the request for mandatory identity, live Reality, task-matched
+           capability instructions, current-turn retrieval, and the exact user
+           turn. Unrelated capability sections remain eligible for the spare
+           context window, but must not inflate the minimum context needed by
+           this turn. */
         if (r2_inference_system_priority(
-                msgs[i].content, ollama_authoritative_user_query) > 4)
+                msgs[i].content, ollama_authoritative_user_query) > 3)
             continue;
         size_t length = msgs[i].content ? strlen(msgs[i].content) : 0;
         if (length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS)
@@ -3499,6 +3497,32 @@ static char *ollama_chat_with_limit(
     if (required_input_chars <= (SIZE_MAX - 31U) / 10U) {
         size_t required_input_tokens =
             (required_input_chars * 10U + 31U) / 32U + 512U;
+
+        /*
+         * Context sizing is part of allocation, not permission to drop R2's
+         * identity. A 4k context cannot hold the full priority prompt plus a
+         * normal current turn. Grow the requested context to the next 2k tier
+         * when the complete high-priority input and requested answer need it.
+         * The model/launcher ceiling remains 16k; no prompt text is shortened
+         * to make an undersized context appear to work.
+         */
+        size_t required_context_tokens = required_input_tokens;
+        if ((size_t)num_predict <= SIZE_MAX - required_context_tokens)
+            required_context_tokens += (size_t)num_predict;
+        if (required_context_tokens > (size_t)num_ctx &&
+            required_context_tokens <= 16384U) {
+            size_t context_tier =
+                ((required_context_tokens + 2047U) / 2048U) * 2048U;
+            if (context_tier <= 16384U) {
+                fprintf(stderr,
+                        "[R2 Prompt Budget] Growing context from %d to %zu tokens "
+                        "to fit complete identity, relevant instructions, current "
+                        "turn, and answer allocation.\\n",
+                        num_ctx, context_tier);
+                num_ctx = (int)context_tier;
+            }
+        }
+
         int available_output_tokens = required_input_tokens < (size_t)num_ctx
             ? num_ctx - (int)required_input_tokens : 128;
         if (available_output_tokens < 128)
