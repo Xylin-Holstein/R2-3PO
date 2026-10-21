@@ -3442,10 +3442,8 @@ static char *ollama_chat_with_limit(
     /* Omitted budgets are for helper calls; foreground calls request a
        complexity-based budget and can use the full context-dependent ceiling. */
     if (num_predict < 1) num_predict = num_ctx >= 12288 ? 2048 : 1024;
-    /* Keep the caller's desired ceiling while sizing the input. If a small
-       initial context clips it, a context expansion should restore the
-       appropriate output ceiling instead of permanently keeping that clip. */
-    int requested_num_predict = num_predict;
+    /* The context returned by r2_ollama_context_tokens() is the configured
+       hardware ceiling, not a starting tier. Keep generation within it. */
     if (num_predict > max_predict) num_predict = max_predict;
 
     size_t override_length = system_override ? strlen(system_override) : 0;
