@@ -153,7 +153,7 @@ def c_string_array_length(name: str, end_marker: str) -> int:
     return len("".join(literals))
 
 main_prompt_chars = c_string_array_length(
-    "r2_conversation_system_prompt", "\\n\\nstatic char *r2_build_retry_system_prompt(void)"
+    "r2_conversation_system_prompt", "\n\nstatic char *r2_build_retry_system_prompt(void)"
 )
 retry_prompt_chars = c_string_array_length(
     "retry_system_prompt", "return xstrdup(retry_system_prompt);"
