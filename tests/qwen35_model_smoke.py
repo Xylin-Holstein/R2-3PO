@@ -190,12 +190,15 @@ require(
 
 require(
     "budget.retrieval_reserve = context_budget / 8;" in core
-    and "budget.capabilities_reserve = context_budget;" in core
+    and "budget.capabilities_reserve = context_budget / 6;" in core
     and "budget.startup_reserve = context_budget / 10;" in core
-    and "budget.learning_reserve = context_budget / 10;" in core
+    and "budget.learning_reserve = context_budget / 3;" in core
     and "message_add_system_prompt_sections_locked() != 0" in core
     and "return 8;" in core
     and "r2_compute_system_context_budget(system_budget, override_length)" in core
+    and "size_t required_context_tokens = required_input_tokens;" in core
+    and "required_context_tokens += (size_t)num_predict;" in core
+    and "num_ctx = (int)context_tier;" in core
     and "message_priority == 3 && length > retrieval_reserve" in core
     and "capabilities_reserve > capabilities_used" in core
     and "capability_remaining" in core
