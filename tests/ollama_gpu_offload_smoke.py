@@ -23,6 +23,8 @@ for needle in required:
 
 if "GTX 1050 Ti" not in launcher or "export R2_OLLAMA_NUM_GPU=8" not in launcher:
     raise SystemExit("Interactive launcher must request partial offload when the GTX 1050 Ti is detected.")
+if 'if [[ -z "${R2_OLLAMA_NUM_GPU:-}" ]]; then' not in launcher:
+    raise SystemExit("An empty GPU-layer environment value must still select the target-card default; explicit 0 remains supported.")
 if 'R2_OLLAMA_NUM_GPU="${R2_OLLAMA_NUM_GPU}"' not in launcher:
     raise SystemExit("Interactive launcher must pass GPU layer policy through the sanitized runtime environment.")
 if 'R2_OLLAMA_NUM_CTX="${R2_OLLAMA_NUM_CTX:-}"' not in launcher:
