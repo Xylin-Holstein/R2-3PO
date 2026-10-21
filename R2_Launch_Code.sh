@@ -145,15 +145,15 @@ if [[ "$R2_NVIDIA_PCI_PRESENT" == "1" && "$R2_NVIDIA_QUERY_OK" != "1" ]]; then
     exit 1
 fi
 
-# Keep the default KV cache within a safer budget on the 4 GiB GTX 1050 Ti.
+# Keep Qwen's KV cache within the target 4 GiB GTX 1050 Ti's actual VRAM headroom.
 # Remember which values are defaults so failed preflight can retry conservatively
 # without overriding explicit operator settings.
 R2_OLLAMA_NUM_CTX_DEFAULTED=0
 if [[ -z "${R2_OLLAMA_NUM_CTX:-}" && "$R2_NVIDIA_QUERY_OK" == "1" ]] &&
    printf '%s\n' "$R2_NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
-    export R2_OLLAMA_NUM_CTX=8192
+    export R2_OLLAMA_NUM_CTX=4096
     R2_OLLAMA_NUM_CTX_DEFAULTED=1
-    echo "[GPU] GTX 1050 Ti detected; limiting default Ollama context to 8192 tokens."
+    echo "[GPU] GTX 1050 Ti detected; limiting default Ollama context to 4096 tokens."
 fi
 
 # On this host the GTX 1050 Ti has 4 GiB VRAM. Request a partial layer
@@ -163,9 +163,9 @@ R2_OLLAMA_NUM_GPU_DEFAULTED=0
 if [[ -z "${R2_OLLAMA_NUM_GPU+x}" ]]; then
     if [[ "$R2_NVIDIA_QUERY_OK" == "1" ]] &&
        printf '%s\n' "$R2_NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
-        export R2_OLLAMA_NUM_GPU=20
+        export R2_OLLAMA_NUM_GPU=8
         R2_OLLAMA_NUM_GPU_DEFAULTED=1
-        echo "[GPU] NVIDIA GeForce GTX 1050 Ti detected; requesting 20 model layers on GPU."
+        echo "[GPU] NVIDIA GeForce GTX 1050 Ti detected; requesting 8 model layers on GPU."
     else
         export R2_OLLAMA_NUM_GPU=0
         R2_OLLAMA_NUM_GPU_DEFAULTED=1
@@ -304,8 +304,8 @@ if ! sudo -n -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
     python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --timeout 180 "${R2_OLLAMA_PREFLIGHT_ARGS[@]}"; then
     if [[ "$R2_OLLAMA_NUM_GPU_DEFAULTED" == "1" &&
           "$R2_OLLAMA_NUM_CTX_DEFAULTED" == "1" ]]; then
-        echo "[GPU] Default inference preflight failed; retrying with 12 GPU layers and 4096 context tokens."
-        export R2_OLLAMA_NUM_GPU=12
+        echo "[GPU] Default inference preflight failed; retrying with 4 GPU layers and 4096 context tokens."
+        export R2_OLLAMA_NUM_GPU=4
         export R2_OLLAMA_NUM_CTX=4096
         if ! sudo -n -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
             R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
