@@ -154,7 +154,6 @@ for required in (
     "size_t retrieved_context_chars = 0;",
     "size_t startup_memory_chars = 0;",
     "size_t learning_context_chars = 0;",
-    "size_t reality_to_protect =",
     "size_t retrieval_to_protect =",
     "size_t startup_to_protect =",
     "size_t learning_to_protect =",
