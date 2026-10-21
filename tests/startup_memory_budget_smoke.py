@@ -34,7 +34,8 @@ assert "current_user_reserve = current_length;" in source
 assert "size_t current_user_reserve = 1500;" not in source
 assert "Size for core instructions" in source
 assert "configured ceiling (%d); allocating by semantic priority" in source
-assert "retaining the configured context ceiling" in source
+assert "Input-size estimate overflowed; retaining " in source
+assert "the configured context ceiling." in source
 assert "Growing context from" not in source
 assert "if (priority > 3 && priority != 5 && priority != 6)" in source
 
