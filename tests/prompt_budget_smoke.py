@@ -112,6 +112,24 @@ if allocated_context_and_output(16445 + 1500, 4096, 4096) != (4096, 1024):
 if allocated_context_and_output(42000, 4096, 8192) != (8192, 2048):
     raise SystemExit("An 8k hardware ceiling was exceeded or the reply budget was starved")
 
+def core_aware_output(core_chars: int, user_chars: int, context_ceiling: int, requested_output: int) -> int:
+    minimum_chars = core_chars + max(user_chars, 1500)
+    minimum_tokens = (minimum_chars * 10 + 31) // 32 + 512
+    max_predict = max(512, context_ceiling // 4)
+    if minimum_tokens < context_ceiling:
+        max_predict = min(max_predict, context_ceiling - minimum_tokens)
+    else:
+        max_predict = 256
+    return min(requested_output, max_predict)
+
+# Ordinary chat retains its normal answer budget when the core prompt fits.
+if core_aware_output(1910 + 3766, 80, 4096, 1024) != 1024:
+    raise SystemExit("Normal conversation lost output budget despite fitting core instructions")
+# A long current turn must take output tokens from the generation allowance,
+# not silently displace the identity/action contract from the input.
+if core_aware_output(1910 + 3766, 5000, 4096, 1024) >= 1024:
+    raise SystemExit("Generation budget did not yield to the full core prompt and current turn")
+
 for required in (
     "static R2SystemContextBudget r2_compute_system_context_budget(",
     "size_t system_budget, size_t override_length",
