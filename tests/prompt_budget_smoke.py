@@ -123,7 +123,12 @@ for required in (
     "budget.learning_reserve = context_budget / 3;",
     "if (budget.learning_reserve > 8192)",
     "budget.learning_reserve = 8192;",
-    "r2_compute_system_context_budget(system_budget, override_length)",
+    "r2_core_instruction_char_count(",
+    "r2_compute_system_context_budget(budget_after_core, override_length)",
+    "size_t budget_after_core =",
+    "size_t minimum_input_tokens = SIZE_MAX;",
+    "size_t output_room = (size_t)num_ctx - minimum_input_tokens;",
+    "if (message_priority == 1 && is_reality_evidence)",
     "size_t reality_reserve = context_budgets.reality_reserve;",
     "int is_reality_evidence =",
     "length > reality_reserve",
@@ -163,7 +168,8 @@ for required in (
     "if (message_priority == 3 && length > retrieval_reserve)",
     "if (priority == 3 && length > OLLAMA_MAX_SYSTEM_TOTAL_CHARS / 8U)",
     "return 2;",
-    "return r2_query_matches_specific_capability(query) ? 4 : 1;",
+    "The general action contract is core behavior",
+    "return 1;",
     "return 3;",
     "return 5;",
     "return 6;",
@@ -172,28 +178,35 @@ for required in (
     if required not in core:
         raise SystemExit(f"Instruction-first context allocation is missing: {required}")
 
-# A large live Reality snapshot must not consume the allocations reserved
-# for the later retrieval, startup-memory, and learning sources.
-def protected_room(system_budget: int, used: int, reserves: tuple[int, ...]) -> int:
-    return max(0, system_budget - used - sum(reserves))
-
-budget = 20000
+# Evidence reserves must be computed from the space left after complete
+# identity/action/task-matched instructions, not from the whole system budget.
+system_budget = 6692  # 4096 context, 1024 output, 512 token overhead, 1500 user reserve
 identity_chars = 1910
-static_reality_instruction_chars = 3766
-reality_reserve = min(budget // 6, 6000)
-retrieval_reserve = budget // 8
-startup_reserve = min(budget // 10, 1600)
-learning_reserve = min(budget // 3, 8192)
-future_db_reserves = (retrieval_reserve, startup_reserve, learning_reserve)
-if protected_room(
-    budget, identity_chars,
-    (reality_reserve, *future_db_reserves),
-) < static_reality_instruction_chars:
-    raise SystemExit("Reality evidence reserves unexpectedly crowd out the whole static action contract")
-dynamic_reality_chars = min(20000, reality_reserve)
-remaining_after_reality = budget - identity_chars - static_reality_instruction_chars - dynamic_reality_chars
-if remaining_after_reality < sum(future_db_reserves):
-    raise SystemExit("A large Reality snapshot can still crowd out retrieval/startup/learning reserves")
+static_action_contract_chars = 3766
+core_instruction_chars = identity_chars + static_action_contract_chars
+evidence_budget = max(0, system_budget - core_instruction_chars)
+reality_reserve = min(evidence_budget // 6, 6000)
+retrieval_reserve = evidence_budget // 8
+capabilities_reserve = evidence_budget // 6
+startup_reserve = min(evidence_budget // 10, 1600)
+learning_reserve = min(evidence_budget // 3, 8192)
+evidence_reserves = (
+    reality_reserve, retrieval_reserve, capabilities_reserve,
+    startup_reserve, learning_reserve,
+)
+if core_instruction_chars > system_budget:
+    raise SystemExit("Core instructions do not fit the 4k-context allocation")
+if evidence_budget <= 0 or any(reserve <= 0 for reserve in evidence_reserves):
+    raise SystemExit("Core instructions consumed all room needed by connected context sources")
+if core_instruction_chars + sum(evidence_reserves) > system_budget:
+    raise SystemExit("Evidence reserves exceed the space remaining after core instructions")
+
+# A full static instruction section must never be skipped merely to preserve
+# future database reserves. Dynamic evidence competes only for the budget left
+# after core instructions are accounted.
+remaining_after_core = system_budget - core_instruction_chars
+if remaining_after_core < sum(evidence_reserves):
+    raise SystemExit("Database/Reality allocation crowds out the complete static action contract")
 
 # The full prompt is split at semantic boundaries so the query-specific section
 # is selected by priority instead of being truncated inside one giant message.
