@@ -115,20 +115,26 @@ if allocated_context_and_output(42000, 4096, 8192) != (8192, 2048):
 def core_aware_output(core_chars: int, user_chars: int, context_ceiling: int, requested_output: int) -> int:
     minimum_chars = core_chars + max(user_chars, 1500)
     minimum_tokens = (minimum_chars * 10 + 31) // 32 + 512
+    output_target_tokens = minimum_tokens
+    evidence_chars = minimum_chars + 2500
+    evidence_tokens = (evidence_chars * 10 + 31) // 32 + 512
+    if evidence_tokens < context_ceiling:
+        output_target_tokens = evidence_tokens
     max_predict = max(512, context_ceiling // 4)
     if minimum_tokens < context_ceiling:
-        max_predict = min(max_predict, context_ceiling - minimum_tokens)
+        max_predict = min(max_predict, context_ceiling - output_target_tokens)
     else:
         max_predict = 256
     return min(requested_output, max_predict)
 
-# Ordinary chat retains its normal answer budget when the core prompt fits.
-if core_aware_output(1910 + 3766, 80, 4096, 1024) != 1024:
-    raise SystemExit("Normal conversation lost output budget despite fitting core instructions")
-# A long current turn must take output tokens from the generation allowance,
-# not silently displace the identity/action contract from the input.
-if core_aware_output(1910 + 3766, 5000, 4096, 1024) >= 1024:
-    raise SystemExit("Generation budget did not yield to the full core prompt and current turn")
+# A 4k context retains a useful evidence slice by allocating about 560 output
+# tokens, rather than sending 1024 tokens and leaving only ~1k chars for DBs.
+if core_aware_output(1910 + 3766, 80, 4096, 1024) != 560:
+    raise SystemExit("Generation did not yield enough context room for connected evidence")
+# If the current user turn is long, it takes priority over the evidence target
+# while still receiving enough room for the complete core instructions.
+if core_aware_output(1910 + 3766, 5000, 4096, 1024) != 247:
+    raise SystemExit("Generation budget did not yield to the complete core prompt and long current turn")
 
 for required in (
     "static R2SystemContextBudget r2_compute_system_context_budget(",
@@ -145,7 +151,9 @@ for required in (
     "r2_compute_system_context_budget(budget_after_core, override_length)",
     "size_t budget_after_core =",
     "size_t minimum_input_tokens = SIZE_MAX;",
-    "size_t output_room = (size_t)num_ctx - minimum_input_tokens;",
+    "size_t output_room = (size_t)num_ctx - output_target_tokens;",
+    "const size_t evidence_context_target_chars = 2500U;",
+    "output_target_tokens = evidence_target_tokens",
     "if (message_priority == 1 && is_reality_evidence)",
     "size_t reality_reserve = context_budgets.reality_reserve;",
     "int is_reality_evidence =",
