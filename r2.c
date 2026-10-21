@@ -3305,6 +3305,7 @@ fail:
 }
 
 typedef struct {
+    size_t reality_reserve;
     size_t retrieval_reserve;
     size_t capabilities_reserve;
     size_t startup_reserve;
@@ -3321,6 +3322,11 @@ static R2SystemContextBudget r2_compute_system_context_budget(
     size_t context_budget = system_budget > override_length
         ? system_budget - override_length : 0;
 
+    /* Reality is useful evidence, but a large room/inventory snapshot must
+       not crowd focused retrieval or durable memory out of the actual request. */
+    budget.reality_reserve = context_budget / 6;
+    if (budget.reality_reserve > 6000)
+        budget.reality_reserve = 6000;
     budget.retrieval_reserve = context_budget / 8;
     /* Unmatched capability sections must not consume room needed by this
        turn's durable memory and learning. */
@@ -3466,9 +3472,14 @@ static char *ollama_chat_with_limit(
         if (priority > 3 && priority != 5 && priority != 6)
             continue;
         size_t length = msgs[i].content ? strlen(msgs[i].content) : 0;
-        /* The serializer later caps retrieval to one eighth of the system
-           budget. Size that same bounded prefix here; counting the whole
-           16k/28k assembled history would unnecessarily force larger contexts. */
+        /* Size dynamic evidence at the same bounded limits used by the
+           serializer. Counting an unbounded Reality snapshot here can force
+           context growth for data that the final payload should not send. */
+        if (priority == 1 && msgs[i].content &&
+            !strncmp(msgs[i].content, "PERSISTENT REALITY CONTEXT",
+                     strlen("PERSISTENT REALITY CONTEXT")) &&
+            length > 6000U)
+            length = r2_safe_prompt_prefix_length(msgs[i].content, 6000U, 1);
         if (priority == 3 && length > OLLAMA_MAX_SYSTEM_TOTAL_CHARS / 8U)
             length = r2_safe_prompt_prefix_length(
                 msgs[i].content, OLLAMA_MAX_SYSTEM_TOTAL_CHARS / 8U, 1);
@@ -3806,6 +3817,7 @@ static char *ollama_chat_with_limit(
      */
     R2SystemContextBudget context_budgets =
         r2_compute_system_context_budget(system_budget, override_length);
+    size_t reality_reserve = context_budgets.reality_reserve;
     size_t retrieval_reserve = context_budgets.retrieval_reserve;
     size_t capabilities_reserve = context_budgets.capabilities_reserve;
     size_t startup_reserve = context_budgets.startup_reserve;
@@ -3831,9 +3843,14 @@ static char *ollama_chat_with_limit(
             if (message_priority != priority) continue;
 
             size_t length = strlen(content);
+            int is_reality_evidence =
+                !strncmp(content, "PERSISTENT REALITY CONTEXT",
+                         strlen("PERSISTENT REALITY CONTEXT"));
             if (length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS)
                 length = r2_utf8_safe_prefix_length(
                     content, OLLAMA_MAX_SYSTEM_MESSAGE_CHARS);
+            if (is_reality_evidence && length > reality_reserve)
+                length = r2_safe_prompt_prefix_length(content, reality_reserve, 1);
             if (message_priority == 3 && length > retrieval_reserve)
                 length = r2_safe_prompt_prefix_length(content, retrieval_reserve, 1);
             if (message_priority == 4) {
@@ -3858,13 +3875,39 @@ static char *ollama_chat_with_limit(
                     length = r2_safe_prompt_prefix_length(content, learning_remaining, 1);
             }
             size_t remaining = system_budget > total_chars ? system_budget - total_chars : 0;
-            if (length > remaining) {
-                /* Keep instruction sections whole. Evidence can be shortened,
-                   but a partial capability/identity instruction changes its
-                   meaning; lower-priority sections yield instead. */
-                if (message_priority <= 2 || message_priority == 4)
+            /* Protect the later evidence budgets while earlier priorities are
+               considered. These are real allocations, not advisory fractions:
+               without this subtraction a large Reality snapshot can consume
+               the entire system budget before retrieval/startup/learning run. */
+            size_t protected_later = 0;
+            if (message_priority == 1) {
+                protected_later = retrieval_reserve + capabilities_reserve +
+                                  startup_reserve + learning_reserve;
+                if (!is_reality_evidence)
+                    protected_later += reality_reserve;
+            } else if (message_priority == 2) {
+                protected_later = retrieval_reserve + capabilities_reserve +
+                                  startup_reserve + learning_reserve;
+            } else if (message_priority == 3) {
+                protected_later = capabilities_reserve + startup_reserve +
+                                  learning_reserve;
+            } else if (message_priority == 4) {
+                protected_later = startup_reserve + learning_reserve;
+            } else if (message_priority == 5) {
+                protected_later = learning_reserve;
+            }
+            size_t available_for_message =
+                remaining > protected_later ? remaining - protected_later : 0;
+            if (length > available_for_message) {
+                /* Identity and static capability instructions remain whole.
+                   Dynamic evidence is shortened only at record boundaries. */
+                if ((message_priority <= 2 && !is_reality_evidence) ||
+                    message_priority == 4)
                     continue;
-                length = r2_utf8_safe_prefix_length(content, remaining);
+                length = r2_safe_prompt_prefix_length(
+                    content, available_for_message,
+                    is_reality_evidence || message_priority == 3 ||
+                    message_priority == 5 || message_priority == 6);
             }
             if (length == 0) continue;
             include[i] = 1;
