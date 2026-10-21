@@ -102,7 +102,7 @@ for required in (
     "size_t system_budget = input_budget > current_user_reserve",
     "r2_inference_system_priority(",
     "if (priority > 3 && priority != 5 && priority != 6)",
-    "Size the request for mandatory identity",
+    "Size for core instructions",
     "if (active_user_chars < 1500U)",
     "if (message_priority <= 2 || message_priority == 4)",
     "if (message_priority == 3 && length > retrieval_reserve)",
