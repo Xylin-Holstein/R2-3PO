@@ -78,7 +78,7 @@ log "Ollama context policy: R2_OLLAMA_NUM_CTX=${R2_OLLAMA_NUM_CTX:-adaptive}"
 # GTX 1050 Ti, but keep automatic placement when that card is not installed.
 # An explicit service environment override always takes precedence.
 R2_OLLAMA_NUM_GPU_DEFAULTED="${R2_OLLAMA_NUM_GPU_DEFAULTED:-0}"
-if [[ -z "${R2_OLLAMA_NUM_GPU+x}" ]]; then
+if [[ -z "${R2_OLLAMA_NUM_GPU:-}" ]]; then
     if [[ "$R2_NVIDIA_QUERY_OK" == "1" ]] &&
        printf '%s\n' "$R2_NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
         export R2_OLLAMA_NUM_GPU=8
