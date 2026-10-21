@@ -52,7 +52,8 @@ for marker in (
     "strlen(addiction_report)",
     "memcpy(context + used, reward_report, reward_length)",
     "memcpy(context + used, addiction_report, addiction_length)",
-    "size_t cap = prefix_length + reward_length + middle_length",
+    "size_t cap = prefix_length;",
+    "cap += addiction_length + 1;",
 ):
     if marker not in learning:
         raise SystemExit(f"Live learning context fails to preserve complete DB reports: {marker}")
