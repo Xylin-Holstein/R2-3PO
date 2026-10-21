@@ -75,6 +75,10 @@ int64_t r2_log_event(
     const char *source
 );
 
+/* Idempotency check for replayable event outboxes such as verified virtual
+ * game events. The source identifier must be stable across retries. */
+int r2_log_event_exists(const char *event_type, const char *source);
+
 /*
  * Record an event and, if save_as_memory is non-zero, attempt to
  * save a concise pointer/summary through the existing R2 memory
@@ -93,6 +97,23 @@ int64_t r2_log_event_with_memory(
 /* Lifecycle/session helpers. */
 int r2_log_session_start(void);
 int r2_log_session_end(const char *reason);
+
+/* Generic device/game/activity session hooks. Activity names are not hardcoded;
+ * a future Game Boy or other device can use the same tracker.
+ * Pass "unknown" when the last verified state or stop reason is unavailable.
+ */
+int64_t r2_log_activity_start(const char *activity_key,
+                              const char *activity_name,
+                              const char *details);
+int64_t r2_log_activity_end(const char *activity_key,
+                            const char *last_verified_state,
+                            const char *stop_reason,
+                            const char *details);
+
+/* Persist an explicit location transition. Welcome Home is private and only
+ * created on a previously-away to home transition.
+ */
+int r2_log_location_transition(const char *location, int is_home);
 
 /* Record the first verified occurrence of a named milestone. */
 int64_t r2_log_milestone(
@@ -149,6 +170,10 @@ int r2_log_system_snapshot(const char *reason);
 int64_t r2_log_conversation_turn(const char *user_text,
                                 const char *assistant_text);
 
+/* Bounded recent persisted turns for restart continuity; returns allocated
+   historical-context text (empty when no turns exist), or NULL on query/allocation failure. */
+char *r2_log_recent_conversation_context(size_t max_chars);
+
 /*
  * Structured self-state. Confidence is 0.0..1.0, or negative if unknown.
  * Records describe R2's expressed or explicitly evidenced state, not
@@ -197,6 +222,7 @@ char *r2_log_status_report(void);
  * free() the result. A NULL return indicates failure.
  */
 char *r2_log_recent(int limit);
+/* Search returns matched events plus a bounded one-hop expansion of explicit r2_log_links. */
 char *r2_log_search(const char *query, int limit);
 
 /* Return non-zero when initialized. */

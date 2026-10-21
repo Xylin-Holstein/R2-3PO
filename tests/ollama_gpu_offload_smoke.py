@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+"""Check NVIDIA partial-offload configuration and runtime placement diagnostics."""
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+core = (ROOT / "r2.c").read_text(encoding="utf-8")
+visual = (ROOT / "Visual.c").read_text(encoding="utf-8")
+launcher = (ROOT / "R2_Launch_Code.sh").read_text(encoding="utf-8")
+service = (ROOT / "deploy/r2-3po.service").read_text(encoding="utf-8")
+runner = (ROOT / "tools/r2_service_runner.sh").read_text(encoding="utf-8")
+bootstrap = (ROOT / "tools/r2_install_root_bootstrap.sh").read_text(encoding="utf-8")
+readme = (ROOT / "README.md").read_text(encoding="utf-8")
+preflight = (ROOT / "tools/preflight_ollama_model.py").read_text(encoding="utf-8")
+
+required = (
+    'getenv("R2_OLLAMA_NUM_GPU")',
+    'R2_OLLAMA_ADD_OPTION("num_gpu"',
+    "gpu_layers >= -1 && gpu_layers <= 999",
+    "if (gpu_layers != 0)",
+)
+for needle in required:
+    if needle not in core:
+        raise SystemExit(f"Missing configurable GPU layer behavior: {needle}")
+
+if "GTX 1050 Ti" not in launcher or "export R2_OLLAMA_NUM_GPU=8" not in launcher:
+    raise SystemExit("Interactive launcher must start with the conservative 8-layer offload policy on the GTX 1050 Ti.")
+if "export R2_OLLAMA_NUM_CTX=4096" not in launcher:
+    raise SystemExit("Interactive launcher must use the evidence-based 4096-token context after prior KV-cache allocation failures.")
+if "retrying with 12 GPU layers and 4096 context tokens" in launcher:
+    raise SystemExit("Interactive launcher must not deliberately run an oversized probe before retrying conservatively.")
+if 'R2_OLLAMA_NUM_GPU="${R2_OLLAMA_NUM_GPU}"' not in launcher:
+    raise SystemExit("Interactive launcher must pass GPU layer policy through the sanitized runtime environment.")
+if 'R2_OLLAMA_NUM_CTX="${R2_OLLAMA_NUM_CTX:-}"' not in launcher:
+    raise SystemExit("Interactive launcher must preserve the optional adaptive context override.")
+if ('getenv("R2_OLLAMA_NUM_GPU")' not in visual
+        or "visual_json_object_add_checked(" not in visual
+        or '"num_gpu", json_object_new_int((int)gpu_layers)' not in visual):
+    raise SystemExit("Vision requests must use the same GPU layer policy as chat.")
+if "GTX 1050 Ti" not in runner or "export R2_OLLAMA_NUM_GPU=8" not in runner:
+    raise SystemExit("Overnight service runner must start with the conservative 8-layer offload policy.")
+if "export R2_OLLAMA_NUM_CTX=4096" not in runner:
+    raise SystemExit("Overnight service runner must use the evidence-based 4096-token context after prior KV-cache allocation failures.")
+if "retrying with 12 GPU layers and 4096 context tokens" in runner:
+    raise SystemExit("Overnight service must not deliberately run an oversized probe before retrying conservatively.")
+if '"R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU"' not in runner:
+    raise SystemExit("Overnight service runner must pass the GPU policy to the R2 process.")
+if 'options["num_gpu"] = gpu_layers' not in preflight or 'f"{api_base}/api/ps"' not in preflight:
+    raise SystemExit("Ollama preflight must send the configured layer policy and inspect actual VRAM placement.")
+if "size_vram" not in preflight or "nvidia-smi" not in preflight:
+    raise SystemExit("Ollama preflight must report model VRAM and visible NVIDIA hardware.")
+if "R2_OLLAMA_NUM_GPU=8" not in readme or "4096" not in readme or "4 GiB VRAM" not in readme:
+    raise SystemExit("Documentation must explain the conservative GTX 1050 Ti mixed-placement policy.")
+if 'PREFLIGHT_GPU=8' not in bootstrap or 'PREFLIGHT_CTX=4096' not in bootstrap:
+    raise SystemExit("Trusted installer must preflight the same 8-layer / 4096-context policy as interactive and overnight launch.")
+if "20-layer/8192-context" in bootstrap or "retrying with 12 GPU layers and 4096 context tokens" in bootstrap:
+    raise SystemExit("Trusted installer must not provoke the known oversized allocation before falling back.")
+
+print("Ollama NVIDIA GPU offload configuration checks passed.")

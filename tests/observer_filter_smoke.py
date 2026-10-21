@@ -1,0 +1,60 @@
+#!/usr/bin/env python3
+"""Smoke-test observer privacy filtering without a desktop."""
+import importlib.util
+from pathlib import Path
+path = Path(__file__).resolve().parents[1] / "Observer.py"
+source_text = path.read_text(encoding="utf-8")
+poll_start = source_text.index("    def poll():")
+poll_end = source_text.index("    def close():", poll_start)
+poll = source_text[poll_start:poll_end]
+assert "if not tree.exists(item_id):" in poll, "retries must not insert duplicate UI rows"
+assert "last_id = event_id" in poll and "if all_rows_persisted:" in poll, (
+    "the Life Log cursor must not skip an event when Activity.txt append fails"
+)
+assert "all_rows_persisted = False" in poll and "break" in poll, (
+    "failed Activity.txt writes must be retried before later events advance the cursor"
+)
+assert "/home/x/R2_Home/R2_Log/Activity.txt" in source_text
+assert "/home/x/R2_Home/R2_Diary/Activity.txt" not in source_text
+spec = importlib.util.spec_from_file_location("r2_observer", path)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+assert module.is_observer_event("world", "object_moved")
+assert module.is_observer_event("world", "creator_gift")
+assert module.is_observer_event("world", "enjoyment_changed")
+assert module.is_observer_event("world", "addiction_status_changed")
+assert module.is_observer_event("media", "activity_ended")
+assert module.is_observer_event("world", "location_changed")
+assert module.is_observer_event("world", "gameboy_device_action")
+assert module.is_observer_event("world", "gameboy_game_started")
+assert module.is_observer_event("world", "gameboy_game_event")
+assert module.is_observer_event("world", "tv_display_opened")
+assert module.is_observer_event("world", "tv_display_closed")
+assert module.is_observer_event("world", "tv_power")
+assert module.is_observer_event("world", "vcr_tape_inserted")
+assert module.is_observer_event("world", "vcr_transport_changed")
+assert module.is_observer_event("world", "vcr_tape_ejected")
+assert not module.is_observer_event("world", "controller_input")
+assert not module.is_observer_event("conversation", "conversation_turn")
+assert not module.is_observer_event("thinking", "thought")
+assert not module.is_observer_event("thinking", "diary_entry_linked")
+assert not module.is_observer_event("world", "internal_notification")
+assert not module.is_observer_event("world", "unknown_new_event")
+print("Observer allowlist smoke test passed.")
+
+from pathlib import Path
+import tempfile
+
+with tempfile.TemporaryDirectory() as directory:
+    output = Path(directory) / "R2_Diary" / "Activity.txt"
+    module.append_activity_line(output, "2026-10-09 09:15:00", "R2 moved to kitchen.", 17)
+    module.append_activity_line(output, "2026-10-09 09:16:00", "R2 picked up a book.", 18)
+    # Retrying the same event after a reported write error must not duplicate it.
+    module.append_activity_line(output, "2026-10-09 09:16:00", "R2 picked up a book.", 18)
+    contents = output.read_text(encoding="utf-8")
+    assert contents.count("R2-3PO Activity Log") == 1
+    assert contents.count("(event #18)") == 1
+    assert "[2026-10-09 09:15:00] R2 moved to kitchen. (event #17)" in contents
+    assert "[2026-10-09 09:16:00] R2 picked up a book. (event #18)" in contents
+    assert contents.index("R2 moved to kitchen") < contents.index("R2 picked up a book")
+print("Activity.txt append smoke test passed.")
