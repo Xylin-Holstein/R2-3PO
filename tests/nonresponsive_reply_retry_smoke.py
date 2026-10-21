@@ -97,7 +97,7 @@ for phrase, message in (
     ("compact_messages[compact_count++] = (Message)", "retry appends the exact current user message as the authoritative turn"),
     ("ollama_authoritative_user_query = query;", "retry preserves active-turn identity"),
     ("conversation_reply_token_budget(query)", "retry respects the response token budget"),
-    ("ollama_chat_with_limit(\n        compact_messages, compact_count, NULL,", "retry uses the full shared prompt sections rather than a compact substitute"),
+    ("ollama_chat_with_limit(\n        compact_messages, compact_count, R2_CORRECTIVE_RETRY_INSTRUCTION,", "retry adds a direct-answer contract without replacing the full shared prompt"),
     ("free(compact_messages);", "retry releases its dynamic message array"),
 ):
     require(phrase in retry, message)
