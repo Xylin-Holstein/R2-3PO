@@ -27,7 +27,7 @@ assert "if (budget.learning_reserve > 8192)" in budget
 assert "budget.learning_reserve = 8192;" in budget
 assert "if (active_user_chars < 1500U)" in source
 assert "Size the request for mandatory identity" in source
-assert "r2_inference_system_priority(\n                msgs[i].content, ollama_authoritative_user_query) > 3" in source
+assert "if (priority > 3 && priority != 5 && priority != 6)" in source
 assert "size_t required_context_tokens = required_input_tokens;" in source
 assert "required_context_tokens += (size_t)num_predict;" in source
 assert "required_context_tokens <= 16384U" in source
