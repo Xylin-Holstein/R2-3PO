@@ -85,7 +85,7 @@ for required in (
     "static int r2_is_static_system_prompt_section(const Message *message)",
     "r2_is_static_system_prompt_section(&messages_copy[i])",
     "Message *compact_messages = calloc(message_count + 2U",
-    "compact_messages, compact_count, NULL,",
+    "compact_messages, compact_count, R2_CORRECTIVE_RETRY_INSTRUCTION,",
     "copy,\n            base_count,\n            NULL,",
     "message_add_system_prompt_sections_locked() != 0",
 ):
