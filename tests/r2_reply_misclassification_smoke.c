@@ -234,23 +234,23 @@ int main(void)
     R2SystemContextBudget context_budget =
         r2_compute_system_context_budget(9468, 0);
     ok &= check(context_budget.retrieval_reserve == 9468 / 8 &&
-                    context_budget.capabilities_reserve == 9468 &&
+                    context_budget.capabilities_reserve == 9468 / 6 &&
                     context_budget.startup_reserve == 9468 / 10 &&
-                    context_budget.learning_reserve == 9468 / 10,
+                    context_budget.learning_reserve == 9468 / 3,
                 "the 8k-context allocator preserves bounded retrieval, startup, and learning shares alongside complete instructions");
     R2SystemContextBudget override_context_budget =
         r2_compute_system_context_budget(9468, 1000);
     ok &= check(override_context_budget.retrieval_reserve == 8468 / 8 &&
-                    override_context_budget.capabilities_reserve == 8468 &&
+                    override_context_budget.capabilities_reserve == 8468 / 6 &&
                     override_context_budget.startup_reserve == 8468 / 10 &&
-                    override_context_budget.learning_reserve == 8468 / 10,
+                    override_context_budget.learning_reserve == 8468 / 3,
                 "an explicit system override is subtracted before allocating database and capability context");
     R2SystemContextBudget small_context_budget =
         r2_compute_system_context_budget(1276, 0);
     ok &= check(small_context_budget.retrieval_reserve == 1276 / 8 &&
-                    small_context_budget.capabilities_reserve == 1276 &&
+                    small_context_budget.capabilities_reserve == 1276 / 6 &&
                     small_context_budget.startup_reserve == 1276 / 10 &&
-                    small_context_budget.learning_reserve == 1276 / 10,
+                    small_context_budget.learning_reserve == 1276 / 3,
                 "small adaptive contexts keep reserve arithmetic bounded without obsolete overlapping budgets");
 
     ok &= check(conversation_reply_token_budget("Show me your room") == 1024,
