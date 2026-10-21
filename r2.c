@@ -3502,9 +3502,7 @@ static char *ollama_chat_with_limit(
         max_predict = 512;
     if (minimum_input_tokens < (size_t)num_ctx) {
         size_t output_room = (size_t)num_ctx - minimum_input_tokens;
-        if (output_room < 256U)
-            output_room = 256U;
-        if ((size_t)max_predict > output_room)
+        if (output_room > 0 && (size_t)max_predict > output_room)
             max_predict = (int)output_room;
     } else {
         max_predict = 256;
