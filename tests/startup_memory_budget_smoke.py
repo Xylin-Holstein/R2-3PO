@@ -5,12 +5,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 source = (ROOT / "r2.c").read_text(encoding="utf-8")
 
-start = source.find("typedef struct {\n    size_t retrieval_reserve;")
+start = source.find("typedef struct {\n    size_t reality_reserve;\n    size_t retrieval_reserve;")
 end = source.find("/* Return a byte prefix ending at a UTF-8 code-point boundary. Prompt", start)
 assert start >= 0 and end > start, "could not isolate system-context budget implementation"
 budget = source[start:end]
 
-assert "size_t startup_reserve;" in budget
+assert "size_t reality_reserve;" in budget\nassert "budget.reality_reserve = context_budget / 6;" in budget\nassert "if (budget.reality_reserve > 6000)" in budget\nassert "size_t startup_reserve;" in budget
 assert "size_t retrieval_reserve;" in budget
 assert "size_t capabilities_reserve;" in budget
 assert "size_t startup_reserve;" in budget
