@@ -189,10 +189,10 @@ require(
 )
 
 require(
-    "budget.retrieval_reserve = context_budget / 8;" in core
-    and "budget.capabilities_reserve = context_budget / 6;" in core
-    and "budget.startup_reserve = context_budget / 10;" in core
-    and "budget.learning_reserve = context_budget / 3;" in core
+    "budget.retrieval_reserve = context_budget * 9U / 16U;" in core
+    and "budget.capabilities_reserve = context_budget / 12U;" in core
+    and "budget.startup_reserve = context_budget / 12U;" in core
+    and "budget.learning_reserve = context_budget / 8U;" in core
     and "message_add_system_prompt_sections_locked() != 0" in core
     and "return 8;" in core
     and "r2_compute_system_context_budget(budget_after_core, override_length)" in core
@@ -207,7 +207,10 @@ require(
     and "r2_capability_section_matches_query" in core
     and "r2_inference_system_priority(" in core
     and "ollama_authoritative_user_query" in core
-    and "system_budget - reality_reserve - identity_minimum" not in core,
+    and "system_budget - reality_reserve - identity_minimum" not in core
+    and "size_t current_user_reserve = 0;" in core
+    and "current_user_reserve = current_length;" in core
+    and "size_t current_user_reserve = 1500;" not in core,
     "instruction-first context budgeting preserves complete relevant instructions before retrieved memory",
 )
 require(
