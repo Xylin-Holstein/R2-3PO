@@ -26,7 +26,7 @@ assert "budget.learning_reserve = context_budget / 3;" in budget
 assert "if (budget.learning_reserve > 8192)" in budget
 assert "budget.learning_reserve = 8192;" in budget
 assert "if (active_user_chars < 1500U)" in source
-assert "Size the request for mandatory identity" in source
+assert "Size for core instructions" in source
 assert "if (priority > 3 && priority != 5 && priority != 6)" in source
 assert "size_t required_context_tokens = required_input_tokens;" in source
 assert "required_context_tokens += (size_t)num_predict;" in source
