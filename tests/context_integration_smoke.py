@@ -45,10 +45,19 @@ learning = core[learning_start:learning_end]
 for source in ("r2_reward_context()", "r2_addiction_report()", "PERSISTENT LEARNING CONTEXT"):
     if source not in learning:
         raise SystemExit(f"Live learning context omits {source}")
-if 'strstr(reward, "Recent:")' not in learning or "reward_summary ? reward_summary : " not in learning:
-    raise SystemExit("Compact reward context must prefer the newest durable event over generic header text.")
-if "size_t cap = 512" not in learning or "REWARD: %.110s" not in learning or "REPEATED INTERESTS: %.110s" not in learning:
-    raise SystemExit("Live learning context must fit within the reserved system-prompt budget.")
+for marker in (
+    "const char *reward_report = reward",
+    "const char *addiction_report = addiction",
+    "strlen(reward_report)",
+    "strlen(addiction_report)",
+    "memcpy(context + used, reward_report, reward_length)",
+    "memcpy(context + used, addiction_report, addiction_length)",
+    "size_t cap = prefix_length + reward_length + middle_length",
+):
+    if marker not in learning:
+        raise SystemExit(f"Live learning context fails to preserve complete DB reports: {marker}")
+if "%.110s" in learning or "size_t cap = 512" in learning:
+    raise SystemExit("Live learning context still truncates connected DB evidence to tiny fragments.")
 
 dream_start = core.find("int r2_sleep_and_dream(double hours)")
 dream_end = core.find("static int autonomous_needs_action_allowed", dream_start)
@@ -148,8 +157,8 @@ if "Persistent-memory retrieval failed; refusing to continue with silently missi
 
 # Every real request should report whether the exact current user text and
 # the key context blocks actually survived serialization, without logging text.
-if "[R2 Prompt Audit]" not in core or "exact_user_turn=%d" not in core or "query_in_user_turn=%d" not in core:
+if "[R2 Prompt Audit]" not in core or "exact_user_turn=%d" not in core or "query_in_user_turn=%d" not in core or "identity_prompt=%d" not in core or "identity_prompt_chars=%zu" not in core:
     raise SystemExit("Serialized prompt audit does not verify the current user turn.")
-for field in ("startup_memory=%d", "retrieved_context=%d", "reality_context=%d", "learning_context=%d"):
+for field in ("identity_prompt=%d", "identity_prompt_chars=%zu", "startup_memory=%d", "retrieved_context=%d", "reality_context=%d", "learning_context=%d"):
     if field not in core:
         raise SystemExit(f"Serialized prompt audit omits {field}")
