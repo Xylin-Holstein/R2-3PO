@@ -26,8 +26,12 @@ assert "budget.learning_reserve = context_budget / 10;" in budget
 assert "if (budget.learning_reserve > 1000)" in budget
 assert "budget.learning_reserve = 1000;" in budget
 assert "if (active_user_chars < 1500U)" in source
-assert "Count every static instruction section" in source
-assert "r2_inference_system_priority(\n                msgs[i].content, ollama_authoritative_user_query) > 4" in source
+assert "Size the request for mandatory identity" in source
+assert "r2_inference_system_priority(\n                msgs[i].content, ollama_authoritative_user_query) > 3" in source
+assert "size_t required_context_tokens = required_input_tokens;" in source
+assert "required_context_tokens += (size_t)num_predict;" in source
+assert "required_context_tokens <= 16384U" in source
+assert "num_ctx = (int)context_tier;" in source
 
 priority_start = source.find("static int r2_inference_system_priority(")
 priority_end = source.find("\nstatic size_t r2_order_inference_messages", priority_start)
