@@ -71,6 +71,20 @@ if "r2_conversation_system_prompt" in core or "r2_retry_system_prompt" in core:
 # The active instructions are allocated as complete sections. Context/evidence
 # may use the remaining budget, but core instructions are not clipped to an
 # arbitrary fraction of it.
+def required_context_tier(required_input_chars: int, output_tokens: int, current_context: int) -> int:
+    required_input_tokens = (required_input_chars * 10 + 31) // 32 + 512
+    required_context_tokens = required_input_tokens + output_tokens
+    if current_context < required_context_tokens <= 16384:
+        tier = ((required_context_tokens + 2047) // 2048) * 2048
+        if tier <= 16384:
+            return tier
+    return current_context
+
+# The complete identity section must not disappear merely because a request
+# starts with a 4k context. The allocator must expand before serialization.
+if required_context_tier(16445 + 1500, 1024, 4096) != 8192:
+    raise SystemExit("A 4k context was not expanded to fit the full prompt and current turn")
+
 for required in (
     "static R2SystemContextBudget r2_compute_system_context_budget(",
     "size_t system_budget, size_t override_length",
