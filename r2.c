@@ -3436,6 +3436,10 @@ static char *ollama_chat_with_limit(
     /* Omitted budgets are for helper calls; foreground calls request a
        complexity-based budget and can use the full context-dependent ceiling. */
     if (num_predict < 1) num_predict = num_ctx >= 12288 ? 2048 : 1024;
+    /* Keep the caller's desired ceiling while sizing the input. If a small
+       initial context clips it, a context expansion should restore the
+       appropriate output ceiling instead of permanently keeping that clip. */
+    int requested_num_predict = num_predict;
     if (num_predict > max_predict) num_predict = max_predict;
 
     size_t override_length = system_override ? strlen(system_override) : 0;
@@ -3513,29 +3517,47 @@ static char *ollama_chat_with_limit(
             (required_input_chars * 10U + 31U) / 32U + 512U;
 
         /*
-         * Context sizing is part of allocation, not permission to drop R2's
-         * identity. A 4k context cannot hold the full priority prompt plus a
-         * normal current turn. Grow the requested context to the next 2k tier
-         * when the complete high-priority input and requested answer need it.
-         * The model/launcher ceiling remains 16k; no prompt text is shortened
-         * to make an undersized context appear to work.
+         * Find the smallest 2k context tier that can carry the complete
+         * high-priority input plus the output ceiling allowed at that tier.
+         * A 4k context cannot hold the full prompt plus a normal turn; silently
+         * omitting the identity section is not an acceptable allocation result.
          */
-        size_t required_context_tokens = required_input_tokens;
-        if ((size_t)num_predict <= SIZE_MAX - required_context_tokens)
-            required_context_tokens += (size_t)num_predict;
-        if (required_context_tokens > (size_t)num_ctx &&
-            required_context_tokens <= 16384U) {
-            size_t context_tier =
-                ((required_context_tokens + 2047U) / 2048U) * 2048U;
-            if (context_tier <= 16384U) {
-                fprintf(stderr,
-                        "[R2 Prompt Budget] Growing context from %d to %zu tokens "
-                        "to fit complete identity, relevant instructions, current "
-                        "turn, and answer allocation.\n",
-                        num_ctx, context_tier);
-                num_ctx = (int)context_tier;
+        int selected_context = num_ctx;
+        int selected_output = num_predict;
+        int current_max_predict = num_ctx / 4;
+        if (current_max_predict < 512)
+            current_max_predict = 512;
+        int current_output = requested_num_predict < current_max_predict
+            ? requested_num_predict : current_max_predict;
+        if (required_input_tokens <= (size_t)num_ctx &&
+            (size_t)current_output <= (size_t)num_ctx - required_input_tokens) {
+            selected_output = current_output;
+        } else {
+            size_t context_tier = ((size_t)num_ctx / 2048U + 1U) * 2048U;
+            for (; context_tier <= 16384U; context_tier += 2048U) {
+                int tier_max_predict = (int)(context_tier / 4U);
+                if (tier_max_predict < 512)
+                    tier_max_predict = 512;
+                int tier_output = requested_num_predict < tier_max_predict
+                    ? requested_num_predict : tier_max_predict;
+                if (required_input_tokens <= context_tier &&
+                    (size_t)tier_output <= context_tier - required_input_tokens) {
+                    selected_context = (int)context_tier;
+                    selected_output = tier_output;
+                    break;
+                }
             }
         }
+
+        if (selected_context > num_ctx) {
+            fprintf(stderr,
+                    "[R2 Prompt Budget] Growing context from %d to %d tokens "
+                    "to fit complete identity, relevant instructions, current "
+                    "turn, persistent learning, and answer allocation.\\n",
+                    num_ctx, selected_context);
+            num_ctx = selected_context;
+        }
+        num_predict = selected_output;
 
         int available_output_tokens = required_input_tokens < (size_t)num_ctx
             ? num_ctx - (int)required_input_tokens : 128;
