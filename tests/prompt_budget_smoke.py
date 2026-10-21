@@ -85,6 +85,23 @@ def required_context_tier(required_input_chars: int, output_tokens: int, current
 if required_context_tier(16445 + 1500, 1024, 4096) != 8192:
     raise SystemExit("A 4k context was not expanded to fit the full prompt and current turn")
 
+def allocated_context_and_output(required_input_chars: int, requested_output: int, current_context: int) -> tuple[int, int]:
+    required_input_tokens = (required_input_chars * 10 + 31) // 32 + 512
+    current_max = max(512, current_context // 4)
+    current_output = min(requested_output, current_max)
+    if required_input_tokens <= current_context and current_output <= current_context - required_input_tokens:
+        return current_context, current_output
+    tier = (current_context // 2048 + 1) * 2048
+    while tier <= 16384:
+        tier_output = min(requested_output, max(512, tier // 4))
+        if required_input_tokens <= tier and tier_output <= tier - required_input_tokens:
+            return tier, tier_output
+        tier += 2048
+    return current_context, min(current_output, max(128, current_context - required_input_tokens))
+
+if allocated_context_and_output(16445 + 1500, 4096, 4096) != (8192, 2048):
+    raise SystemExit("Context growth did not restore the output ceiling allowed by the expanded context")
+
 for required in (
     "static R2SystemContextBudget r2_compute_system_context_budget(",
     "size_t system_budget, size_t override_length",
@@ -96,6 +113,8 @@ for required in (
     "r2_compute_system_context_budget(system_budget, override_length)",
     "int max_predict = num_ctx / 4;",
     "int requested_num_predict = num_predict;",
+    "int selected_output = num_predict;",
+    "int tier_max_predict = (int)(context_tier / 4U);",
     "int selected_context = num_ctx;",
     "size_t context_tier = ((size_t)num_ctx / 2048U + 1U) * 2048U;",
     "if (required_input_tokens <= context_tier",
