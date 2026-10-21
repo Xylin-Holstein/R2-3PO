@@ -60,6 +60,32 @@ for marker in (
 if "%.110s" in learning or "size_t cap = 512" in learning:
     raise SystemExit("Live learning context still truncates connected DB evidence to tiny fragments.")
 
+association_start = core.find("static void r2_append_association_section(")
+association_end = core.find("\nstatic pthread_mutex_t r2_associative_query_cache_lock", association_start)
+if association_start < 0 or association_end < 0:
+    raise SystemExit("Could not isolate the source-specific retrieval assembler.")
+association = core[association_start:association_end]
+for marker in (
+    'const char *existing = *context ? *context : "";',
+    'heading, records, "\\n",',
+    'old_n ? "\\n\\n" : "", existing',
+):
+    if marker not in association:
+        raise SystemExit(f"Source-specific retrieval does not preserve empty-base/priority ordering: {marker}")
+if "if (!context || !*context || !heading || !records || !*records)" in association:
+    raise SystemExit("A blank generic-memory result can still discard diary/visual database matches.")
+
+live_join_start = core.find("if (visual_context && *visual_context)")
+live_join_end = core.find("if (visual_requested && !visual_observation_added)", live_join_start)
+live_join = core[live_join_start:live_join_end]
+if 'visual_context, old_n ? "\\n\\n" : "", memory_context);' not in live_join:
+    raise SystemExit("Fresh live visual evidence is still appended after history where prompt truncation can remove it.")
+unavailable_start = core.find("if (visual_requested && !visual_observation_added)")
+unavailable_end = core.find("\n    /*", unavailable_start)
+unavailable_block = core[unavailable_start:unavailable_end]
+if 'unavailable, old_n ? "\\n\\n" : "", memory_context);' not in unavailable_block:
+    raise SystemExit("Explicit visual-unavailable evidence is still appended after history and may be truncated.")
+
 dream_start = core.find("int r2_sleep_and_dream(double hours)")
 dream_end = core.find("static int autonomous_needs_action_allowed", dream_start)
 if dream_start < 0 or dream_end < 0:
