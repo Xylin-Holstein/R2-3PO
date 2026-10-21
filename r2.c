@@ -3512,10 +3512,16 @@ static char *ollama_chat_with_limit(
     /* Foreground reasoning needs room for both internal deliberation and the
        final answer. Keep generation inside the active context so input-budget
        arithmetic below cannot underflow on a small adaptive context. */
+    /*
+     * At a 4096-token context, cap generation at 1024 tokens so the serialized
+     * input can retain R2's full conversation policy and the current user turn.
+     * Reserving 2048 output tokens here left only about 4915 input characters,
+     * truncating late relationship/affect instructions on longer messages.
+     */
     int max_predict = num_ctx >= 16384 ? 8192 :
                       num_ctx >= 12288 ? 6144 :
                       num_ctx >= 8192 ? 4096 :
-                      num_ctx >= 4096 ? 2048 : 512;
+                      num_ctx >= 4096 ? 1024 : 512;
     int context_output_ceiling = num_ctx > 1536 ? num_ctx - 1536 : 256;
     if (max_predict > context_output_ceiling)
         max_predict = context_output_ceiling;
