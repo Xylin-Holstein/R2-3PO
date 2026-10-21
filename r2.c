@@ -5334,10 +5334,11 @@ static void r2_append_association_section(
     const char *heading,
     const char *records)
 {
-    if (!context || !*context || !heading || !records || !*records)
+    if (!context || !heading || !records || !*records)
         return;
 
-    size_t old_n = strlen(*context);
+    const char *existing = *context ? *context : "";
+    size_t old_n = strlen(existing);
     size_t heading_n = strlen(heading);
     size_t records_n = strlen(records);
     if (old_n > SIZE_MAX - heading_n - records_n - 8)
@@ -5348,9 +5349,12 @@ static void r2_append_association_section(
     if (!joined)
         return;
 
+    /* Put direct matches from their source DBs before generic memory and
+       Life Log history, so the prompt's record-boundary cap cannot discard
+       the very diary/visual evidence this search was meant to retrieve. */
     snprintf(joined, total, "%s%s%s%s%s",
-             *context, old_n ? "\n\n" : "",
-             heading, records, "\n");
+             heading, records, "\n",
+             old_n ? "\n\n" : "", existing);
     free(*context);
     *context = joined;
 }
@@ -5961,9 +5965,9 @@ static char *chat_with_relevant_memories(
         char *joined = malloc(old_n + visual_n + 160);
         if (joined) {
             snprintf(joined, old_n + visual_n + 160,
-                     "%s%sCURRENT LIVE VISUAL OBSERVATION (newly analyzed frame; "
-                     "use as evidence, but acknowledge uncertainty):\n%s\n",
-                     memory_context, old_n ? "\n\n" : "", visual_context);
+                     "CURRENT LIVE VISUAL OBSERVATION (newly analyzed frame; "
+                     "use as evidence, but acknowledge uncertainty):\n%s\n%s%s",
+                     visual_context, old_n ? "\n\n" : "", memory_context);
             free(memory_context);
             memory_context = joined;
             visual_observation_added = 1;
@@ -5983,7 +5987,7 @@ static char *chat_with_relevant_memories(
         char *joined = malloc(old_n + note_n + 4U);
         if (joined) {
             snprintf(joined, old_n + note_n + 4U, "%s%s%s",
-                     memory_context, old_n ? "\n\n" : "", unavailable);
+                     unavailable, old_n ? "\n\n" : "", memory_context);
             free(memory_context);
             memory_context = joined;
         }
