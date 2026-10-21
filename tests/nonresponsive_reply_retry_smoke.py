@@ -118,8 +118,11 @@ for phrase, message in (
     ("Preserve speaker identity and who said what", "builder preserves attribution while correcting a nonresponsive answer"),
     ("attributes words to them", "builder forbids invented attributions"),
     ("that they did not say", "builder forbids adding words the user never said"),
-    ("strstr(SYSTEM_PROMPT, identity_start_marker)", "builder extracts the full identity/memory section from the base prompt before appending conversation and correction policies"),
-    ('"%.*s\\n\\n%s\\n\\n%s"', "builder separates identity/memory, conversation, and corrective instructions cleanly"),
+    ("static const char retry_system_prompt[] =", "builder uses a compact self-contained policy that fits the actual inference budget"),
+    ("return xstrdup(retry_system_prompt);", "builder returns the compact retry policy without prepending an oversized static identity block"),
+    ("RELATIONSHIP AND NAME CONTINUITY:", "compact retry retains learned relationship continuity"),
+    ("REPLY STYLE:", "compact retry retains direct-answer style guidance"),
+    ("REALITY CONTEXT RULES:", "compact retry retains Reality-use guidance"),
 ):
     require(phrase in builder, message)
 
