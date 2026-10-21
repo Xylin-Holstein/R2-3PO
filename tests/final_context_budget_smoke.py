@@ -34,9 +34,9 @@ budget_end = core.find("\n}\n", budget_start)
 if budget_start < 0 or budget_end < 0:
     raise SystemExit("Could not locate the prompt-budget allocator.")
 budget = core[budget_start:budget_end + 3]
-require("budget.retrieval_reserve = context_budget / 8;" in budget,
+require("budget.retrieval_reserve = context_budget * 9U / 16U;" in budget,
         "the serializer explicitly reserves a share for current-turn retrieval")
-require("budget.capabilities_reserve = context_budget / 6;" in budget,
+require("budget.capabilities_reserve = context_budget / 12U;" in budget,
         "the serializer bounds unrelated capability context so persistent learning and startup memory retain budget")
 require("r2_compute_system_context_budget(budget_after_core, override_length)" in core
     and "r2_core_instruction_char_count(" in core,
