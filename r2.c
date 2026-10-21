@@ -5098,6 +5098,12 @@ static int r2_is_retry_context_message(const Message *message)
                      strlen("PAST CONVERSATION ARCHIVE — CONTEXT ONLY."));
 }
 
+static const char R2_CORRECTIVE_RETRY_INSTRUCTION[] =
+    "R2 retry: prior answer was nonresponsive. Answer the exact user message "
+    "and key parts directly. Use supplied memory; resolve speaker roles; "
+    "quotes are history. Don't invent facts or call coherent typed text "
+    "unintelligible. Reply naturally.";
+
 static char *r2_retry_direct_answer(Message *messages_copy,
                                     size_t message_count,
                                     const char *query)
@@ -5215,7 +5221,7 @@ static char *r2_retry_direct_answer(Message *messages_copy,
     ollama_authoritative_user_query = query;
     ollama_audit_stage = "conversation-retry";
     char *retry = ollama_chat_with_limit(
-        compact_messages, compact_count, NULL,
+        compact_messages, compact_count, R2_CORRECTIVE_RETRY_INSTRUCTION,
         conversation_reply_token_budget(query),
         r2_conversation_timeout_seconds());
     ollama_authoritative_user_query = previous_query;
