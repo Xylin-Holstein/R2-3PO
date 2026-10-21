@@ -3155,16 +3155,16 @@ static int r2_inference_system_priority(const char *content, const char *query)
     if (!strncmp(content, "PERSISTENT REALITY CONTEXT",
                   strlen("PERSISTENT REALITY CONTEXT")))
         return 1;
+    /* The general action contract is core behavior, not an optional
+       capability section. Always allocate it before database evidence, even
+       when a task-specific section also matches the current query. */
+    if (!strncmp(content,
+                 "============================================================\nREALITY CONTEXT: USE IT, DO NOT RECITE IT",
+                 strlen("============================================================\nREALITY CONTEXT: USE IT, DO NOT RECITE IT")))
+        return 1;
     if (r2_is_capability_section(content)) {
         if (r2_capability_section_matches_query(content, query))
             return 2;
-        if (!strncmp(content,
-                     "============================================================\nREALITY CONTEXT: USE IT, DO NOT RECITE IT",
-                     strlen("============================================================\nREALITY CONTEXT: USE IT, DO NOT RECITE IT"))) {
-            /* Keep the full general action contract unless a task-specific
-               capability section is more relevant to this turn. */
-            return r2_query_matches_specific_capability(query) ? 4 : 1;
-        }
         return 4;
     }
     if (!strncmp(content, "CURRENT TURN RETRIEVED CONTEXT",
@@ -3761,8 +3761,40 @@ static char *ollama_chat_with_limit(
      * retrieved evidence before assigning the remaining system budget to the
      * conversation contract. Lower-priority startup/archive context yields first.
      */
+    /*
+     * Static identity, the general action contract, and task-matched capability
+     * instructions are mandatory inputs. Compute database/context reserves only
+     * from the space left after those instructions, rather than reserving from
+     * the whole system budget and accidentally making a complete instruction
+     * section lose to memory/Reality reserves.
+     */
+    size_t core_instruction_chars = 0;
+    for (size_t i = 0; i < count; ++i) {
+        if (!msgs[i].role || strcmp(msgs[i].role, "system") != 0)
+            continue;
+        const char *content = msgs[i].content ? msgs[i].content : "";
+        int priority = r2_inference_system_priority(
+            content, ollama_authoritative_user_query);
+        int is_reality_evidence =
+            !strncmp(content, "PERSISTENT REALITY CONTEXT",
+                     strlen("PERSISTENT REALITY CONTEXT"));
+        if (priority != 0 && priority != 2 &&
+            !(priority == 1 && !is_reality_evidence))
+            continue;
+        size_t length = strlen(content);
+        if (length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS)
+            length = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;
+        if (length > SIZE_MAX - core_instruction_chars) {
+            core_instruction_chars = SIZE_MAX;
+            break;
+        }
+        core_instruction_chars += length;
+    }
+    size_t budget_after_core =
+        core_instruction_chars < system_budget
+            ? system_budget - core_instruction_chars : 0;
     R2SystemContextBudget context_budgets =
-        r2_compute_system_context_budget(system_budget, override_length);
+        r2_compute_system_context_budget(budget_after_core, override_length);
     size_t reality_reserve = context_budgets.reality_reserve;
     size_t retrieval_reserve = context_budgets.retrieval_reserve;
     size_t capabilities_reserve = context_budgets.capabilities_reserve;
@@ -3862,12 +3894,7 @@ static char *ollama_chat_with_limit(
                without this subtraction a large Reality snapshot can consume
                the entire system budget before retrieval/startup/learning run. */
             size_t protected_later = 0;
-            if (message_priority == 1) {
-                protected_later = retrieval_to_protect + startup_to_protect +
-                                  learning_to_protect;
-                if (!is_reality_evidence)
-                    protected_later += reality_to_protect;
-            } else if (message_priority == 2) {
+            if (message_priority == 1 && is_reality_evidence) {
                 protected_later = retrieval_to_protect + startup_to_protect +
                                   learning_to_protect;
             } else if (message_priority == 3) {
