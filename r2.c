@@ -5857,9 +5857,17 @@ static char *chat_with_relevant_memories(
     /* The retrieval message is a shared window over four independent stores.
        Cap each source before concatenation so generic memories cannot fill the
        whole window and silently hide Life Log, diary, or visual records. */
-    size_t memory_source_limit = 300U * context_scale;
-    size_t history_source_limit = 300U * context_scale;
-    size_t associated_source_limit = 200U * context_scale;
+    /*
+     * Keep enough of each independent store to carry a complete useful record.
+     * The old 300/300/200-character caps routinely reduced memory and Life Log
+     * retrieval to fragments before the serializer even applied its shared
+     * evidence budget. At 4k context this now gives 550 chars each to core
+     * memory/history and 300 each to diary/visual associations; the final
+     * semantic allocator still fits the combined block around mandatory rules.
+     */
+    size_t memory_source_limit = 550U * context_scale;
+    size_t history_source_limit = 550U * context_scale;
+    size_t associated_source_limit = 300U * context_scale;
     size_t memory_char_limit = explicit_recall ? R2_RECALL_MEMORY_CHARS
                                                : R2_TURN_MEMORY_CHARS;
     if (memory_char_limit > memory_source_limit)
