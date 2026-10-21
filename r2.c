@@ -3850,7 +3850,6 @@ static char *ollama_chat_with_limit(
     size_t capabilities_used = 0;
     size_t startup_used = 0;
     size_t learning_used = 0;
-    size_t reality_context_chars = 0;
     size_t retrieved_context_chars = 0;
     size_t startup_memory_chars = 0;
     size_t learning_context_chars = 0;
@@ -3861,8 +3860,7 @@ static char *ollama_chat_with_limit(
         size_t length = strlen(content);
         if (!strncmp(content, "PERSISTENT REALITY CONTEXT",
                       strlen("PERSISTENT REALITY CONTEXT"))) {
-            if (length > reality_context_chars)
-                reality_context_chars = length;
+            continue;
         } else if (!strncmp(content, "CURRENT TURN RETRIEVED CONTEXT",
                              strlen("CURRENT TURN RETRIEVED CONTEXT"))) {
             if (length > retrieved_context_chars)
