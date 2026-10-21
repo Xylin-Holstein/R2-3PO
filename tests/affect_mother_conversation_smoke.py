@@ -43,7 +43,7 @@ require(
 require(
     "static int r2_is_static_system_prompt_section(const Message *message)" in core
     and "r2_is_static_system_prompt_section(&messages_copy[i])" in core
-    and "compact_messages, compact_count, NULL," in core,
+    and "compact_messages, compact_count, R2_CORRECTIVE_RETRY_INSTRUCTION," in core,
     "retry sends the complete static instruction sections through the shared allocator",
 )
 
