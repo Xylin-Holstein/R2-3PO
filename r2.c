@@ -3860,8 +3860,6 @@ static char *ollama_chat_with_limit(
     }
     /* Protect only bytes that each later source can actually use. Empty or
        short reports must release their unused reservation to earlier context. */
-    size_t reality_to_protect = reality_context_chars < reality_reserve
-        ? reality_context_chars : reality_reserve;
     size_t retrieval_to_protect = retrieved_context_chars < retrieval_reserve
         ? retrieved_context_chars : retrieval_reserve;
     size_t startup_to_protect = startup_memory_chars < startup_reserve
