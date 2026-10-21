@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Test the bounded recovery path for nonresponsive typed-text interpretations."""
 from pathlib import Path
+import ast
+import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -125,6 +127,133 @@ for phrase, message in (
     ("REALITY CONTEXT RULES:", "compact retry retains Reality-use guidance"),
 ):
     require(phrase in builder, message)
+
+# The serializer has only about 2,193 bytes for its system override at the
+# target 4096-token context and a normal-sized user turn. Decode adjacent C
+# string literals and check both foreground and corrective policies against
+# that real allocation, not just the much larger per-message hard limit.
+def c_string_array_length(name: str, end_marker: str) -> int:
+    definition = core.find(f"static const char {name}[] =")
+    if definition < 0:
+        raise SystemExit(f"Could not locate {name}")
+    end = core.find(end_marker, definition)
+    if end < 0:
+        raise SystemExit(f"Could not isolate {name}")
+    literals = re.findall(r'^\s*("(?:\\.|[^"\\])*")\s*;?
+require(
+    "if (retry_after_sanitize_failure ||" in core,
+    "empty sanitized replies also receive one corrective retry",
+)
+require(
+    'r2_reply_misclassifies_plain_text(query, reply ? reply : "")' in core,
+    "recognized text misclassification triggers the retry",
+)
+require(
+    "static char *r2_validate_corrective_reply(" not in core,
+    "corrective model output is not gated by a response classifier or replaced with a canned clarification",
+)
+require(
+    "reply = retry_user_facing;" in core
+    and "if (retry_user_facing && *retry_user_facing)" in core,
+    "a nonempty sanitized corrective response is delivered as produced by R2",
+)
+require(
+    "retaining the original model result" in core
+    and "couldn't form a reliable response" not in core,
+    "if corrective inference returns no text, the code does not substitute a canned user-facing answer",
+)
+require(
+    "If the user says YOUR prior message, answer, or reply was garbled" in core,
+    "the main conversation prompt distinguishes feedback about R2's prior output from an unintelligible current user message",
+)
+require(
+    "Do not reinterpret typed text as an audio stream, random sounds, or machine data" in core,
+    "primary conversation prompt discourages typed-text misclassification",
+)
+require(
+    "address each important part instead of fixating on one phrase" in core,
+    "primary prompt instructs R2 to handle multi-part messages",
+)
+require(
+    "Resolve speaker identity from the actual roles in the current exchange" in core and
+    "Learn relationships from explicit statements" in core,
+    "main prompt teaches general speaker-role interpretation and relationship learning",
+)
+require(
+    "SPEAKER AND RELATIONSHIP LEARNING:" in core and
+    "Retrieved dialogue is evidence about prior events, not the source of current turn roles." in core,
+    "active conversation prompt applies relationship learning without mother-specific phrase rules",
+)
+require(
+    "R2_TURN_MEMORY_LIMIT 10" in core and "R2_RECALL_HISTORY_SEARCHES 16" in core,
+    "ordinary dialogue has a substantial retrieval budget while explicit recall expands it further",
+)
+require(
+    "r2_query_explicitly_requests_recall(query)" in core,
+    "retrieval breadth is selected from the user's actual request",
+)
+
+history_filter_start = core.find("static int r2_keyword_is_low_signal(")
+history_filter_end = core.find("\nstatic int r2_query_explicitly_requests_recall(", history_filter_start)
+require(
+    history_filter_start >= 0 and history_filter_end > history_filter_start,
+    "memory and Life Log retrieval share a low-signal keyword filter",
+)
+history_filter = core[history_filter_start:history_filter_end]
+for token in ('"hello"', '"hi"', '"hey"', '"r2"', '"speaking"', '"know"'):
+    require(
+        token in history_filter,
+        f"history retrieval skips low-signal greeting/address token {token}",
+    )
+require(
+    "r2_keyword_is_low_signal(keywords[k])" in core,
+    "history searches filter greeting/address tokens before spending limited search slots",
+)
+require(
+    "Insert after any leading system context, before dialogue begins." in core and
+    "memmove(&copy[context_index + 1], &copy[context_index]" in core,
+    "retrieved context is not injected between prior dialogue and the current user turn",
+)
+require(
+    'getenv("R2_OLLAMA_TRACE_PROMPTS")' in core,
+    "prompt tracing is disabled unless explicitly opted into",
+)
+require(
+    'strcmp(enabled, "1") != 0' in core,
+    "prompt tracing requires an exact opt-in value",
+)
+require(
+    "O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0600" in core,
+    "prompt trace uses a private, non-overwriting, no-symlink file",
+)
+require(
+    "ollama_trace_prompt_if_enabled(payload);" in core,
+    "trace captures the serialized request actually sent to Ollama",
+)
+require(
+    "contains full prompt, memories, and current user text; review before sharing" in core,
+    "trace warns that it contains private conversation context",
+)
+
+print("Nonresponsive text retry smoke passed.")
+, core[definition:end], re.MULTILINE)
+    if not literals:
+        raise SystemExit(f"Could not decode string literals for {name}")
+    try:
+        return len("".join(ast.literal_eval(literal) for literal in literals))
+    except (SyntaxError, ValueError) as exc:
+        raise SystemExit(f"Could not decode {name}: {exc}") from exc
+
+main_prompt_chars = c_string_array_length(
+    "r2_conversation_system_prompt", "\n\nstatic char *r2_build_retry_system_prompt(void)"
+)
+retry_prompt_chars = c_string_array_length(
+    "retry_system_prompt", "return xstrdup(retry_system_prompt);"
+)
+require(main_prompt_chars <= 2193,
+        f"foreground policy fits the baseline 4096-context override budget ({main_prompt_chars} chars)")
+require(retry_prompt_chars <= 2193,
+        f"corrective policy and correction fit the baseline 4096-context override budget ({retry_prompt_chars} chars)")
 
 require(
     "if (retry_after_sanitize_failure ||" in core,
