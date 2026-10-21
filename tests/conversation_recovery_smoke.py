@@ -89,9 +89,9 @@ require(
     and "Message *compact_messages = calloc(message_count + 2U" in retry_builder_body
     and "r2_is_static_system_prompt_section(&messages_copy[i])" in retry_builder_body
     and "dynamic_context_count < 8" in retry_builder_body
-    and "compact_messages, compact_count, NULL," in retry_builder_body
+    and "compact_messages, compact_count, R2_CORRECTIVE_RETRY_INSTRUCTION," in retry_builder_body
     and "free(compact_messages);" in retry_builder_body,
-    "corrective retry carries complete static instructions and dynamic database context through the same allocator",
+    "corrective retry carries full static instructions, dynamic database context, and an explicit direct-answer instruction",
 )
 
 require(
