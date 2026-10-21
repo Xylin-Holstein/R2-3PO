@@ -3759,29 +3759,26 @@ static char *ollama_chat_with_limit(
     if (current_user_index == SIZE_MAX)
         current_user_index = fallback_user_index;
 
-    size_t current_user_reserve = 1500;
-    if (authoritative_query && *authoritative_query) {
-        size_t query_length = strlen(authoritative_query);
-        if (query_length > OLLAMA_MAX_MESSAGE_CHARS)
-            query_length = OLLAMA_MAX_MESSAGE_CHARS;
-        if (query_length > current_user_reserve)
-            current_user_reserve = query_length;
-    } else if (current_user_index != SIZE_MAX) {
+    /*
+     * Reserve the actual serialized current-user message, not an arbitrary
+     * 1500-character minimum. That fixed floor used to consume space even for
+     * short turns, so a relevant full instruction section could be dropped
+     * despite the current turn needing only a few dozen bytes. Retrieval is
+     * already a separate system message; if a legacy wrapped user turn exists,
+     * reserve its full serialized size so the exact query remains present.
+     */
+    size_t current_user_reserve = 0;
+    if (current_user_index != SIZE_MAX) {
         const char *current_content = msgs[current_user_index].content
             ? msgs[current_user_index].content : "";
         size_t current_length = strlen(current_content);
-        const char *begin_marker = "----- BEGIN CURRENT USER MESSAGE -----\n";
-        const char *end_marker = "----- END CURRENT USER MESSAGE -----";
-        const char *begin = strstr(current_content, begin_marker);
-        const char *end = begin ? strstr(begin + strlen(begin_marker), end_marker) : NULL;
-        if (begin && end) {
-            begin += strlen(begin_marker);
-            current_length = (size_t)(end - begin);
-        }
         if (current_length > OLLAMA_MAX_MESSAGE_CHARS)
             current_length = OLLAMA_MAX_MESSAGE_CHARS;
-        if (current_length > current_user_reserve)
-            current_user_reserve = current_length;
+        current_user_reserve = current_length;
+    } else if (authoritative_query && *authoritative_query) {
+        current_user_reserve = strlen(authoritative_query);
+        if (current_user_reserve > OLLAMA_MAX_MESSAGE_CHARS)
+            current_user_reserve = OLLAMA_MAX_MESSAGE_CHARS;
     }
 
     /*
