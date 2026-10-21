@@ -3462,6 +3462,12 @@ static char *ollama_chat_with_limit(
         if (priority > 3 && priority != 5 && priority != 6)
             continue;
         size_t length = msgs[i].content ? strlen(msgs[i].content) : 0;
+        /* The serializer later caps retrieval to one eighth of the system
+           budget. Size that same bounded prefix here; counting the whole
+           16k/28k assembled history would unnecessarily force larger contexts. */
+        if (priority == 3 && length > OLLAMA_MAX_SYSTEM_TOTAL_CHARS / 8U)
+            length = r2_safe_prompt_prefix_length(
+                msgs[i].content, OLLAMA_MAX_SYSTEM_TOTAL_CHARS / 8U, 1);
         if (priority == 5 && length > 1600U)
             length = r2_safe_prompt_prefix_length(msgs[i].content, 1600U, 1);
         if (priority == 6 && length > 8192U)
