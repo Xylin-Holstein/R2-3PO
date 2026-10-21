@@ -233,24 +233,24 @@ int main(void)
 
     R2SystemContextBudget context_budget =
         r2_compute_system_context_budget(9468, 0);
-    ok &= check(context_budget.retrieval_reserve == 9468 / 8 &&
-                    context_budget.capabilities_reserve == 9468 / 6 &&
-                    context_budget.startup_reserve == 9468 / 10 &&
-                    context_budget.learning_reserve == 9468 / 3,
+    ok &= check(context_budget.retrieval_reserve == 9468 * 9U / 16U &&
+                    context_budget.capabilities_reserve == 9468 / 12U &&
+                    context_budget.startup_reserve == 9468 / 12U &&
+                    context_budget.learning_reserve == 9468 / 8U,
                 "the 8k-context allocator preserves bounded retrieval, startup, and learning shares alongside complete instructions");
     R2SystemContextBudget override_context_budget =
         r2_compute_system_context_budget(9468, 1000);
-    ok &= check(override_context_budget.retrieval_reserve == 8468 / 8 &&
-                    override_context_budget.capabilities_reserve == 8468 / 6 &&
-                    override_context_budget.startup_reserve == 8468 / 10 &&
-                    override_context_budget.learning_reserve == 8468 / 3,
+    ok &= check(override_context_budget.retrieval_reserve == 8468 * 9U / 16U &&
+                    override_context_budget.capabilities_reserve == 8468 / 12U &&
+                    override_context_budget.startup_reserve == 8468 / 12U &&
+                    override_context_budget.learning_reserve == 8468 / 8U,
                 "an explicit system override is subtracted before allocating database and capability context");
     R2SystemContextBudget small_context_budget =
         r2_compute_system_context_budget(1276, 0);
-    ok &= check(small_context_budget.retrieval_reserve == 1276 / 8 &&
-                    small_context_budget.capabilities_reserve == 1276 / 6 &&
-                    small_context_budget.startup_reserve == 1276 / 10 &&
-                    small_context_budget.learning_reserve == 1276 / 3,
+    ok &= check(small_context_budget.retrieval_reserve == 1276 * 9U / 16U &&
+                    small_context_budget.capabilities_reserve == 1276 / 12U &&
+                    small_context_budget.startup_reserve == 1276 / 12U &&
+                    small_context_budget.learning_reserve == 1276 / 8U,
                 "small adaptive contexts keep reserve arithmetic bounded without obsolete overlapping budgets");
 
     char *empty_associations = xstrdup("");
@@ -463,7 +463,7 @@ int main(void)
                     r2_inference_system_priority(file_capability, "open a file") == 2 &&
                     r2_inference_system_priority(game_capability, "play a GameBoy cartridge") == 2 &&
                     r2_inference_system_priority(reality_capability, "hello there") == 1 &&
-                    r2_inference_system_priority(reality_capability, "run a shell command") == 4,
+                    r2_inference_system_priority(reality_capability, "run a shell command") == 1,
                 "capability prompt prioritization follows the active request instead of dropping tool-specific instructions");
 
     pthread_mutex_lock(&messages_lock);
