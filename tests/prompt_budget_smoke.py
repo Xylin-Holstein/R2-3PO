@@ -42,6 +42,32 @@ if len(prompt) > per_message:
         f"SYSTEM_PROMPT has {len(prompt)} characters, exceeding its {per_message}-character cap"
     )
 
+retry_start = core.find("static const char R2_CORRECTIVE_RETRY_INSTRUCTION[] =")
+retry_end = core.find(";\\n", retry_start)
+if retry_start < 0 or retry_end < 0:
+    raise SystemExit("Corrective retry instruction is missing or incomplete")
+retry_definition = core[retry_start:retry_end]
+retry_literals = re.findall(r'"(?:\\\\.|[^"\\\\])*"', retry_definition)
+try:
+    retry_instruction = "".join(ast.literal_eval(literal) for literal in retry_literals)
+except (SyntaxError, ValueError) as exc:
+    raise SystemExit(f"Could not decode corrective retry instruction: {exc}")
+if len(retry_instruction) > 263:
+    raise SystemExit(
+        f"Corrective retry instruction has {len(retry_instruction)} characters; "
+        "it must fit the smallest tested override budget without truncation"
+    )
+for required in (
+    "prior answer was nonresponsive",
+    "Answer the exact user message",
+    "resolve speaker roles",
+    "quotes are history",
+    "Don't invent facts",
+    "unintelligible",
+):
+    if required not in retry_instruction:
+        raise SystemExit(f"Corrective retry instruction omits {required!r}")
+
 # Core identity and recovery rules are part of the full static prompt, not a
 # disposable compact override. The normal and retry paths must both send the
 # full section set through the same relevance-aware allocator.
