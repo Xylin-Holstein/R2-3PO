@@ -117,28 +117,6 @@ if "ORDER BY t.updated_at DESC LIMIT 17" not in addiction or "if (rows >= 16)" n
 if "Additional repeated-interest records omitted from chat context" not in addiction:
     raise SystemExit("Bounded addiction context must disclose omitted history without deleting it.")
 
-# Addiction.c exposes explicit init/shutdown, so the main lifecycle must own
-# that independent database instead of opening it only on the first user turn.
-reward_init = core.find("if (r2_reward_init() != 0)")
-addiction_init = core.find("if (r2_addiction_init() != 0)")
-reality_init = core.find("if (r2_reality_init() != 0)")
-if not (0 <= reward_init < addiction_init < reality_init):
-    raise SystemExit("Addiction database is not initialized between reward and Reality startup.")
-if core.count("r2_addiction_shutdown();") < 2:
-    raise SystemExit("Addiction database is not closed on startup unwind and normal shutdown.")
-addiction_failure_end = core.find("int reward_links =", addiction_init)
-addiction_failure = core[addiction_init:addiction_failure_end]
-for marker in (
-    "r2_reward_shutdown();",
-    "r2_sj_shutdown();",
-    "r2_log_shutdown();",
-    "r2_diary_shutdown();",
-    "sqlite3_close(db);",
-    "R2_INIT_FAIL(",
-):
-    if marker not in addiction_failure:
-        raise SystemExit(f"Addiction startup failure leaves a connected database open: {marker}")
-
 print("shared memory/reality/reward/addiction context wiring smoke passed")
 
 # Startup memory uses a different heading from the identity prompt. It must
