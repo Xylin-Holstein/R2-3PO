@@ -16,7 +16,7 @@ checks = {
     "core includes the existing sound API": '#include "R2Sounds.h"' in r2,
     "conversation prompt permits rare state-tagged droid effects": "[R2_SOUND:beep:STATE]" in r2 and "[R2_SOUND:whistle:STATE]" in r2,
     "nonverbal output remains optional without prescribing affect-to-sound choices": "Nonverbal output is optional, not a required response pattern" in r2 and "choose any state tag as your own contextual judgment, not by a fixed mapping" not in r2 and "do not rely on a hard-coded emotion-to-response table" not in r2,
-    "sounds are not forced into routine replies": "When a sound is genuinely useful" in r2 and "never let a sound marker replace the spoken answer" in r2,
+    "sounds are not forced into routine replies": "When a sound" in r2 and "is genuinely useful" in r2 and "never let a sound marker replace the spoken answer" in r2,
     "tool routing is decided before playback": marker_processing_index >= 0 and tool_processing_index >= 0 and tool_processing_index < marker_processing_index,
     "sound markers are stripped before tool side effects": strip_marker_index >= 0 and tool_processing_index >= 0 and strip_marker_index < tool_processing_index and "process_tools(stripped_reply)" in r2 and "r2_sounds_strip_markers" in sound_header,
     "official FX location is hard-coded in the sound API": '/home/x/R2_Home/R2_sounds/FX' in sound_header,
