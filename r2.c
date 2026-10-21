@@ -10826,15 +10826,25 @@ static char *build_learning_context(void)
     static const char middle[] = "\nREPEATED INTERESTS:\n";
     size_t prefix_length = sizeof(prefix) - 1;
     size_t middle_length = sizeof(middle) - 1;
-    if (reward_length > SIZE_MAX - prefix_length ||
-        addiction_length > SIZE_MAX - prefix_length - reward_length ||
-        middle_length > SIZE_MAX - prefix_length - reward_length - addiction_length - 1) {
+    size_t cap = prefix_length;
+    if (reward_length > SIZE_MAX - cap) {
         free(reward);
         free(addiction);
         return NULL;
     }
-    size_t cap = prefix_length + reward_length + middle_length +
-                 addiction_length + 1;
+    cap += reward_length;
+    if (middle_length > SIZE_MAX - cap) {
+        free(reward);
+        free(addiction);
+        return NULL;
+    }
+    cap += middle_length;
+    if (cap == SIZE_MAX || addiction_length > SIZE_MAX - cap - 1) {
+        free(reward);
+        free(addiction);
+        return NULL;
+    }
+    cap += addiction_length + 1;
     char *context = malloc(cap);
     if (context) {
         size_t used = 0;
