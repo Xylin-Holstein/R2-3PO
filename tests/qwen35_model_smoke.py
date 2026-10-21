@@ -196,9 +196,6 @@ require(
     and "message_add_system_prompt_sections_locked() != 0" in core
     and "return 8;" in core
     and "r2_compute_system_context_budget(system_budget, override_length)" in core
-    and "int requested_num_predict = num_predict;" in core
-    and "int selected_context = num_ctx;" in core
-    and "num_ctx = selected_context;" in core
     and "message_priority == 3 && length > retrieval_reserve" in core
     and "capabilities_reserve > capabilities_used" in core
     and "capability_remaining" in core
