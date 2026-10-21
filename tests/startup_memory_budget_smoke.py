@@ -17,14 +17,14 @@ assert "size_t startup_reserve;" in budget
 assert "size_t learning_reserve;" in budget
 assert "size_t context_budget = system_budget > override_length" in budget
 assert "budget.retrieval_reserve = context_budget / 8;" in budget
-assert "budget.capabilities_reserve = context_budget;" in budget
+assert "budget.capabilities_reserve = context_budget // 6 / 6;" in budget
 assert "budget.startup_reserve = context_budget / 10;" in budget
 assert "if (budget.startup_reserve > 1600)" in budget
 assert "budget.startup_reserve = 1600;" in budget
 assert "size_t learning_reserve;" in budget
-assert "budget.learning_reserve = context_budget / 10;" in budget
-assert "if (budget.learning_reserve > 1000)" in budget
-assert "budget.learning_reserve = 1000;" in budget
+assert "budget.learning_reserve = context_budget / 3;" in budget
+assert "if (budget.learning_reserve > 8192)" in budget
+assert "budget.learning_reserve = 8192;" in budget
 assert "if (active_user_chars < 1500U)" in source
 assert "Size the request for mandatory identity" in source
 assert "r2_inference_system_priority(\n                msgs[i].content, ollama_authoritative_user_query) > 3" in source
@@ -95,12 +95,12 @@ for system_budget, override_length in ((3415, 0), (6200, 700), (12000, 0), (4000
     context_budget = max(0, system_budget - override_length)
     retrieval_reserve = context_budget // 8
     startup_reserve = min(context_budget // 10, 1600)
-    learning_reserve = min(context_budget // 10, 1000)
+    learning_reserve = min(context_budget // 3, 8192)
     capabilities_reserve = context_budget
     assert retrieval_reserve >= 0
     assert startup_reserve <= 1600
-    assert learning_reserve <= 1000
-    assert capabilities_reserve == context_budget
+    assert learning_reserve <= 8192
+    assert capabilities_reserve == context_budget // 6
     if context_budget >= 10:
         assert startup_reserve > 0 and learning_reserve > 0
 print("Startup persistent-memory prompt budget regression passed.")
