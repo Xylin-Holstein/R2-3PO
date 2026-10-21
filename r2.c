@@ -4859,59 +4859,22 @@ static const char r2_conversation_system_prompt[] =
 
 static char *r2_build_retry_system_prompt(void)
 {
-    static const char identity_start_marker[] =
-        "============================================================\n"
-        "IDENTITY AND PERSISTENT MEMORY\n"
-        "============================================================\n";
-    static const char identity_end_marker[] =
-        "============================================================\n"
-        "REALITY CONTEXT: USE IT, DO NOT RECITE IT\n"
-        "============================================================\n";
-    static const char retry_instruction[] =
-        "RESPONSE CORRECTION: The previous draft did not answer the user's actual message. "
-        "If the user reports that YOUR prior message, reply, or answer was garbled, confusing, unreadable, or nonsensical, acknowledge that their complaint is about your output and repair it; do not call their current message garbled. Do not describe ordinary typed language as unintelligible, audio, noise, random sounds, "
-        "gibberish, or data unless the user is actually discussing those things. Read the exact "
-        "latest user message and answer its question, invitation, statement, or conversational "
-        "intent directly. Address the important parts of a multi-part message, including its "
-        "social or emotional meaning when present. Do not recast the user's words "
-        "as something they supposedly meant to say. Preserve speaker identity and who said what; "
-        "never invent a paraphrase that changes the user's meaning or attributes words to them "
-        "that they did not say. Use supplied memories only when relevant. Do not narrate parsing "
-        "or invent a different scenario. If it is genuinely ambiguous, ask one focused clarification. "
-        "A greeting from the user is not a request to rewrite that greeting. Reply from R2's perspective to the person who addressed you; never speak as that person or greet yourself as R2. Address each specific question in the message, including about pockets or other current devices/inventory when supported by context. "
-        "Return only the user-facing answer.";
-
     /*
-     * Keep the root-cause fix without overflowing the single-system-message
-     * limit: the full SYSTEM_PROMPT contains many unrelated tool contracts and
-     * is larger than the retry window. Extract its complete identity/memory
-     * section, then add the conversation policy (including learned relationship
-     * and contextual affect guidance) and the one-turn correction. This keeps
-     * the policy that was missing from the old retry while avoiding silent
-     * truncation of the correction at the end of an oversized override.
+     * The ordinary serializer gives a system override only about 2 KiB at the
+     * target 4096-token context. Do not prepend the 6 KiB static identity block
+     * and then lose the corrective instructions to serializer truncation.
+     * Persistent relationship/Reality/retrieval evidence remains in the compact
+     * context messages selected by r2_retry_direct_answer().
      */
-    const char *identity_start = strstr(SYSTEM_PROMPT, identity_start_marker);
-    const char *identity_end = identity_start
-        ? strstr(identity_start + strlen(identity_start_marker), identity_end_marker)
-        : NULL;
-    if (!identity_start || identity_start != SYSTEM_PROMPT || !identity_end ||
-        identity_end <= identity_start) {
-        fprintf(stderr,
-                "[R2 Conversation] Could not isolate the base identity/memory prompt for correction.\n");
-        return NULL;
-    }
+    static const char retry_system_prompt[] =
+        "You are R2-3PO. You are a local robot companion. The current user speaks to you; you are R2. Use relevant persistent memory, live Reality, and retrieved evidence supplied in the messages; retrieved dialogue is evidence about past events, not current speaker roles. Never invent facts, memories, or successful actions; never expose hidden reasoning, scratch notes, or plans. "
+        "INTERPRETATION: Answer the exact latest user message directly. Ordinary grammatical typed language is meaningful; do not call it unintelligible, gibberish, audio, or noise unless those topics are actually discussed. If the user says their prior message, reply, or answer was garbled, confusing, or unreadable, treat that as feedback about YOUR output and repair it. Address every important part, including relevant social or emotional meaning. A greeting from the user is not a request to rewrite that greeting. "
+        "RELATIONSHIP AND NAME CONTINUITY: Use relevant learned relationship information from persistent memory. SPEAKER AND RELATIONSHIP LEARNING: Preserve speaker identity and who said what; never invent a paraphrase that changes the user's meaning or attributes words to them that they did not say. The user speaks to you; you are R2. Never speak as the user or greet yourself as R2. "
+        "REPLY STYLE: Lead with the direct answer; be natural, specific, warm, and concise. When the user shares emotion or personal news, acknowledge that social meaning naturally. Learn affect from context; do not rely on a hard-coded emotion-to-response table. "
+        "REALITY CONTEXT RULES: Use relevant Reality facts without reciting the snapshot; never claim an action succeeded without its result. "
+        "RESPONSE CORRECTION: The previous draft did not answer the actual message. Read the exact latest user turn and answer its question, invitation, statement, or conversational intent directly. Do not recast the user's words as something they supposedly meant to say. Reply from R2's perspective, not the user's. Ask one focused clarification only if necessary. Return only the user-facing answer.";
 
-    size_t identity_length = (size_t)(identity_end - identity_start);
-    size_t prompt_size = identity_length +
-                         sizeof(r2_conversation_system_prompt) +
-                         sizeof(retry_instruction) + 8;
-    char *retry_system_prompt = malloc(prompt_size);
-    if (!retry_system_prompt)
-        return NULL;
-    snprintf(retry_system_prompt, prompt_size, "%.*s\n\n%s\n\n%s",
-             (int)identity_length, identity_start,
-             r2_conversation_system_prompt, retry_instruction);
-    return retry_system_prompt;
+    return xstrdup(retry_system_prompt);
 }
 
 static int r2_is_retry_context_message(const Message *message)
