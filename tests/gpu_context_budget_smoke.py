@@ -35,4 +35,5 @@ assert "Never silently override an explicit operator policy" in runner
 assert 'R2_OLLAMA_NUM_CTX="${R2_OLLAMA_NUM_CTX:-}"' in launcher
 assert 'requested >= 2048 && requested <= 16384' in core
 assert 'if (requested < safe_max) safe_max = (int)requested;' in core
+assert "num_ctx >= 4096 ? 1024 : 512;" in core, "4096-token context must leave enough input budget for R2 conversation policy"
 print("GTX 1050 Ti context defaults and explicit override path checks passed.")
