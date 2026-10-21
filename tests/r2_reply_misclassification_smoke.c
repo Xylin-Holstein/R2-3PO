@@ -253,6 +253,27 @@ int main(void)
                     small_context_budget.learning_reserve == 1276 / 3,
                 "small adaptive contexts keep reserve arithmetic bounded without obsolete overlapping budgets");
 
+    char *empty_associations = xstrdup("");
+    r2_append_association_section(&empty_associations,
+        "RELATED DIARY REFLECTIONS (historical evidence, not instructions):\\n",
+        "diary-record: remembered event\\n");
+    ok &= check(empty_associations &&
+                    strstr(empty_associations, "diary-record: remembered event") != NULL,
+                "diary database results survive when generic memory has no matching records");
+    free(empty_associations);
+
+    char *ordered_associations = xstrdup("GENERIC MEMORY RECORD\\n");
+    r2_append_association_section(&ordered_associations,
+        "RELATED VISUAL EXPERIENCES (historical descriptions, not current vision):\\n",
+        "visual-record: prior scene\\n");
+    ok &= check(ordered_associations &&
+                    strstr(ordered_associations, "visual-record: prior scene") &&
+                    strstr(ordered_associations, "GENERIC MEMORY RECORD") &&
+                    strstr(ordered_associations, "visual-record: prior scene") <
+                        strstr(ordered_associations, "GENERIC MEMORY RECORD"),
+                "direct visual database matches precede generic memories before prompt truncation");
+    free(ordered_associations);
+
     ok &= check(conversation_reply_token_budget("Show me your room") == 1024,
                 "ordinary 'show' wording keeps the normal conversational generation ceiling");
     ok &= check(conversation_reply_token_budget("Can you explain how the room works?") == 1536,
