@@ -62,8 +62,8 @@ fi
 
 # Match the interactive launcher's 4096-token context on the 4 GiB GTX 1050 Ti.
 # Remember whether these values are defaults so a failed preflight can retry with
-# fewer GPU layers without overriding explicit operator settings. Never silently
-# override an explicit operator policy.
+# fewer GPU layers without overriding explicit operator settings.
+# Never silently override an explicit operator policy.
 R2_OLLAMA_NUM_CTX_DEFAULTED="${R2_OLLAMA_NUM_CTX_DEFAULTED:-0}"
 if [[ -z "${R2_OLLAMA_NUM_CTX:-}" && "$R2_NVIDIA_QUERY_OK" == "1" ]] &&
    printf '%s\n' "$R2_NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
