@@ -96,10 +96,12 @@ assert 'message_add_pair_locked("system", context' in refresh
 # sections and current-turn evidence are selected by semantic priority.
 for system_budget, override_length in ((3415, 0), (6200, 700), (12000, 0), (40000, 4000)):
     context_budget = max(0, system_budget - override_length)
+    reality_reserve = min(context_budget // 6, 6000)
     retrieval_reserve = context_budget // 8
     startup_reserve = min(context_budget // 10, 1600)
     learning_reserve = min(context_budget // 3, 8192)
     capabilities_reserve = context_budget // 6
+    assert reality_reserve <= 6000
     assert retrieval_reserve >= 0
     assert startup_reserve <= 1600
     assert learning_reserve <= 8192
