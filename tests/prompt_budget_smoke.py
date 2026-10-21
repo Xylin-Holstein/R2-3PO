@@ -141,7 +141,7 @@ for required in (
     "int max_predict = num_ctx / 4;",
     "if (required_input_tokens > (size_t)num_ctx)",
     "configured ceiling (%d); allocating by semantic priority",
-    "retaining the configured context ceiling",
+    "configured ceiling (%d); allocating by semantic priority.",
 
 
 
