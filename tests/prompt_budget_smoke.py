@@ -94,13 +94,20 @@ def allocated_context_and_output(required_input_chars: int, requested_output: in
     tier = (current_context // 2048 + 1) * 2048
     while tier <= 16384:
         tier_output = min(requested_output, max(512, tier // 4))
-        if required_input_tokens <= tier and tier_output <= tier - required_input_tokens:
-            return tier, tier_output
+        if required_input_tokens <= tier:
+            available_output = tier - required_input_tokens
+            if tier_output <= available_output:
+                return tier, tier_output
+            if tier == 16384:
+                return tier, max(128, min(tier_output, available_output))
         tier += 2048
     return current_context, min(current_output, max(128, current_context - required_input_tokens))
 
 if allocated_context_and_output(16445 + 1500, 4096, 4096) != (8192, 2048):
     raise SystemExit("Context growth did not restore the output ceiling allowed by the expanded context")
+
+if allocated_context_and_output(42000, 4096, 4096) != (16384, 2747):
+    raise SystemExit("The maximum context tier did not preserve high-priority input when output space is tight")
 
 for required in (
     "static R2SystemContextBudget r2_compute_system_context_budget(",
@@ -118,6 +125,8 @@ for required in (
     "int selected_context = num_ctx;",
     "size_t context_tier = ((size_t)num_ctx / 2048U + 1U) * 2048U;",
     "if (required_input_tokens <= context_tier",
+    "size_t available_output = context_tier - required_input_tokens;",
+    "if (context_tier < 16384U)",
     "num_ctx = selected_context;",
     "size_t system_budget = input_budget > current_user_reserve",
     "r2_inference_system_priority(",
