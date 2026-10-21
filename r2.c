@@ -3315,6 +3315,31 @@ typedef struct {
 /* Reserve the explicit override first. Keep bounded shares for focused
    retrieval, unrelated capability sections, startup memories, and persistent
    learning; identity and task-matched instructions remain higher priority. */
+static size_t r2_core_instruction_char_count(
+    const Message *msgs, size_t count, const char *query)
+{
+    size_t total = 0;
+    for (size_t i = 0; i < count; ++i) {
+        if (!msgs[i].role || strcmp(msgs[i].role, "system") != 0)
+            continue;
+        const char *content = msgs[i].content ? msgs[i].content : "";
+        int priority = r2_inference_system_priority(content, query);
+        int is_reality_evidence =
+            !strncmp(content, "PERSISTENT REALITY CONTEXT",
+                     strlen("PERSISTENT REALITY CONTEXT"));
+        if (priority != 0 && priority != 2 &&
+            !(priority == 1 && !is_reality_evidence))
+            continue;
+        size_t length = strlen(content);
+        if (length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS)
+            length = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;
+        if (length > SIZE_MAX - total)
+            return SIZE_MAX;
+        total += length;
+    }
+    return total;
+}
+
 static R2SystemContextBudget r2_compute_system_context_budget(
     size_t system_budget, size_t override_length)
 {
@@ -3429,27 +3454,70 @@ static char *ollama_chat_with_limit(
     }
 
     int num_ctx = r2_ollama_context_tokens();
-    /* Foreground reasoning needs room for both internal deliberation and the
-       final answer. Keep generation inside the active context so input-budget
-       arithmetic below cannot underflow on a small adaptive context. */
-    /* Preserve enough input context for R2's full identity, relevant
-       subsystem instructions, retrieved memories, and the current turn.
-       Large output ceilings previously consumed most of a 4k context before
-       the serializer could send those instructions. */
-    int max_predict = num_ctx / 4;
-    if (max_predict < 512)
-        max_predict = 512;
-    /* Omitted budgets are for helper calls; foreground calls request a
-       complexity-based budget and can use the full context-dependent ceiling. */
-    if (num_predict < 1) num_predict = num_ctx >= 12288 ? 2048 : 1024;
-    /* The context returned by r2_ollama_context_tokens() is the configured
-       hardware ceiling, not a starting tier. Keep generation within it. */
-    if (num_predict > max_predict) num_predict = max_predict;
-
     size_t override_length = system_override ? strlen(system_override) : 0;
     if (override_length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS)
         override_length = r2_utf8_safe_prefix_length(
             system_override, OLLAMA_MAX_SYSTEM_MESSAGE_CHARS);
+
+    size_t active_user_chars = 0;
+    if (ollama_authoritative_user_query && *ollama_authoritative_user_query) {
+        active_user_chars = strlen(ollama_authoritative_user_query);
+    } else {
+        for (size_t i = count; i > 0; --i) {
+            size_t index = i - 1;
+            if (!msgs[index].role || strcmp(msgs[index].role, "user") != 0 ||
+                r2_is_internal_tool_result(&msgs[index]))
+                continue;
+            active_user_chars = msgs[index].content
+                ? strlen(msgs[index].content) : 0;
+            break;
+        }
+    }
+    if (active_user_chars > OLLAMA_MAX_MESSAGE_CHARS)
+        active_user_chars = OLLAMA_MAX_MESSAGE_CHARS;
+    if (active_user_chars < 1500U)
+        active_user_chars = 1500U;
+
+    size_t core_instruction_chars = r2_core_instruction_char_count(
+        msgs, count, ollama_authoritative_user_query);
+    size_t minimum_input_chars = override_length;
+    if (core_instruction_chars > SIZE_MAX - minimum_input_chars)
+        minimum_input_chars = SIZE_MAX;
+    else
+        minimum_input_chars += core_instruction_chars;
+    if (active_user_chars > SIZE_MAX - minimum_input_chars)
+        minimum_input_chars = SIZE_MAX;
+    else
+        minimum_input_chars += active_user_chars;
+
+    /* Estimate the minimum input needed for complete core instructions and
+       the active user turn. Give that input first claim on num_ctx; generation
+       uses only the remaining tokens, rather than evicting the instructions. */
+    size_t minimum_input_tokens = SIZE_MAX;
+    if (minimum_input_chars <= (SIZE_MAX - 31U) / 10U) {
+        minimum_input_tokens = (minimum_input_chars * 10U + 31U) / 32U + 512U;
+    }
+    int max_predict = num_ctx / 4;
+    if (max_predict < 512)
+        max_predict = 512;
+    if (minimum_input_tokens < (size_t)num_ctx) {
+        size_t output_room = (size_t)num_ctx - minimum_input_tokens;
+        if (output_room < 256U)
+            output_room = 256U;
+        if ((size_t)max_predict > output_room)
+            max_predict = (int)output_room;
+    } else {
+        max_predict = 256;
+        fprintf(stderr,
+                "[R2 Prompt Budget] Mandatory instruction/current-turn estimate "
+                "exceeds context=%d; preserving input priority with a 256-token "
+                "generation ceiling.\n",
+                num_ctx);
+    }
+    /* Omitted budgets are for helper calls; foreground calls request a
+       complexity-based budget and can use the remaining context-dependent room. */
+    if (num_predict < 1) num_predict = num_ctx >= 12288 ? 2048 : 1024;
+    if (num_predict > max_predict) num_predict = max_predict;
 
     /*
      * Size output only after accounting for the complete high-priority prompt
@@ -3494,28 +3562,6 @@ static char *ollama_chat_with_limit(
         required_input_chars += length;
     }
 
-    size_t active_user_chars = 0;
-    if (ollama_authoritative_user_query && *ollama_authoritative_user_query) {
-        active_user_chars = strlen(ollama_authoritative_user_query);
-    } else {
-        for (size_t i = count; i > 0; --i) {
-            size_t index = i - 1;
-            if (!msgs[index].role || strcmp(msgs[index].role, "user") != 0 ||
-                r2_is_internal_tool_result(&msgs[index]))
-                continue;
-            active_user_chars = msgs[index].content
-                ? strlen(msgs[index].content) : 0;
-            break;
-        }
-    }
-    if (active_user_chars > OLLAMA_MAX_MESSAGE_CHARS)
-        active_user_chars = OLLAMA_MAX_MESSAGE_CHARS;
-    /* Match the minimum current-user reserve used by the serializer below.
-       If token allocation counts only a 40-character greeting while the
-       serializer reserves 1500 bytes, that unaccounted 1460-byte difference
-       can evict complete static instruction sections after generation is sized. */
-    if (active_user_chars < 1500U)
-        active_user_chars = 1500U;
     if (active_user_chars <= SIZE_MAX - required_input_chars)
         required_input_chars += active_user_chars;
     else
@@ -3768,28 +3814,6 @@ static char *ollama_chat_with_limit(
      * the whole system budget and accidentally making a complete instruction
      * section lose to memory/Reality reserves.
      */
-    size_t core_instruction_chars = 0;
-    for (size_t i = 0; i < count; ++i) {
-        if (!msgs[i].role || strcmp(msgs[i].role, "system") != 0)
-            continue;
-        const char *content = msgs[i].content ? msgs[i].content : "";
-        int priority = r2_inference_system_priority(
-            content, ollama_authoritative_user_query);
-        int is_reality_evidence =
-            !strncmp(content, "PERSISTENT REALITY CONTEXT",
-                     strlen("PERSISTENT REALITY CONTEXT"));
-        if (priority != 0 && priority != 2 &&
-            !(priority == 1 && !is_reality_evidence))
-            continue;
-        size_t length = strlen(content);
-        if (length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS)
-            length = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;
-        if (length > SIZE_MAX - core_instruction_chars) {
-            core_instruction_chars = SIZE_MAX;
-            break;
-        }
-        core_instruction_chars += length;
-    }
     size_t budget_after_core =
         core_instruction_chars < system_budget
             ? system_budget - core_instruction_chars : 0;
