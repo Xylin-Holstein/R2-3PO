@@ -3312,9 +3312,8 @@ typedef struct {
     size_t learning_reserve;
 } R2SystemContextBudget;
 
-/* Reserve the explicit override first. Keep bounded shares for focused
-   retrieval, unrelated capability sections, startup memories, and persistent
-   learning; identity and task-matched instructions remain higher priority. */
+/* Count the complete identity, general action contract, and task-matched
+   capability instructions that must fit before evidence reserves are computed. */
 static size_t r2_core_instruction_char_count(
     const Message *msgs, size_t count, const char *query)
 {
@@ -3340,6 +3339,9 @@ static size_t r2_core_instruction_char_count(
     return total;
 }
 
+/* Reserve the explicit override first, then divide only the budget left
+   after core instructions among Reality, focused retrieval, optional capability
+   sections, startup memory, and persistent learning. */
 static R2SystemContextBudget r2_compute_system_context_budget(
     size_t system_budget, size_t override_length)
 {
