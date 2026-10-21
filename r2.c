@@ -3497,11 +3497,29 @@ static char *ollama_chat_with_limit(
     if (minimum_input_chars <= (SIZE_MAX - 31U) / 10U) {
         minimum_input_tokens = (minimum_input_chars * 10U + 31U) / 32U + 512U;
     }
+
+    /* Keep a useful slice of connected Reality/retrieval/startup/learning
+       evidence in the input when the active context can afford it. If that
+       evidence target cannot fit, preserve the full core instructions and
+       current user turn first; evidence then yields to those higher priorities. */
+    const size_t evidence_context_target_chars = 2500U;
+    size_t output_target_tokens = minimum_input_tokens;
+    if (minimum_input_chars <= SIZE_MAX - evidence_context_target_chars) {
+        size_t evidence_target_chars =
+            minimum_input_chars + evidence_context_target_chars;
+        if (evidence_target_chars <= (SIZE_MAX - 31U) / 10U) {
+            size_t evidence_target_tokens =
+                (evidence_target_chars * 10U + 31U) / 32U + 512U;
+            if (evidence_target_tokens < (size_t)num_ctx)
+                output_target_tokens = evidence_target_tokens;
+        }
+    }
+
     int max_predict = num_ctx / 4;
     if (max_predict < 512)
         max_predict = 512;
     if (minimum_input_tokens < (size_t)num_ctx) {
-        size_t output_room = (size_t)num_ctx - minimum_input_tokens;
+        size_t output_room = (size_t)num_ctx - output_target_tokens;
         if (output_room > 0 && (size_t)max_predict > output_room)
             max_predict = (int)output_room;
     } else {
