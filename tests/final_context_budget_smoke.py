@@ -38,7 +38,8 @@ require("budget.retrieval_reserve = context_budget / 8;" in budget,
         "the serializer explicitly reserves a share for current-turn retrieval")
 require("budget.capabilities_reserve = context_budget / 6;" in budget,
         "the serializer bounds unrelated capability context so persistent learning and startup memory retain budget")
-require("r2_compute_system_context_budget(system_budget, override_length)" in core,
+require("r2_compute_system_context_budget(budget_after_core, override_length)" in core
+    and "r2_core_instruction_char_count(" in core,
         "the actual Ollama serializer uses the tested prompt-budget allocator")
 require("message_add_system_prompt_sections_locked() != 0" in core,
         "the static identity and capability prompts are split before runtime budgeting")
