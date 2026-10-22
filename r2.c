@@ -3684,10 +3684,11 @@ static char *ollama_chat_with_limit(
     }
 
     /*
-     * Old pinned archive turns can be very large. Keep system messages,
-     * plus the newest conversational turns, and cap each message/total
-     * payload. The full history remains in R2's own memory and Life Log;
-     * this is only the bounded inference window sent to Ollama.
+     * Old archive turns can be very large. Select complete messages against
+     * the input budget of this request's actual context window; retain pinned
+     * instructions and the active user turn before optional history/evidence.
+     * The full history remains in R2's memory and Life Log, while only the
+     * selected inference window is serialized to Ollama.
      */
     unsigned char *include = count ? calloc(count, 1) : NULL;
     size_t *limits = count ? calloc(count, sizeof(*limits)) : NULL;
