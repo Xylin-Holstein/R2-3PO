@@ -44,6 +44,16 @@ def _full_static_instruction_messages() -> list[dict[str, str]]:
     """Load the exact production system prompts used by the foreground request."""
     source_path = Path(__file__).resolve().parents[1] / "r2.c"
     source = source_path.read_text(encoding="utf-8")
+    paths_header = (source_path.parent / "r2_diary.h").read_text(encoding="utf-8")
+    root_match = re.search(
+        r'^#define\\s+R2_ROOT\\s+("(?:\\\\.|[^"\\\\])*")',
+        paths_header,
+        re.MULTILINE,
+    )
+    if not root_match:
+        raise ValueError("Could not resolve R2_ROOT used inside the production system prompt")
+    root_literal = root_match.group(1)
+    source = source.replace(" R2_ROOT ", f" {root_literal} ")
     system_prompt = _decode_c_string_block(
         source, "static const char *SYSTEM_PROMPT =", ";\n"
     )
