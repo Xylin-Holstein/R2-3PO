@@ -175,7 +175,8 @@ char *r2_imagination_create(const char *request)
 
     size_t request_length = strlen(request);
     size_t context_length = strlen(context);
-    if (request_length > SIZE_MAX - context_length - 512U) {
+    if (context_length > SIZE_MAX - 512U ||
+        request_length > SIZE_MAX - context_length - 512U) {
         free(context);
         return NULL;
     }
