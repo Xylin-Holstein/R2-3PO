@@ -45,7 +45,7 @@ def _full_static_instruction_messages() -> list[dict[str, str]]:
     source_path = Path(__file__).resolve().parents[1] / "r2.c"
     source = source_path.read_text(encoding="utf-8")
     system_prompt = _decode_c_string_block(
-        source, "static const char *SYSTEM_PROMPT =", ";\\n"
+        source, "static const char *SYSTEM_PROMPT =", ";\n"
     )
     conversation_prompt = _decode_c_string_block(
         source,
