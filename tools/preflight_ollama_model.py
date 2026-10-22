@@ -267,14 +267,12 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
 
     configured_context = os.environ.get("R2_OLLAMA_NUM_CTX", "").strip()
     context_tokens = _adaptive_context_tokens()
-    valid_configured_context = False
     if configured_context:
         try:
             requested_context = int(configured_context, 10)
         except ValueError:
             requested_context = 0
         if 2048 <= requested_context <= 16384:
-            valid_configured_context = True
             context_tokens = min(context_tokens, requested_context)
 
     try:
