@@ -718,7 +718,10 @@ static char *read_entire_file(const char *path)
         return NULL;
     }
 
-    rewind(f);
+    if (fseek(f, 0, SEEK_SET) != 0) {
+        fclose(f);
+        return NULL;
+    }
 
     char *buf = malloc((size_t)n + 1);
 
@@ -727,12 +730,22 @@ static char *read_entire_file(const char *path)
         return NULL;
     }
 
-    size_t got = fread(buf, 1, (size_t)n, f);
+    size_t expected = (size_t)n;
+    size_t got = fread(buf, 1, expected, f);
+    int read_failed = got != expected || ferror(f);
+    int close_failed = fclose(f) != 0;
 
-    fclose(f);
+    /*
+     * Returning a short prefix as a successful archive read makes startup
+     * believe the conversation history is complete. Reject short/error reads
+     * so the caller can distinguish an unreadable archive from a real one.
+     */
+    if (read_failed || close_failed) {
+        free(buf);
+        return NULL;
+    }
 
     buf[got] = '\0';
-
     return buf;
 }
 
