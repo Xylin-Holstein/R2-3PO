@@ -148,7 +148,7 @@ fi
 # Let R2's memory-aware context allocator use the largest tier supported by
 # current host/cgroup headroom. GPU layer allocation below remains unchanged.
 # Remember default provenance so a failed large-context preflight can retry
-# with the existing conservative 4-layer / 4096-token configuration.
+# with the existing conservative 4-layer / 8192-token configuration.
 R2_OLLAMA_NUM_CTX_DEFAULTED=0
 if [[ -z "${R2_OLLAMA_NUM_CTX:-}" && "$R2_NVIDIA_QUERY_OK" == "1" ]] &&
    printf '%s\n' "$R2_NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
