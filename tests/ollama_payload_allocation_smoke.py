@@ -47,18 +47,14 @@ require("return NULL;" in loop
         "a failed message aborts the request instead of silently skipping a turn")
 require("if (json_object_object_add(root, \"messages\", arr) != 0)" in source,
         "attaching the complete message array is checked")
-override_add = source.find('json_object_object_add(override_message, "content"')
-if override_add < 0:
-    raise SystemExit("FAIL: bounded system prompt replacement is missing")
-override_end = source.find("\n                }", override_add)
-if override_end < 0:
-    raise SystemExit("FAIL: bounded system prompt replacement guard is incomplete")
-override_block = source[override_add:override_end]
-require("!= 0" in override_block
-        and "json_object_put(bounded_override);" in override_block
-        and "json_object_put(arr);" in override_block
-        and "json_object_put(root);" in override_block
-        and "return NULL;" in override_block,
-        "a failed bounded system-prompt replacement cleans up and aborts inference")
+require("size_t override_length = system_override ? strlen(system_override) : 0;" in source,
+        "the complete conversation system prompt is measured without truncation")
+require("if (override_length > override_budget)" not in source
+        and "bounded_override" not in source,
+        "no override clipping path can silently shorten R2's instructions")
+require("if (length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS)" not in source
+        and "OLLAMA_MAX_SYSTEM_TOTAL_CHARS" not in source
+        and "OLLAMA_MAX_TOTAL_CHARS" not in source,
+        "no fixed application-level system or total-payload cap remains")
 
 print("Ollama payload allocation smoke test passed.")
