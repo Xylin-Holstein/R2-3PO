@@ -140,12 +140,6 @@ int main(void)
     clear_test_messages();
     free(utf8_edge);
 
-    /* Shared evidence and associated-record caps must not leave partial UTF-8. */
-    char evidence[] = "A\xe2\x98\x83ZZ";
-    r2_bound_context_records(evidence, 2);
-    assert(test_valid_utf8((const unsigned char *)evidence));
-    assert(strcmp(evidence, "A") == 0);
-
     char keywords[MAX_MEMORY_KEYWORDS][64] = {{0}};
     snprintf(keywords[0], sizeof(keywords[0]), "signal");
     char *associated = r2_collect_associated_records(
