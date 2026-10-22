@@ -2993,6 +2993,8 @@ static unsigned long long available_memory_bytes(void)
     }
     return host_available;
 }
+static int r2_minimum_full_prompt_context(void);
+
 int r2_ollama_context_tokens(void)
 {
     const unsigned long long GiB = 1024ULL * 1024ULL * 1024ULL;
@@ -3016,6 +3018,22 @@ int r2_ollama_context_tokens(void)
             fprintf(stderr, "[R2 Ollama] Ignoring invalid R2_OLLAMA_NUM_CTX value.\n");
         }
     }
+
+    /*
+     * Resource-tier selection must never force the serializer to drop R2's
+     * complete identity or conversation policy. Raise the context to the
+     * smallest supported window that fits both full prompts and active-turn
+     * headroom; model preflight then verifies that this allocation actually runs.
+     */
+    int minimum_prompt_context = r2_minimum_full_prompt_context();
+    if (safe_max < minimum_prompt_context) {
+        fprintf(stderr,
+                "[R2 Ollama] Raising context from %d to %d tokens because the complete "
+                "R2 instruction set requires the larger input window.\n",
+                safe_max, minimum_prompt_context);
+        safe_max = minimum_prompt_context;
+    }
+
     static atomic_int last_context_tokens = ATOMIC_VAR_INIT(0);
     int previous_context = atomic_exchange(&last_context_tokens, safe_max);
     if (previous_context != safe_max) {
@@ -3699,6 +3717,17 @@ static char *ollama_chat_with_limit(
             size_t remaining = system_budget > total_chars
                 ? system_budget - total_chars : 0;
             if (length > remaining) {
+                if (priority == 0) {
+                    fprintf(stderr,
+                            "[R2 Ollama] refusing inference: the complete base identity prompt "
+                            "does not fit the allocated context (%zu required, %zu available).\\n",
+                            length, remaining);
+                    free(include);
+                    free(limits);
+                    json_object_put(arr);
+                    json_object_put(root);
+                    return NULL;
+                }
                 if (priority <= 3) continue;
                 length = r2_context_record_prefix_length(content, remaining);
             }
@@ -4728,6 +4757,30 @@ static const char r2_conversation_system_prompt[] =
             "Read their words as meaningful ordinary language and respond to their intent, including when several topics or personal references appear together. "
             "Use the relationship information learned from persistent memory and the current conversation. "
             "The current message takes priority over retrieved history.";
+
+static int r2_minimum_full_prompt_context(void)
+{
+    /*
+     * Derive the minimum from the actual production strings instead of a
+     * remembered byte quota. This prevents future instruction growth from
+     * silently pushing the main system prompt out of the serialized request.
+     */
+    size_t required_chars = strlen(SYSTEM_PROMPT) +
+                            strlen(r2_conversation_system_prompt) + 1500U;
+    static const int candidates[] = {4096, 8192, 12288, 16384};
+    for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); ++i) {
+        int context = candidates[i];
+        int output = context >= 16384 ? 4096 :
+                     context >= 12288 ? 2048 :
+                     context >= 8192 ? 1024 : 512;
+        if (context <= output + 512) continue;
+        size_t input_chars = (size_t)(context - output - 512) * 32U / 10U;
+        if (required_chars <= input_chars)
+            return context;
+    }
+    /* Maximum supported context is returned; preflight reports if it is too small. */
+    return 16384;
+}
 
 static char *r2_build_retry_system_prompt(void)
 {
