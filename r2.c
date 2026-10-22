@@ -5375,7 +5375,7 @@ char *r2_recent_conversation_context(const char *exclude_latest, size_t max_char
     } else {
         for (size_t n = included; n > 0; --n) {
             const Message *m = &messages.items[selected[n - 1]];
-            size_t remaining = max_chars - used;
+            size_t remaining = selected_chars - used;
             size_t content_length = strlen(m->content);
             int written = snprintf(out + used, remaining + 1,
                 "%s: %.*s\n",
