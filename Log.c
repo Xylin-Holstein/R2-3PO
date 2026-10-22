@@ -26,6 +26,8 @@
 #define _XOPEN_SOURCE 700
 
 #include "Log.h"
+#include "SensoryJournal.h"
+#include "Addiction.h"
 #include "r2.h"
 #include "r2_diary.h"
 
@@ -37,6 +39,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <time.h>
 #include <unistd.h>
 #include <sys/statvfs.h>
@@ -219,6 +222,165 @@ static int append_text(char **buffer, size_t *length, size_t *capacity,
     return 0;
 }
 
+static int log_column_exists(const char *table, const char *column)
+{
+    char sql[256];
+    int n = snprintf(sql, sizeof(sql), "PRAGMA table_info(%s)", table);
+    if (n < 0 || (size_t)n >= sizeof(sql)) return 0;
+    sqlite3_stmt *st = NULL;
+    int found = 0;
+    if (sqlite3_prepare_v2(log_db, sql, -1, &st, NULL) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            const unsigned char *name = sqlite3_column_text(st, 1);
+            if (name && !strcasecmp((const char *)name, column)) {
+                found = 1;
+                break;
+            }
+        }
+    }
+    if (st) sqlite3_finalize(st);
+    return found;
+}
+
+static int log_ensure_column(const char *table, const char *column,
+                             const char *definition)
+{
+    if (log_column_exists(table, column)) return SQLITE_OK;
+    char sql[512];
+    int n = snprintf(sql, sizeof(sql), "ALTER TABLE %s ADD COLUMN %s %s;",
+                     table, column, definition);
+    if (n < 0 || (size_t)n >= sizeof(sql)) return SQLITE_TOOBIG;
+    return sqlite3_exec(log_db, sql, NULL, NULL, NULL);
+}
+
+static int migrate_legacy_log_schema(void)
+{
+    static const char *const columns[][3] = {
+        {"r2_log_sessions","started_utc","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_sessions","started_local","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_sessions","ended_utc","TEXT"},
+        {"r2_log_sessions","ended_local","TEXT"},
+        {"r2_log_sessions","start_monotonic_ms","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_sessions","end_monotonic_ms","INTEGER"},
+        {"r2_log_sessions","process_id","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_sessions","end_reason","TEXT"},
+
+        {"r2_log_events","utc_time","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_events","local_time","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_events","monotonic_ms","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_events","session_id","INTEGER"},
+        {"r2_log_events","category","TEXT NOT NULL DEFAULT 'system'"},
+        {"r2_log_events","event_type","TEXT NOT NULL DEFAULT 'legacy'"},
+        {"r2_log_events","summary","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_events","details","TEXT"},
+        {"r2_log_events","source","TEXT"},
+        {"r2_log_events","related_event_id","INTEGER"},
+        {"r2_log_events","memory_saved","INTEGER NOT NULL DEFAULT 0"},
+
+        {"r2_log_activity_sessions","activity_key","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_activity_sessions","activity_name","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_activity_sessions","started_utc","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_activity_sessions","started_local","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_activity_sessions","started_epoch","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_activity_sessions","start_monotonic_ms","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_activity_sessions","ended_utc","TEXT"},
+        {"r2_log_activity_sessions","ended_local","TEXT"},
+        {"r2_log_activity_sessions","ended_epoch","INTEGER"},
+        {"r2_log_activity_sessions","duration_ms","INTEGER"},
+        {"r2_log_activity_sessions","last_verified_state","TEXT"},
+        {"r2_log_activity_sessions","stop_reason","TEXT"},
+        {"r2_log_activity_sessions","start_event_id","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_activity_sessions","end_event_id","INTEGER"},
+        {"r2_log_activity_sessions","status","TEXT NOT NULL DEFAULT 'active'"},
+
+        {"r2_log_location_state","current_location","TEXT NOT NULL DEFAULT 'home'"},
+        {"r2_log_location_state","is_home","INTEGER NOT NULL DEFAULT 1"},
+        {"r2_log_location_state","was_away","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_location_state","updated_utc","TEXT NOT NULL DEFAULT ''"},
+
+        {"r2_log_milestones","milestone_key","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_milestones","description","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_milestones","first_event_id","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_milestones","recorded_utc","TEXT NOT NULL DEFAULT ''"},
+
+        {"r2_log_conversations","event_id","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_conversations","user_text","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_conversations","assistant_text","TEXT NOT NULL DEFAULT ''"},
+
+        {"r2_log_inner_states","event_id","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_inner_states","state_kind","TEXT NOT NULL DEFAULT 'unknown'"},
+        {"r2_log_inner_states","description","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_inner_states","evidence","TEXT"},
+        {"r2_log_inner_states","confidence","REAL"},
+        {"r2_log_inner_states","origin","TEXT"},
+
+        {"r2_log_beliefs","belief_key","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_beliefs","belief","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_beliefs","evidence","TEXT"},
+        {"r2_log_beliefs","confidence","REAL"},
+        {"r2_log_beliefs","status","TEXT NOT NULL DEFAULT 'tentative'"},
+        {"r2_log_beliefs","origin","TEXT"},
+        {"r2_log_beliefs","first_seen_utc","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_beliefs","last_updated_utc","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_beliefs","last_event_id","INTEGER NOT NULL DEFAULT 0"},
+
+        {"r2_log_continuity","item_key","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_continuity","item_type","TEXT NOT NULL DEFAULT 'task'"},
+        {"r2_log_continuity","title","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_continuity","description","TEXT"},
+        {"r2_log_continuity","status","TEXT NOT NULL DEFAULT 'open'"},
+        {"r2_log_continuity","next_action","TEXT"},
+        {"r2_log_continuity","origin","TEXT"},
+        {"r2_log_continuity","first_seen_utc","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_continuity","last_updated_utc","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_continuity","completed_utc","TEXT"},
+        {"r2_log_continuity","last_event_id","INTEGER NOT NULL DEFAULT 0"},
+
+        {"r2_log_links","from_event_id","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_links","to_event_id","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_links","relationship","TEXT NOT NULL DEFAULT 'related'"},
+        {"r2_log_links","notes","TEXT"},
+        {"r2_log_links","created_utc","TEXT NOT NULL DEFAULT ''"},
+
+        {"r2_log_hypotheticals","event_id","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_hypotheticals","scenario","TEXT NOT NULL DEFAULT ''"},
+        {"r2_log_hypotheticals","assumptions","TEXT"},
+        {"r2_log_hypotheticals","predicted_outcome","TEXT"},
+        {"r2_log_hypotheticals","conclusion","TEXT"},
+        {"r2_log_hypotheticals","origin","TEXT"},
+
+        {"r2_log_system_snapshots","event_id","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_system_snapshots","hostname","TEXT"},
+        {"r2_log_system_snapshots","operating_system","TEXT"},
+        {"r2_log_system_snapshots","kernel_release","TEXT"},
+        {"r2_log_system_snapshots","machine","TEXT"},
+        {"r2_log_system_snapshots","process_id","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_system_snapshots","process_elapsed_ms","INTEGER NOT NULL DEFAULT 0"},
+        {"r2_log_system_snapshots","system_uptime_seconds","INTEGER"},
+        {"r2_log_system_snapshots","total_ram_bytes","INTEGER"},
+        {"r2_log_system_snapshots","free_ram_bytes","INTEGER"},
+        {"r2_log_system_snapshots","workspace_total_bytes","INTEGER"},
+        {"r2_log_system_snapshots","workspace_free_bytes","INTEGER"}
+    };
+
+    for (size_t i = 0; i < sizeof(columns) / sizeof(columns[0]); ++i) {
+        if (log_ensure_column(columns[i][0], columns[i][1], columns[i][2]) != SQLITE_OK) {
+            fprintf(stderr, "[R2 Log] Could not migrate %s.%s: %s\n",
+                    columns[i][0], columns[i][1], sqlite3_errmsg(log_db));
+            return -1;
+        }
+    }
+
+    /* Existing tables are upgraded before indexes are created, so a missing
+       column from an older beta cannot abort the entire Life Log startup. */
+    return exec_sql(
+        "CREATE INDEX IF NOT EXISTS r2_log_events_time_idx ON r2_log_events(id);"
+        "CREATE INDEX IF NOT EXISTS r2_log_events_category_idx ON r2_log_events(category,id);"
+        "CREATE INDEX IF NOT EXISTS r2_log_activity_key_idx ON r2_log_activity_sessions(activity_key,status);"
+        "CREATE INDEX IF NOT EXISTS r2_log_inner_states_kind_idx ON r2_log_inner_states(state_kind,id);"
+        "CREATE INDEX IF NOT EXISTS r2_log_continuity_status_idx ON r2_log_continuity(status,item_type);");
+}
+
 static int ensure_tables(void)
 {
     static const char *schema =
@@ -250,10 +412,33 @@ static int ensure_tables(void)
         " FOREIGN KEY(session_id) REFERENCES r2_log_sessions(id),"
         " FOREIGN KEY(related_event_id) REFERENCES r2_log_events(id)"
         ");"
-        "CREATE INDEX IF NOT EXISTS r2_log_events_time_idx "
-        "ON r2_log_events(id);"
-        "CREATE INDEX IF NOT EXISTS r2_log_events_category_idx "
-        "ON r2_log_events(category, id);"
+        "CREATE TABLE IF NOT EXISTS r2_log_activity_sessions ("
+        " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        " activity_key TEXT NOT NULL,"
+        " activity_name TEXT NOT NULL,"
+        " started_utc TEXT NOT NULL,"
+        " started_local TEXT NOT NULL,"
+        " started_epoch INTEGER NOT NULL,"
+        " start_monotonic_ms INTEGER NOT NULL,"
+        " ended_utc TEXT,"
+        " ended_local TEXT,"
+        " ended_epoch INTEGER,"
+        " duration_ms INTEGER,"
+        " last_verified_state TEXT,"
+        " stop_reason TEXT,"
+        " start_event_id INTEGER NOT NULL,"
+        " end_event_id INTEGER,"
+        " status TEXT NOT NULL DEFAULT 'active',"
+        " FOREIGN KEY(start_event_id) REFERENCES r2_log_events(id),"
+        " FOREIGN KEY(end_event_id) REFERENCES r2_log_events(id)"
+        ");"
+        "CREATE TABLE IF NOT EXISTS r2_log_location_state ("
+        " id INTEGER PRIMARY KEY CHECK(id=1),"
+        " current_location TEXT NOT NULL,"
+        " is_home INTEGER NOT NULL DEFAULT 1,"
+        " was_away INTEGER NOT NULL DEFAULT 0,"
+        " updated_utc TEXT NOT NULL"
+        ");"
         "CREATE TABLE IF NOT EXISTS r2_log_milestones ("
         " id INTEGER PRIMARY KEY AUTOINCREMENT,"
         " milestone_key TEXT NOT NULL UNIQUE,"
@@ -280,8 +465,6 @@ static int ensure_tables(void)
         " origin TEXT,"
         " FOREIGN KEY(event_id) REFERENCES r2_log_events(id)"
         ");"
-        "CREATE INDEX IF NOT EXISTS r2_log_inner_states_kind_idx "
-        "ON r2_log_inner_states(state_kind, id);"
         "CREATE TABLE IF NOT EXISTS r2_log_beliefs ("
         " id INTEGER PRIMARY KEY AUTOINCREMENT,"
         " belief_key TEXT NOT NULL UNIQUE,"
@@ -310,8 +493,6 @@ static int ensure_tables(void)
         " last_event_id INTEGER NOT NULL,"
         " FOREIGN KEY(last_event_id) REFERENCES r2_log_events(id)"
         ");"
-        "CREATE INDEX IF NOT EXISTS r2_log_continuity_status_idx "
-        "ON r2_log_continuity(status, item_type);"
         "CREATE TABLE IF NOT EXISTS r2_log_links ("
         " id INTEGER PRIMARY KEY AUTOINCREMENT,"
         " from_event_id INTEGER NOT NULL,"
@@ -353,7 +534,7 @@ static int ensure_tables(void)
     if (exec_sql(schema) != 0)
         return -1;
 
-    return 0;
+    return migrate_legacy_log_schema();
 }
 
 /* ------------------------------------------------------------
@@ -404,6 +585,13 @@ int r2_log_init(void)
         pthread_mutex_unlock(&log_lock);
         return -1;
     }
+
+    /* Quiet initial baseline: startup at home is not a return-home event. */
+    sqlite3_exec(log_db,
+        "INSERT OR IGNORE INTO r2_log_location_state "
+        "(id,current_location,is_home,was_away,updated_utc) "
+        "VALUES (1,'home',1,0,strftime('%Y-%m-%dT%H:%M:%SZ','now'));",
+        NULL, NULL, NULL);
 
     log_initialized = 1;
     pthread_mutex_unlock(&log_lock);
@@ -553,7 +741,47 @@ int64_t r2_log_event(
     sqlite3_finalize(statement);
     pthread_mutex_unlock(&log_lock);
 
+    /* Index original Life Log events without duplicating their text. */
+    if (inserted_id > 0) {
+        const char *journal_category = NULL;
+        switch (category) {
+            case R2_LOG_SENSORY: journal_category = "sensory"; break;
+            case R2_LOG_THINKING: journal_category = "thinking"; break;
+            case R2_LOG_CONVERSATION: journal_category = "conversation"; break;
+            default: break;
+        }
+        if (journal_category)
+            r2_sj_index_event(inserted_id, journal_category, event_type, source);
+    }
+
     return inserted_id;
+}
+
+
+/* Check a stable source identifier before replaying an outbox event. */
+int r2_log_event_exists(const char *event_type, const char *source)
+{
+    sqlite3_stmt *statement = NULL;
+    int exists = 0;
+    int rc;
+    if (!valid_text(event_type) || !valid_text(source)) return 0;
+
+    pthread_mutex_lock(&log_lock);
+    if (!log_initialized || !log_db) {
+        pthread_mutex_unlock(&log_lock);
+        return 0;
+    }
+    rc = sqlite3_prepare_v2(log_db,
+        "SELECT 1 FROM r2_log_events WHERE event_type=? AND source=? LIMIT 1",
+        -1, &statement, NULL);
+    if (rc == SQLITE_OK) {
+        sqlite3_bind_text(statement, 1, event_type, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(statement, 2, source, -1, SQLITE_TRANSIENT);
+        exists = sqlite3_step(statement) == SQLITE_ROW;
+    }
+    if (statement) sqlite3_finalize(statement);
+    pthread_mutex_unlock(&log_lock);
+    return exists;
 }
 
 int64_t r2_log_event_with_memory(
@@ -931,171 +1159,241 @@ int64_t r2_log_world_event(const char *object_or_device,
                         details, "world");
 }
 
+
 /* ------------------------------------------------------------
- * SYSTEM SELF-AWARENESS SNAPSHOT
+ * GENERIC ACTIVITY SESSION TRACKER
  * ------------------------------------------------------------ */
-
-int r2_log_system_snapshot(const char *reason)
+int64_t r2_log_activity_start(const char *activity_key,
+                              const char *activity_name,
+                              const char *details)
 {
-    struct utsname uts;
-    struct statvfs fs;
-    char details[8192];
-    char summary[512];
-    char hostname[256] = "unavailable";
-    const char *os_name = "unavailable";
-    const char *kernel = "unavailable";
-    const char *machine = "unavailable";
-    uint64_t total_ram = 0;
-    uint64_t free_ram = 0;
-    int64_t system_uptime = -1;
-    uint64_t disk_total = 0;
-    uint64_t disk_free = 0;
-    double load_average[3] = {0.0, 0.0, 0.0};
-    int have_load_average = 0;
-    int have_uts = 0;
-    int have_fs = 0;
-    int64_t event_id;
-
-    if (uname(&uts) == 0) {
-        have_uts = 1;
-        os_name = uts.sysname;
-        kernel = uts.release;
-        machine = uts.machine;
-    }
-
-    if (gethostname(hostname, sizeof(hostname) - 1) != 0)
-        snprintf(hostname, sizeof(hostname), "unavailable");
-    hostname[sizeof(hostname) - 1] = '\0';
-
-#ifdef __linux__
-    {
-        struct sysinfo info;
-        if (sysinfo(&info) == 0) {
-            system_uptime = (int64_t)info.uptime;
-            total_ram = (uint64_t)info.totalram * info.mem_unit;
-            free_ram = (uint64_t)info.freeram * info.mem_unit;
-        }
-    }
-#endif
-
-    if (getloadavg(load_average, 3) == 3)
-        have_load_average = 1;
-
-    if (statvfs(R2_ROOT, &fs) == 0) {
-        have_fs = 1;
-        disk_total = (uint64_t)fs.f_blocks * fs.f_frsize;
-        disk_free = (uint64_t)fs.f_bavail * fs.f_frsize;
-    }
-
-    snprintf(summary, sizeof(summary),
-             "R2 system state snapshot%s%s",
-             reason && *reason ? ": " : "",
-             reason && *reason ? reason : "");
-
-    snprintf(details, sizeof(details),
-             "hostname=%s\n"
-             "os=%s\n"
-             "kernel=%s\n"
-             "machine=%s\n"
-             "process_id=%ld\n"
-             "process_elapsed_ms=%" PRIu64 "\n"
-             "system_uptime_seconds=%" PRId64 "\n"
-             "total_ram_bytes=%" PRIu64 "\n"
-             "free_ram_bytes=%" PRIu64 "\n"
-             "load_average_1m=%.2f\n"
-             "load_average_5m=%.2f\n"
-             "load_average_15m=%.2f\n"
-             "load_average_available=%s\n"
-             "workspace=%s\n"
-             "workspace_disk_total_bytes=%" PRIu64 "\n"
-             "workspace_disk_available_bytes=%" PRIu64 "\n"
-             "uname_available=%s\n"
-             "workspace_statvfs_available=%s\n",
-             hostname, os_name, kernel, machine, (long)getpid(),
-             r2_log_elapsed_ms(), system_uptime, total_ram, free_ram,
-             load_average[0], load_average[1], load_average[2],
-             have_load_average ? "yes" : "no",
-             R2_ROOT, disk_total, disk_free,
-             have_uts ? "yes" : "no", have_fs ? "yes" : "no");
-
-    event_id = r2_log_event(R2_LOG_SYSTEM, "system_snapshot",
-                            summary, details, "system_self_awareness");
-
-    if (event_id < 0)
-        return -1;
+    sqlite3_stmt *statement = NULL;
+    char utc[40], local[48], event_details[4096], summary[1024];
+    int rc;
+    if (!valid_text(activity_key) || !valid_text(activity_name) ||
+        strlen(activity_key) > 256 || strlen(activity_name) > 512 ||
+        (details && strlen(details) > 3000)) return -1;
 
     pthread_mutex_lock(&log_lock);
-
-    if (log_initialized && log_db) {
-        sqlite3_stmt *statement = NULL;
-
-        int rc = sqlite3_prepare_v2(
-            log_db,
-            "INSERT INTO r2_log_system_snapshots "
-            "(event_id, hostname, operating_system, kernel_release, machine, "
-            "process_id, process_elapsed_ms, system_uptime_seconds, "
-            "total_ram_bytes, free_ram_bytes, workspace_total_bytes, "
-            "workspace_free_bytes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
-            -1, &statement, NULL
-        );
-
-        if (rc == SQLITE_OK) {
-            sqlite3_bind_int64(statement, 1, event_id);
-            sqlite3_bind_text(statement, 2, hostname, -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(statement, 3, os_name, -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(statement, 4, kernel, -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(statement, 5, machine, -1, SQLITE_TRANSIENT);
-            sqlite3_bind_int(statement, 6, (int)getpid());
-            sqlite3_bind_int64(statement, 7,
-                               (sqlite3_int64)r2_log_elapsed_ms());
-
-            if (system_uptime >= 0)
-                sqlite3_bind_int64(statement, 8, system_uptime);
-            else
-                sqlite3_bind_null(statement, 8);
-
-            if (total_ram)
-                sqlite3_bind_int64(statement, 9, (sqlite3_int64)total_ram);
-            else
-                sqlite3_bind_null(statement, 9);
-
-            if (free_ram)
-                sqlite3_bind_int64(statement, 10, (sqlite3_int64)free_ram);
-            else
-                sqlite3_bind_null(statement, 10);
-
-            if (have_fs) {
-                sqlite3_bind_int64(statement, 11, (sqlite3_int64)disk_total);
-                sqlite3_bind_int64(statement, 12, (sqlite3_int64)disk_free);
-            } else {
-                sqlite3_bind_null(statement, 11);
-                sqlite3_bind_null(statement, 12);
-            }
-
-            rc = sqlite3_step(statement);
-        }
-
-        sqlite3_finalize(statement);
+    if (!log_initialized || !log_db) {
         pthread_mutex_unlock(&log_lock);
-
-        return rc == SQLITE_DONE ? 0 : -1;
+        return -1;
     }
-
+    rc = sqlite3_prepare_v2(log_db,
+        "SELECT 1 FROM r2_log_activity_sessions "
+        "WHERE activity_key=? AND status='active' LIMIT 1",
+        -1, &statement, NULL);
+    if (rc == SQLITE_OK) {
+        sqlite3_bind_text(statement, 1, activity_key, -1, SQLITE_TRANSIENT);
+        int step_rc = sqlite3_step(statement);
+        if (step_rc == SQLITE_ROW)
+            rc = SQLITE_CONSTRAINT;
+        else if (step_rc == SQLITE_DONE)
+            rc = SQLITE_OK;
+        else
+            rc = step_rc;
+    }
+    if (statement) sqlite3_finalize(statement);
     pthread_mutex_unlock(&log_lock);
-    return -1;
+    if (rc != SQLITE_OK) return -1;
+
+    snprintf(event_details, sizeof(event_details), "activity_key=%s%s%s",
+             activity_key, details && *details ? "; " : "",
+             details && *details ? details : "");
+    snprintf(summary, sizeof(summary), "R2 started activity '%s'.", activity_name);
+    int64_t event_id = r2_log_event(R2_LOG_MEDIA, "activity_started",
+        summary, event_details, activity_key);
+    if (event_id < 0) return -1;
+
+    timestamp_pair(utc, sizeof(utc), local, sizeof(local));
+    pthread_mutex_lock(&log_lock);
+    rc = sqlite3_prepare_v2(log_db,
+        "INSERT INTO r2_log_activity_sessions "
+        "(activity_key,activity_name,started_utc,started_local,started_epoch,"
+        "start_monotonic_ms,start_event_id,status) VALUES (?,?,?,?,?,?,?,'active')",
+        -1, &statement, NULL);
+    if (rc == SQLITE_OK) {
+        sqlite3_bind_text(statement, 1, activity_key, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(statement, 2, activity_name, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(statement, 3, utc, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(statement, 4, local, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(statement, 5, (sqlite3_int64)time(NULL));
+        sqlite3_bind_int64(statement, 6, (sqlite3_int64)r2_log_elapsed_ms());
+        sqlite3_bind_int64(statement, 7, (sqlite3_int64)event_id);
+        rc = sqlite3_step(statement) == SQLITE_DONE ? SQLITE_OK : SQLITE_ERROR;
+    }
+    if (statement) sqlite3_finalize(statement);
+    pthread_mutex_unlock(&log_lock);
+    if (rc != SQLITE_OK) return -1;
+
+    /* Every explicitly started activity is a voluntary choice signal for the
+       shared preference evaluator. Start/end events are not double-counted. */
+    (void)r2_addiction_record_choice(activity_name, "activity", 50,
+                                     "activity_start", event_details);
+    return event_id;
 }
 
-/* ------------------------------------------------------------
- * SEARCH / RECENT HISTORY
- * ------------------------------------------------------------ */
-
-static int normalize_limit(int limit)
+int64_t r2_log_activity_end(const char *activity_key,
+                            const char *last_verified_state,
+                            const char *stop_reason,
+                            const char *details)
 {
-    if (limit <= 0)
-        return R2_LOG_DEFAULT_LIMIT;
-    if (limit > R2_LOG_MAX_LIMIT)
-        return R2_LOG_MAX_LIMIT;
-    return limit;
+    sqlite3_stmt *statement = NULL;
+    char activity_name[513] = "unknown activity";
+    char start_local[48] = "unknown";
+    char utc[40], local[48], summary[2048], event_details[4096];
+    sqlite3_int64 started_epoch = 0, started_monotonic = 0;
+    sqlite3_int64 ended_epoch = (sqlite3_int64)time(NULL);
+    sqlite3_int64 duration_ms = -1;
+    int rc;
+    if (!valid_text(activity_key) || strlen(activity_key) > 256 ||
+        (last_verified_state && strlen(last_verified_state) > 1024) ||
+        (stop_reason && strlen(stop_reason) > 1024) ||
+        (details && strlen(details) > 2000)) return -1;
+    pthread_mutex_lock(&log_lock);
+    if (!log_initialized || !log_db) {
+        pthread_mutex_unlock(&log_lock);
+        return -1;
+    }
+    rc = sqlite3_prepare_v2(log_db,
+        "SELECT activity_name,started_local,started_epoch,start_monotonic_ms "
+        "FROM r2_log_activity_sessions WHERE activity_key=? AND status='active' "
+        "ORDER BY id DESC LIMIT 1", -1, &statement, NULL);
+    if (rc == SQLITE_OK) {
+        sqlite3_bind_text(statement, 1, activity_key, -1, SQLITE_TRANSIENT);
+        rc = sqlite3_step(statement);
+        if (rc == SQLITE_ROW) {
+            const unsigned char *name = sqlite3_column_text(statement, 0);
+            const unsigned char *started = sqlite3_column_text(statement, 1);
+            if (name) snprintf(activity_name, sizeof(activity_name), "%s", (const char *)name);
+            if (started) snprintf(start_local, sizeof(start_local), "%s", (const char *)started);
+            started_epoch = sqlite3_column_int64(statement, 2);
+            started_monotonic = sqlite3_column_int64(statement, 3);
+            rc = SQLITE_OK;
+        }
+    }
+    if (statement) sqlite3_finalize(statement);
+    pthread_mutex_unlock(&log_lock);
+    if (rc != SQLITE_OK) return -1;
+
+    uint64_t elapsed = r2_log_elapsed_ms();
+    if (elapsed >= (uint64_t)started_monotonic)
+        duration_ms = (sqlite3_int64)(elapsed - (uint64_t)started_monotonic);
+    double seconds = difftime((time_t)ended_epoch, (time_t)started_epoch);
+    if (seconds < 0.0) seconds = -1.0;
+    if (seconds >= 0.0) {
+        snprintf(summary, sizeof(summary),
+                 "R2 ended activity '%s' after %.0f seconds; last verified state: %s; stop reason: %s.",
+                 activity_name, seconds,
+                 valid_text(last_verified_state) ? last_verified_state : "unknown",
+                 valid_text(stop_reason) ? stop_reason : "unknown");
+    } else {
+        snprintf(summary, sizeof(summary),
+                 "R2 ended activity '%s'; duration unknown; last verified state: %s; stop reason: %s.",
+                 activity_name,
+                 valid_text(last_verified_state) ? last_verified_state : "unknown",
+                 valid_text(stop_reason) ? stop_reason : "unknown");
+    }
+    snprintf(event_details, sizeof(event_details),
+             "activity_key=%s; started=%s; duration_seconds=%.0f; duration_ms=%lld; "
+             "last_verified_state=%s; stop_reason=%s%s%s",
+             activity_key, start_local, seconds, (long long)duration_ms,
+             valid_text(last_verified_state) ? last_verified_state : "unknown",
+             valid_text(stop_reason) ? stop_reason : "unknown",
+             details && *details ? "; " : "", details && *details ? details : "");
+    int64_t event_id = r2_log_event(R2_LOG_MEDIA, "activity_ended", summary,
+                                    event_details, activity_key);
+    if (event_id < 0) return -1;
+    timestamp_pair(utc, sizeof(utc), local, sizeof(local));
+    pthread_mutex_lock(&log_lock);
+    rc = sqlite3_prepare_v2(log_db,
+        "UPDATE r2_log_activity_sessions SET ended_utc=?,ended_local=?,ended_epoch=?,"
+        "duration_ms=?,last_verified_state=?,stop_reason=?,end_event_id=?,status='ended' "
+        "WHERE activity_key=? AND status='active'",
+        -1, &statement, NULL);
+    if (rc == SQLITE_OK) {
+        sqlite3_bind_text(statement, 1, utc, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(statement, 2, local, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(statement, 3, ended_epoch);
+        if (duration_ms >= 0) sqlite3_bind_int64(statement, 4, duration_ms);
+        else sqlite3_bind_null(statement, 4);
+        sqlite3_bind_text(statement, 5, valid_text(last_verified_state) ? last_verified_state : "unknown", -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(statement, 6, valid_text(stop_reason) ? stop_reason : "unknown", -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(statement, 7, (sqlite3_int64)event_id);
+        sqlite3_bind_text(statement, 8, activity_key, -1, SQLITE_TRANSIENT);
+        rc = sqlite3_step(statement) == SQLITE_DONE && sqlite3_changes(log_db) > 0
+            ? SQLITE_OK : SQLITE_ERROR;
+    }
+    if (statement) sqlite3_finalize(statement);
+    pthread_mutex_unlock(&log_lock);
+    return rc == SQLITE_OK ? event_id : -1;
+}
+
+
+/* ------------------------------------------------------------
+ * PERSISTENT LOCATION TRANSITIONS
+ * ------------------------------------------------------------ */
+int r2_log_location_transition(const char *location, int is_home)
+{
+    sqlite3_stmt *statement = NULL;
+    char previous[257] = "home";
+    int previous_home = 1, was_away = 0, should_welcome = 0, rc;
+    char summary[640], details[1200];
+    if (!valid_text(location) || strlen(location) > 256) return -1;
+    pthread_mutex_lock(&log_lock);
+    if (!log_initialized || !log_db) {
+        pthread_mutex_unlock(&log_lock);
+        return -1;
+    }
+    rc = sqlite3_prepare_v2(log_db,
+        "SELECT current_location,is_home,was_away FROM r2_log_location_state WHERE id=1",
+        -1, &statement, NULL);
+    if (rc == SQLITE_OK && sqlite3_step(statement) == SQLITE_ROW) {
+        const unsigned char *old = sqlite3_column_text(statement, 0);
+        if (old) snprintf(previous, sizeof(previous), "%s", (const char *)old);
+        previous_home = sqlite3_column_int(statement, 1);
+        was_away = sqlite3_column_int(statement, 2);
+    } else {
+        if (statement) sqlite3_finalize(statement);
+        pthread_mutex_unlock(&log_lock);
+        return -1;
+    }
+    sqlite3_finalize(statement);
+    statement = NULL;
+    if (!strcasecmp(previous, location)) {
+        pthread_mutex_unlock(&log_lock);
+        return 0;
+    }
+    should_welcome = is_home && !previous_home && was_away;
+    rc = sqlite3_prepare_v2(log_db,
+        "UPDATE r2_log_location_state SET current_location=?,is_home=?,"
+        "was_away=?,updated_utc=strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id=1",
+        -1, &statement, NULL);
+    if (rc == SQLITE_OK) {
+        sqlite3_bind_text(statement, 1, location, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(statement, 2, is_home ? 1 : 0);
+        sqlite3_bind_int(statement, 3, is_home ? 0 : 1);
+        rc = sqlite3_step(statement) == SQLITE_DONE ? SQLITE_OK : SQLITE_ERROR;
+    }
+    if (statement) sqlite3_finalize(statement);
+    pthread_mutex_unlock(&log_lock);
+    if (rc != SQLITE_OK) return -1;
+    snprintf(summary, sizeof(summary), "R2 moved to %s.", location);
+    snprintf(details, sizeof(details),
+             "Previous location=%s; destination=%s; destination classified as %s.",
+             previous, location, is_home ? "home" : "away");
+    if (r2_log_event(R2_LOG_WORLD, "location_changed", summary, details,
+                     "world_location") < 0) return -1;
+    if (should_welcome) {
+        (void)r2_log_event(R2_LOG_CONTINUITY, "internal_notification",
+                           "Private notification delivered to R2: Welcome Home.",
+                           "Triggered only by a persisted away-to-home transition.",
+                           "world_location");
+        (void)r2_save_memory(
+            "Welcome Home. You have returned home after being away.",
+            "private_notification");
+    }
+    return 0;
 }
 
 
@@ -1508,15 +1806,189 @@ char *r2_log_status_report(void)
 }
 
 /* ------------------------------------------------------------
- * SEARCH / QUERY EVENTS
+ * SYSTEM SELF-AWARENESS SNAPSHOT
  * ------------------------------------------------------------ */
+
+int r2_log_system_snapshot(const char *reason)
+{
+    struct utsname uts;
+    struct statvfs fs;
+    char details[8192];
+    char summary[512];
+    char hostname[256] = "unavailable";
+    const char *os_name = "unavailable";
+    const char *kernel = "unavailable";
+    const char *machine = "unavailable";
+    uint64_t total_ram = 0;
+    uint64_t free_ram = 0;
+    int64_t system_uptime = -1;
+    uint64_t disk_total = 0;
+    uint64_t disk_free = 0;
+    double load_average[3] = {0.0, 0.0, 0.0};
+    int have_load_average = 0;
+    int have_uts = 0;
+    int have_fs = 0;
+    int64_t event_id;
+
+    if (uname(&uts) == 0) {
+        have_uts = 1;
+        os_name = uts.sysname;
+        kernel = uts.release;
+        machine = uts.machine;
+    }
+
+    if (gethostname(hostname, sizeof(hostname) - 1) != 0)
+        snprintf(hostname, sizeof(hostname), "unavailable");
+    hostname[sizeof(hostname) - 1] = '\0';
+
+#ifdef __linux__
+    {
+        struct sysinfo info;
+        if (sysinfo(&info) == 0) {
+            system_uptime = (int64_t)info.uptime;
+            total_ram = (uint64_t)info.totalram * info.mem_unit;
+            free_ram = (uint64_t)info.freeram * info.mem_unit;
+        }
+    }
+#endif
+
+    if (getloadavg(load_average, 3) == 3)
+        have_load_average = 1;
+
+    if (statvfs(R2_ROOT, &fs) == 0) {
+        have_fs = 1;
+        disk_total = (uint64_t)fs.f_blocks * fs.f_frsize;
+        disk_free = (uint64_t)fs.f_bavail * fs.f_frsize;
+    }
+
+    snprintf(summary, sizeof(summary),
+             "R2 system state snapshot%s%s",
+             reason && *reason ? ": " : "",
+             reason && *reason ? reason : "");
+
+    snprintf(details, sizeof(details),
+             "hostname=%s\n"
+             "os=%s\n"
+             "kernel=%s\n"
+             "machine=%s\n"
+             "process_id=%ld\n"
+             "process_elapsed_ms=%" PRIu64 "\n"
+             "system_uptime_seconds=%" PRId64 "\n"
+             "total_ram_bytes=%" PRIu64 "\n"
+             "free_ram_bytes=%" PRIu64 "\n"
+             "load_average_1m=%.2f\n"
+             "load_average_5m=%.2f\n"
+             "load_average_15m=%.2f\n"
+             "load_average_available=%s\n"
+             "workspace=%s\n"
+             "workspace_disk_total_bytes=%" PRIu64 "\n"
+             "workspace_disk_available_bytes=%" PRIu64 "\n"
+             "uname_available=%s\n"
+             "workspace_statvfs_available=%s\n",
+             hostname, os_name, kernel, machine, (long)getpid(),
+             r2_log_elapsed_ms(), system_uptime, total_ram, free_ram,
+             load_average[0], load_average[1], load_average[2],
+             have_load_average ? "yes" : "no",
+             R2_ROOT, disk_total, disk_free,
+             have_uts ? "yes" : "no", have_fs ? "yes" : "no");
+
+    event_id = r2_log_event(R2_LOG_SYSTEM, "system_snapshot",
+                            summary, details, "system_self_awareness");
+
+    if (event_id < 0)
+        return -1;
+
+    pthread_mutex_lock(&log_lock);
+
+    if (log_initialized && log_db) {
+        sqlite3_stmt *statement = NULL;
+
+        int rc = sqlite3_prepare_v2(
+            log_db,
+            "INSERT INTO r2_log_system_snapshots "
+            "(event_id, hostname, operating_system, kernel_release, machine, "
+            "process_id, process_elapsed_ms, system_uptime_seconds, "
+            "total_ram_bytes, free_ram_bytes, workspace_total_bytes, "
+            "workspace_free_bytes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);",
+            -1, &statement, NULL
+        );
+
+        if (rc == SQLITE_OK) {
+            sqlite3_bind_int64(statement, 1, event_id);
+            sqlite3_bind_text(statement, 2, hostname, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(statement, 3, os_name, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(statement, 4, kernel, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(statement, 5, machine, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int(statement, 6, (int)getpid());
+            sqlite3_bind_int64(statement, 7,
+                               (sqlite3_int64)r2_log_elapsed_ms());
+
+            if (system_uptime >= 0)
+                sqlite3_bind_int64(statement, 8, system_uptime);
+            else
+                sqlite3_bind_null(statement, 8);
+
+            if (total_ram)
+                sqlite3_bind_int64(statement, 9, (sqlite3_int64)total_ram);
+            else
+                sqlite3_bind_null(statement, 9);
+
+            if (free_ram)
+                sqlite3_bind_int64(statement, 10, (sqlite3_int64)free_ram);
+            else
+                sqlite3_bind_null(statement, 10);
+
+            if (have_fs) {
+                sqlite3_bind_int64(statement, 11, (sqlite3_int64)disk_total);
+                sqlite3_bind_int64(statement, 12, (sqlite3_int64)disk_free);
+            } else {
+                sqlite3_bind_null(statement, 11);
+                sqlite3_bind_null(statement, 12);
+            }
+
+            rc = sqlite3_step(statement);
+        }
+
+        sqlite3_finalize(statement);
+        pthread_mutex_unlock(&log_lock);
+
+        return rc == SQLITE_DONE ? 0 : -1;
+    }
+
+    pthread_mutex_unlock(&log_lock);
+    return -1;
+}
+
+/* ------------------------------------------------------------
+ * SEARCH / RECENT HISTORY
+ * ------------------------------------------------------------ */
+
+static int normalize_limit(int limit)
+{
+    if (limit <= 0)
+        return R2_LOG_DEFAULT_LIMIT;
+    if (limit > R2_LOG_MAX_LIMIT)
+        return R2_LOG_MAX_LIMIT;
+    return limit;
+}
+
+static int event_id_seen(const int64_t *ids, size_t count, int64_t id)
+{
+    for (size_t i = 0; i < count; ++i)
+        if (ids[i] == id) return 1;
+    return 0;
+}
 
 static char *query_events(const char *query, int limit)
 {
     sqlite3_stmt *statement = NULL;
+    sqlite3_stmt *link_statement = NULL;
     char *output = NULL;
     size_t length = 0;
     size_t capacity = 0;
+    int64_t seen_ids[512];
+    size_t seen_count = 0;
+    int linked_total = 0;
     int rc;
 
     limit = normalize_limit(limit);
@@ -1546,12 +2018,19 @@ static char *query_events(const char *query, int limit)
     );
 
     if (rc != SQLITE_OK) {
+        sqlite3_finalize(statement);
         pthread_mutex_unlock(&log_lock);
         return NULL;
     }
 
     if (query) {
         size_t qlen = strlen(query);
+        if (qlen > (SIZE_MAX - 3) / 2) {
+            sqlite3_finalize(statement);
+            pthread_mutex_unlock(&log_lock);
+            errno = E2BIG;
+            return NULL;
+        }
         char *pattern = malloc(qlen * 2 + 3);
 
         if (!pattern) {
@@ -1572,18 +2051,47 @@ static char *query_events(const char *query, int limit)
         pattern[p++] = '%';
         pattern[p] = '\0';
 
-        for (int i = 1; i <= 5; ++i)
-            sqlite3_bind_text(statement, i, pattern, -1, SQLITE_TRANSIENT);
+        for (int i = 1; i <= 5 && rc == SQLITE_OK; ++i)
+            rc = sqlite3_bind_text(statement, i, pattern, -1, SQLITE_TRANSIENT);
 
-        sqlite3_bind_int(statement, 6, limit);
+        if (rc == SQLITE_OK)
+            rc = sqlite3_bind_int(statement, 6, limit);
         free(pattern);
+        if (rc != SQLITE_OK) {
+            sqlite3_finalize(statement);
+            pthread_mutex_unlock(&log_lock);
+            return NULL;
+        }
     } else {
-        sqlite3_bind_int(statement, 1, limit);
+        rc = sqlite3_bind_int(statement, 1, limit);
+        if (rc != SQLITE_OK) {
+            sqlite3_finalize(statement);
+            pthread_mutex_unlock(&log_lock);
+            return NULL;
+        }
+    }
+
+    if (query) {
+        const char *sql_links =
+            "SELECT l.relationship, l.notes, e.id, e.category, e.event_type, "
+            "e.summary, e.details, e.source "
+            "FROM r2_log_links l JOIN r2_log_events e ON e.id = "
+            "CASE WHEN l.from_event_id = ? THEN l.to_event_id ELSE l.from_event_id END "
+            "WHERE l.from_event_id = ? OR l.to_event_id = ? "
+            "ORDER BY l.id DESC LIMIT 4;";
+        rc = sqlite3_prepare_v2(log_db, sql_links, -1, &link_statement, NULL);
+        if (rc != SQLITE_OK) {
+            sqlite3_finalize(statement);
+            sqlite3_finalize(link_statement);
+            pthread_mutex_unlock(&log_lock);
+            return NULL;
+        }
     }
 
     output = malloc(4096);
     if (!output) {
         sqlite3_finalize(statement);
+        sqlite3_finalize(link_statement);
         pthread_mutex_unlock(&log_lock);
         return NULL;
     }
@@ -1593,6 +2101,10 @@ static char *query_events(const char *query, int limit)
 
     while ((rc = sqlite3_step(statement)) == SQLITE_ROW) {
         int64_t id = sqlite3_column_int64(statement, 0);
+        int base_already_seen = query && event_id_seen(seen_ids, seen_count, id);
+        if (query && !base_already_seen &&
+            seen_count < sizeof(seen_ids) / sizeof(seen_ids[0]))
+            seen_ids[seen_count++] = id;
         const unsigned char *utc = sqlite3_column_text(statement, 1);
         const unsigned char *local = sqlite3_column_text(statement, 2);
         const unsigned char *category = sqlite3_column_text(statement, 3);
@@ -1602,6 +2114,7 @@ static char *query_events(const char *query, int limit)
         const unsigned char *source = sqlite3_column_text(statement, 7);
         int memory_saved = sqlite3_column_int(statement, 8);
 
+        if (!base_already_seen) {
         if (append_text(&output, &length, &capacity,
                         "[%" PRId64 "] %s | %s | %s/%s\n"
                         "  Summary: %s\n"
@@ -1633,6 +2146,99 @@ static char *query_events(const char *query, int limit)
             output = NULL;
             break;
         }
+
+        }
+
+        if (query && link_statement && linked_total < 8) {
+            sqlite3_reset(link_statement);
+            sqlite3_clear_bindings(link_statement);
+            int link_bind_rc = sqlite3_bind_int64(link_statement, 1, id);
+            if (link_bind_rc == SQLITE_OK)
+                link_bind_rc = sqlite3_bind_int64(link_statement, 2, id);
+            if (link_bind_rc == SQLITE_OK)
+                link_bind_rc = sqlite3_bind_int64(link_statement, 3, id);
+            if (link_bind_rc != SQLITE_OK) {
+                free(output);
+                output = NULL;
+                break;
+            }
+
+            int link_rc = SQLITE_OK;
+            int links_for_event = 0;
+            while ((link_rc = sqlite3_step(link_statement)) == SQLITE_ROW) {
+                int64_t linked_id = sqlite3_column_int64(link_statement, 2);
+                if (linked_id == id || event_id_seen(seen_ids, seen_count, linked_id))
+                    continue;
+                if (linked_total >= 8 || links_for_event >= 2)
+                    continue;
+                if (seen_count < sizeof(seen_ids) / sizeof(seen_ids[0]))
+                    seen_ids[seen_count++] = linked_id;
+
+                const unsigned char *relationship = sqlite3_column_text(link_statement, 0);
+                const unsigned char *notes = sqlite3_column_text(link_statement, 1);
+                const unsigned char *linked_category = sqlite3_column_text(link_statement, 3);
+                const unsigned char *linked_type = sqlite3_column_text(link_statement, 4);
+                const unsigned char *linked_summary = sqlite3_column_text(link_statement, 5);
+                const unsigned char *linked_details = sqlite3_column_text(link_statement, 6);
+                const unsigned char *linked_source = sqlite3_column_text(link_statement, 7);
+                int notes_length = sqlite3_column_bytes(link_statement, 1);
+                int summary_length = sqlite3_column_bytes(link_statement, 5);
+                int details_length = sqlite3_column_bytes(link_statement, 6);
+                if (notes_length > 400) notes_length = 400;
+                if (summary_length > 400) summary_length = 400;
+                if (details_length > 600) details_length = 600;
+
+                if (append_text(&output, &length, &capacity,
+                                "  Linked event [%" PRId64 "] via %s | %s/%s\n"
+                                "    Summary: %.*s\n"
+                                "    Source: %s\n",
+                                linked_id,
+                                relationship ? (const char *)relationship : "related",
+                                linked_category ? (const char *)linked_category : "unknown",
+                                linked_type ? (const char *)linked_type : "unknown",
+                                summary_length,
+                                linked_summary ? (const char *)linked_summary : "",
+                                linked_source ? (const char *)linked_source : "unspecified") != 0) {
+                    free(output);
+                    output = NULL;
+                    break;
+                }
+                if (notes && notes_length > 0 &&
+                    append_text(&output, &length, &capacity,
+                                "    Link notes: %.*s\n", notes_length,
+                                (const char *)notes) != 0) {
+                    free(output);
+                    output = NULL;
+                    break;
+                }
+                if (linked_details && details_length > 0 &&
+                    append_text(&output, &length, &capacity,
+                                "    Details: %.*s\n", details_length,
+                                (const char *)linked_details) != 0) {
+                    free(output);
+                    output = NULL;
+                    break;
+                }
+                if (append_text(&output, &length, &capacity, "\n") != 0) {
+                    free(output);
+                    output = NULL;
+                    break;
+                }
+                ++linked_total;
+                ++links_for_event;
+            }
+            if (!output) break;
+            if (link_rc != SQLITE_DONE) {
+                free(output);
+                output = NULL;
+                break;
+            }
+        }
+    }
+
+    if (rc != SQLITE_DONE) {
+        free(output);
+        output = NULL;
     }
 
     if (output && length == 0) {
@@ -1641,8 +2247,8 @@ static char *query_events(const char *query, int limit)
             : "The Life Log contains no events yet.\n";
         snprintf(output, capacity, "%s", empty);
     }
-
     sqlite3_finalize(statement);
+    sqlite3_finalize(link_statement);
     pthread_mutex_unlock(&log_lock);
     return output;
 }

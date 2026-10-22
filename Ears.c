@@ -392,7 +392,7 @@ static int r2_ears_source_exists(const char *source)
     if (!quoted_source)
         return 0;
 
-    snprintf(
+    int command_length = snprintf(
         command,
         sizeof(command),
         "pactl list short sources 2>/dev/null | "
@@ -401,6 +401,9 @@ static int r2_ears_source_exists(const char *source)
     );
 
     free(quoted_source);
+
+    if (command_length < 0 || (size_t)command_length >= sizeof(command))
+        return 0;
 
     pipe = popen(command, "r");
 
@@ -1071,6 +1074,9 @@ ssize_t r2_ears_read(
             r2_log_sensory("audio_read_failed",
                            "R2 Ears encountered a live audio capture error.",
                            pa_strerror(error), ears->event.source_name);
+            /* A failed Pulse/PipeWire read invalidates this stream. Close it
+               now so callers cannot accidentally keep treating it as usable. */
+            r2_ears_close(ears);
             return -1;
         }
 
