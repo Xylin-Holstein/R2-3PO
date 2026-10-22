@@ -98,16 +98,22 @@ class OllamaPreflightSmoke(unittest.TestCase):
         self.assertEqual(vision_payload["options"]["num_predict"], 512)
         self.assertIn("images", vision_payload["messages"][1])
 
-    def test_context_too_small_for_full_prompt_fails_before_inference(self) -> None:
-        errors = io.StringIO()
-        with patch.dict(probe.os.environ, {"R2_OLLAMA_NUM_CTX": "8192"}):
-            with patch.object(
-                probe, "_read_json",
-                return_value={"models": [{"name": "qwen3.5:9b"}]},
-            ) as read, contextlib.redirect_stderr(errors):
-                self.assertFalse(probe.preflight(timeout=1))
-        self.assertEqual(read.call_count, 1)
-        self.assertIn("cannot fit R2's complete static instructions", errors.getvalue())
+    def test_context_below_full_prompt_requirement_is_raised_before_inference(self) -> None:
+        replies = [
+            {"models": [{"name": "qwen3.5:9b"}]},
+            {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
+            {"done": True, "message": {"role": "assistant", "content": "{\"color\":\"blue\"}"}},
+            {"models": [{"name": "qwen3.5:9b", "size_vram": 123456}]},
+        ]
+        with patch.dict(probe.os.environ, {"R2_OLLAMA_NUM_CTX": "8192"}), \
+             patch.object(probe, "_read_json", side_effect=replies) as read, \
+             patch.object(probe.subprocess, "run", return_value=SimpleNamespace(
+                 returncode=0, stdout="Test GPU, 4096 MiB, 123 MiB", stderr=""
+             )):
+            self.assertTrue(probe.preflight(timeout=1))
+        payload = read.call_args_list[1].kwargs["payload"]
+        self.assertEqual(payload["options"]["num_ctx"], 12288)
+        self.assertEqual(payload["options"]["num_predict"], 2048)
 
     def test_overnight_endpoint_is_used_for_tags_chat_and_process_checks(self) -> None:
         replies = [
