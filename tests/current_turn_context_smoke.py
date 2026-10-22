@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 core = (ROOT / "r2.c").read_text(encoding="utf-8")
 
 recall_start = core.find("static int r2_query_explicitly_requests_recall(")
-recall_end = core.find("/* Clip only at a record boundary", recall_start)
+recall_end = core.find("/* Ask the same local model", recall_start)
 if recall_start < 0 or recall_end < 0:
     raise SystemExit("Could not isolate the explicit-recall detector.")
 recall_detector = core[recall_start:recall_end]
@@ -62,8 +62,8 @@ require(
 )
 require(
     '"CURRENT TURN RETRIEVED CONTEXT"' in priority_logic
-    and "return 2;" in priority_logic,
-    "retrieved evidence for the active turn outranks persistent learning and archived history",
+    and "return 4;" in priority_logic,
+    "retrieved evidence yields to full static capability instructions and outranks startup/learning memory",
 )
 require(
     '"R2 PERSISTENT MEMORY - STARTUP CONTEXT"' in priority_logic
@@ -82,7 +82,7 @@ require(
 )
 require(
     "r2_capability_section_matches_query(content, query)" in priority_logic
-    and "r2_query_matches_specific_capability(query) ? 4 : 3" in priority_logic,
+    and "r2_query_matches_specific_capability(query) ? 3 : 2" in priority_logic,
     "the active user request selects the relevant capability section ahead of generic capability guidance",
 )
 system_start = core.find("static const char r2_conversation_system_prompt[]")
@@ -121,7 +121,7 @@ require(
 )
 imagination = (ROOT / "Imagination.c").read_text(encoding="utf-8")
 require(
-    "r2_recent_conversation_context(NULL, 1800)" in imagination,
+    "r2_recent_conversation_context(NULL, MAX_LIVE_MESSAGE_BYTES)" in imagination,
     "Imagination retains the current user turn instead of excluding a matching scenario string",
 )
 require(
