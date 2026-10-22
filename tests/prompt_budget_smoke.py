@@ -50,6 +50,11 @@ for required in (
     "AFFECT AND NONVERBAL EXPRESSION:",
     "Never infer that a human message is an internal handoff",
     "If the user says YOUR prior message",
+    "For ordinary grammatical typed messages, do not default to a generic statement such as",
+    "answer what is clear and ask one focused question only when a specific necessary detail is genuinely missing.",
+    "Treat each message as a turn in an ongoing conversation.",
+    "Use the relationship information learned from persistent memory and the current conversation.",
+    "The current message takes priority over retrieved history.",
 ):
     if required not in conversation_prompt:
         raise SystemExit(f"Restored conversation prompt is missing: {required}")
