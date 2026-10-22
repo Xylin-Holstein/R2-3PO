@@ -456,7 +456,6 @@ PREFLIGHT_GPU_ARGS=()
 if [[ "$NVIDIA_QUERY_OK" == "1" ]] &&
    printf '%s\n' "$NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
     PREFLIGHT_GPU=8
-    PREFLIGHT_CTX=4096
     PREFLIGHT_POLICY_DEFAULTED=1
 fi
 if [[ "$NVIDIA_PCI_PRESENT" == "1" || "$PREFLIGHT_GPU" != "0" ]]; then
