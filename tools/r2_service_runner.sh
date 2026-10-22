@@ -174,9 +174,9 @@ if ! python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 60 --ti
     # enough context for R2's conversation prompt and current user turn.
     if [[ "$R2_OLLAMA_NUM_GPU_DEFAULTED" == "1" &&
           "$R2_OLLAMA_NUM_CTX_DEFAULTED" == "1" ]]; then
-        log "Default GPU/context preflight failed; retrying with 4 GPU layers and 4096 context tokens."
+        log "Default GPU/context preflight failed; retrying with 4 GPU layers and 8192 context tokens."
         export R2_OLLAMA_NUM_GPU=4
-        export R2_OLLAMA_NUM_CTX=4096
+        export R2_OLLAMA_NUM_CTX=8192
         log "Fallback Ollama policy: R2_OLLAMA_NUM_GPU=$R2_OLLAMA_NUM_GPU R2_OLLAMA_NUM_CTX=$R2_OLLAMA_NUM_CTX"
         python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 30 --timeout 180 "${PREFLIGHT_GPU_ARGS[@]}" ||
             fail "Ollama preflight failed with both default and conservative GPU/context policies. Check model/server logs; systemd will retry automatically."
