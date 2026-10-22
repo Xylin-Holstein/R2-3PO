@@ -1055,10 +1055,10 @@ static int message_add_pinned(
     );
 }
 
-/* Split the full static prompt at a semantic boundary. The identity/memory
-   contract is always prioritized; the action/tool subsystem guidance is a
-   separate lower-priority message so it can yield to the active turn's
-   retrieved memories without truncating the identity block halfway through. */
+/* Split the full static prompt at semantic boundaries so each complete
+   section can be allocated without byte-truncating its instructions. The
+   request allocator reserves the complete pinned instruction set and active
+   turn first; if the selected context cannot hold them, inference does not run. */
 static int message_add_system_prompt_sections_locked(void)
 {
     static const char *const section_markers[] = {
