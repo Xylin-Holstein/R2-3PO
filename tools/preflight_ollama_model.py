@@ -277,24 +277,43 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
         if 2048 <= requested_context <= 16384:
             context_tokens = min(context_tokens, requested_context)
 
-    num_predict = (
-        4096 if context_tokens >= 16384 else
-        2048 if context_tokens >= 12288 else
-        1024 if context_tokens >= 8192 else
-        512 if context_tokens >= 4096 else 256
-    )
     try:
         static_messages = _full_static_instruction_messages()
     except (OSError, UnicodeError, ValueError) as exc:
         print(f"ERROR: Could not load R2's full production instructions for preflight: {exc}", file=sys.stderr)
         return False
-    required_static_chars = sum(len(message["content"]) for message in static_messages)
-    input_budget_chars = max(0, context_tokens - num_predict - 512) * 32 // 10
-    if required_static_chars + 1500 > input_budget_chars:
+
+    required_static_chars = sum(len(message["content"]) for message in static_messages) + 1500
+    def output_budget_for(context: int) -> int:
+        return (
+            4096 if context >= 16384 else
+            2048 if context >= 12288 else
+            1024 if context >= 8192 else
+            512 if context >= 4096 else 256
+        )
+
+    def input_budget_for(context: int) -> int:
+        output = output_budget_for(context)
+        return max(0, context - output - 512) * 32 // 10
+
+    # Context selection must account for the exact decoded production prompts.
+    # Do not make a lower RAM tier or explicit smaller setting silently omit
+    # R2's identity/conversation instructions from the real inference request.
+    if required_static_chars > input_budget_for(context_tokens):
+        for candidate in (4096, 8192, 12288, 16384):
+            if candidate < context_tokens:
+                continue
+            if required_static_chars <= input_budget_for(candidate):
+                context_tokens = candidate
+                break
+
+    num_predict = output_budget_for(context_tokens)
+    input_budget_chars = input_budget_for(context_tokens)
+    if required_static_chars > input_budget_chars:
         print(
-            "ERROR: Selected Ollama context cannot fit R2's complete static instructions "
+            "ERROR: Even the maximum supported Ollama context cannot fit R2's complete static instructions "
             f"plus active-turn headroom (context={context_tokens}, output={num_predict}, "
-            f"required_chars={required_static_chars + 1500}, available_chars={input_budget_chars}).",
+            f"required_chars={required_static_chars}, available_chars={input_budget_chars}).",
             file=sys.stderr,
         )
         return False
