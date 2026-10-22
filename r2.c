@@ -5533,19 +5533,6 @@ static char *chat_with_relevant_memories(
             }
 
             size_t found_length = strlen(found);
-            size_t found_limit = explicit_recall ? 3500 : 1800;
-            if (found_length > found_limit) {
-                /* Keep complete event records when bounding each search result. */
-                size_t cut = found_limit;
-                while (cut > 1 &&
-                       !(found[cut - 1] == '\n' && found[cut - 2] == '\n'))
-                    --cut;
-                if (cut <= 1) {
-                    free(found);
-                    continue;
-                }
-                found_length = cut;
-            }
             if (r2_history_append_unique_records(
                     &history, &history_length, history_char_limit,
                     found, found_length) != 0) {
@@ -5583,7 +5570,7 @@ static char *chat_with_relevant_memories(
         extract_memory_keywords(associative_query, associated_keywords);
 
     char *diary_matches = r2_collect_associated_records(
-        associated_keywords, associated_count, r2_diary_search, 1400);
+        associated_keywords, associated_count, r2_diary_search, MAX_LIVE_MESSAGE_BYTES);
     if (diary_matches && *diary_matches)
         r2_append_association_section(
             &memory_context,
@@ -5593,7 +5580,7 @@ static char *chat_with_relevant_memories(
 
     if (r2_visual_is_initialized()) {
         char *visual_matches = r2_collect_associated_records(
-            associated_keywords, associated_count, r2_visual_search, 1400);
+            associated_keywords, associated_count, r2_visual_search, MAX_LIVE_MESSAGE_BYTES);
         if (visual_matches && *visual_matches)
             r2_append_association_section(
                 &memory_context,
@@ -10528,16 +10515,22 @@ static char *build_learning_context(void)
 {
     char *reward = r2_reward_context();
     char *addiction = r2_addiction_report();
-    size_t cap = 2400;
-    char *context = malloc(cap);
-    if (context) {
-        snprintf(context, cap,
-            "PERSISTENT LEARNING CONTEXT\n"
-            "REWARD/REINFORCEMENT SUMMARY:\n%.900s\n\n"
-            "REPEATED-INTEREST SUMMARY:\n%.900s\n",
-            reward ? reward : "(reinforcement context unavailable)",
-            addiction ? addiction : "(repeated-interest history unavailable)");
+    const char *reward_text = reward ? reward : "(reinforcement context unavailable)";
+    const char *addiction_text = addiction ? addiction : "(repeated-interest history unavailable)";
+    const char *format =
+        "PERSISTENT LEARNING CONTEXT\n"
+        "REWARD/REINFORCEMENT SUMMARY:\n%s\n\n"
+        "REPEATED-INTEREST SUMMARY:\n%s\n";
+    int needed = snprintf(NULL, 0, format, reward_text, addiction_text);
+    if (needed < 0) {
+        free(reward);
+        free(addiction);
+        return NULL;
     }
+    size_t capacity = (size_t)needed + 1U;
+    char *context = malloc(capacity);
+    if (context)
+        snprintf(context, capacity, format, reward_text, addiction_text);
     free(reward);
     free(addiction);
     return context;
