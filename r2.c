@@ -3493,17 +3493,16 @@ static char *ollama_chat_with_limit(
         size_t query_length = strlen(ollama_authoritative_user_query);
         if (query_length > active_turn_reserve)
             active_turn_reserve = query_length;
-    } else {
-        for (size_t i = count; i > 0; --i) {
-            const Message *m = &msgs[i - 1];
-            if (!m->role || strcmp(m->role, "user") != 0 ||
-                r2_is_internal_tool_result(m))
-                continue;
-            size_t current_length = m->content ? strlen(m->content) : 0;
-            if (current_length > active_turn_reserve)
-                active_turn_reserve = current_length;
-            break;
-        }
+    }
+    for (size_t i = count; i > 0; --i) {
+        const Message *m = &msgs[i - 1];
+        if (!m->role || strcmp(m->role, "user") != 0 ||
+            r2_is_internal_tool_result(m))
+            continue;
+        size_t current_length = m->content ? strlen(m->content) : 0;
+        if (current_length > active_turn_reserve)
+            active_turn_reserve = current_length;
+        break;
     }
     if (required_chars > SIZE_MAX - active_turn_reserve) {
         json_object_put(root);
