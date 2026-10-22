@@ -188,22 +188,18 @@ require(
 )
 
 require(
-    "budget.identity_budget = system_budget / 3;" in core
-    and "budget.retrieval_reserve = system_budget / 8;" in core
-    and "budget.capabilities_reserve = system_budget / 16;" in core
-    and "message_add_system_prompt_sections_locked() != 0" in core
-    and "return 7;" in core
-    and "r2_compute_system_context_budget(system_budget)" in core
-    and "length > reality_reserve" in core
-    and "length > retrieval_reserve" in core
-    and "capabilities_reserve > capabilities_used" in core
-    and "capability_remaining" in core
+    "size_t input_budget = (size_t)(num_ctx - num_predict - 512) * 32U / 10U;" in core
+    and "size_t system_budget = input_budget > current_user_reserve + 500" in core
+    and "size_t total_chars = override_length;" in core
+    and "for (int priority = 0; priority < 8" in core
     and "r2_capability_section_matches_query" in core
-    and "r2_inference_system_priority(" in core
-    and "ollama_authoritative_user_query" in core
-    and "Prefer a complete sentence boundary when the cap falls inside the" in core
-    and "system_budget - reality_reserve - identity_minimum" not in core,
-    "adaptive context budgeting preserves core identity, live Reality, retrieved memory, and a separate capability prompt",
+    and "CURRENT TURN RETRIEVED CONTEXT" in core
+    and "return 4;" in core[core.find('if (!strncmp(content, "CURRENT TURN RETRIEVED CONTEXT"'):],
+    and "budget.identity_budget" not in core
+    and "budget.capabilities_reserve" not in core
+    and "r2_compute_system_context_budget(system_budget)" not in core
+    and "if (override_length > override_budget)" not in core,
+    "context allocation follows the actual Ollama window and preserves full static instructions ahead of variable retrieved evidence",
 )
 require(
     "Return ONLY valid JSON with keys description and focus" in visual
