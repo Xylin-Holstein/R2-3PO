@@ -43,6 +43,8 @@ assert "r2_minimum_full_prompt_context()" in core
 assert "safe_max = minimum_prompt_context;" in core
 assert "static int r2_minimum_full_prompt_context(void)" in core
 assert "R2 instruction set requires the larger input window." in core
+assert "msgs[i].pinned && priority <= 3" in core
+assert "a complete mandatory static instruction section" in core
 assert "required_static_chars = sum(len(message[\"content\"]) for message in static_messages) + 1500" in (ROOT / "tools/preflight_ollama_model.py").read_text(encoding="utf-8")
 assert "if (num_predict < 1) num_predict = max_predict;" in core, "default output allocation must use the full context-derived ceiling"
 assert "int max_predict = num_ctx >= 16384 ? 4096 :" in core
