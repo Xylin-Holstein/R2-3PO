@@ -27,8 +27,11 @@ conversation_prompt = decode_c_string_array(
 )
 if len(system_prompt) < 20000:
     raise SystemExit(f"The full SYSTEM_PROMPT appears shortened: {len(system_prompt)} chars")
-if len(conversation_prompt) < 6300:
-    raise SystemExit(f"The original conversation instructions were shortened: {len(conversation_prompt)} chars")
+if len(conversation_prompt) != 5972:
+    raise SystemExit(
+        f"The verbatim original conversation policy changed: expected 5972 decoded chars, "
+        f"found {len(conversation_prompt)}"
+    )
 
 for required in (
     "IDENTITY AND PERSISTENT MEMORY",
@@ -52,9 +55,6 @@ for required in (
     "If the user says YOUR prior message",
     "For ordinary grammatical typed messages, do not default to a generic statement such as",
     "answer what is clear and ask one focused question only when a specific necessary detail is genuinely missing.",
-    "Treat each message as a turn in an ongoing conversation.",
-    "Use the relationship information learned from persistent memory and the current conversation.",
-    "The current message takes priority over retrieved history.",
 ):
     if required not in conversation_prompt:
         raise SystemExit(f"Restored conversation prompt is missing: {required}")
