@@ -14,63 +14,46 @@
 #include <ctype.h>
 #include <pthread.h>
 #include <stdint.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 
-#define IMAGINE_REQUEST_MAX 1200
-#define IMAGINE_CONTEXT_MAX 6100
-#define IMAGINE_CONTEXT_SECTION_MAX 540
-
 static pthread_mutex_t imagination_lock = PTHREAD_MUTEX_INITIALIZER;
 static int imagination_ready;
 
-typedef struct {
-    char *data;
-    size_t length;
-    size_t capacity;
-} ImagineBuffer;
+typedef struct { char *data; size_t length; size_t capacity; } ImagineBuffer;
 
-static int buffer_append(ImagineBuffer *b, const char *text, size_t limit)
+static int buffer_append(ImagineBuffer *b, const char *text)
 {
-    if (!b || !text || !*text || b->length >= IMAGINE_CONTEXT_MAX)
-        return 0;
-    size_t n = strnlen(text, limit);
-    if (n > IMAGINE_CONTEXT_MAX - b->length)
-        n = IMAGINE_CONTEXT_MAX - b->length;
-    if (!n) return 0;
-    size_t needed = b->length + n + 1;
+    if (!b || !text || !*text) return 0;
+    size_t n = strlen(text);
+    if (n > SIZE_MAX - b->length - 1U) return -1;
+    size_t needed = b->length + n + 1U;
     if (needed > b->capacity) {
-        size_t cap = b->capacity ? b->capacity : 4096;
+        size_t cap = b->capacity ? b->capacity : 4096U;
         while (cap < needed) {
-            if (cap > IMAGINE_CONTEXT_MAX / 2) {
-                cap = IMAGINE_CONTEXT_MAX + 1;
-                break;
-            }
-            cap *= 2;
+            if (cap > SIZE_MAX / 2U) { cap = needed; break; }
+            cap *= 2U;
         }
         char *grown = realloc(b->data, cap);
         if (!grown) return -1;
-        b->data = grown;
-        b->capacity = cap;
+        b->data = grown; b->capacity = cap;
     }
     memcpy(b->data + b->length, text, n);
-    b->length += n;
-    b->data[b->length] = '\0';
+    b->length += n; b->data[b->length] = '\0';
     return 0;
 }
 
-static int append_source(ImagineBuffer *b, const char *label,
-                         const char *content)
+static int append_source(ImagineBuffer *b, const char *label, const char *content)
 {
-    if (!content || !*content || b->length >= IMAGINE_CONTEXT_MAX)
-        return 0;
+    if (!content || !*content) return 0;
     char heading[192];
-    snprintf(heading, sizeof(heading), "\n\n--- %s ---\n", label);
-    if (buffer_append(b, heading, sizeof(heading) - 1) != 0)
-        return -1;
-    return buffer_append(b, content, IMAGINE_CONTEXT_SECTION_MAX);
+    int n = snprintf(heading, sizeof(heading), "\n\n--- %s ---\n", label);
+    if (n < 0 || (size_t)n >= sizeof(heading)) return -1;
+    if (buffer_append(b, heading) != 0) return -1;
+    return buffer_append(b, content);
 }
 
 static int mentions_any(const char *text, const char *const *terms, size_t count)
@@ -94,17 +77,17 @@ static char *collect_context(const char *request)
     part = r2_recent_conversation_context(NULL, R2_MAX_LIVE_MESSAGE_BYTES);
     if (part) { append_source(&b, "RECENT CONVERSATION (human-facing turns; tool payloads excluded)", part); free(part); }
 
-    part = r2_diary_search(request, 5);
+    part = r2_diary_search(request, INT_MAX);
     if (part) { append_source(&b, "PRIVATE DIARY (past reflections; not automatically factual)", part); free(part); }
 
-    part = r2_log_search(request, 6);
+    part = r2_log_search(request, INT_MAX);
     if (part) { append_source(&b, "LIFE LOG (historical events and linked experience)", part); free(part); }
 
     part = r2_reality_context();
     if (part) { append_source(&b, "CURRENT MODELED REALITY (state snapshot; use only where relevant)", part); free(part); }
 
     if (r2_visual_is_initialized()) {
-        part = r2_visual_search(request, 4);
+        part = r2_visual_search(request, INT_MAX);
         if (part) { append_source(&b, "VISUAL EXPERIENCE LIBRARY (historical sensory evidence)", part); free(part); }
     }
 
@@ -114,7 +97,7 @@ static char *collect_context(const char *request)
     part = r2_addiction_report();
     if (part) { append_source(&b, "HABIT AND ENJOYMENT HISTORY (recorded patterns, not diagnosis)", part); free(part); }
 
-    part = r2_altself_list(6);
+    part = r2_altself_list(INT_MAX);
     if (part) { append_source(&b, "CHOICE LAB (older hypothetical branches; never factual evidence)", part); free(part); }
 
     /* The fridge is a specialized, conditional source—not the definition of
@@ -159,7 +142,7 @@ void r2_imagination_shutdown(void)
 
 char *r2_imagination_create(const char *request)
 {
-    if (!request || !*request || strlen(request) > IMAGINE_REQUEST_MAX)
+    if (!request || !*request)
         return NULL;
 
     pthread_mutex_lock(&imagination_lock);
@@ -190,7 +173,13 @@ char *r2_imagination_create(const char *request)
         "and what remains invented or uncertain. Never reproduce raw internal "
         "database dumps, labels, or full memory records as the answer.";
 
-    size_t prompt_size = strlen(request) + strlen(context) + 512;
+    size_t request_length = strlen(request);
+    size_t context_length = strlen(context);
+    if (request_length > SIZE_MAX - context_length - 512U) {
+        free(context);
+        return NULL;
+    }
+    size_t prompt_size = request_length + context_length + 512U;
     char *prompt = malloc(prompt_size);
     if (!prompt) { free(context); return NULL; }
     snprintf(prompt, prompt_size,
@@ -210,19 +199,25 @@ char *r2_imagination_create(const char *request)
 
     /* Persist through the existing Choice Lab / Life Log. No parallel memory
        database is created, and the generated scene is never a factual memory. */
-    char assumptions[4600];
-    snprintf(assumptions, sizeof(assumptions),
+    static const char assumption_template[] =
         "IMAGINATION RECORD — hypothetical only; not a real event, observation, "
-        "or belief update. Request: %.900s\n"
+        "or belief update. Request: %s\\n"
         "Context sources retrieved before generation: persistent memory; private "
         "diary; Life Log; current modeled Reality; visual experience library when "
         "available; reward/learned feedback state; habit/enjoyment history; "
         "Choice Lab. Fridge state was conditionally retrieved only for a food/"
-        "inventory-related request. Full context was supplied to the imagination "
-        "model but is intentionally not duplicated into this record.\n"
+        "inventory-related request. Full context supplied to the imagination model "
+        "is preserved below in full.\\n"
         "Learning rule: inaccurate imagination is not punished; accuracy feedback "
-        "must be evidence-based.\nRelevant retrieved context snapshot (abbreviated): %.2300s",
-        request, context);
+        "must be evidence-based.\\nFull retrieved context:\\n%s";
+    if (request_length > SIZE_MAX - context_length ||
+        request_length + context_length > SIZE_MAX - sizeof(assumption_template)) {
+        free(generated); free(context); return NULL;
+    }
+    size_t assumption_size = request_length + context_length + sizeof(assumption_template);
+    char *assumptions = malloc(assumption_size);
+    if (!assumptions) { free(generated); free(context); return NULL; }
+    snprintf(assumptions, assumption_size, assumption_template, request, context);
 
     int64_t branch = r2_altself_create(
         "Imagination: scenario",
@@ -232,6 +227,7 @@ char *r2_imagination_create(const char *request)
         generated,
         0);
 
+    free(assumptions);
     if (branch < 1) {
         free(generated);
         free(context);
@@ -275,16 +271,24 @@ int r2_imagination_feedback(long long branch_id, const char *assessment,
         return -1;
     }
 
-    char details[2400];
-    snprintf(details, sizeof(details),
+    const char *feedback_notes = notes && *notes ? notes : "(none)";
+    static const char details_template[] =
         "Imagination branch #%lld received explicit feedback: %s. "
-        "Feedback notes: %.1200s. Incorrect or unresolved imagination is "
-        "not punished and does not invalidate the act of exploring a possibility.",
-        branch_id, assessment, notes && *notes ? notes : "(none)");
+        "Feedback notes: %s. Incorrect or unresolved imagination is "
+        "not punished and does not invalidate the act of exploring a possibility.";
+    size_t assessment_length = strlen(assessment), notes_length = strlen(feedback_notes);
+    if (assessment_length > SIZE_MAX - notes_length ||
+        assessment_length + notes_length > SIZE_MAX - sizeof(details_template) - 64U)
+        return -1;
+    size_t details_size = assessment_length + notes_length + sizeof(details_template) + 64U;
+    char *details = malloc(details_size);
+    if (!details) return -1;
+    snprintf(details, details_size, details_template, branch_id, assessment, feedback_notes);
 
     int64_t event_id = r2_log_event(R2_LOG_HYPOTHETICAL,
         "imagination_feedback", "Feedback recorded for a hypothetical imagination.",
         details, "Imagination.c");
+    free(details);
     free(branch);
     if (event_id < 0) return -1;
     (void)r2_altself_link_event((int64_t)branch_id, event_id,
