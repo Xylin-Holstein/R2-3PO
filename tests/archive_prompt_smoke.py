@@ -6,6 +6,23 @@ ROOT = Path(__file__).resolve().parents[1]
 core = (ROOT / "r2.c").read_text(encoding="utf-8")
 reward = (ROOT / "Reward.c").read_text(encoding="utf-8")
 
+# An archive read must not report a partial fread as a complete conversation.
+reader_start = core.find("static char *read_entire_file(const char *path)")
+reader_end = core.find("\n\n/* ============================================================\n   TIME", reader_start)
+if reader_start < 0 or reader_end < 0:
+    raise SystemExit("Could not locate the complete-file reader.")
+reader = core[reader_start:reader_end]
+for marker in (
+    "fseek(f, 0, SEEK_SET) != 0",
+    "size_t expected = (size_t)n",
+    "got != expected || ferror(f)",
+    "fclose(f) != 0",
+    "if (read_failed || close_failed)",
+    "free(buf);",
+):
+    if marker not in reader:
+        raise SystemExit(f"Archived conversation reader does not reject incomplete reads: {marker}")
+
 bad_fragments = (
     "I have read the archived conversation as ",
     "I will evaluate identity ",
