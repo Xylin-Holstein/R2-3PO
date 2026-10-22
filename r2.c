@@ -3019,7 +3019,7 @@ static int r2_context_for_required_chars(size_t required_chars, int current_cont
         if (required_chars <= r2_context_input_budget_chars(candidate))
             return candidate;
     }
-    return current_context;
+    return current_context < 16384 ? 16384 : current_context;
 }
 
 int r2_ollama_context_tokens(void)
