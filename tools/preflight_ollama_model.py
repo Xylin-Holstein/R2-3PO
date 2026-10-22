@@ -300,12 +300,14 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
     # Do not make a lower RAM tier or explicit smaller setting silently omit
     # R2's identity/conversation instructions from the real inference request.
     if required_static_chars > input_budget_for(context_tokens):
+        selected_context = None
         for candidate in (4096, 8192, 12288, 16384):
             if candidate < context_tokens:
                 continue
             if required_static_chars <= input_budget_for(candidate):
-                context_tokens = candidate
+                selected_context = candidate
                 break
+        context_tokens = selected_context if selected_context is not None else 16384
 
     num_predict = output_budget_for(context_tokens)
     input_budget_chars = input_budget_for(context_tokens)
