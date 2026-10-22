@@ -19,6 +19,11 @@ import preflight_ollama_model as probe  # noqa: E402
 
 
 class OllamaPreflightSmoke(unittest.TestCase):
+    def setUp(self) -> None:
+        context_patcher = patch.object(probe, "_adaptive_context_tokens", return_value=16384)
+        context_patcher.start()
+        self.addCleanup(context_patcher.stop)
+
     def test_model_and_real_chat_completion_are_required(self) -> None:
         replies = [
             {"models": [{"name": "qwen3.5:9b"}]},
@@ -95,10 +100,12 @@ class OllamaPreflightSmoke(unittest.TestCase):
 
     def test_context_too_small_for_full_prompt_fails_before_inference(self) -> None:
         errors = io.StringIO()
-        with patch.dict(probe.os.environ, {"R2_OLLAMA_NUM_CTX": "8192"}), \\
-             patch.object(probe, "_read_json", return_value={"models": [{"name": "qwen3.5:9b"}]}) as read, \\
-             contextlib.redirect_stderr(errors):
-            self.assertFalse(probe.preflight(timeout=1))
+        with patch.dict(probe.os.environ, {"R2_OLLAMA_NUM_CTX": "8192"}):
+            with patch.object(
+                probe, "_read_json",
+                return_value={"models": [{"name": "qwen3.5:9b"}]},
+            ) as read, contextlib.redirect_stderr(errors):
+                self.assertFalse(probe.preflight(timeout=1))
         self.assertEqual(read.call_count, 1)
         self.assertIn("cannot fit R2's complete static instructions", errors.getvalue())
 
