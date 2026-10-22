@@ -192,8 +192,9 @@ retrieved_priority = core[retrieved_priority_start:retrieved_priority_start + 22
 
 require(
     "size_t input_budget = (size_t)(num_ctx - num_predict - 512) * 32U / 10U;" in core
-    and "size_t system_budget = input_budget > current_user_reserve + 500" in core
+    and "size_t system_budget = input_budget > current_user_reserve" in core
     and "size_t total_chars = override_length;" in core
+    and "if (length > remaining) continue;" in core
     and "for (int priority = 0; priority < 8" in core
     and "r2_capability_section_matches_query" in core
     and "CURRENT TURN RETRIEVED CONTEXT" in core
