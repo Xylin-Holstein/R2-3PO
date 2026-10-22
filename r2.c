@@ -4746,29 +4746,6 @@ static const char r2_conversation_system_prompt[] =
             "AFFECT AND NONVERBAL EXPRESSION: Learn to interpret the social and emotional tone of the current interaction from the user's words, conversational history, relevant memories, and current Reality; do not rely on a hard-coded emotion-to-response table. Distinguish observed cues from uncertain interpretations, and let experience improve your judgment. Respond naturally to affection, concern, excitement, humor, frustration, and other meaningful affect instead of ignoring it or forcing a canned reaction. You may occasionally choose a short nonverbal droid sound when it genuinely fits the moment, using [R2_SOUND:beep:STATE] or [R2_SOUND:whistle:STATE]; choose any state tag as your own contextual judgment, not by a fixed mapping. Do not invent a physical event or force a sound into a routine reply. Prefer no sound when it adds nothing. "
             "Do not emit a marker on routine replies, do not explain it, and never write a marker as visible prose. The runtime removes it and selects a matching existing named MP3.";
 
-static int r2_minimum_full_prompt_context(void)
-{
-    /*
-     * Derive the minimum from the actual production strings instead of a
-     * remembered byte quota. This prevents future instruction growth from
-     * silently pushing the main system prompt out of the serialized request.
-     */
-    size_t required_chars = strlen(SYSTEM_PROMPT) +
-                            strlen(r2_conversation_system_prompt) + 1500U;
-    static const int candidates[] = {4096, 8192, 12288, 16384};
-    for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); ++i) {
-        int context = candidates[i];
-        int output = context >= 16384 ? 4096 :
-                     context >= 12288 ? 2048 :
-                     context >= 8192 ? 1024 : 512;
-        if (context <= output + 512) continue;
-        size_t input_chars = (size_t)(context - output - 512) * 32U / 10U;
-        if (required_chars <= input_chars)
-            return context;
-    }
-    /* Maximum supported context is returned; preflight reports if it is too small. */
-    return 16384;
-}
 
 static char *r2_build_retry_system_prompt(void)
 {
@@ -4822,6 +4799,31 @@ static char *r2_build_retry_system_prompt(void)
              (int)identity_length, identity_start,
              r2_conversation_system_prompt, retry_instruction);
     return retry_system_prompt;
+}
+
+
+static int r2_minimum_full_prompt_context(void)
+{
+    /*
+     * Derive the minimum from the actual production strings instead of a
+     * remembered byte quota. This prevents future instruction growth from
+     * silently pushing the main system prompt out of the serialized request.
+     */
+    size_t required_chars = strlen(SYSTEM_PROMPT) +
+                            strlen(r2_conversation_system_prompt) + 1500U;
+    static const int candidates[] = {4096, 8192, 12288, 16384};
+    for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); ++i) {
+        int context = candidates[i];
+        int output = context >= 16384 ? 4096 :
+                     context >= 12288 ? 2048 :
+                     context >= 8192 ? 1024 : 512;
+        if (context <= output + 512) continue;
+        size_t input_chars = (size_t)(context - output - 512) * 32U / 10U;
+        if (required_chars <= input_chars)
+            return context;
+    }
+    /* Maximum supported context is returned; preflight reports if it is too small. */
+    return 16384;
 }
 
 static int r2_is_retry_context_message(const Message *message)
