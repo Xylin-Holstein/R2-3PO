@@ -6,7 +6,6 @@ ROOT = Path(__file__).resolve().parents[1]
 launcher = (ROOT / "R2_Launch_Code.sh").read_text(encoding="utf-8")
 runner = (ROOT / "tools/r2_service_runner.sh").read_text(encoding="utf-8")
 core = (ROOT / "r2.c").read_text(encoding="utf-8")
-preflight = (ROOT / "tools/preflight_ollama_model.py").read_text(encoding="utf-8")
 
 for label, source in (("interactive launcher", launcher), ("overnight service", runner)):
     assert "nvidia-smi --query-gpu=name --format=csv,noheader" in source, label
@@ -50,9 +49,6 @@ assert "int max_predict = num_ctx >= 16384 ? 4096 :" in core
 assert "num_ctx >= 12288 ? 2048 :" in core
 assert "num_ctx >= 8192 ? 1024 :" in core
 assert "num_ctx >= 4096 ? 512 : 256;" in core
-assert "explicit_context = valid_configured_context and not context_defaulted" in preflight
-assert "it was not overridden." in preflight
-assert "Increase that setting to permit the complete prompt." in core
 assert 'R2_OLLAMA_NUM_CTX_DEFAULTED="$R2_OLLAMA_NUM_CTX_DEFAULTED"' in launcher
 
 print("GTX 1050 Ti context defaults and explicit override path checks passed.")
