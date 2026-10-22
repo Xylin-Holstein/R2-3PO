@@ -10,7 +10,10 @@ core = (ROOT / "r2.c").read_text(encoding="utf-8")
 for label, source in (("interactive launcher", launcher), ("overnight service", runner)):
     assert "nvidia-smi --query-gpu=name --format=csv,noheader" in source, label
     assert "grep -qi 'GTX 1050 Ti'" in source, label
-    assert "R2 will select context from available RAM headroom" in source, label
+    if label == "interactive launcher":
+        assert "R2 will select context from available RAM headroom" in source, label
+    else:
+        assert "memory-aware context allocation" in source, label
     assert "export R2_OLLAMA_NUM_GPU=8" in source, label
     assert '[[ -z "${R2_OLLAMA_NUM_CTX:-}" && "$R2_NVIDIA_QUERY_OK" == "1" ]]' in source, label
 assert '"R2_OLLAMA_NUM_CTX=${R2_OLLAMA_NUM_CTX:-}"' in runner
@@ -18,7 +21,7 @@ for label, source in (("interactive launcher", launcher), ("overnight service", 
     assert '"$R2_OLLAMA_NUM_GPU_DEFAULTED" == "1" &&' in source, label
     assert '"$R2_OLLAMA_NUM_CTX_DEFAULTED" == "1" ]]; then' in source, label
     assert "export R2_OLLAMA_NUM_GPU=4" in source, label
-    assert "R2 will select context from available RAM headroom" in source, label
+    assert "export R2_OLLAMA_NUM_CTX=8192" in source, label
 assert "without overriding explicit operator settings" in launcher
 assert "Never silently override an explicit operator policy" in runner
 assert 'R2_OLLAMA_NUM_CTX_DEFAULTED="${R2_OLLAMA_NUM_CTX_DEFAULTED:-0}"' in runner
