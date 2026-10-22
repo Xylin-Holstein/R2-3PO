@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Keep the target 4 GiB GPU's default context within a safer KV-cache budget."""
+"""Keep the full R2 instructions in the reduced-GPU context fallback."""
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,7 +21,7 @@ for label, source in (("interactive launcher", launcher), ("overnight service", 
     assert '"$R2_OLLAMA_NUM_GPU_DEFAULTED" == "1" &&' in source, label
     assert '"$R2_OLLAMA_NUM_CTX_DEFAULTED" == "1" ]]; then' in source, label
     assert "export R2_OLLAMA_NUM_GPU=4" in source, label
-    assert "export R2_OLLAMA_NUM_CTX=8192" in source, label
+    assert "export R2_OLLAMA_NUM_CTX=12288" in source, label
 assert "without overriding explicit operator settings" in launcher
 assert "Never silently override an explicit operator policy" in runner
 assert 'R2_OLLAMA_NUM_CTX_DEFAULTED="${R2_OLLAMA_NUM_CTX_DEFAULTED:-0}"' in runner
@@ -37,7 +37,7 @@ assert 'if [[ -z "${R2_OLLAMA_NUM_GPU+x}" ]]; then' not in runner
 assert '"$R2_OLLAMA_NUM_GPU_DEFAULTED" == "1" &&' in runner
 assert '"$R2_OLLAMA_NUM_CTX_DEFAULTED" == "1" ]]; then' in runner
 assert "export R2_OLLAMA_NUM_GPU=4" in runner
-assert "export R2_OLLAMA_NUM_CTX=8192" in runner
+assert "export R2_OLLAMA_NUM_CTX=12288" in runner
 assert "Never silently override an explicit operator policy" in runner
 assert 'R2_OLLAMA_NUM_CTX="${R2_OLLAMA_NUM_CTX:-}"' in launcher
 assert 'requested >= 2048 && requested <= 16384' in core
