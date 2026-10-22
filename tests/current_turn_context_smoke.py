@@ -121,7 +121,7 @@ require(
 )
 imagination = (ROOT / "Imagination.c").read_text(encoding="utf-8")
 require(
-    "r2_recent_conversation_context(NULL, MAX_LIVE_MESSAGE_BYTES)" in imagination,
+    "r2_recent_conversation_context(NULL, R2_MAX_LIVE_MESSAGE_BYTES)" in imagination,
     "Imagination retains the current user turn instead of excluding a matching scenario string",
 )
 require(
