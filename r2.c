@@ -3468,15 +3468,15 @@ static char *ollama_chat_with_limit(
        final answer. Keep generation inside the active context so input-budget
        arithmetic below cannot underflow on a small adaptive context. */
     /*
-     * At a 4096-token context, cap generation at 1024 tokens so the serialized
-     * input can retain R2's full conversation policy and the current user turn.
-     * Reserving 2048 output tokens here left only about 4915 input characters,
-     * truncating late relationship/affect instructions on longer messages.
+     * Output and input share the same finite context window. Keep a predictable
+     * input reserve for the full conversation policy, identity/Reality/capability
+     * instructions, current user turn, and tokenizer overhead. The output ceiling
+     * grows only when the selected context tier can carry those instructions too.
      */
-    int max_predict = num_ctx >= 16384 ? 8192 :
-                      num_ctx >= 12288 ? 6144 :
-                      num_ctx >= 8192 ? 4096 :
-                      num_ctx >= 4096 ? 1024 : 512;
+    int max_predict = num_ctx >= 16384 ? 4096 :
+                      num_ctx >= 12288 ? 2048 :
+                      num_ctx >= 8192 ? 1024 :
+                      num_ctx >= 4096 ? 512 : 256;
     int context_output_ceiling = num_ctx > 1536 ? num_ctx - 1536 : 256;
     if (max_predict > context_output_ceiling)
         max_predict = context_output_ceiling;
