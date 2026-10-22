@@ -19,7 +19,7 @@
 #define MAX_TASK_OUTPUT 20000
 #define MAX_COMMAND 2000
 #define MAX_MESSAGES 2000
-#define MAX_LIVE_MESSAGE_BYTES (32U * 1024U * 1024U)
+#define R2_MAX_LIVE_MESSAGE_BYTES (32U * 1024U * 1024U)
 
 /*
    Persistent memory architecture:
@@ -818,9 +818,9 @@ static int message_add_ex(
     /* Reject a single oversized message before duplicating it into live RAM. */
     size_t role_length = strlen(role);
     size_t content_length = strlen(content);
-    if (role_length > MAX_LIVE_MESSAGE_BYTES ||
-        content_length > MAX_LIVE_MESSAGE_BYTES ||
-        role_length + content_length + 2 > MAX_LIVE_MESSAGE_BYTES) {
+    if (role_length > R2_MAX_LIVE_MESSAGE_BYTES ||
+        content_length > R2_MAX_LIVE_MESSAGE_BYTES ||
+        role_length + content_length + 2 > R2_MAX_LIVE_MESSAGE_BYTES) {
         fprintf(stderr, "[R2 memory] Refusing an oversized live message before copying it.\n");
         return -1;
     }
@@ -846,16 +846,16 @@ static int message_add_ex(
         live_bytes += strlen(messages.items[i].content ? messages.items[i].content : "") + 1;
     }
     size_t new_bytes = role_length + content_length + 2;
-    if (new_bytes > MAX_LIVE_MESSAGE_BYTES) {
+    if (new_bytes > R2_MAX_LIVE_MESSAGE_BYTES) {
         free(role_copy);
         free(content_copy);
         fprintf(stderr, "[R2 memory] Refusing a single live message larger than the %u-byte RAM guard.\n",
-                (unsigned)MAX_LIVE_MESSAGE_BYTES);
+                (unsigned)R2_MAX_LIVE_MESSAGE_BYTES);
         return -1;
     }
 
     while (messages.count >= MAX_MESSAGES ||
-           live_bytes > MAX_LIVE_MESSAGE_BYTES - new_bytes) {
+           live_bytes > R2_MAX_LIVE_MESSAGE_BYTES - new_bytes) {
         size_t remove_index = SIZE_MAX;
         for (size_t i = 0; i < messages.count; ++i) {
             if (!messages.items[i].pinned) {
@@ -950,13 +950,13 @@ static int message_add_pair_locked(const char *role_a, const char *content_a,
 
     size_t role_a_len = strlen(role_a), content_a_len = strlen(content_a);
     size_t role_b_len = strlen(role_b), content_b_len = strlen(content_b);
-    if (role_a_len + content_a_len + 2 > MAX_LIVE_MESSAGE_BYTES ||
-        role_b_len + content_b_len + 2 > MAX_LIVE_MESSAGE_BYTES)
+    if (role_a_len + content_a_len + 2 > R2_MAX_LIVE_MESSAGE_BYTES ||
+        role_b_len + content_b_len + 2 > R2_MAX_LIVE_MESSAGE_BYTES)
         return -1;
 
     size_t bytes_a = role_a_len + content_a_len + 2;
     size_t bytes_b = role_b_len + content_b_len + 2;
-    if (bytes_a > MAX_LIVE_MESSAGE_BYTES - bytes_b || MAX_MESSAGES < 2)
+    if (bytes_a > R2_MAX_LIVE_MESSAGE_BYTES - bytes_b || MAX_MESSAGES < 2)
         return -1;
     size_t pair_bytes = bytes_a + bytes_b;
 
@@ -983,7 +983,7 @@ static int message_add_pair_locked(const char *role_a, const char *content_a,
     size_t simulated_count = messages.count;
     size_t simulated_bytes = live_bytes;
     while (simulated_count + 2 > MAX_MESSAGES ||
-           simulated_bytes > MAX_LIVE_MESSAGE_BYTES - pair_bytes) {
+           simulated_bytes > R2_MAX_LIVE_MESSAGE_BYTES - pair_bytes) {
         size_t remove_index = SIZE_MAX;
         for (size_t i = 0; i < messages.count; ++i) {
             if (!evict[i] && !messages.items[i].pinned) {
@@ -3394,6 +3394,21 @@ static size_t r2_utf8_safe_prefix_length(const char *content, size_t cap)
     return cap;
 }
 
+/*
+ * Shared evidence can be clipped only at a valid UTF-8 boundary. This helper
+ * applies a caller-supplied, real downstream byte budget; it does not impose
+ * a separate policy quota on prompt construction.
+ */
+static void r2_bound_context_records(char *context, size_t max_bytes)
+{
+    if (!context) return;
+    size_t length = strlen(context);
+    if (length <= max_bytes) return;
+    size_t safe_length = r2_utf8_safe_prefix_length(context, max_bytes);
+    context[safe_length] = '\0';
+}
+
+
 static size_t r2_safe_prompt_prefix_length(const char *content,
                                             size_t cap,
                                             int preserve_records)
@@ -5607,7 +5622,7 @@ static char *chat_with_relevant_memories(
         extract_memory_keywords(associative_query, associated_keywords);
 
     char *diary_matches = r2_collect_associated_records(
-        associated_keywords, associated_count, r2_diary_search, MAX_LIVE_MESSAGE_BYTES);
+        associated_keywords, associated_count, r2_diary_search, R2_MAX_LIVE_MESSAGE_BYTES);
     if (diary_matches && *diary_matches)
         r2_append_association_section(
             &memory_context,
@@ -5617,7 +5632,7 @@ static char *chat_with_relevant_memories(
 
     if (r2_visual_is_initialized()) {
         char *visual_matches = r2_collect_associated_records(
-            associated_keywords, associated_count, r2_visual_search, MAX_LIVE_MESSAGE_BYTES);
+            associated_keywords, associated_count, r2_visual_search, R2_MAX_LIVE_MESSAGE_BYTES);
         if (visual_matches && *visual_matches)
             r2_append_association_section(
                 &memory_context,
@@ -11099,7 +11114,7 @@ int r2_conversation(void)
     if (!core_initialized)
         return -1;
 
-    char *line = malloc((size_t)MAX_LIVE_MESSAGE_BYTES + 2U);
+    char *line = malloc((size_t)R2_MAX_LIVE_MESSAGE_BYTES + 2U);
     if (!line) {
         fprintf(stderr, "[R2] Could not allocate bounded conversation input buffer.\n");
         return -1;
@@ -11114,7 +11129,7 @@ int r2_conversation(void)
         errno = 0;
         size_t input_bytes = 0;
         R2InputLineStatus input_status =
-            r2_read_bounded_line(stdin, line, MAX_LIVE_MESSAGE_BYTES,
+            r2_read_bounded_line(stdin, line, R2_MAX_LIVE_MESSAGE_BYTES,
                                  &input_bytes);
         if (input_status == R2_INPUT_LINE_EOF)
             break;
@@ -11129,10 +11144,10 @@ int r2_conversation(void)
         if (input_status == R2_INPUT_LINE_TOO_LONG) {
             fprintf(stderr,
                     "[R2] Direct conversation input exceeded the %d-byte limit.\n",
-                    MAX_LIVE_MESSAGE_BYTES);
+                    R2_MAX_LIVE_MESSAGE_BYTES);
             printf("\nR2-3PO: That message is too long for one turn (%d-byte limit). "
                    "Nothing from it was sent; please split it into smaller messages.\n\n",
-                   MAX_LIVE_MESSAGE_BYTES);
+                   R2_MAX_LIVE_MESSAGE_BYTES);
             fflush(stdout);
             continue;
         }
