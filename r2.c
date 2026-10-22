@@ -3542,8 +3542,16 @@ static char *ollama_chat_with_limit(
     if (required_context > num_ctx) {
         const char *configured_context = getenv("R2_OLLAMA_NUM_CTX");
         const char *context_defaulted = getenv("R2_OLLAMA_NUM_CTX_DEFAULTED");
-        int explicit_context = configured_context && *configured_context &&
-            (!context_defaulted || strcmp(context_defaulted, "1") != 0);
+        int explicit_context = 0;
+        if (configured_context && *configured_context &&
+            (!context_defaulted || strcmp(context_defaulted, "1") != 0)) {
+            errno = 0;
+            char *configured_end = NULL;
+            long configured_value = strtol(configured_context, &configured_end, 10);
+            explicit_context = !errno && configured_end != configured_context &&
+                *configured_end == '\0' &&
+                configured_value >= 2048 && configured_value <= 16384;
+        }
         if (explicit_context) {
             fprintf(stderr,
                     "[R2 Ollama] refusing inference: complete instructions and the active turn "
