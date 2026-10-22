@@ -148,7 +148,7 @@ fi
 # Let R2's memory-aware context allocator use the largest tier supported by
 # current host/cgroup headroom. GPU layer allocation below remains unchanged.
 # Remember default provenance so a failed large-context preflight can retry
-# with the existing conservative 4-layer / 8192-token configuration.
+# with the existing conservative 4-layer / 12288-token configuration.
 R2_OLLAMA_NUM_CTX_DEFAULTED=0
 if [[ -z "${R2_OLLAMA_NUM_CTX:-}" && "$R2_NVIDIA_QUERY_OK" == "1" ]] &&
    printf '%s\n' "$R2_NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
@@ -304,9 +304,9 @@ if ! sudo -n -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
     python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --timeout 180 "${R2_OLLAMA_PREFLIGHT_ARGS[@]}"; then
     if [[ "$R2_OLLAMA_NUM_GPU_DEFAULTED" == "1" &&
           "$R2_OLLAMA_NUM_CTX_DEFAULTED" == "1" ]]; then
-        echo "[GPU] Default inference preflight failed; retrying with 4 GPU layers and 8192 context tokens."
+        echo "[GPU] Default inference preflight failed; retrying with 4 GPU layers and 12288 context tokens."
         export R2_OLLAMA_NUM_GPU=4
-        export R2_OLLAMA_NUM_CTX=8192
+        export R2_OLLAMA_NUM_CTX=12288
         if ! sudo -n -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
             R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
             R2_OLLAMA_NUM_CTX="$R2_OLLAMA_NUM_CTX" \
