@@ -3394,11 +3394,6 @@ static size_t r2_utf8_safe_prefix_length(const char *content, size_t cap)
     return cap;
 }
 
-/*
- * Shared evidence can be clipped only at a valid UTF-8 boundary. This helper
- * applies a caller-supplied, real downstream byte budget; it does not impose
- * a separate policy quota on prompt construction.
- */
 static void r2_bound_context_records(char *context, size_t max_bytes)
 {
     if (!context) return;
