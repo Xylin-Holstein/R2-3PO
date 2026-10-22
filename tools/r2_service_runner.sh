@@ -60,14 +60,12 @@ if [[ "$R2_NVIDIA_PCI_PRESENT" == "1" && "$R2_NVIDIA_QUERY_OK" != "1" ]]; then
     fail "NVIDIA PCI hardware is present but nvidia-smi cannot query a GPU; refusing CPU-only fallback."
 fi
 
-# Match the interactive launcher's 4096-token context on the 4 GiB GTX 1050 Ti.
-# Remember whether these values are defaults so a failed preflight can retry with
-# fewer GPU layers without overriding explicit operator settings.
-# Never silently override an explicit operator policy.
+# Match the interactive launcher's memory-aware context allocation.
+# The core and preflight choose the same context tier from available RAM/cgroup
+# headroom; GPU layer allocation remains unchanged.
 R2_OLLAMA_NUM_CTX_DEFAULTED="${R2_OLLAMA_NUM_CTX_DEFAULTED:-0}"
 if [[ -z "${R2_OLLAMA_NUM_CTX:-}" && "$R2_NVIDIA_QUERY_OK" == "1" ]] &&
    printf '%s\n' "$R2_NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
-    export R2_OLLAMA_NUM_CTX=4096
     R2_OLLAMA_NUM_CTX_DEFAULTED=1
 fi
 # Preserve default-vs-explicit provenance across the systemd-inhibit self-exec.
