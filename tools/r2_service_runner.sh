@@ -170,7 +170,7 @@ fi
 log "Waiting for local Qwen 3.5 model availability and a real chat completion..."
 if ! python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 60 --timeout 180 "${PREFLIGHT_GPU_ARGS[@]}"; then
     # The target GTX 1050 Ti has only 4 GiB VRAM. If the default 8-layer /
-    # 4096-context probe fails, retry with fewer GPU layers while retaining
+    # adaptive-context probe fails, retry with fewer GPU layers while retaining
     # enough context for R2's conversation prompt and current user turn.
     if [[ "$R2_OLLAMA_NUM_GPU_DEFAULTED" == "1" &&
           "$R2_OLLAMA_NUM_CTX_DEFAULTED" == "1" ]]; then
