@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import base64
 import json
 import os
@@ -15,6 +16,7 @@ import time
 import urllib.error
 import urllib.request
 from typing import Any
+from pathlib import Path
 
 DEFAULT_API_BASE = "http://127.0.0.1:11434"
 ALLOWED_API_BASES = {
@@ -22,6 +24,38 @@ ALLOWED_API_BASES = {
     "http://127.0.0.1:11435",
 }
 MODEL = "qwen3.5:9b"
+
+
+def _decode_c_string_block(source: str, start_marker: str, end_marker: str) -> str:
+    start = source.find(start_marker)
+    end = source.find(end_marker, start)
+    if start < 0 or end < 0:
+        raise ValueError(f"Could not locate full prompt block: {start_marker}")
+    literals = re.findall(r'"(?:\\\\.|[^"\\\\])*"', source[start:end])
+    if not literals:
+        raise ValueError(f"Prompt block has no C string literals: {start_marker}")
+    try:
+        return "".join(ast.literal_eval(literal) for literal in literals)
+    except (SyntaxError, ValueError) as exc:
+        raise ValueError(f"Could not decode full prompt block: {start_marker}") from exc
+
+
+def _full_static_instruction_messages() -> list[dict[str, str]]:
+    """Load the exact production system prompts used by the foreground request."""
+    source_path = Path(__file__).resolve().parents[1] / "r2.c"
+    source = source_path.read_text(encoding="utf-8")
+    system_prompt = _decode_c_string_block(
+        source, "static const char *SYSTEM_PROMPT =", ";\\n"
+    )
+    conversation_prompt = _decode_c_string_block(
+        source,
+        "static const char r2_conversation_system_prompt[] =",
+        "\\n\\nstatic char *r2_build_retry_system_prompt",
+    )
+    return [
+        {"role": "system", "content": conversation_prompt},
+        {"role": "system", "content": system_prompt},
+    ]
 
 
 def _read_uint_file(path: str) -> tuple[int, bool]:
@@ -221,7 +255,6 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
         print("ERROR: R2_OLLAMA_NUM_GPU must be between -1 and 999.", file=sys.stderr)
         return False
 
-    options: dict[str, Any] = {"temperature": 0, "num_predict": 128}
     configured_context = os.environ.get("R2_OLLAMA_NUM_CTX", "").strip()
     context_tokens = _adaptive_context_tokens()
     if configured_context:
@@ -233,7 +266,34 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
         # Invalid values are ignored by both paths.
         if 2048 <= requested_context <= 16384:
             context_tokens = min(context_tokens, requested_context)
-    options["num_ctx"] = context_tokens
+
+    num_predict = (
+        4096 if context_tokens >= 16384 else
+        2048 if context_tokens >= 12288 else
+        1024 if context_tokens >= 8192 else
+        512 if context_tokens >= 4096 else 256
+    )
+    try:
+        static_messages = _full_static_instruction_messages()
+    except (OSError, UnicodeError, ValueError) as exc:
+        print(f"ERROR: Could not load R2's full production instructions for preflight: {exc}", file=sys.stderr)
+        return False
+    required_static_chars = sum(len(message["content"]) for message in static_messages)
+    input_budget_chars = max(0, context_tokens - num_predict - 512) * 32 // 10
+    if required_static_chars + 1500 > input_budget_chars:
+        print(
+            "ERROR: Selected Ollama context cannot fit R2's complete static instructions "
+            f"plus active-turn headroom (context={context_tokens}, output={num_predict}, "
+            f"required_chars={required_static_chars + 1500}, available_chars={input_budget_chars}).",
+            file=sys.stderr,
+        )
+        return False
+
+    options: dict[str, Any] = {
+        "temperature": 0,
+        "num_predict": num_predict,
+        "num_ctx": context_tokens,
+    }
     if gpu_layers != 0:
         options["num_gpu"] = gpu_layers
 
@@ -243,7 +303,7 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
             timeout=timeout,
             payload={
                 "model": MODEL,
-                "messages": [{
+                "messages": static_messages + [{
                     "role": "user",
                     "content": "Reply with exactly this token and no other text: R2_READY",
                 }],
