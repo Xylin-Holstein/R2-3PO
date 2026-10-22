@@ -42,7 +42,7 @@ assert "Never silently override an explicit operator policy" in runner
 assert 'R2_OLLAMA_NUM_CTX="${R2_OLLAMA_NUM_CTX:-}"' in launcher
 assert 'requested >= 2048 && requested <= 16384' in core
 assert 'if (requested < safe_max) safe_max = (int)requested;' in core
-assert "num_ctx >= 12288 ? 2048 : 1024;" in core, "context must reserve output tokens based on the selected context window"
+assert "if (num_predict < 1) num_predict = max_predict;" in core, "default output allocation must use the full context-derived ceiling"
 assert "int max_predict = num_ctx >= 16384 ? 4096 :" in core
 assert "num_ctx >= 12288 ? 2048 :" in core
 assert "num_ctx >= 8192 ? 1024 :" in core
