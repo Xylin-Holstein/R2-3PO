@@ -3529,7 +3529,7 @@ static char *ollama_chat_with_limit(
         if (ollama_authoritative_user_query &&
             *ollama_authoritative_user_query) {
             int matches_query = strcmp(content, ollama_authoritative_user_query) == 0;
-            const char *begin_marker = "----- BEGIN CURRENT USER MESSAGE -----\\n";
+            const char *begin_marker = "----- BEGIN CURRENT USER MESSAGE -----\n";
             const char *end_marker = "----- END CURRENT USER MESSAGE -----";
             const char *begin = strstr(content, begin_marker);
             const char *end = begin
@@ -3537,7 +3537,7 @@ static char *ollama_chat_with_limit(
             if (!matches_query && begin && end) {
                 const char *query_start = begin + strlen(begin_marker);
                 size_t wrapped_length = (size_t)(end - query_start);
-                if (wrapped_length && query_start[wrapped_length - 1] == '\\n')
+                if (wrapped_length && query_start[wrapped_length - 1] == '\n')
                     --wrapped_length;
                 matches_query = wrapped_length == strlen(ollama_authoritative_user_query) &&
                     memcmp(query_start, ollama_authoritative_user_query, wrapped_length) == 0;
