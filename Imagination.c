@@ -288,9 +288,11 @@ int r2_imagination_feedback(long long branch_id, const char *assessment,
     int64_t event_id = r2_log_event(R2_LOG_HYPOTHETICAL,
         "imagination_feedback", "Feedback recorded for a hypothetical imagination.",
         details, "Imagination.c");
-    free(details);
     free(branch);
-    if (event_id < 0) return -1;
+    if (event_id < 0) {
+        free(details);
+        return -1;
+    }
     (void)r2_altself_link_event((int64_t)branch_id, event_id,
         "feedback_for_imagination",
         "Explicit feedback about a hypothetical branch; this link does not convert the branch into a factual event.");
@@ -302,8 +304,15 @@ int r2_imagination_feedback(long long branch_id, const char *assessment,
            non-accurate result. Feedback is recorded separately from factual memory. */
                 int reward_rc = r2_reward_apply_once(target, "verified_imagination", 1,
                                              details, 0);
-        if (reward_rc < 0) return 1; /* Feedback persisted; reinforcement unavailable. */
-        if (reward_rc > 0) return 2; /* Do not repeatedly reward the same branch. */
+        if (reward_rc < 0) {
+            free(details);
+            return 1; /* Feedback persisted; reinforcement unavailable. */
+        }
+        if (reward_rc > 0) {
+            free(details);
+            return 2; /* Do not repeatedly reward the same branch. */
+        }
     }
+    free(details);
     return 0;
 }
