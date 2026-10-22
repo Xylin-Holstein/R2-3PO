@@ -3497,7 +3497,7 @@ static char *ollama_chat_with_limit(
         max_predict = context_output_ceiling;
     /* Omitted budgets are for helper calls; foreground calls request a
        complexity-based budget and can use the full context-dependent ceiling. */
-    if (num_predict < 1) num_predict = num_ctx >= 12288 ? 2048 : 1024;
+    if (num_predict < 1) num_predict = max_predict;
     if (num_predict > max_predict) num_predict = max_predict;
 
     struct json_object *options = json_object_new_object();
@@ -4236,9 +4236,7 @@ char *r2_model_generate(const char *system_prompt, const char *user_prompt,
     messages[1].role = "user";
     messages[1].content = (char *)user_prompt;
 
-    if (num_predict < 1) num_predict = 700;
-    if (num_predict > 2048) num_predict = 2048;
-
+    /* A zero budget delegates to the shared context-derived output ceiling. */
     int previous_mode = ollama_background_mode;
     ollama_background_mode = 1;
     char *result = ollama_chat_with_limit(messages, 2, NULL, num_predict, 600L);
