@@ -45,8 +45,10 @@ learning = core[learning_start:learning_end]
 for source in ("r2_reward_context()", "r2_addiction_report()", "PERSISTENT LEARNING CONTEXT"):
     if source not in learning:
         raise SystemExit(f"Live learning context omits {source}")
-if "size_t cap = 2400" not in learning or "REWARD/REINFORCEMENT SUMMARY:\\n%.900s" not in learning or "REPEATED-INTEREST SUMMARY:\\n%.900s" not in learning:
-    raise SystemExit("Live learning context must fit within the reserved system-prompt budget.")
+if "size_t cap = 2400" in learning or "%.900s" in learning:
+    raise SystemExit("Live learning context is still clipped before the context allocator.")
+if "snprintf(NULL, 0, format, reward_text, addiction_text)" not in learning:
+    raise SystemExit("Live learning context must size itself for complete reward/addiction summaries.")
 
 dream_start = core.find("int r2_sleep_and_dream(double hours)")
 dream_end = core.find("static int autonomous_needs_action_allowed", dream_start)
