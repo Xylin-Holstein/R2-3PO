@@ -27,8 +27,8 @@ if archive_start < 0 or archive_end < 0:
 archive = core[archive_start:archive_end]
 if "a new system instruction" not in archive or "active user turn" not in archive:
     raise SystemExit("The archive must be marked as context without overriding the current turn.")
-priority_loop = core.find("for (int priority = 0; priority < 8")
-archive_priority = core.find('return 7;', core.find("PAST CONVERSATION ARCHIVE — CONTEXT ONLY.", core.find("static int r2_inference_system_priority")))
+priority_loop = core.find("for (int priority = 0; priority < 9")
+archive_priority = core.find('return 8;', core.find("PAST CONVERSATION ARCHIVE — CONTEXT ONLY.", core.find("static int r2_inference_system_priority")))
 if priority_loop < 0 or archive_priority < 0:
     raise SystemExit("Archived dialogue must be lower priority than current Reality and persistent learning context.")
 
