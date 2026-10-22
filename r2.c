@@ -5250,17 +5250,24 @@ static int r2_recent_message_is_tool_payload(const char *content)
    excluded; this transcript is contextual evidence, not a new instruction. */
 char *r2_recent_conversation_context(const char *exclude_latest, size_t max_chars)
 {
-    /* Treat max_chars as a hard cap; do not silently inflate small budgets. */
     if (max_chars == 0) return xstrdup("");
-    if (max_chars > 8192) max_chars = 8192;
-    char *out = calloc(max_chars + 1, 1);
-    if (!out) return NULL;
 
-    size_t selected[8];
+    pthread_mutex_lock(&messages_lock);
+    size_t selected_capacity = messages.count;
+    if (selected_capacity > SIZE_MAX / sizeof(size_t)) {
+        pthread_mutex_unlock(&messages_lock);
+        return NULL;
+    }
+    size_t *selected = selected_capacity
+        ? calloc(selected_capacity, sizeof(*selected)) : NULL;
+    if (selected_capacity && !selected) {
+        pthread_mutex_unlock(&messages_lock);
+        return NULL;
+    }
+
     size_t found = 0;
     int skip_latest_match = exclude_latest && *exclude_latest;
-    pthread_mutex_lock(&messages_lock);
-    for (size_t i = messages.count; i > 0 && found < 8; --i) {
+    for (size_t i = messages.count; i > 0; --i) {
         size_t index = i - 1;
         const Message *m = &messages.items[index];
         if (!m->role || !m->content || m->pinned) continue;
@@ -5282,9 +5289,9 @@ char *r2_recent_conversation_context(const char *exclude_latest, size_t max_char
     }
 
     /*
-     * The selected indices are newest-first. Spend the bounded context budget
-     * on the newest complete turns first, then emit those turns chronologically.
-     * Older history must never crowd out the latest user request.
+     * Spend the caller's actual context budget on the newest complete turns
+     * first, then emit those turns chronologically. There is no separate
+     * eight-turn, 1000-character-per-message, or 8192-character ceiling.
      */
     size_t included = 0;
     size_t selected_chars = 0;
@@ -5292,22 +5299,29 @@ char *r2_recent_conversation_context(const char *exclude_latest, size_t max_char
         const Message *m = &messages.items[selected[included]];
         size_t role_length = strcmp(m->role, "user") == 0 ? 6U : 4U;
         size_t content_length = strlen(m->content);
-        if (content_length > 1000U)
-            content_length = r2_utf8_safe_prefix_length(m->content, 1000U);
-        size_t line_length = role_length + content_length + 1U;
-        size_t separator_length = 0U;
-        if (selected_chars > max_chars ||
-            separator_length > max_chars - selected_chars ||
-            line_length > max_chars - selected_chars - separator_length)
+        if (content_length > SIZE_MAX - role_length - 1U)
             break;
-        selected_chars += separator_length + line_length;
+        size_t line_length = role_length + content_length + 1U;
+        if (selected_chars > max_chars ||
+            line_length > max_chars - selected_chars)
+            break;
+        selected_chars += line_length;
         ++included;
+    }
+
+    size_t output_capacity = included > 0 || found == 0
+        ? selected_chars + 1U : max_chars + 1U;
+    char *out = calloc(output_capacity, 1);
+    if (!out) {
+        free(selected);
+        pthread_mutex_unlock(&messages_lock);
+        return NULL;
     }
 
     size_t used = 0;
     if (found > 0 && included == 0) {
-        /* A single very long newest turn may exceed a tiny caller budget.
-         * Preserve that turn with an explicit truncation marker, not stale history. */
+        /* A single newest turn can exceed a caller-supplied budget. Preserve
+           its prefix explicitly rather than substituting stale conversation. */
         const Message *m = &messages.items[selected[0]];
         const char *role = strcmp(m->role, "user") == 0 ? "User: " : "R2: ";
         const char marker[] = " [truncated]\n";
@@ -5317,7 +5331,7 @@ char *r2_recent_conversation_context(const char *exclude_latest, size_t max_char
             ? max_chars - role_length - marker_length : 0;
         size_t safe_available = r2_utf8_safe_prefix_length(
             m->content, available);
-        int written = snprintf(out, max_chars + 1, "%s%.*s%s",
+        int written = snprintf(out, output_capacity, "%s%.*s%s",
             role, (int)safe_available, m->content, marker);
         if (written > 0)
             used = (size_t)written > max_chars ? max_chars : (size_t)written;
@@ -5326,21 +5340,19 @@ char *r2_recent_conversation_context(const char *exclude_latest, size_t max_char
             const Message *m = &messages.items[selected[n - 1]];
             size_t remaining = max_chars - used;
             size_t content_length = strlen(m->content);
-            if (content_length > 1000U)
-                content_length = r2_utf8_safe_prefix_length(m->content, 1000U);
             int written = snprintf(out + used, remaining + 1,
                 "%s: %.*s\n",
                 strcmp(m->role, "user") == 0 ? "User" : "R2",
                 (int)content_length, m->content);
             if (written < 0 || (size_t)written > remaining)
-                break; /* Defensive: selection above guarantees whole lines fit. */
+                break;
             used += (size_t)written;
         }
     }
+    free(selected);
     pthread_mutex_unlock(&messages_lock);
     return out;
 }
-
 /* Append complete Life Log event records once per durable event ID.
  * Keyword searches overlap heavily, so duplicates waste bounded context. */
 static int r2_history_has_event_id(
