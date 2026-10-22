@@ -466,14 +466,14 @@ if ! run_as_r2 env R2_MODEL="$R2_MODEL" R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL"
     R2_OLLAMA_NUM_GPU="$PREFLIGHT_GPU" R2_OLLAMA_NUM_CTX="$PREFLIGHT_CTX" \
     python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 60 --timeout 180 "${PREFLIGHT_GPU_ARGS[@]}"; then
     if [[ "$PREFLIGHT_POLICY_DEFAULTED" == "1" ]]; then
-        log "Default GTX 1050 Ti preflight failed; retrying with 4 GPU layers and 8192 context tokens."
+        log "Default GTX 1050 Ti preflight failed; retrying with 4 GPU layers and 12288 context tokens."
         PREFLIGHT_GPU=4
-        PREFLIGHT_CTX=8192
+        PREFLIGHT_CTX=12288
         if ! run_as_r2 env R2_MODEL="$R2_MODEL" R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
             R2_OLLAMA_NUM_GPU="$PREFLIGHT_GPU" R2_OLLAMA_NUM_CTX="$PREFLIGHT_CTX" \
             python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --wait-seconds 30 --timeout 180 "${PREFLIGHT_GPU_ARGS[@]}"; then
             root_run systemctl stop r2-ollama.service >/dev/null 2>&1 || true
-            fail "R2's private Ollama server failed both the 8-layer/adaptive-context and 4-layer/8192-context generation preflights; the previous R2 executable was preserved."
+            fail "R2's private Ollama server failed both the 8-layer/adaptive-context and 4-layer/12288-context generation preflights; the previous R2 executable was preserved."
         fi
     else
         root_run systemctl stop r2-ollama.service >/dev/null 2>&1 || true
