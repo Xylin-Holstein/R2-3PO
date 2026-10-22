@@ -3502,21 +3502,61 @@ static char *ollama_chat_with_limit(
      */
     size_t required_chars = system_override ? strlen(system_override) : 0;
     size_t active_turn_reserve = 1500U;
+    size_t fallback_turn_reserve = 1500U;
+    int matched_authoritative_turn = 0;
     if (ollama_authoritative_user_query && *ollama_authoritative_user_query) {
         size_t query_length = strlen(ollama_authoritative_user_query);
         if (query_length > active_turn_reserve)
             active_turn_reserve = query_length;
     }
+    /*
+     * Size the context for the same user message the serializer will select.
+     * Usually it is the newest human turn, but follow-up/tool history can leave
+     * a different user-role message later in the array. If the authoritative
+     * query is wrapped with retrieval boundary text, reserve the whole wrapped
+     * message, not merely the raw query length.
+     */
     for (size_t i = count; i > 0; --i) {
         const Message *m = &msgs[i - 1];
         if (!m->role || strcmp(m->role, "user") != 0 ||
             r2_is_internal_tool_result(m))
             continue;
-        size_t current_length = m->content ? strlen(m->content) : 0;
-        if (current_length > active_turn_reserve)
-            active_turn_reserve = current_length;
-        break;
+        const char *content = m->content ? m->content : "";
+        size_t current_length = strlen(content);
+        if (current_length > fallback_turn_reserve)
+            fallback_turn_reserve = current_length;
+
+        if (ollama_authoritative_user_query &&
+            *ollama_authoritative_user_query) {
+            int matches_query = strcmp(content, ollama_authoritative_user_query) == 0;
+            const char *begin_marker = "----- BEGIN CURRENT USER MESSAGE -----\\n";
+            const char *end_marker = "----- END CURRENT USER MESSAGE -----";
+            const char *begin = strstr(content, begin_marker);
+            const char *end = begin
+                ? strstr(begin + strlen(begin_marker), end_marker) : NULL;
+            if (!matches_query && begin && end) {
+                const char *query_start = begin + strlen(begin_marker);
+                size_t wrapped_length = (size_t)(end - query_start);
+                if (wrapped_length && query_start[wrapped_length - 1] == '\\n')
+                    --wrapped_length;
+                matches_query = wrapped_length == strlen(ollama_authoritative_user_query) &&
+                    memcmp(query_start, ollama_authoritative_user_query, wrapped_length) == 0;
+            }
+            if (matches_query) {
+                if (current_length > active_turn_reserve)
+                    active_turn_reserve = current_length;
+                matched_authoritative_turn = 1;
+                break;
+            }
+        } else {
+            if (current_length > active_turn_reserve)
+                active_turn_reserve = current_length;
+            break;
+        }
     }
+    if (!matched_authoritative_turn &&
+        fallback_turn_reserve > active_turn_reserve)
+        active_turn_reserve = fallback_turn_reserve;
     if (required_chars > SIZE_MAX - active_turn_reserve) {
         json_object_put(root);
         return NULL;
