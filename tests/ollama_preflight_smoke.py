@@ -38,7 +38,20 @@ class OllamaPreflightSmoke(unittest.TestCase):
         payload = read.call_args_list[1].kwargs["payload"]
         self.assertEqual(payload["model"], "qwen3.5:9b")
         self.assertIs(payload["think"], False)
-        self.assertEqual(payload["options"]["num_predict"], 128)
+        expected_text_predict = (
+            4096 if payload["options"]["num_ctx"] >= 16384 else
+            2048 if payload["options"]["num_ctx"] >= 12288 else
+            1024 if payload["options"]["num_ctx"] >= 8192 else
+            512
+        )
+        self.assertEqual(payload["options"]["num_predict"], expected_text_predict)
+        self.assertEqual(len(payload["messages"]), 3)
+        self.assertEqual(payload["messages"][0]["role"], "system")
+        self.assertIn("INTERPRETATION:", payload["messages"][0]["content"])
+        self.assertEqual(payload["messages"][1]["role"], "system")
+        self.assertIn("IDENTITY AND PERSISTENT MEMORY", payload["messages"][1]["content"])
+        self.assertEqual(payload["messages"][2]["content"],
+                         "Reply with exactly this token and no other text: R2_READY")
         self.assertTrue(read.call_args_list[2].args[0].endswith("/api/chat"))
         vision_payload = read.call_args_list[2].kwargs["payload"]
         png_bytes = base64.b64decode(vision_payload["messages"][1]["images"][0])
@@ -65,7 +78,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         ]
         with patch.dict(probe.os.environ, {
             "R2_OLLAMA_NUM_GPU": "20",
-            "R2_OLLAMA_NUM_CTX": "8192",
+            "R2_OLLAMA_NUM_CTX": "12288",
         }), patch.object(probe, "_read_json", side_effect=replies) as read, \
              patch.object(probe.subprocess, "run", return_value=SimpleNamespace(
                  returncode=0, stdout="NVIDIA GeForce GTX 1050 Ti, 4096 MiB, 123 MiB", stderr=""
@@ -73,12 +86,21 @@ class OllamaPreflightSmoke(unittest.TestCase):
             self.assertTrue(probe.preflight(timeout=1, require_gpu_offload=True))
         options = read.call_args_list[1].kwargs["payload"]["options"]
         self.assertEqual(options["num_gpu"], 20)
-        self.assertEqual(options["num_ctx"], 8192)
+        self.assertEqual(options["num_ctx"], 12288)
         vision_payload = read.call_args_list[2].kwargs["payload"]
         self.assertEqual(vision_payload["options"]["num_gpu"], 20)
-        self.assertEqual(vision_payload["options"]["num_ctx"], 8192)
+        self.assertEqual(vision_payload["options"]["num_ctx"], 12288)
         self.assertEqual(vision_payload["options"]["num_predict"], 512)
         self.assertIn("images", vision_payload["messages"][1])
+
+    def test_context_too_small_for_full_prompt_fails_before_inference(self) -> None:
+        errors = io.StringIO()
+        with patch.dict(probe.os.environ, {"R2_OLLAMA_NUM_CTX": "8192"}), \\
+             patch.object(probe, "_read_json", return_value={"models": [{"name": "qwen3.5:9b"}]}) as read, \\
+             contextlib.redirect_stderr(errors):
+            self.assertFalse(probe.preflight(timeout=1))
+        self.assertEqual(read.call_count, 1)
+        self.assertIn("cannot fit R2's complete static instructions", errors.getvalue())
 
     def test_overnight_endpoint_is_used_for_tags_chat_and_process_checks(self) -> None:
         replies = [
@@ -123,7 +145,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
             {"done": True, "message": {"role": "assistant", "content": "{\"color\":\"blue\"}"}},
             {"models": [{"name": "qwen3.5:9b", "size": 500000, "size_vram": 123456}]},
         ]
-        with patch.dict(probe.os.environ, {"R2_OLLAMA_NUM_GPU": "0", "R2_OLLAMA_NUM_CTX": "8192"}), \
+        with patch.dict(probe.os.environ, {"R2_OLLAMA_NUM_GPU": "0", "R2_OLLAMA_NUM_CTX": "12288"}), \
              patch.object(probe, "_read_json", side_effect=replies) as read, \
              patch.object(probe.subprocess, "run", return_value=SimpleNamespace(
                  returncode=0, stdout="NVIDIA GeForce GTX 1050 Ti, 4096 MiB, 128 MiB", stderr=""
