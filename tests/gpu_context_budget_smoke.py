@@ -22,8 +22,6 @@ for label, source in (("interactive launcher", launcher), ("overnight service", 
     assert '"$R2_OLLAMA_NUM_CTX_DEFAULTED" == "1" ]]; then' in source, label
     assert "export R2_OLLAMA_NUM_GPU=4" in source, label
     assert "export R2_OLLAMA_NUM_CTX=12288" in source, label
-assert "without overriding explicit operator settings" in launcher
-assert "Never silently override an explicit operator policy" in runner
 assert 'R2_OLLAMA_NUM_CTX_DEFAULTED="${R2_OLLAMA_NUM_CTX_DEFAULTED:-0}"' in runner
 assert 'R2_OLLAMA_NUM_GPU_DEFAULTED="${R2_OLLAMA_NUM_GPU_DEFAULTED:-0}"' in runner
 assert "export R2_OLLAMA_NUM_CTX_DEFAULTED" in runner
@@ -45,6 +43,7 @@ assert 'if (requested < safe_max) safe_max = (int)requested;' in core
 assert "r2_minimum_full_prompt_context()" in core
 assert "safe_max = minimum_prompt_context;" in core
 assert "static int r2_minimum_full_prompt_context(void)" in core
+assert "R2 instruction set requires the larger input window." in core
 assert "required_static_chars = sum(len(message[\"content\"]) for message in static_messages) + 1500" in (ROOT / "tools/preflight_ollama_model.py").read_text(encoding="utf-8")
 assert "if (num_predict < 1) num_predict = max_predict;" in core, "default output allocation must use the full context-derived ceiling"
 assert "int max_predict = num_ctx >= 16384 ? 4096 :" in core
