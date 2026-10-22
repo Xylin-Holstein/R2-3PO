@@ -46,7 +46,7 @@ def _full_static_instruction_messages() -> list[dict[str, str]]:
     source = source_path.read_text(encoding="utf-8")
     paths_header = (source_path.parent / "r2_diary.h").read_text(encoding="utf-8")
     root_match = re.search(
-        r'^#define\\s+R2_ROOT\\s+("(?:\\\\.|[^"\\\\])*")',
+        r'^#define\s+R2_ROOT\s+("(?:\\.|[^"\\])*")',
         paths_header,
         re.MULTILINE,
     )
