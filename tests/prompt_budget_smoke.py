@@ -75,6 +75,8 @@ for forbidden in (
 
 if "size_t input_budget = (size_t)(num_ctx - num_predict - 512) * 32U / 10U;" not in core:
     raise SystemExit("Inference input budget no longer follows the actual Ollama context.")
+if "if (required_chars > input_budget)" not in serializer:
+    raise SystemExit("The request does not verify full instruction and active-turn fit before selection.")
 if "size_t override_length = system_override ? strlen(system_override) : 0;" not in core:
     raise SystemExit("The complete conversation prompt is not passed through unchanged.")
 if "for (size_t i = count; i > 0; --i)" not in core:
