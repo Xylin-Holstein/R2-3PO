@@ -3540,9 +3540,22 @@ static char *ollama_chat_with_limit(
     }
     int required_context = r2_context_for_required_chars(required_chars, num_ctx);
     if (required_context > num_ctx) {
+        const char *configured_context = getenv("R2_OLLAMA_NUM_CTX");
+        const char *context_defaulted = getenv("R2_OLLAMA_NUM_CTX_DEFAULTED");
+        int explicit_context = configured_context && *configured_context &&
+            (!context_defaulted || strcmp(context_defaulted, "1") != 0);
+        if (explicit_context) {
+            fprintf(stderr,
+                    "[R2 Ollama] refusing inference: complete instructions and the active turn "
+                    "need context=%d, but explicit R2_OLLAMA_NUM_CTX=%s is the operator's limit. "
+                    "Increase that setting to permit the complete prompt.\\n",
+                    required_context, configured_context);
+            json_object_put(root);
+            return NULL;
+        }
         fprintf(stderr,
                 "[R2 Ollama] Raising this request's context from %d to %d tokens "
-                "to fit its complete instructions and active turn.\n",
+                "to fit its complete instructions and active turn.\\n",
                 num_ctx, required_context);
         num_ctx = required_context;
     }
