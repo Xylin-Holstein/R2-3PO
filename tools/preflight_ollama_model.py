@@ -24,18 +24,63 @@ ALLOWED_API_BASES = {
 MODEL = "qwen3.5:9b"
 
 
-def _adaptive_context_tokens() -> int:
-    """Mirror r2_ollama_context_tokens() when no explicit context is supplied."""
-    available_bytes = 0
+def _read_uint_file(path: str) -> tuple[int, bool]:
+    """Read a cgroup memory counter, preserving valid zero/unlimited values."""
+    try:
+        with open(path, "r", encoding="ascii") as source:
+            raw = source.readline().strip()
+    except OSError:
+        return 0, False
+    if raw == "max":
+        return 0, True
+    try:
+        return int(raw, 10), True
+    except ValueError:
+        return 0, False
+
+
+def _available_memory_bytes() -> int:
+    """Mirror the core's minimum of host MemAvailable and cgroup headroom."""
+    host_available = 0
     try:
         with open("/proc/meminfo", "r", encoding="ascii") as meminfo:
             for line in meminfo:
                 if line.startswith("MemAvailable:"):
-                    available_bytes = int(line.split()[1]) * 1024
+                    host_available = int(line.split()[1]) * 1024
                     break
     except (OSError, ValueError, IndexError):
         pass
 
+    cgroup_max, max_valid = _read_uint_file("/sys/fs/cgroup/memory.max")
+    cgroup_used, used_valid = _read_uint_file("/sys/fs/cgroup/memory.current")
+    if max_valid and cgroup_max > 0:
+        cgroup_available = (
+            1 if not used_valid or cgroup_used >= cgroup_max
+            else cgroup_max - cgroup_used
+        )
+        if not host_available or cgroup_available < host_available:
+            host_available = cgroup_available
+
+    if not max_valid:
+        v1_max, v1_max_valid = _read_uint_file(
+            "/sys/fs/cgroup/memory/memory.limit_in_bytes"
+        )
+        v1_used, v1_used_valid = _read_uint_file(
+            "/sys/fs/cgroup/memory/memory.usage_in_bytes"
+        )
+        if v1_max_valid and 0 < v1_max < (1 << 60):
+            v1_available = (
+                1 if not v1_used_valid or v1_used >= v1_max
+                else v1_max - v1_used
+            )
+            if not host_available or v1_available < host_available:
+                host_available = v1_available
+    return host_available
+
+
+def _adaptive_context_tokens() -> int:
+    """Mirror r2_ollama_context_tokens() when no explicit context is supplied."""
+    available_bytes = _available_memory_bytes()
     gib = 1024 ** 3
     if not available_bytes:
         return 8192
