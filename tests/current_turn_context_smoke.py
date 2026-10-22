@@ -197,4 +197,12 @@ require(
     "conversation instructions explicitly distinguish human marker discussion from trusted tool output",
 )
 
+require(
+    "int matched_authoritative_turn = 0;" in ollama_builder
+    and "if (matches_query)" in ollama_builder
+    and "active_turn_reserve = current_length;" in ollama_builder
+    and "fallback_turn_reserve > active_turn_reserve" in ollama_builder,
+    "context sizing reserves the full serialized message matching the authoritative query, including retrieval wrapper text",
+)
+
 print("Current-turn context separation smoke passed.")
