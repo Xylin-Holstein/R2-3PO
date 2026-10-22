@@ -3394,6 +3394,17 @@ static size_t r2_utf8_safe_prefix_length(const char *content, size_t cap)
     return cap;
 }
 
+/* Allocate variable evidence only up to the real remaining context, ending
+   on a complete UTF-8 line/record. Static instructions never use this helper. */
+static size_t r2_context_record_prefix_length(const char *content, size_t cap)
+{
+    if (!content || cap == 0) return 0;
+    size_t safe = r2_utf8_safe_prefix_length(content, cap);
+    if (safe >= strlen(content)) return safe;
+    while (safe > 0 && content[safe - 1] != '\n') --safe;
+    return safe;
+}
+
 static void r2_bound_context_records(char *context, size_t max_bytes)
 {
     if (!context) return;
@@ -3722,7 +3733,10 @@ static char *ollama_chat_with_limit(
             size_t length = strlen(content);
             size_t remaining = system_budget > total_chars
                 ? system_budget - total_chars : 0;
-            if (length > remaining) continue;
+            if (length > remaining) {
+                if (priority <= 3) continue;
+                length = r2_context_record_prefix_length(content, remaining);
+            }
             if (length == 0) continue;
             include[i] = 1;
             limits[i] = length;
