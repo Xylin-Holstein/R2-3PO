@@ -58,7 +58,7 @@ priority_logic = core[priority_start:priority_end] if priority_start >= 0 and pr
 require(
     '"PERSISTENT REALITY CONTEXT"' in priority_logic
     and "return 4;" in priority_logic,
-    "live Reality state receives the highest contextual priority after core identity",
+    "live Reality follows complete identity and capability instructions in context priority",
 )
 require(
     '"CURRENT TURN RETRIEVED CONTEXT"' in priority_logic
