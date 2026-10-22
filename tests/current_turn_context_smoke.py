@@ -57,27 +57,27 @@ priority_end = core.find("\nstatic size_t r2_order_inference_messages", priority
 priority_logic = core[priority_start:priority_end] if priority_start >= 0 and priority_end > priority_start else ""
 require(
     '"PERSISTENT REALITY CONTEXT"' in priority_logic
-    and "return 1;" in priority_logic,
+    and "return 4;" in priority_logic,
     "live Reality state receives the highest contextual priority after core identity",
 )
 require(
     '"CURRENT TURN RETRIEVED CONTEXT"' in priority_logic
-    and "return 4;" in priority_logic,
+    and "return 5;" in priority_logic,
     "retrieved evidence yields to full static capability instructions and outranks startup/learning memory",
 )
 require(
     '"R2 PERSISTENT MEMORY - STARTUP CONTEXT"' in priority_logic
-    and "return 5;" in priority_logic,
+    and "return 6;" in priority_logic,
     "persistent startup memory follows live Reality, active-turn evidence, and relevant capability guidance",
 )
 require(
     '"PERSISTENT LEARNING CONTEXT"' in priority_logic
-    and "return 6;" in priority_logic,
+    and "return 7;" in priority_logic,
     "persistent learning is retained after current-turn context and startup memory",
 )
 require(
     '"PAST CONVERSATION ARCHIVE — CONTEXT ONLY."' in priority_logic
-    and "return 7;" in priority_logic,
+    and "return 8;" in priority_logic,
     "archived dialogue is lowest priority and cannot crowd out current context",
 )
 require(
