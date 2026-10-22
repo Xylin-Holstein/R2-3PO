@@ -23,7 +23,13 @@ require("OLLAMA_MAX_MESSAGE_CHARS" not in core and
         "there are no arbitrary per-message prompt caps")
 require("size_t input_budget = (size_t)(num_ctx - num_predict - 512) * 32U / 10U;" in core,
         "the actual Ollama context window determines the payload budget")
-require("if (length > remaining) length = r2_utf8_safe_prefix_length(content, remaining);" in core,
-        "only the real remaining context budget limits a serialized message")
+serializer_start = core.find("static char *ollama_chat_with_limit(")
+serializer_end = core.find("\\nstatic char *ollama_chat(", serializer_start)
+serializer = core[serializer_start:serializer_end]
+require(serializer_start >= 0 and serializer_end > serializer_start,
+        "the real Ollama serializer can be inspected")
+require("if (length > remaining) continue;" in serializer and
+        "r2_utf8_safe_prefix_length(content, remaining)" not in serializer,
+        "only complete messages are selected against the real remaining context budget")
 
 print("Recent conversation context budget smoke passed.")
