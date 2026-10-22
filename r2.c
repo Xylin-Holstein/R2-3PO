@@ -4967,10 +4967,10 @@ static char *r2_retry_direct_answer(Message *messages_copy,
 }
 
 /*
- * Give ordinary turns a substantial bounded evidence budget: normal conversation
- * still searches persistent memory, Life Log, diary, and visual experiences, while
- * explicit recall receives a larger ceiling. The Ollama payload builder applies
- * a second hardware-aware cap so these retrieval budgets do not override RAM headroom.
+ * Retrieve relevant persistent memory, Life Log, diary, and visual experience
+ * evidence before generation. The Ollama request allocator then places complete
+ * static instructions and the active user turn first, using the remaining actual
+ * context window for complete evidence records and prior conversation turns.
  */
 
 /*
