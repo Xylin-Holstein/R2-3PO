@@ -3103,10 +3103,10 @@ static void ollama_trace_prompt_if_enabled(const char *payload)
 /*
  * System context has semantic priority as well as a role. Reality and learning
  * snapshots can be appended after old dialogue; emit all system context before
- * dialogue in this order: core identity, live Reality, active-turn retrieval,
- * the capability section relevant to the current query, broader capability
- * guidance, startup memory, learning summaries, and archived history. Preserve
- * order within each category and keep dialogue turns chronological.
+ * dialogue in this order: core identity, query-relevant capability instructions,
+ * broader capability guidance, live Reality, current-turn retrieved evidence,
+ * startup memory, learning summaries, and archived history. Preserve order
+ * within each category and keep dialogue turns chronological.
  */
 static int query_has_word_prefix(const char *query, const char *prefix);
 static int query_has_phrase(const char *query, const char *phrase);
@@ -3732,9 +3732,8 @@ static char *ollama_chat_with_limit(
 
     /*
      * Include the current user turn first, even if later tool-result messages
-     * would otherwise push it outside the newest-message count. Its content
-     * is capped exactly like every other message and remains inside the same
-     * serialized input budget.
+     * would otherwise push it outside the newest-message count. The full turn
+     * is included intact within the same serialized input budget.
      */
     if (current_user_index != SIZE_MAX && total_chars < input_budget) {
         const char *content = msgs[current_user_index].content
