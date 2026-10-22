@@ -85,8 +85,8 @@ if serializer_start < 0 or serializer_end < 0:
     raise SystemExit("Could not isolate the Ollama serializer.")
 if "r2_utf8_safe_prefix_length(content, remaining)" in serializer:
     raise SystemExit("The Ollama serializer still cuts static instructions or dialogue turns mid-content.")
-if "if (priority <= 3) continue;" not in serializer or
-        "length = r2_context_record_prefix_length(content, remaining);" not in serializer:
+if ("if (priority <= 3) continue;" not in serializer or
+        "length = r2_context_record_prefix_length(content, remaining);" not in serializer):
     raise SystemExit("Only variable evidence may use remaining context; static instructions must remain intact.")
 if "if (length == 0 || length > remaining) continue;" not in serializer:
     raise SystemExit("Conversation turns must be selected whole against the actual remaining context.")
