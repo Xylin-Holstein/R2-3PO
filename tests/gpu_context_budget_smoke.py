@@ -10,7 +10,7 @@ core = (ROOT / "r2.c").read_text(encoding="utf-8")
 for label, source in (("interactive launcher", launcher), ("overnight service", runner)):
     assert "nvidia-smi --query-gpu=name --format=csv,noheader" in source, label
     assert "grep -qi 'GTX 1050 Ti'" in source, label
-    assert "export R2_OLLAMA_NUM_CTX=4096" in source, label
+    assert "R2 will select context from available RAM headroom" in source, label
     assert "export R2_OLLAMA_NUM_GPU=8" in source, label
     assert '[[ -z "${R2_OLLAMA_NUM_CTX:-}" && "$R2_NVIDIA_QUERY_OK" == "1" ]]' in source, label
 assert '"R2_OLLAMA_NUM_CTX=${R2_OLLAMA_NUM_CTX:-}"' in runner
@@ -18,7 +18,7 @@ for label, source in (("interactive launcher", launcher), ("overnight service", 
     assert '"$R2_OLLAMA_NUM_GPU_DEFAULTED" == "1" &&' in source, label
     assert '"$R2_OLLAMA_NUM_CTX_DEFAULTED" == "1" ]]; then' in source, label
     assert "export R2_OLLAMA_NUM_GPU=4" in source, label
-    assert "export R2_OLLAMA_NUM_CTX=4096" in source, label
+    assert "R2 will select context from available RAM headroom" in source, label
 assert "without overriding explicit operator settings" in launcher
 assert "Never silently override an explicit operator policy" in runner
 assert 'R2_OLLAMA_NUM_CTX_DEFAULTED="${R2_OLLAMA_NUM_CTX_DEFAULTED:-0}"' in runner
@@ -34,10 +34,10 @@ assert 'if [[ -z "${R2_OLLAMA_NUM_GPU+x}" ]]; then' not in runner
 assert '"$R2_OLLAMA_NUM_GPU_DEFAULTED" == "1" &&' in runner
 assert '"$R2_OLLAMA_NUM_CTX_DEFAULTED" == "1" ]]; then' in runner
 assert "export R2_OLLAMA_NUM_GPU=4" in runner
-assert "export R2_OLLAMA_NUM_CTX=4096" in runner
+assert "export R2_OLLAMA_NUM_CTX=8192" in runner
 assert "Never silently override an explicit operator policy" in runner
 assert 'R2_OLLAMA_NUM_CTX="${R2_OLLAMA_NUM_CTX:-}"' in launcher
 assert 'requested >= 2048 && requested <= 16384' in core
 assert 'if (requested < safe_max) safe_max = (int)requested;' in core
-assert "num_ctx >= 4096 ? 1024 : 512;" in core, "4096-token context must leave enough input budget for R2 conversation policy"
+assert "num_ctx >= 12288 ? 2048 : 1024;" in core, "context must reserve output tokens based on the selected context window"
 print("GTX 1050 Ti context defaults and explicit override path checks passed.")
