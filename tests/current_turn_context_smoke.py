@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 core = (ROOT / "r2.c").read_text(encoding="utf-8")
 
 recall_start = core.find("static int r2_query_explicitly_requests_recall(")
-recall_end = core.find("/* Ask the same local model", recall_start)
+recall_end = core.find(" * Ask the same local model", recall_start)
 if recall_start < 0 or recall_end < 0:
     raise SystemExit("Could not isolate the explicit-recall detector.")
 recall_detector = core[recall_start:recall_end]
