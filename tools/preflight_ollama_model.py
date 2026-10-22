@@ -266,16 +266,18 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
         return False
 
     configured_context = os.environ.get("R2_OLLAMA_NUM_CTX", "").strip()
+    context_defaulted = os.environ.get("R2_OLLAMA_NUM_CTX_DEFAULTED", "0") == "1"
     context_tokens = _adaptive_context_tokens()
+    valid_configured_context = False
     if configured_context:
         try:
             requested_context = int(configured_context, 10)
         except ValueError:
             requested_context = 0
-        # Apply the accepted operator value to the RAM-based starting tier.
-        # The full-prompt requirement below can raise a smaller value; invalid values are ignored.
         if 2048 <= requested_context <= 16384:
+            valid_configured_context = True
             context_tokens = min(context_tokens, requested_context)
+    explicit_context = valid_configured_context and not context_defaulted
 
     try:
         static_messages = _full_static_instruction_messages()
@@ -297,9 +299,19 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
         return max(0, context - output - 512) * 32 // 10
 
     # Context selection must account for the exact decoded production prompts.
-    # Do not make a lower RAM tier or explicit smaller setting silently omit
-    # R2's identity/conversation instructions from the real inference request.
+    # A context chosen automatically may rise to fit the complete prompt, but an
+    # explicit operator limit is not silently replaced by a larger value.
     if required_static_chars > input_budget_for(context_tokens):
+        if explicit_context:
+            print(
+                "ERROR: R2's complete static instructions do not fit the explicit "
+                f"R2_OLLAMA_NUM_CTX={context_tokens} setting "
+                f"(required_chars={required_static_chars}, "
+                f"available_chars={input_budget_for(context_tokens)}). "
+                "Increase the setting explicitly; it was not overridden.",
+                file=sys.stderr,
+            )
+            return False
         selected_context = None
         for candidate in (4096, 8192, 12288, 16384):
             if candidate < context_tokens:
