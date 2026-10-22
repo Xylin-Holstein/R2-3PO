@@ -116,7 +116,7 @@ Do **not** copy the bootstrap directly from `/home/x/R2_Home/R2`: that tree is w
 
 ```sh
 BOOTSTRAP_COMMIT=1d24efdb25eec5f01b1f3bddd0253382c55bc46c
-BOOTSTRAP_BLOB_SHA=8962ccc1d22e2871258887cd9f2b0a8fba801469
+BOOTSTRAP_BLOB_SHA=2aefce81dbe7c5d0b95b3145cb0c8dcc2f8b0722
 umask 077
 curl -fsSL \
   "https://raw.githubusercontent.com/Xylin48/R2-3PO/${BOOTSTRAP_COMMIT}/tools/r2_install_root_bootstrap.sh" \
