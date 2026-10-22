@@ -272,8 +272,8 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
             requested_context = int(configured_context, 10)
         except ValueError:
             requested_context = 0
-        # Mirror the core's accepted override range and downward-only cap.
-        # Invalid values are ignored by both paths.
+        # Apply the accepted operator value to the RAM-based starting tier.
+        # The full-prompt requirement below can raise a smaller value; invalid values are ignored.
         if 2048 <= requested_context <= 16384:
             context_tokens = min(context_tokens, requested_context)
 
