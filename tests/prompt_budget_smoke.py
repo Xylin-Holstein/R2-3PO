@@ -79,7 +79,7 @@ if "if (length == 0 || length > remaining) continue;" not in core:
 if "if (length <= remaining && length > 0)" not in core:
     raise SystemExit("The active user turn must be included whole rather than cut mid-message.")
 serializer_start = core.find("static char *ollama_chat_with_limit(")
-serializer_end = core.find("\\nstatic char *ollama_chat(", serializer_start)
+serializer_end = core.find("\nstatic char *ollama_chat(", serializer_start)
 serializer = core[serializer_start:serializer_end]
 if serializer_start < 0 or serializer_end < 0:
     raise SystemExit("Could not isolate the Ollama serializer.")
