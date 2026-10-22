@@ -119,49 +119,26 @@ for phrase, message in (
     ("Preserve speaker identity and who said what", "builder preserves attribution while correcting a nonresponsive answer"),
     ("attributes words to them", "builder forbids invented attributions"),
     ("that they did not say", "builder forbids adding words the user never said"),
-    ("static const char retry_system_prompt[] =", "builder uses a compact self-contained policy that fits the actual inference budget"),
-    ("return xstrdup(retry_system_prompt);", "builder returns the compact retry policy without prepending an oversized static identity block"),
-    ("RELATIONSHIP AND NAME CONTINUITY:", "compact retry retains learned relationship continuity"),
-    ("REPLY STYLE:", "compact retry retains direct-answer style guidance"),
-    ("REALITY CONTEXT RULES:", "compact retry retains Reality-use guidance"),
+    ("static const char retry_instruction[] =", "builder keeps the complete corrective instruction"),
+    ("r2_conversation_system_prompt", "retry reuses the restored full conversation policy"),
+    ("identity_length +", "retry preserves the complete static identity section"),
+    ("sizeof(retry_instruction)", "retry allocates space for the complete correction"),
+    ("snprintf(retry_system_prompt, prompt_size", "retry assembles the full prompt without truncation"),
 ):
     require(phrase in builder, message)
 
-# The serializer has only about 2,193 bytes for its system override at the
-# target 4096-token context and a normal-sized user turn. Decode adjacent C
-# string literals and check both foreground and corrective policies against
-# that real allocation, not just the much larger per-message hard limit.
-def c_string_array_length(name: str, end_marker: str) -> int:
-    definition = core.find(f"static const char {name}[] =")
-    if definition < 0:
-        raise SystemExit(f"Could not locate {name}")
-    end = core.find(end_marker, definition)
-    if end < 0:
-        raise SystemExit(f"Could not isolate {name}")
-    literals = []
-    for line in core[definition:end].splitlines():
-        literal = line.strip()
-        if literal.startswith('"') and (literal.endswith('"') or literal.endswith('";')):
-            if literal.endswith(';'):
-                literal = literal[:-1]
-            try:
-                literals.append(ast.literal_eval(literal))
-            except (SyntaxError, ValueError) as exc:
-                raise SystemExit(f"Could not decode {name}: {exc}") from exc
-    if not literals:
-        raise SystemExit(f"Could not decode string literals for {name}")
-    return len("".join(literals))
-
-main_prompt_chars = c_string_array_length(
-    "r2_conversation_system_prompt", "\n\nstatic char *r2_build_retry_system_prompt(void)"
+require(
+    "if (override_length > override_budget)" not in core
+    and "OLLAMA_MAX_SYSTEM_MESSAGE_CHARS" not in core
+    and "OLLAMA_MAX_SYSTEM_TOTAL_CHARS" not in core
+    and "OLLAMA_MAX_TOTAL_CHARS" not in core,
+    "foreground and corrective prompts are no longer clipped to an application-level override budget",
 )
-retry_prompt_chars = c_string_array_length(
-    "retry_system_prompt", "return xstrdup(retry_system_prompt);"
+require(
+    "size_t input_budget = (size_t)(num_ctx - num_predict - 512) * 32U / 10U;" in core
+    and "if (length > remaining) length = r2_utf8_safe_prefix_length(content, remaining);" in core,
+    "full prompt and context are allocated against the actual Ollama window with output/tokenizer headroom",
 )
-require(main_prompt_chars <= 2193,
-        f"foreground policy fits the baseline 4096-context override budget ({main_prompt_chars} chars)")
-require(retry_prompt_chars <= 2193,
-        f"corrective policy and correction fit the baseline 4096-context override budget ({retry_prompt_chars} chars)")
 
 require(
     "if (retry_after_sanitize_failure ||" in core,
@@ -190,7 +167,7 @@ require(
     "the main conversation prompt distinguishes feedback about R2's prior output from an unintelligible current user message",
 )
 require(
-    "Do not reinterpret typed text as an audio stream, random sounds, or machine data" in core,
+    "Do not reinterpret typed text as audio, random sounds, or machine data" in core,
     "primary conversation prompt discourages typed-text misclassification",
 )
 require(
@@ -208,8 +185,10 @@ require(
     "active conversation prompt applies relationship learning without mother-specific phrase rules",
 )
 require(
-    "R2_TURN_MEMORY_LIMIT 10" in core and "R2_RECALL_HISTORY_SEARCHES 16" in core,
-    "ordinary dialogue has a substantial retrieval budget while explicit recall expands it further",
+    "int memory_limit = MAX_RELEVANT_MEMORIES;" in core
+    and "int history_search_limit = MAX_MEMORY_KEYWORDS;" in core
+    and "size_t history_char_limit = SIZE_MAX;" in core,
+    "retrieval uses the full configured memory/keyword sets without a separate character quota",
 )
 require(
     "r2_query_explicitly_requests_recall(query)" in core,
