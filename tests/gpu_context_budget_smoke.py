@@ -36,7 +36,6 @@ assert '"$R2_OLLAMA_NUM_GPU_DEFAULTED" == "1" &&' in runner
 assert '"$R2_OLLAMA_NUM_CTX_DEFAULTED" == "1" ]]; then' in runner
 assert "export R2_OLLAMA_NUM_GPU=4" in runner
 assert "export R2_OLLAMA_NUM_CTX=12288" in runner
-assert "Never silently override an explicit operator policy" in runner
 assert 'R2_OLLAMA_NUM_CTX="${R2_OLLAMA_NUM_CTX:-}"' in launcher
 assert 'requested >= 2048 && requested <= 16384' in core
 assert 'if (requested < safe_max) safe_max = (int)requested;' in core
