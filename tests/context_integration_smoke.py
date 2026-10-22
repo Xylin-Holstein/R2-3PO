@@ -135,7 +135,11 @@ for marker in (
     "if (failed)",
 ):
     if marker not in retrieval:
-        raise SystemExit(f"Current-turn retrieval does not handle {marker!r}.")
+retrieval_context_start = core.find("char *memory_context = context_cache_get")
+retrieval_context_end = core.find("Conversation continuity: the Life Log retains complete historical", retrieval_context_start)
+if retrieval_context_start < 0 or retrieval_context_end < 0:
+    raise SystemExit("Could not isolate current-turn retrieval context assembly.")
+if 'memory_context = xstrdup("");' in core[retrieval_context_start:retrieval_context_end]:
 if 'memory_context = xstrdup("");' in core[core.find("char *memory_context = context_cache_get"):core.find("r2_bound_context_records(memory_context")]:
     raise SystemExit("Current-turn retrieval failure is still being cached as an empty context.")
 if "Persistent-memory retrieval failed; refusing to continue with silently missing evidence." not in core:
