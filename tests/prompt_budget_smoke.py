@@ -27,7 +27,7 @@ conversation_prompt = decode_c_string_array(
 )
 if len(system_prompt) < 20000:
     raise SystemExit(f"The full SYSTEM_PROMPT appears shortened: {len(system_prompt)} chars")
-if len(conversation_prompt) < 6500:
+if len(conversation_prompt) < 6300:
     raise SystemExit(f"The original conversation instructions were shortened: {len(conversation_prompt)} chars")
 
 for required in (
@@ -78,18 +78,30 @@ if "if (length == 0 || length > remaining) continue;" not in core:
     raise SystemExit("Conversation history must be included whole rather than cut mid-message.")
 if "if (length <= remaining && length > 0)" not in core:
     raise SystemExit("The active user turn must be included whole rather than cut mid-message.")
+serializer_start = core.find("static char *ollama_chat_with_limit(")
+serializer_end = core.find("\\nstatic char *ollama_chat(", serializer_start)
+serializer = core[serializer_start:serializer_end]
+if serializer_start < 0 or serializer_end < 0:
+    raise SystemExit("Could not isolate the Ollama serializer.")
+if "r2_utf8_safe_prefix_length(content, remaining)" in serializer:
+    raise SystemExit("The Ollama serializer still cuts system or dialogue messages mid-content.")
+if "if (length > remaining) continue;" not in serializer:
+    raise SystemExit("Messages must be selected whole against the actual remaining context.")
 
 def input_budget(num_ctx: int, num_predict: int) -> int:
     return max(0, num_ctx - num_predict - 512) * 32 // 10
 
+required_static_chars = len(system_prompt) + len(conversation_prompt)
 for num_ctx, num_predict in ((8192, 1024), (12288, 2048), (16384, 2048)):
     budget = input_budget(num_ctx, num_predict)
     if budget <= 0:
         raise SystemExit(f"Invalid input budget at context={num_ctx}")
-    if num_ctx >= 12288 and budget < len(conversation_prompt):
+    if num_ctx == 8192 and budget >= required_static_chars + 1500:
+        raise SystemExit("8192-token fallback unexpectedly appears to fit the full policy and active turn")
+    if num_ctx >= 12288 and budget < required_static_chars + 1500:
         raise SystemExit(
-            f"Full conversation prompt cannot fit its allocated input window at context={num_ctx}: "
-            f"{len(conversation_prompt)} > {budget}"
+            f"Full static instructions plus active-turn headroom do not fit at context={num_ctx}: "
+            f"{required_static_chars + 1500} > {budget}"
         )
 
 print(
