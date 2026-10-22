@@ -3405,32 +3405,6 @@ static size_t r2_context_record_prefix_length(const char *content, size_t cap)
     return safe;
 }
 
-static size_t r2_safe_prompt_prefix_length(const char *content,
-                                            size_t cap,
-                                            int preserve_records)
-{
-    if (!content || cap == 0)
-        return 0;
-
-    size_t boundary = cap;
-    if (preserve_records) {
-        while (boundary > 0 && content[boundary - 1] != '\n')
-            --boundary;
-        return r2_utf8_safe_prefix_length(content, boundary > 0 ? boundary : cap);
-    }
-
-    size_t floor = cap * 3 / 4;
-    while (boundary > floor) {
-        char ch = content[boundary - 1];
-        if (ch == '\n')
-            return r2_utf8_safe_prefix_length(content, boundary);
-        if ((ch == '.' || ch == '!' || ch == '?') &&
-            (boundary == cap || isspace((unsigned char)content[boundary])))
-            return r2_utf8_safe_prefix_length(content, boundary);
-        --boundary;
-    }
-    return r2_utf8_safe_prefix_length(content, cap);
-}
 
 /* Ollama's non-streaming /api/chat contract must represent one complete
    assistant turn. Keep this predicate isolated so malformed-response cases
