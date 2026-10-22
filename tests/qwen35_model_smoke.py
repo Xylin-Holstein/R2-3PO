@@ -187,6 +187,9 @@ require(
     "retrieved history stays separate and is placed before dialogue without modifying the current user message",
 )
 
+retrieved_priority_start = core.find('if (!strncmp(content, "CURRENT TURN RETRIEVED CONTEXT"')
+retrieved_priority = core[retrieved_priority_start:retrieved_priority_start + 220] if retrieved_priority_start >= 0 else ""
+
 require(
     "size_t input_budget = (size_t)(num_ctx - num_predict - 512) * 32U / 10U;" in core
     and "size_t system_budget = input_budget > current_user_reserve + 500" in core
@@ -194,7 +197,7 @@ require(
     and "for (int priority = 0; priority < 8" in core
     and "r2_capability_section_matches_query" in core
     and "CURRENT TURN RETRIEVED CONTEXT" in core
-    and "return 4;" in core[core.find('if (!strncmp(content, "CURRENT TURN RETRIEVED CONTEXT"'):],
+    and "return 4;" in retrieved_priority
     and "budget.identity_budget" not in core
     and "budget.capabilities_reserve" not in core
     and "r2_compute_system_context_budget(system_budget)" not in core
