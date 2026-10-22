@@ -3706,37 +3706,54 @@ static char *ollama_chat_with_limit(
     if (current_user_reserve > max_user_reserve)
         current_user_reserve = max_user_reserve;
 
-    size_t system_budget = input_budget > current_user_reserve + 500
-        ? input_budget - current_user_reserve - 500 : 0;
-    if (system_budget > input_budget)
-        system_budget = input_budget;
-
-
+    size_t system_budget = input_budget > current_user_reserve
+        ? input_budget - current_user_reserve : 0;
     size_t total_chars = override_length;
+    int required_system_missing = override_length > system_budget;
     /*
-     * Priority matters only when the real Ollama context budget is reached:
-     * core identity, live Reality, active-turn retrieval, capability guidance,
-     * broad startup memory, learning summaries, then archived dialogue. No
-     * category-specific quota is allowed to truncate the instructions.
+     * Never send a prefix of any instruction. Identity, live Reality, and
+     * capability instructions are required in full; if the selected context
+     * cannot hold them alongside the full conversation policy and active turn,
+     * report the real allocation failure instead of silently changing R2's
+     * instructions. Variable retrieved evidence and archived dialogue are
+     * included whole when they fit the remaining context.
      */
-    for (int priority = 0; priority < 8 &&
-         total_chars < system_budget; ++priority) {
-        for (size_t i = 0; i < count && total_chars < system_budget; ++i) {
+    for (int priority = 0; priority < 8; ++priority) {
+        for (size_t i = 0; i < count; ++i) {
             if (!msgs[i].role || strcmp(msgs[i].role, "system") != 0)
                 continue;
             const char *content = msgs[i].content ? msgs[i].content : "";
             int message_priority = r2_inference_system_priority(
                 content, ollama_authoritative_user_query);
-            if (message_priority != priority) continue;
+            if (message_priority != priority || include[i]) continue;
 
             size_t length = strlen(content);
-            size_t remaining = system_budget > total_chars ? system_budget - total_chars : 0;
-            if (length > remaining) length = r2_utf8_safe_prefix_length(content, remaining);
+            size_t remaining = system_budget > total_chars
+                ? system_budget - total_chars : 0;
+            if (length > remaining) {
+                if (priority <= 3)
+                    required_system_missing = 1;
+                continue;
+            }
             if (length == 0) continue;
             include[i] = 1;
             limits[i] = length;
             total_chars += length;
         }
+    }
+    if (required_system_missing) {
+        fprintf(stderr,
+                "[R2 Ollama] Required system instructions do not fit intact in "
+                "the selected context (policy=%zu chars, input_budget=%zu, "
+                "system_budget=%zu, num_ctx=%d, num_predict=%d). "
+                "No prompt text was shortened; increase the available context "
+                "allocation or free host memory before retrying.\\n",
+                override_length, input_budget, system_budget, num_ctx, num_predict);
+        free(include);
+        free(limits);
+        json_object_put(arr);
+        json_object_put(root);
+        return NULL;
     }
 
     /*
@@ -3750,8 +3767,7 @@ static char *ollama_chat_with_limit(
             ? msgs[current_user_index].content : "";
         size_t length = strlen(content);
         size_t remaining = input_budget - total_chars;
-        if (length > remaining) length = r2_utf8_safe_prefix_length(content, remaining);
-        if (length > 0) {
+        if (length <= remaining && length > 0) {
             include[current_user_index] = 1;
             limits[current_user_index] = length;
             total_chars += length;
@@ -3767,8 +3783,7 @@ static char *ollama_chat_with_limit(
         size_t length = strlen(content);
         if (total_chars >= input_budget) break;
         size_t remaining = input_budget - total_chars;
-        if (length > remaining) length = r2_utf8_safe_prefix_length(content, remaining);
-        if (length == 0) continue;
+        if (length == 0 || length > remaining) continue;
         include[index] = 1;
         limits[index] = length;
         total_chars += length;
