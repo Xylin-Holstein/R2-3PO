@@ -3511,9 +3511,12 @@ static char *ollama_chat_with_limit(
     required_chars += active_turn_reserve;
     for (size_t i = 0; i < count; ++i) {
         if (!msgs[i].role || strcmp(msgs[i].role, "system") != 0 ||
-            !msgs[i].pinned ||
-            r2_inference_system_priority(msgs[i].content,
-                                        ollama_authoritative_user_query) > 3)
+            !msgs[i].pinned)
+            continue;
+        int instruction_priority = r2_inference_system_priority(
+            msgs[i].content, ollama_authoritative_user_query);
+        if (instruction_priority > 3 &&
+            !r2_is_capability_section(msgs[i].content))
             continue;
         size_t section_length = msgs[i].content ? strlen(msgs[i].content) : 0;
         if (section_length > SIZE_MAX - required_chars) {
@@ -3787,7 +3790,9 @@ static char *ollama_chat_with_limit(
             size_t remaining = system_budget > total_chars
                 ? system_budget - total_chars : 0;
             if (length > remaining) {
-                if (priority == 0 || (msgs[i].pinned && priority <= 3)) {
+                if (priority == 0 ||
+                    (msgs[i].pinned &&
+                     (priority <= 3 || r2_is_capability_section(content)))) {
                     fprintf(stderr,
                             "[R2 Ollama] refusing inference: a complete mandatory static instruction "
                             "section does not fit the allocated context (%zu required, %zu available).\n",
