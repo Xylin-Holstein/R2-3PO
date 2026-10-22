@@ -195,10 +195,10 @@ require(
     and "size_t system_budget = input_budget > current_user_reserve" in core
     and "size_t total_chars = override_length;" in core
     and "if (length > remaining) continue;" in core
-    and "for (int priority = 0; priority < 8" in core
+    and "for (int priority = 0; priority < 9" in core
     and "r2_capability_section_matches_query" in core
     and "CURRENT TURN RETRIEVED CONTEXT" in core
-    and "return 4;" in retrieved_priority
+    and "return 5;" in retrieved_priority
     and "budget.identity_budget" not in core
     and "budget.capabilities_reserve" not in core
     and "r2_compute_system_context_budget(system_budget)" not in core
