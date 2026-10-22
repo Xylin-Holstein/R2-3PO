@@ -42,10 +42,6 @@
 
 /* Bound prompts for local Qwen 3.5 9B: preserve the active turn and useful memory within RAM headroom. */
 #define OLLAMA_MAX_RECENT_MESSAGES 16
-#define OLLAMA_MAX_MESSAGE_CHARS 12000
-#define OLLAMA_MAX_SYSTEM_MESSAGE_CHARS 24000
-#define OLLAMA_MAX_SYSTEM_TOTAL_CHARS 42000
-#define OLLAMA_MAX_TOTAL_CHARS 48000
 #define OLLAMA_MAX_RESPONSE_BYTES (16U * 1024U * 1024U)
 
 
@@ -3667,8 +3663,6 @@ static char *ollama_chat_with_limit(
     size_t current_user_reserve = 1500;
     if (authoritative_query && *authoritative_query) {
         size_t query_length = strlen(authoritative_query);
-        if (query_length > OLLAMA_MAX_MESSAGE_CHARS)
-            query_length = OLLAMA_MAX_MESSAGE_CHARS;
         if (query_length > current_user_reserve)
             current_user_reserve = query_length;
     } else if (current_user_index != SIZE_MAX) {
@@ -3683,8 +3677,6 @@ static char *ollama_chat_with_limit(
             begin += strlen(begin_marker);
             current_length = (size_t)(end - begin);
         }
-        if (current_length > OLLAMA_MAX_MESSAGE_CHARS)
-            current_length = OLLAMA_MAX_MESSAGE_CHARS;
         if (current_length > current_user_reserve)
             current_user_reserve = current_length;
     }
@@ -3708,10 +3700,10 @@ static char *ollama_chat_with_limit(
 
     size_t total_chars = override_length;
     /*
-     * Priority matters when the system-context budget is reached: core identity,
-     * live Reality, active-turn retrieval, static capability guidance, broad
-     * startup memory, learning summaries, and finally archived dialogue.
-     * Every category has a cap so one long block cannot crowd the others out.
+     * Priority matters only when the real Ollama context budget is reached:
+     * core identity, live Reality, active-turn retrieval, capability guidance,
+     * broad startup memory, learning summaries, then archived dialogue. No
+     * category-specific quota is allowed to truncate the instructions.
      */
     for (int priority = 0; priority < 8 &&
          total_chars < system_budget; ++priority) {
@@ -3761,9 +3753,6 @@ static char *ollama_chat_with_limit(
         if (msgs[index].role && !strcmp(msgs[index].role, "system")) continue;
         const char *content = msgs[index].content ? msgs[index].content : "";
         size_t length = strlen(content);
-        if (length > OLLAMA_MAX_MESSAGE_CHARS)
-            length = r2_utf8_safe_prefix_length(
-                content, OLLAMA_MAX_MESSAGE_CHARS);
         if (total_chars >= input_budget) break;
         size_t remaining = input_budget - total_chars;
         if (length > remaining) length = r2_utf8_safe_prefix_length(content, remaining);
@@ -11114,7 +11103,7 @@ int r2_conversation(void)
     if (!core_initialized)
         return -1;
 
-    char *line = malloc((size_t)OLLAMA_MAX_MESSAGE_CHARS + 2U);
+    char *line = malloc((size_t)MAX_LIVE_MESSAGE_BYTES + 2U);
     if (!line) {
         fprintf(stderr, "[R2] Could not allocate bounded conversation input buffer.\n");
         return -1;
@@ -11129,7 +11118,7 @@ int r2_conversation(void)
         errno = 0;
         size_t input_bytes = 0;
         R2InputLineStatus input_status =
-            r2_read_bounded_line(stdin, line, OLLAMA_MAX_MESSAGE_CHARS,
+            r2_read_bounded_line(stdin, line, MAX_LIVE_MESSAGE_BYTES,
                                  &input_bytes);
         if (input_status == R2_INPUT_LINE_EOF)
             break;
@@ -11144,10 +11133,10 @@ int r2_conversation(void)
         if (input_status == R2_INPUT_LINE_TOO_LONG) {
             fprintf(stderr,
                     "[R2] Direct conversation input exceeded the %d-byte limit.\n",
-                    OLLAMA_MAX_MESSAGE_CHARS);
+                    MAX_LIVE_MESSAGE_BYTES);
             printf("\nR2-3PO: That message is too long for one turn (%d-byte limit). "
                    "Nothing from it was sent; please split it into smaller messages.\n\n",
-                   OLLAMA_MAX_MESSAGE_CHARS);
+                   MAX_LIVE_MESSAGE_BYTES);
             fflush(stdout);
             continue;
         }
