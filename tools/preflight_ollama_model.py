@@ -123,7 +123,7 @@ def _available_memory_bytes() -> int:
 
 
 def _adaptive_context_tokens() -> int:
-    """Mirror r2_ollama_context_tokens() when no explicit context is supplied."""
+    """Choose the RAM-based tier before full-prompt requirements are applied."""
     available_bytes = _available_memory_bytes()
     gib = 1024 ** 3
     if not available_bytes:
