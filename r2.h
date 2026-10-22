@@ -36,6 +36,9 @@ extern "C" {
 /* Single source of truth for every local Ollama inference in R2. */
 #define R2_OLLAMA_MODEL "qwen3.5:9b"
 
+/* Shared maximum size for an individual live message/input buffer. */
+#define R2_MAX_LIVE_MESSAGE_BYTES (32U * 1024U * 1024U)
+
 /* Shared RAM-aware context sizing for text and multimodal inference. */
 int r2_ollama_context_tokens(void);
 /* Resolve a validated loopback-only Ollama chat URL for text and vision. */
