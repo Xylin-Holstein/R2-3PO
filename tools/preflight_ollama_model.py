@@ -24,6 +24,32 @@ ALLOWED_API_BASES = {
 MODEL = "qwen3.5:9b"
 
 
+def _adaptive_context_tokens() -> int:
+    """Mirror r2_ollama_context_tokens() when no explicit context is supplied."""
+    available_bytes = 0
+    try:
+        with open("/proc/meminfo", "r", encoding="ascii") as meminfo:
+            for line in meminfo:
+                if line.startswith("MemAvailable:"):
+                    available_bytes = int(line.split()[1]) * 1024
+                    break
+    except (OSError, ValueError, IndexError):
+        pass
+
+    gib = 1024 ** 3
+    if not available_bytes:
+        return 8192
+    if available_bytes >= 8 * gib:
+        return 16384
+    if available_bytes >= 5 * gib:
+        return 12288
+    if available_bytes >= 3 * gib:
+        return 8192
+    if available_bytes >= 2 * gib:
+        return 4096
+    return 2048
+
+
 def _configured_api_base() -> str:
     """Return only an explicitly approved loopback Ollama endpoint."""
     base = os.environ.get("R2_OLLAMA_BASE_URL", DEFAULT_API_BASE)
@@ -152,15 +178,17 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
 
     options: dict[str, Any] = {"temperature": 0, "num_predict": 128}
     configured_context = os.environ.get("R2_OLLAMA_NUM_CTX", "").strip()
+    context_tokens = _adaptive_context_tokens()
     if configured_context:
         try:
-            context_tokens = int(configured_context, 10)
+            requested_context = int(configured_context, 10)
         except ValueError:
-            context_tokens = 0
-        # Mirror the core's accepted override range. Invalid values are ignored
-        # by both paths so preflight does not test a context R2 will not use.
-        if 2048 <= context_tokens <= 16384:
-            options["num_ctx"] = context_tokens
+            requested_context = 0
+        # Mirror the core's accepted override range and downward-only cap.
+        # Invalid values are ignored by both paths.
+        if 2048 <= requested_context <= 16384:
+            context_tokens = min(context_tokens, requested_context)
+    options["num_ctx"] = context_tokens
     if gpu_layers != 0:
         options["num_gpu"] = gpu_layers
 
