@@ -188,7 +188,7 @@ char *r2_imagination_create(const char *request)
         "Construct the imagined possibility now. Keep it explicitly hypothetical.",
         request, context);
 
-    char *generated = r2_model_generate(system, prompt, 700);
+    char *generated = r2_model_generate(system, prompt, 0);
     free(prompt);
 
     if (!generated || !*generated) {
