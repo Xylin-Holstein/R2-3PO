@@ -40,7 +40,7 @@
 #define MAX_MEMORY_KEYWORDS 48
 #define MIN_MEMORY_KEYWORD_LENGTH 3
 
-/* Bound prompts for local Qwen 3.5 9B: preserve the active turn and useful memory within RAM headroom. */
+/* Bound response buffering; prompt allocation follows the full Ollama context window. */
 #define OLLAMA_MAX_RESPONSE_BYTES (16U * 1024U * 1024U)
 
 
@@ -3720,7 +3720,7 @@ static char *ollama_chat_with_limit(
                 if (priority == 0) {
                     fprintf(stderr,
                             "[R2 Ollama] refusing inference: the complete base identity prompt "
-                            "does not fit the allocated context (%zu required, %zu available).\\n",
+                            "does not fit the allocated context (%zu required, %zu available).\n",
                             length, remaining);
                     free(include);
                     free(limits);
