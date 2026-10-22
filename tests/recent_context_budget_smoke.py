@@ -28,8 +28,8 @@ serializer_end = core.find("\nstatic char *ollama_chat(", serializer_start)
 serializer = core[serializer_start:serializer_end]
 require(serializer_start >= 0 and serializer_end > serializer_start,
         "the real Ollama serializer can be inspected")
-require("if (length > remaining) continue;" in serializer and
+require("if (length == 0 || length > remaining) continue;" in serializer and
         "r2_utf8_safe_prefix_length(content, remaining)" not in serializer,
-        "only complete messages are selected against the real remaining context budget")
+        "conversation history turns are selected whole against the real remaining context budget")
 
 print("Recent conversation context budget smoke passed.")
