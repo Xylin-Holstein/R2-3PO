@@ -3649,6 +3649,17 @@ static char *ollama_chat_with_limit(
      * and count the extra system override which is serialized separately.
      */
     size_t input_budget = (size_t)(num_ctx - num_predict - 512) * 32U / 10U;
+    if (required_chars > input_budget) {
+        fprintf(stderr,
+                "[R2 Ollama] refusing inference: complete instructions and the active user turn "
+                "need %zu input characters but this request has %zu available at context=%d.\n",
+                required_chars, input_budget, num_ctx);
+        free(include);
+        free(limits);
+        json_object_put(arr);
+        json_object_put(root);
+        return NULL;
+    }
     /*
      * Explicitly reserve the newest user turn before selecting recent history.
      * Tool-result and assistant messages may follow that turn during an action
