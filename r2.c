@@ -3234,17 +3234,17 @@ static int r2_inference_system_priority(const char *content, const char *query)
         return 1;
     if (!strncmp(content, "CURRENT TURN RETRIEVED CONTEXT",
                   strlen("CURRENT TURN RETRIEVED CONTEXT")))
-        return 2;
+        return 4;
     if (r2_is_capability_section(content)) {
         if (r2_capability_section_matches_query(content, query))
-            return 3;
+            return 2;
         if (!strncmp(content,
                      "============================================================\nREALITY CONTEXT: USE IT, DO NOT RECITE IT",
                      strlen("============================================================\nREALITY CONTEXT: USE IT, DO NOT RECITE IT"))) {
             /* General reality/action rules lead only when no specific subsystem applies. */
-            return r2_query_matches_specific_capability(query) ? 4 : 3;
+            return r2_query_matches_specific_capability(query) ? 3 : 2;
         }
-        return 4;
+        return 3;
     }
     if (strstr(content, "R2 PERSISTENT MEMORY - STARTUP CONTEXT"))
         return 5;
@@ -4863,13 +4863,6 @@ static char *r2_retry_direct_answer(Message *messages_copy,
  * explicit recall receives a larger ceiling. The Ollama payload builder applies
  * a second hardware-aware cap so these retrieval budgets do not override RAM headroom.
  */
-#define R2_TURN_MEMORY_LIMIT 10
-#define R2_TURN_MEMORY_CHARS 6000
-#define R2_TURN_HISTORY_CHARS 6000
-#define R2_TURN_HISTORY_SEARCHES 12
-#define R2_RECALL_MEMORY_CHARS 18000
-#define R2_RECALL_HISTORY_CHARS 14000
-#define R2_RECALL_HISTORY_SEARCHES 16
 
 /*
  * Greeting/address and conversational filler tokens are poor memory-search
@@ -4939,22 +4932,6 @@ static int r2_query_explicitly_requests_recall(const char *query)
     return 0;
 }
 
-/* Clip only at a record boundary when possible, so a memory is not half-sent. */
-static void r2_bound_context_records(char *context, size_t max_chars)
-{
-    if (!context || max_chars == 0)
-        return;
-    size_t length = strlen(context);
-    if (length <= max_chars)
-        return;
-
-    size_t cut = max_chars;
-    while (cut > 0 && context[cut] != '\n')
-        --cut;
-    if (cut == 0)
-        cut = r2_utf8_safe_prefix_length(context, max_chars);
-    context[cut] = '\0';
-}
 
 /*
  * Ask the same local model to interpret the current message for retrieval,
@@ -5479,14 +5456,11 @@ static char *chat_with_relevant_memories(
     */
 
     int explicit_recall = r2_query_explicitly_requests_recall(query);
-    int memory_limit = explicit_recall ? MAX_RELEVANT_MEMORIES
-                                       : R2_TURN_MEMORY_LIMIT;
-    size_t memory_char_limit = explicit_recall ? R2_RECALL_MEMORY_CHARS
-                                               : R2_TURN_MEMORY_CHARS;
-    size_t history_char_limit = explicit_recall ? R2_RECALL_HISTORY_CHARS
-                                                : R2_TURN_HISTORY_CHARS;
-    int history_search_limit = explicit_recall ? R2_RECALL_HISTORY_SEARCHES
-                                               : R2_TURN_HISTORY_SEARCHES;
+    /* Retrieval volume is no longer cut by separate character quotas. The
+       Ollama context allocator is the single budget for the assembled evidence. */
+    int memory_limit = MAX_RELEVANT_MEMORIES;
+    size_t history_char_limit = SIZE_MAX;
+    int history_search_limit = MAX_MEMORY_KEYWORDS;
 
     /* Semantic interpretation supplies database search cues for every turn.
        The original query remains authoritative and is never rewritten. */
@@ -5509,7 +5483,6 @@ static char *chat_with_relevant_memories(
     } else {
         fprintf(stderr, "[R2 Context] Reused persistent-memory retrieval from RAM cache.\n");
     }
-    r2_bound_context_records(memory_context, memory_char_limit);
 
     /*
        Conversation continuity: the Life Log retains complete historical
@@ -5697,21 +5670,6 @@ static char *chat_with_relevant_memories(
             free(memory_context);
             memory_context = joined;
         }
-    }
-
-    /*
-     * Per-section limits do not bound the final sum after diary, historical
-     * vision, and live visual evidence are appended. Cap the complete evidence
-     * block immediately before it is inserted into the prompt. The actual user
-     * message is stored separately and is never modified by this evidence cap.
-     */
-    size_t final_context_limit = explicit_recall ? 28000U : 16000U;
-    size_t assembled_context_chars = strlen(memory_context);
-    if (assembled_context_chars > final_context_limit) {
-        fprintf(stderr,
-                "[R2 Context] Assembled evidence exceeded the %zu-character budget (%zu); trimming before prompt construction.\n",
-                final_context_limit, assembled_context_chars);
-        r2_bound_context_records(memory_context, final_context_limit);
     }
 
     pthread_mutex_lock(
