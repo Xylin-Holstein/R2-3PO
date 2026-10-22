@@ -3046,28 +3046,13 @@ int r2_ollama_context_tokens(void)
         }
     }
 
-    /*
-     * Resource-tier selection must never force the serializer to drop R2's
-     * complete identity or conversation policy. Raise the context to the
-     * smallest supported window that fits both full prompts and active-turn
-     * headroom; model preflight then verifies that this allocation actually runs.
-     */
-    int minimum_prompt_context = r2_minimum_full_prompt_context();
-    if (safe_max < minimum_prompt_context) {
-        fprintf(stderr,
-                "[R2 Ollama] Raising context from %d to %d tokens because the complete "
-                "R2 instruction set requires the larger input window.\n",
-                safe_max, minimum_prompt_context);
-        safe_max = minimum_prompt_context;
-    }
-
     static atomic_int last_context_tokens = ATOMIC_VAR_INIT(0);
     int previous_context = atomic_exchange(&last_context_tokens, safe_max);
     if (previous_context != safe_max) {
         if (available) {
             fprintf(stderr,
                     "[R2 Ollama] Adaptive context=%d tokens; available RAM≈%.1f GiB. "
-                    "Context follows RAM headroom and is raised when required for complete prompts.\n",
+                    "Context tier follows host/cgroup headroom.\n",
                     safe_max, (double)available / (1024.0 * 1024.0 * 1024.0));
         } else {
             fprintf(stderr,
