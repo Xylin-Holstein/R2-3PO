@@ -3040,7 +3040,7 @@ int r2_ollama_context_tokens(void)
         if (available) {
             fprintf(stderr,
                     "[R2 Ollama] Adaptive context=%d tokens; available RAM≈%.1f GiB. "
-                    "Context is capped to preserve host headroom.\n",
+                    "Context follows RAM headroom and is raised when required for complete prompts.\n",
                     safe_max, (double)available / (1024.0 * 1024.0 * 1024.0));
         } else {
             fprintf(stderr,
