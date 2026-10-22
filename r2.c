@@ -3717,10 +3717,10 @@ static char *ollama_chat_with_limit(
             size_t remaining = system_budget > total_chars
                 ? system_budget - total_chars : 0;
             if (length > remaining) {
-                if (priority == 0) {
+                if (priority == 0 || (msgs[i].pinned && priority <= 3)) {
                     fprintf(stderr,
-                            "[R2 Ollama] refusing inference: the complete base identity prompt "
-                            "does not fit the allocated context (%zu required, %zu available).\n",
+                            "[R2 Ollama] refusing inference: a complete mandatory static instruction "
+                            "section does not fit the allocated context (%zu required, %zu available).\n",
                             length, remaining);
                     free(include);
                     free(limits);
