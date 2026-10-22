@@ -39,10 +39,8 @@ assert "export R2_OLLAMA_NUM_CTX=12288" in runner
 assert 'R2_OLLAMA_NUM_CTX="${R2_OLLAMA_NUM_CTX:-}"' in launcher
 assert 'requested >= 2048 && requested <= 16384' in core
 assert 'if (requested < safe_max) safe_max = (int)requested;' in core
-assert "r2_minimum_full_prompt_context()" in core
-assert "safe_max = minimum_prompt_context;" in core
-assert "static int r2_minimum_full_prompt_context(void)" in core
-assert "R2 instruction set requires the larger input window." in core
+assert "r2_context_for_required_chars(required_chars, num_ctx)" in core
+assert "to fit its complete instructions and active turn." in core
 assert "msgs[i].pinned && priority <= 3" in core
 assert "a complete mandatory static instruction section" in core
 assert "required_static_chars = sum(len(message[\"content\"]) for message in static_messages) + 1500" in (ROOT / "tools/preflight_ollama_model.py").read_text(encoding="utf-8")
