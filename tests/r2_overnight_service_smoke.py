@@ -201,7 +201,7 @@ class OvernightServiceTests(unittest.TestCase):
         self.assertIn("systemctl enable --now r2-ollama.service", source)
         self.assertIn("preflight_ollama_model.py", source)
         self.assertIn("PREFLIGHT_GPU=8", source)
-        self.assertIn("PREFLIGHT_CTX=8192", source)
+        self.assertIn("PREFLIGHT_CTX=\"\"", source)
         self.assertIn('R2_OLLAMA_NUM_GPU="$PREFLIGHT_GPU" R2_OLLAMA_NUM_CTX="$PREFLIGHT_CTX"', source)
         self.assertIn("4 GPU layers and 8192 context tokens", source)
         self.assertNotIn("ollama pull", source)
