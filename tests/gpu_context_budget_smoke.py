@@ -42,6 +42,10 @@ assert "Never silently override an explicit operator policy" in runner
 assert 'R2_OLLAMA_NUM_CTX="${R2_OLLAMA_NUM_CTX:-}"' in launcher
 assert 'requested >= 2048 && requested <= 16384' in core
 assert 'if (requested < safe_max) safe_max = (int)requested;' in core
+assert "r2_minimum_full_prompt_context()" in core
+assert "safe_max = minimum_prompt_context;" in core
+assert "static int r2_minimum_full_prompt_context(void)" in core
+assert "required_static_chars = sum(len(message[\"content\"]) for message in static_messages) + 1500" in (ROOT / "tools/preflight_ollama_model.py").read_text(encoding="utf-8")
 assert "if (num_predict < 1) num_predict = max_predict;" in core, "default output allocation must use the full context-derived ceiling"
 assert "int max_predict = num_ctx >= 16384 ? 4096 :" in core
 assert "num_ctx >= 12288 ? 2048 :" in core
