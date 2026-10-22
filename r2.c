@@ -3718,8 +3718,9 @@ static char *ollama_chat_with_limit(
     /*
      * Keep every selected message intact. Static identity, Reality, and
      * capability instructions are allocated before variable retrieval,
-     * learning summaries, and archived dialogue; no prompt category gets a
-     * separate fixed quota and no message is silently cut to fit.
+     * learning summaries, and archived dialogue. Static instructions and
+     * conversation turns stay whole; only variable evidence can use the
+     * remaining context, and then only through a complete line/record.
      */
     for (int priority = 0; priority < 9; ++priority) {
         for (size_t i = 0; i < count; ++i) {
