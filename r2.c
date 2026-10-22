@@ -3405,16 +3405,6 @@ static size_t r2_context_record_prefix_length(const char *content, size_t cap)
     return safe;
 }
 
-static void r2_bound_context_records(char *context, size_t max_bytes)
-{
-    if (!context) return;
-    size_t length = strlen(context);
-    if (length <= max_bytes) return;
-    size_t safe_length = r2_utf8_safe_prefix_length(context, max_bytes);
-    context[safe_length] = '\0';
-}
-
-
 static size_t r2_safe_prompt_prefix_length(const char *content,
                                             size_t cap,
                                             int preserve_records)
