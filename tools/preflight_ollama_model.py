@@ -31,7 +31,7 @@ def _decode_c_string_block(source: str, start_marker: str, end_marker: str) -> s
     end = source.find(end_marker, start)
     if start < 0 or end < 0:
         raise ValueError(f"Could not locate full prompt block: {start_marker}")
-    literals = re.findall(r'"(?:\\\\.|[^"\\\\])*"', source[start:end])
+    literals = re.findall(r'"(?:\\.|[^"\\])*"', source[start:end])
     if not literals:
         raise ValueError(f"Prompt block has no C string literals: {start_marker}")
     try:
@@ -50,7 +50,7 @@ def _full_static_instruction_messages() -> list[dict[str, str]]:
     conversation_prompt = _decode_c_string_block(
         source,
         "static const char r2_conversation_system_prompt[] =",
-        "\\n\\nstatic char *r2_build_retry_system_prompt",
+        "\n\nstatic char *r2_build_retry_system_prompt",
     )
     return [
         {"role": "system", "content": conversation_prompt},
