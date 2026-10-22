@@ -92,7 +92,7 @@ def input_budget(num_ctx: int, num_predict: int) -> int:
     return max(0, num_ctx - num_predict - 512) * 32 // 10
 
 required_static_chars = len(system_prompt) + len(conversation_prompt)
-for num_ctx, num_predict in ((8192, 1024), (12288, 2048), (16384, 2048)):
+for num_ctx, num_predict in ((8192, 1024), (12288, 2048), (16384, 4096)):
     budget = input_budget(num_ctx, num_predict)
     if budget <= 0:
         raise SystemExit(f"Invalid input budget at context={num_ctx}")
