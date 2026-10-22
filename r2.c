@@ -2993,7 +2993,34 @@ static unsigned long long available_memory_bytes(void)
     }
     return host_available;
 }
-static int r2_minimum_full_prompt_context(void);
+static size_t r2_context_input_budget_chars(int context)
+{
+    int output = context >= 16384 ? 4096 :
+                 context >= 12288 ? 2048 :
+                 context >= 8192 ? 1024 :
+                 context >= 4096 ? 512 : 256;
+    if (context <= output + 512)
+        return 0;
+    return (size_t)(context - output - 512) * 32U / 10U;
+}
+
+/* Raise only this request's context when its complete instructions and active
+   turn require it; small helper calls keep the resource-tier allocation. */
+static int r2_context_for_required_chars(size_t required_chars, int current_context)
+{
+    if (required_chars <= r2_context_input_budget_chars(current_context))
+        return current_context;
+
+    static const int candidates[] = {4096, 8192, 12288, 16384};
+    for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); ++i) {
+        int candidate = candidates[i];
+        if (candidate < current_context)
+            continue;
+        if (required_chars <= r2_context_input_budget_chars(candidate))
+            return candidate;
+    }
+    return current_context;
+}
 
 int r2_ollama_context_tokens(void)
 {
@@ -3467,6 +3494,59 @@ static char *ollama_chat_with_limit(
     }
 
     int num_ctx = r2_ollama_context_tokens();
+
+    /*
+     * Allocate from the actual request, not a global prompt quota. The complete
+     * system override, every pinned static instruction section, and the active
+     * user turn must fit together. This keeps short helper requests on the
+     * RAM-selected tier while giving the full conversation policy its required
+     * context window without compacting or dropping instructions.
+     */
+    size_t required_chars = system_override ? strlen(system_override) : 0;
+    size_t active_turn_reserve = 1500U;
+    if (ollama_authoritative_user_query && *ollama_authoritative_user_query) {
+        size_t query_length = strlen(ollama_authoritative_user_query);
+        if (query_length > active_turn_reserve)
+            active_turn_reserve = query_length;
+    } else {
+        for (size_t i = count; i > 0; --i) {
+            const Message *m = &msgs[i - 1];
+            if (!m->role || strcmp(m->role, "user") != 0 ||
+                r2_is_internal_tool_result(m))
+                continue;
+            size_t current_length = m->content ? strlen(m->content) : 0;
+            if (current_length > active_turn_reserve)
+                active_turn_reserve = current_length;
+            break;
+        }
+    }
+    if (required_chars > SIZE_MAX - active_turn_reserve) {
+        json_object_put(root);
+        return NULL;
+    }
+    required_chars += active_turn_reserve;
+    for (size_t i = 0; i < count; ++i) {
+        if (!msgs[i].role || strcmp(msgs[i].role, "system") != 0 ||
+            !msgs[i].pinned ||
+            r2_inference_system_priority(msgs[i].content,
+                                        ollama_authoritative_user_query) > 3)
+            continue;
+        size_t section_length = msgs[i].content ? strlen(msgs[i].content) : 0;
+        if (section_length > SIZE_MAX - required_chars) {
+            json_object_put(root);
+            return NULL;
+        }
+        required_chars += section_length;
+    }
+    int required_context = r2_context_for_required_chars(required_chars, num_ctx);
+    if (required_context > num_ctx) {
+        fprintf(stderr,
+                "[R2 Ollama] Raising this request's context from %d to %d tokens "
+                "to fit its complete instructions and active turn.\n",
+                num_ctx, required_context);
+        num_ctx = required_context;
+    }
+
     /* Foreground reasoning needs room for both internal deliberation and the
        final answer. Keep generation inside the active context so input-budget
        arithmetic below cannot underflow on a small adaptive context. */
@@ -4802,29 +4882,6 @@ static char *r2_build_retry_system_prompt(void)
 }
 
 
-static int r2_minimum_full_prompt_context(void)
-{
-    /*
-     * Derive the minimum from the actual production strings instead of a
-     * remembered byte quota. This prevents future instruction growth from
-     * silently pushing the main system prompt out of the serialized request.
-     */
-    size_t required_chars = strlen(SYSTEM_PROMPT) +
-                            strlen(r2_conversation_system_prompt) + 1500U;
-    static const int candidates[] = {4096, 8192, 12288, 16384};
-    for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); ++i) {
-        int context = candidates[i];
-        int output = context >= 16384 ? 4096 :
-                     context >= 12288 ? 2048 :
-                     context >= 8192 ? 1024 : 512;
-        if (context <= output + 512) continue;
-        size_t input_chars = (size_t)(context - output - 512) * 32U / 10U;
-        if (required_chars <= input_chars)
-            return context;
-    }
-    /* Maximum supported context is returned; preflight reports if it is too small. */
-    return 16384;
-}
 
 static int r2_is_retry_context_message(const Message *message)
 {
