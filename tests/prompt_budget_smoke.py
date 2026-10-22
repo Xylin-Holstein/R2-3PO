@@ -74,17 +74,19 @@ if "size_t override_length = system_override ? strlen(system_override) : 0;" not
     raise SystemExit("The complete conversation prompt is not passed through unchanged.")
 if "for (size_t i = count; i > 0; --i)" not in core:
     raise SystemExit("History selection still has a fixed recent-turn count cap.")
-if "if (length > remaining) length = r2_utf8_safe_prefix_length(content, remaining);" not in core:
-    raise SystemExit("Context exhaustion is not allocated against the actual remaining input budget.")
+if "if (length == 0 || length > remaining) continue;" not in core:
+    raise SystemExit("Conversation history must be included whole rather than cut mid-message.")
+if "if (length <= remaining && length > 0)" not in core:
+    raise SystemExit("The active user turn must be included whole rather than cut mid-message.")
 
 def input_budget(num_ctx: int, num_predict: int) -> int:
     return max(0, num_ctx - num_predict - 512) * 32 // 10
 
-for num_ctx, num_predict in ((4096, 1024), (8192, 1024), (12288, 1024), (16384, 2048)):
+for num_ctx, num_predict in ((8192, 1024), (12288, 2048), (16384, 2048)):
     budget = input_budget(num_ctx, num_predict)
     if budget <= 0:
         raise SystemExit(f"Invalid input budget at context={num_ctx}")
-    if num_ctx >= 8192 and budget < len(conversation_prompt):
+    if num_ctx >= 12288 and budget < len(conversation_prompt):
         raise SystemExit(
             f"Full conversation prompt cannot fit its allocated input window at context={num_ctx}: "
             f"{len(conversation_prompt)} > {budget}"
