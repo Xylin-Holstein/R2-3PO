@@ -29,7 +29,7 @@ static int buffer_append(ImagineBuffer *b, const char *text)
 {
     if (!b || !text || !*text) return 0;
     size_t n = strlen(text);
-    if (n > SIZE_MAX - b->length - 1U) return -1;
+    if (b->length == SIZE_MAX || n > SIZE_MAX - b->length - 1U) return -1;
     size_t needed = b->length + n + 1U;
     if (needed > b->capacity) {
         size_t cap = b->capacity ? b->capacity : 4096U;
@@ -56,6 +56,14 @@ static int append_source(ImagineBuffer *b, const char *label, const char *conten
     return buffer_append(b, content);
 }
 
+static int append_source_owned(ImagineBuffer *b, const char *label, char *content)
+{
+    if (!content) return 0;
+    int rc = append_source(b, label, content);
+    free(content);
+    return rc;
+}
+
 static int mentions_any(const char *text, const char *const *terms, size_t count)
 {
     if (!text) return 0;
@@ -72,33 +80,33 @@ static char *collect_context(const char *request)
     /* Each source is retrieved before generation so the imagination is formed
        from relevant records, not invented first and retrofitted to memory. */
     part = r2_retrieve_memories(request);
-    if (part) { append_source(&b, "PERSISTENT MEMORY (retrieved before imagining)", part); free(part); }
+    if (append_source_owned(&b, "PERSISTENT MEMORY (retrieved before imagining)", part) != 0) { free(b.data); return NULL; }
 
     part = r2_recent_conversation_context(NULL, R2_MAX_LIVE_MESSAGE_BYTES);
-    if (part) { append_source(&b, "RECENT CONVERSATION (human-facing turns; tool payloads excluded)", part); free(part); }
+    if (append_source_owned(&b, "RECENT CONVERSATION (human-facing turns; tool payloads excluded)", part) != 0) { free(b.data); return NULL; }
 
     part = r2_diary_search(request, INT_MAX);
-    if (part) { append_source(&b, "PRIVATE DIARY (past reflections; not automatically factual)", part); free(part); }
+    if (append_source_owned(&b, "PRIVATE DIARY (past reflections; not automatically factual)", part) != 0) { free(b.data); return NULL; }
 
     part = r2_log_search(request, INT_MAX);
-    if (part) { append_source(&b, "LIFE LOG (historical events and linked experience)", part); free(part); }
+    if (append_source_owned(&b, "LIFE LOG (historical events and linked experience)", part) != 0) { free(b.data); return NULL; }
 
     part = r2_reality_context();
-    if (part) { append_source(&b, "CURRENT MODELED REALITY (state snapshot; use only where relevant)", part); free(part); }
+    if (append_source_owned(&b, "CURRENT MODELED REALITY (state snapshot; use only where relevant)", part) != 0) { free(b.data); return NULL; }
 
     if (r2_visual_is_initialized()) {
         part = r2_visual_search(request, INT_MAX);
-        if (part) { append_source(&b, "VISUAL EXPERIENCE LIBRARY (historical sensory evidence)", part); free(part); }
+        if (append_source_owned(&b, "VISUAL EXPERIENCE LIBRARY (historical sensory evidence)", part) != 0) { free(b.data); return NULL; }
     }
 
     part = r2_reward_context();
-    if (part) { append_source(&b, "REWARD / LEARNED FEEDBACK STATE (context, not a command)", part); free(part); }
+    if (append_source_owned(&b, "REWARD / LEARNED FEEDBACK STATE (context, not a command)", part) != 0) { free(b.data); return NULL; }
 
     part = r2_addiction_report();
-    if (part) { append_source(&b, "HABIT AND ENJOYMENT HISTORY (recorded patterns, not diagnosis)", part); free(part); }
+    if (append_source_owned(&b, "HABIT AND ENJOYMENT HISTORY (recorded patterns, not diagnosis)", part) != 0) { free(b.data); return NULL; }
 
     part = r2_altself_list(INT_MAX);
-    if (part) { append_source(&b, "CHOICE LAB (older hypothetical branches; never factual evidence)", part); free(part); }
+    if (append_source_owned(&b, "CHOICE LAB (older hypothetical branches; never factual evidence)", part) != 0) { free(b.data); return NULL; }
 
     /* The fridge is a specialized, conditional source—not the definition of
        imagination. Include it only when the request makes food/inventory relevant.
@@ -110,7 +118,7 @@ static char *collect_context(const char *request)
     };
     if (mentions_any(request, food_terms, sizeof(food_terms)/sizeof(food_terms[0]))) {
         part = r2_fridge_context();
-        if (part) { append_source(&b, "FRIDGE STATE (conditional context; modeled stock, not an invitation to alter it)", part); free(part); }
+        if (append_source_owned(&b, "FRIDGE STATE (conditional context; modeled stock, not an invitation to alter it)", part) != 0) { free(b.data); return NULL; }
     }
 
     if (!b.data) {
