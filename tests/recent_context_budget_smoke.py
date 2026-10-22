@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-"""Regression guard: recent conversation context must keep the newest turns."""
+"""Verify history is bounded by the real inference window, not fixed message quotas."""
 from pathlib import Path
-import re
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,50 +14,16 @@ def require(condition: bool, message: str) -> None:
     print(f"PASS: {message}")
 
 
-start = core.find("char *r2_recent_conversation_context(")
-end = core.find("/* Append complete Life Log event records", start)
-if start < 0 or end < 0:
-    raise SystemExit("Could not isolate recent conversation context builder.")
-builder = core[start:end]
+require("for (size_t i = count; i > 0; --i)" in core,
+        "inference history selection walks all available messages newest-first")
+require("OLLAMA_MAX_RECENT_MESSAGES" not in core,
+        "there is no fixed 16-message history cutoff")
+require("OLLAMA_MAX_MESSAGE_CHARS" not in core and
+        "OLLAMA_MAX_SYSTEM_MESSAGE_CHARS" not in core,
+        "there are no arbitrary per-message prompt caps")
+require("size_t input_budget = (size_t)(num_ctx - num_predict - 512) * 32U / 10U;" in core,
+        "the actual Ollama context window determines the payload budget")
+require("if (length > remaining) length = r2_utf8_safe_prefix_length(content, remaining);" in core,
+        "only the real remaining context budget limits a serialized message")
 
-require(
-    "selected[found++] = index;" in builder
-    and "const Message *m = &messages.items[selected[included]];" in builder,
-    "bounded context budgeting walks from the newest selected turn toward older turns",
-)
-require(
-    "size_t included = 0;" in builder
-    and "line_length > max_chars - selected_chars - separator_length" in builder
-    and "++included;" in builder,
-    "only complete recent message lines are budgeted before formatting",
-)
-require(
-    "for (size_t n = included; n > 0; --n)" in builder
-    and "selected[n - 1]" in builder,
-    "chosen recent turns are emitted in chronological order after prioritization",
-)
-require(
-    "if (found > 0 && included == 0)" in builder
-    and '" [truncated]\\n"' in builder
-    and "messages.items[selected[0]]" in builder,
-    "a single oversized newest turn is explicitly clipped instead of being replaced by older history",
-)
-require(
-    "pthread_mutex_lock(&messages_lock);" in builder
-    and "pthread_mutex_unlock(&messages_lock);" in builder,
-    "history selection and formatting remain protected by the message-history mutex",
-)
-require(
-    "override_length = r2_utf8_safe_prefix_length(" in core
-    and "content, OLLAMA_MAX_SYSTEM_MESSAGE_CHARS);" in core
-    and core.count("content, OLLAMA_MAX_MESSAGE_CHARS);") == 2
-    and not re.search(r"^\s+length = OLLAMA_MAX_MESSAGE_CHARS;$", core, re.MULTILINE)
-    and not re.search(r"^\s+length = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;$", core, re.MULTILINE),
-    "Ollama hard byte caps clip system overrides and message bodies at UTF-8 boundaries",
-)
-require(
-    "cut = r2_utf8_safe_prefix_length(context, max_chars);" in core
-    and "n = r2_utf8_safe_prefix_length(found, max_chars - used);" in core,
-    "shared retrieved-evidence and associated-record caps preserve UTF-8 boundaries when no full record fits",
-)
 print("Recent conversation context budget smoke passed.")
