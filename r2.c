@@ -41,7 +41,6 @@
 #define MIN_MEMORY_KEYWORD_LENGTH 3
 
 /* Bound prompts for local Qwen 3.5 9B: preserve the active turn and useful memory within RAM headroom. */
-#define OLLAMA_MAX_RECENT_MESSAGES 16
 #define OLLAMA_MAX_RESPONSE_BYTES (16U * 1024U * 1024U)
 
 
@@ -3725,7 +3724,6 @@ static char *ollama_chat_with_limit(
         }
     }
 
-    size_t recent_count = 0;
     /*
      * Include the current user turn first, even if later tool-result messages
      * would otherwise push it outside the newest-message count. Its content
@@ -3742,7 +3740,6 @@ static char *ollama_chat_with_limit(
             include[current_user_index] = 1;
             limits[current_user_index] = length;
             total_chars += length;
-            recent_count = 1;
         }
     }
 
@@ -3760,7 +3757,6 @@ static char *ollama_chat_with_limit(
         include[index] = 1;
         limits[index] = length;
         total_chars += length;
-        ++recent_count;
     }
 
     /*
