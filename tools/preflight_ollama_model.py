@@ -274,7 +274,7 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
         except json.JSONDecodeError:
             vision_data = {}
         vision_color = vision_data.get("color") if isinstance(vision_data, dict) else None
-        if not isinstance(vision_color, str) or not re.search(r"\\bblue\\b", vision_color, re.IGNORECASE):
+        if not isinstance(vision_color, str) or not re.search(r"\bblue\b", vision_color, re.IGNORECASE):
             print(
                 f"WARNING: {MODEL} passed text generation but failed the JSON known-color vision probe "
                 "(expected the image-bearing reply to report color=blue); visual inference is not verified.",
