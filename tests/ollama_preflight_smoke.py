@@ -38,7 +38,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         payload = read.call_args_list[1].kwargs["payload"]
         self.assertEqual(payload["model"], "qwen3.5:9b")
         self.assertIs(payload["think"], True)
-        self.assertEqual(payload["options"]["num_predict"], 512)
+        self.assertEqual(payload["options"]["num_predict"], 1024)
         self.assertEqual(payload["options"]["temperature"], 1.0)
         self.assertEqual(payload["options"]["top_p"], 0.95)
         self.assertEqual(payload["options"]["top_k"], 20)
@@ -77,6 +77,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         options = read.call_args_list[1].kwargs["payload"]["options"]
         self.assertEqual(options["num_gpu"], 20)
         self.assertEqual(options["num_ctx"], 8192)
+        self.assertEqual(options["num_predict"], 1024)
         vision_payload = read.call_args_list[2].kwargs["payload"]
         self.assertEqual(vision_payload["options"]["num_gpu"], 20)
         self.assertEqual(vision_payload["options"]["num_ctx"], 8192)
