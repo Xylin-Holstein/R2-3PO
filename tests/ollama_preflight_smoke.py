@@ -88,7 +88,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         replies = [
             {"models": [{"name": "qwen3.5:9b"}]},
             {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
-            {"done": True, "message": {"role": "assistant", "content": "{\\"color\\":\\"blue\\"}"}},
+            {"done": True, "message": {"role": "assistant", "content": '{"color":"blue"}'}},
             {"models": [{"name": "qwen3.5:9b", "size_vram": 123456}]},
         ]
         with patch.dict(probe.os.environ, {
