@@ -81,6 +81,22 @@ def _is_complete_assistant_turn(reply: dict[str, Any]) -> bool:
     )
 
 
+def _response_diagnostics(reply: dict[str, Any], options: dict[str, Any]) -> str:
+    """Report completion metrics without exposing the model's private thinking text."""
+    message = reply.get("message")
+    thinking = message.get("thinking") if isinstance(message, dict) else None
+    done_reason = str(reply.get("done_reason", "missing")).replace("\\n", " ")[:80]
+    prompt_tokens = reply.get("prompt_eval_count", "unknown")
+    generated_tokens = reply.get("eval_count", "unknown")
+    thinking_chars = len(thinking) if isinstance(thinking, str) else 0
+    return (
+        f"done_reason={done_reason}; prompt_tokens={prompt_tokens}; "
+        f"generated_tokens={generated_tokens}; thinking_chars={thinking_chars}; "
+        f"num_ctx={options.get('num_ctx', 'model-default')}; "
+        f"num_predict={options.get('num_predict', 'unset')}"
+    )
+
+
 def _gpu_placement_status(api_base: str, timeout: float) -> tuple[bool, bool]:
     """Read Ollama's loaded-model report and return (any GPU, mixed CPU/GPU)."""
     try:
@@ -246,14 +262,19 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
             detail = "Ollama returned thinking output but no final answer text before the generation budget ended."
         else:
             detail = "Ollama returned an empty final answer field."
-        print(f"ERROR: Ollama listed {MODEL} but chat generation produced no usable final answer. {detail}", file=sys.stderr)
+        diagnostics = _response_diagnostics(reply, options)
+        print(
+            f"ERROR: Ollama listed {MODEL} but chat generation produced no usable final answer. "
+            f"{detail} {diagnostics}",
+            file=sys.stderr,
+        )
         return False
 
 
     if not _is_complete_assistant_turn(reply):
         print(
             f"ERROR: Ollama listed {MODEL} but text generation did not return a complete assistant turn "
-            "(expected message.role=assistant and done=true).",
+            f"(expected message.role=assistant and done=true). {_response_diagnostics(reply, options)}",
             file=sys.stderr,
         )
         return False
