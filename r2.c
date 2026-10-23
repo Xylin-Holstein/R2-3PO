@@ -3741,6 +3741,21 @@ static char *ollama_chat_with_limit(
     if (num_predict < 1) num_predict = num_ctx >= 12288 ? 2048 : 1024;
     if (num_predict > max_predict) num_predict = max_predict;
 
+    /*
+     * At 4096 context, a long user turn previously requested 2048 output
+     * tokens, leaving too little input budget for the conversation contract
+     * and recent context. Keep the full current message and interpretation
+     * instructions available by spending more of this constrained window on
+     * input; larger contexts retain their normal response ceiling.
+     */
+    if (allow_reasoning && num_ctx <= 4096 && num_predict > 1024 &&
+        ollama_authoritative_user_query &&
+        strlen(ollama_authoritative_user_query) > 1200) {
+        num_predict = 1024;
+        fprintf(stderr,
+                "[R2 Ollama] Long current turn at constrained context; reserving more tokens for input (num_predict=1024).\\n");
+    }
+
     struct json_object *options = json_object_new_object();
     if (!options) {
         json_object_put(root);
