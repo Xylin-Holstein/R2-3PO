@@ -84,6 +84,28 @@ class OllamaPreflightSmoke(unittest.TestCase):
         self.assertEqual(vision_payload["options"]["num_predict"], 512)
         self.assertIn("images", vision_payload["messages"][1])
 
+    def test_low_context_preflight_uses_core_generation_ceiling(self) -> None:
+        replies = [
+            {"models": [{"name": "qwen3.5:9b"}]},
+            {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
+            {"done": True, "message": {"role": "assistant", "content": "{\\"color\\":\\"blue\\"}"}},
+            {"models": [{"name": "qwen3.5:9b", "size_vram": 123456}]},
+        ]
+        with patch.dict(probe.os.environ, {
+            "R2_OLLAMA_NUM_GPU": "8",
+            "R2_OLLAMA_NUM_CTX": "2048",
+        }), patch.object(probe, "_read_json", side_effect=replies) as read, \\
+             patch.object(probe.subprocess, "run", return_value=SimpleNamespace(
+                 returncode=0, stdout="NVIDIA GeForce GTX 1050 Ti, 4096 MiB, 123 MiB", stderr=""
+             )):
+            self.assertTrue(probe.preflight(timeout=1))
+        text_options = read.call_args_list[1].kwargs["payload"]["options"]
+        self.assertEqual(text_options["num_ctx"], 2048)
+        self.assertEqual(text_options["num_predict"], 512)
+        vision_options = read.call_args_list[2].kwargs["payload"]["options"]
+        self.assertEqual(vision_options["num_ctx"], 2048)
+        self.assertEqual(vision_options["num_predict"], 256)
+
     def test_overnight_endpoint_is_used_for_tags_chat_and_process_checks(self) -> None:
         replies = [
             {"models": [{"name": "qwen3.5:9b"}]},
