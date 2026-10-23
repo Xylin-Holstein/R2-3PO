@@ -3742,15 +3742,21 @@ static char *ollama_chat_with_limit(
     if (num_predict > max_predict) num_predict = max_predict;
 
     /*
-     * At 4096 context, a long user turn previously requested 2048 output
-     * tokens, leaving too little input budget for the conversation contract
-     * and recent context. Keep the full current message and interpretation
-     * instructions available by spending more of this constrained window on
-     * input; larger contexts retain their normal response ceiling.
+     * On a 2048-token context, a 512-token answer budget leaves too little
+     * room for a long current turn plus the system contract. On 4096 context,
+     * the same problem occurs with a 2048-token answer budget. Spend more of
+     * either constrained window on the active input; larger contexts keep
+     * their normal response ceiling.
      */
-    if (allow_reasoning && num_ctx <= 4096 && num_predict > 1024 &&
+    if (allow_reasoning && num_ctx <= 2048 && num_predict > 256 &&
         ollama_authoritative_user_query &&
         strlen(ollama_authoritative_user_query) > 1200) {
+        num_predict = 256;
+        fprintf(stderr,
+                "[R2 Ollama] Long current turn at 2048 context; reserving more tokens for input (num_predict=256).\n");
+    } else if (allow_reasoning && num_ctx <= 4096 && num_predict > 1024 &&
+               ollama_authoritative_user_query &&
+               strlen(ollama_authoritative_user_query) > 1200) {
         num_predict = 1024;
         fprintf(stderr,
                 "[R2 Ollama] Long current turn at constrained context; reserving more tokens for input (num_predict=1024).\n");
