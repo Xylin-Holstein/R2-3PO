@@ -190,13 +190,13 @@ fi
 r2_run_ollama_preflight() {
     local -a pipeline_status
     {
-        printf '[launcher] Ollama preflight attempt: num_ctx=%s num_gpu=%s probe_timeout=180s\\n' \\
+        printf '[launcher] Ollama preflight attempt: num_ctx=%s num_gpu=%s probe_timeout=180s\\n' \
             "${R2_OLLAMA_NUM_CTX:-auto}" "${R2_OLLAMA_NUM_GPU:-auto}"
-        sudo -n -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \\
-            R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \\
-            R2_OLLAMA_NUM_CTX="${R2_OLLAMA_NUM_CTX:-}" \\
-            R2_OLLAMA_NUM_GPU="$R2_OLLAMA_NUM_GPU" \\
-            R2_OLLAMA_TIMEOUT_SECONDS="${R2_OLLAMA_TIMEOUT_SECONDS:-}" \\
+        sudo -n -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
+            R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
+            R2_OLLAMA_NUM_CTX="${R2_OLLAMA_NUM_CTX:-}" \
+            R2_OLLAMA_NUM_GPU="$R2_OLLAMA_NUM_GPU" \
+            R2_OLLAMA_TIMEOUT_SECONDS="${R2_OLLAMA_TIMEOUT_SECONDS:-}" \
             python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --timeout 180 "${R2_OLLAMA_PREFLIGHT_ARGS[@]}"
     } 2>&1 | sudo -n -u r2 -- tee -a "$R2_ROOT/R2_Log/Debug.txt"
     pipeline_status=("${PIPESTATUS[@]}")
