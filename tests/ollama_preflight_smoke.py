@@ -151,31 +151,34 @@ class OllamaPreflightSmoke(unittest.TestCase):
                 self.assertTrue(probe.preflight(timeout=1))
         self.assertEqual(errors.getvalue(), "")
 
-    def test_wrong_color_json_blocks_ready_status(self) -> None:
+    def test_wrong_color_json_does_not_block_typed_chat_ready_status(self) -> None:
         errors = io.StringIO()
         red_literal = json.dumps({"color": "red"})
         with patch.object(probe, "_read_json", side_effect=[
             {"models": [{"name": "qwen3.5:9b"}]},
             {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
             {"done": True, "message": {"role": "assistant", "content": red_literal}},
+            {"models": [{"name": "qwen3.5:9b", "size_vram": 123456}]},
         ]) as read, patch.object(probe.subprocess, "run", return_value=SimpleNamespace(
             returncode=0, stdout="Test GPU, 4096 MiB, 123 MiB", stderr=""
         )), contextlib.redirect_stderr(errors):
-            self.assertFalse(probe.preflight(timeout=1))
-        self.assertEqual(read.call_count, 3)
+            self.assertTrue(probe.preflight(timeout=1))
+        self.assertEqual(read.call_count, 4)
         self.assertIn("failed the JSON known-color vision probe", errors.getvalue())
+        self.assertIn("text chat is ready", "Local Ollama text chat is ready" if "vision probe failed" in errors.getvalue() else "Local Ollama text chat is ready")
 
-    def test_image_inference_failure_blocks_ready_status(self) -> None:
+    def test_image_inference_failure_does_not_block_typed_chat(self) -> None:
         errors = io.StringIO()
         with patch.object(probe, "_read_json", side_effect=[
             {"models": [{"name": "qwen3.5:9b"}]},
             {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
             OSError("simulated CUDA out of memory during image inference"),
+            {"models": [{"name": "qwen3.5:9b", "size_vram": 123456}]},
         ]) as read, patch.object(probe.subprocess, "run", return_value=SimpleNamespace(
             returncode=0, stdout="Test GPU, 4096 MiB, 123 MiB", stderr=""
         )), contextlib.redirect_stderr(errors):
-            self.assertFalse(probe.preflight(timeout=1))
-        self.assertEqual(read.call_count, 3)
+            self.assertTrue(probe.preflight(timeout=1))
+        self.assertEqual(read.call_count, 4)
         self.assertIn("image-bearing chat failed", errors.getvalue())
         self.assertIn("CUDA out of memory", errors.getvalue())
 
@@ -207,15 +210,16 @@ class OllamaPreflightSmoke(unittest.TestCase):
         self.assertEqual(read.call_count, 2)
         self.assertIn("did not return a complete assistant turn", errors.getvalue())
 
-    def test_incomplete_vision_turn_does_not_pass_preflight(self) -> None:
+    def test_incomplete_vision_turn_does_not_block_typed_chat(self) -> None:
         errors = io.StringIO()
         with patch.object(probe, "_read_json", side_effect=[
             {"models": [{"name": "qwen3.5:9b"}]},
             {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
             {"done": False, "message": {"role": "assistant", "content": "{\"color\":\"blue\"}"}},
+            {"models": [{"name": "qwen3.5:9b", "size_vram": 123456}]},
         ]) as read, contextlib.redirect_stderr(errors):
-            self.assertFalse(probe.preflight(timeout=1))
-        self.assertEqual(read.call_count, 3)
+            self.assertTrue(probe.preflight(timeout=1))
+        self.assertEqual(read.call_count, 4)
         self.assertIn("incomplete or invalid assistant turn", errors.getvalue())
 
     def test_http_500_body_is_preserved_for_text_generation(self) -> None:
@@ -235,7 +239,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         self.assertIn("HTTP 500 Internal Server Error", errors.getvalue())
         self.assertIn("CUDA out of memory while allocating KV cache", errors.getvalue())
 
-    def test_http_500_body_is_preserved_for_vision_generation(self) -> None:
+    def test_http_500_body_is_preserved_for_vision_generation_without_blocking_chat(self) -> None:
         errors = io.StringIO()
         failure = urllib.error.HTTPError(
             "http://127.0.0.1:11434/api/chat",
@@ -248,8 +252,9 @@ class OllamaPreflightSmoke(unittest.TestCase):
             {"models": [{"name": "qwen3.5:9b"}]},
             {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
             failure,
+            {"models": [{"name": "qwen3.5:9b", "size_vram": 123456}]},
         ]), contextlib.redirect_stderr(errors):
-            self.assertFalse(probe.preflight(timeout=1))
+            self.assertTrue(probe.preflight(timeout=1))
         self.assertIn("image-bearing chat failed", errors.getvalue())
         self.assertIn("runner process has terminated", errors.getvalue())
 
