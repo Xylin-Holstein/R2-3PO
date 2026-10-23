@@ -6353,7 +6353,7 @@ static char *chat_with_relevant_memories(
         } else {
             free(retry_user_facing);
             fprintf(stderr,
-                    "[R2 Conversation] Corrective inference returned no usable text; retaining the original model result.\\n");
+                    "[R2 Conversation] Corrective inference returned no usable text; retaining the original model result.\n");
         }
     }
 
