@@ -37,8 +37,14 @@ class OllamaPreflightSmoke(unittest.TestCase):
         self.assertTrue(read.call_args_list[1].args[0].endswith("/api/chat"))
         payload = read.call_args_list[1].kwargs["payload"]
         self.assertEqual(payload["model"], "qwen3.5:9b")
-        self.assertIs(payload["think"], False)
-        self.assertEqual(payload["options"]["num_predict"], 128)
+        self.assertIs(payload["think"], True)
+        self.assertEqual(payload["options"]["num_predict"], 512)
+        self.assertEqual(payload["options"]["temperature"], 1.0)
+        self.assertEqual(payload["options"]["top_p"], 0.95)
+        self.assertEqual(payload["options"]["top_k"], 20)
+        self.assertEqual(payload["options"]["min_p"], 0.0)
+        self.assertEqual(payload["options"]["presence_penalty"], 1.5)
+        self.assertEqual(payload["options"]["repeat_penalty"], 1.0)
         self.assertTrue(read.call_args_list[2].args[0].endswith("/api/chat"))
         vision_payload = read.call_args_list[2].kwargs["payload"]
         png_bytes = base64.b64decode(vision_payload["messages"][1]["images"][0])
