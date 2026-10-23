@@ -554,7 +554,7 @@ static int diary_entries_migrate_schema(void)
         if (!diary_table_column_exists("diary_entries", legacy)) continue;
         char sql[512];
         int n = snprintf(sql, sizeof(sql),
-                         "UPDATE diary_entries SET entry=%s "
+                         "UPDATE diary_entries SET entry=COALESCE(NULLIF(%s,''),'') "
                          "WHERE entry IS NULL OR entry='';", legacy);
         if (n < 0 || (size_t)n >= sizeof(sql) ||
             sqlite3_exec(r2_diary_db, sql, NULL, NULL, NULL) != SQLITE_OK)
@@ -575,12 +575,11 @@ static int diary_entries_migrate_schema(void)
         if (!diary_table_column_exists("diary_entries", legacy)) continue;
         char sql[512];
         int n = snprintf(sql, sizeof(sql),
-                         "UPDATE diary_entries SET created_at=%s "
+                         "UPDATE diary_entries SET created_at=COALESCE(NULLIF(%s,''),'') "
                          "WHERE created_at IS NULL OR created_at='';", legacy);
         if (n < 0 || (size_t)n >= sizeof(sql) ||
             sqlite3_exec(r2_diary_db, sql, NULL, NULL, NULL) != SQLITE_OK)
             return SQLITE_ERROR;
-        break;
     }
     if (sqlite3_exec(r2_diary_db,
             "UPDATE diary_entries SET created_at=CURRENT_TIMESTAMP "
