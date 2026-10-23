@@ -62,7 +62,7 @@ if model_match:
 require('R2_OLLAMA_TIMEOUT_SECONDS="${R2_OLLAMA_TIMEOUT_SECONDS:-}"' in launcher,
         "launcher passes the configured long-running inference timeout")
 preflight_start = launcher.find("r2_run_ollama_preflight() {")
-preflight_end = launcher.find("\\n}", preflight_start)
+preflight_end = launcher.find("\n}", preflight_start)
 preflight_helper = launcher[preflight_start:preflight_end] if preflight_start >= 0 and preflight_end > preflight_start else ""
 require(
     '2>&1 | sudo -n -u r2 -- tee -a "$R2_ROOT/R2_Log/Debug.txt"' in preflight_helper
