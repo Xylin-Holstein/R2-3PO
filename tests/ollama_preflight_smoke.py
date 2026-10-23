@@ -54,7 +54,8 @@ class OllamaPreflightSmoke(unittest.TestCase):
         self.assertEqual(vision_payload["format"], "json")
         self.assertEqual(vision_payload["messages"][0]["role"], "system")
         self.assertEqual(vision_payload["options"]["num_predict"], 256)
-        self.assertEqual(vision_payload["options"]["temperature"], payload["options"]["temperature"])
+        self.assertEqual(vision_payload["options"]["temperature"], 0.7)
+        self.assertEqual(vision_payload["options"]["top_p"], 0.8)
         self.assertTrue(read.call_args_list[3].args[0].endswith("/api/ps"))
         self.assertEqual(gpu.call_count, 1)
 
