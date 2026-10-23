@@ -56,11 +56,16 @@ for required in (
     "size_t max_user_reserve = input_budget > 1500",
     "current_user_reserve > max_user_reserve",
     "static R2SystemContextBudget r2_compute_system_context_budget(",
-    "budget.reality_reserve = system_budget / 8;",
-    "budget.identity_budget = system_budget / 3;",
-    "budget.retrieval_reserve = system_budget / 8;",
-    "budget.capabilities_reserve = system_budget / 16;",
+    "budget.reality_reserve = system_budget / 10;",
+    "budget.identity_budget = system_budget / 4;",
+    "budget.retrieval_reserve = system_budget / 10;",
+    "budget.capabilities_reserve = system_budget / 32;",
     "budget.override_budget = system_budget > reserved",
+    "size_t current_user_reserve = 400;",
+    "static const char r2_conversation_system_prompt_compact[]",
+    "r2_conversation_prompt_for_context()",
+    "budget.identity_budget = system_budget / 4;",
+
     "r2_compute_system_context_budget(system_budget)",
     "message_add_system_prompt_sections_locked() != 0",
     "static const char *const section_markers[]",
@@ -102,7 +107,7 @@ if boundary_choice < 0 or utf8_alignment <= boundary_choice:
     raise SystemExit("System-override clipping can split a multibyte UTF-8 character")
 
 def allocation_for_context(num_ctx: int, num_predict: int, override_length: int,
-                           current_user_reserve: int = 1500) -> tuple[int, int, int, int, int, int, int, int, int]:
+                           current_user_reserve: int = 400) -> tuple[int, int, int, int, int, int, int, int, int]:
     input_budget = (num_ctx - num_predict - 512) * 32 // 10
     input_budget = min(input_budget, history_total)
     max_user_reserve = (
@@ -114,18 +119,18 @@ def allocation_for_context(num_ctx: int, num_predict: int, override_length: int,
         if input_budget > current_user_reserve + 500 else 0
     )
     system_budget = min(system_budget, system_total, input_budget)
-    reality_reserve = min(system_budget // 8, 3000)
-    identity_minimum = system_budget // 3
-    if identity_minimum < 1000 and system_budget > reality_reserve + 2000:
-        identity_minimum = 1000
-    retrieval_reserve = system_budget // 8
-    capabilities_reserve = system_budget // 16
+    reality_reserve = min(system_budget // 10, 3000)
+    identity_minimum = system_budget // 4
+    if identity_minimum < 500 and system_budget > reality_reserve + 1000:
+        identity_minimum = 500
+    retrieval_reserve = system_budget // 10
+    capabilities_reserve = system_budget // 32
     identity_budget = min(identity_minimum, system_budget - reality_reserve)
     reserved = (reality_reserve + identity_budget + retrieval_reserve
                 + capabilities_reserve)
     override_budget = (
         system_budget - reserved if system_budget > reserved
-        else system_budget // 4
+        else system_budget // 2
     )
     bounded_override = min(override_length, override_budget)
     return (system_budget, bounded_override, identity_budget, reality_reserve,
@@ -135,7 +140,7 @@ def allocation_for_context(num_ctx: int, num_predict: int, override_length: int,
 # Exercise low-memory, normal, and long-user-message paths. The allocator must
 # leave a system budget and a bounded current-turn reservation at every size.
 for num_ctx, num_predict, override_length, requested_user_reserve in (
-    (2048, 384, 12000, 1500),
+    (2048, 384, 12000, 400),
     (2048, 384, 12000, 12000),
     (4096, 384, 12000, 12000),
     (8192, 768, 12000, 1500),
