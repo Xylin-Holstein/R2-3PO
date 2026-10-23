@@ -18,7 +18,7 @@ required = {
     "Output budget is capped to context headroom": "if (num_predict > max_predict) num_predict = max_predict;",
     "Legacy memories are migrated additively": "static int migrate_memory_schema(void)",
     "Legacy content aliases are preserved": '"content", "memory_text", "text", "description", "value"',
-    "Current-turn reserve prevents old context crowding it out": "size_t current_user_reserve = 1500;",
+    "Current-turn reserve scales to the actual message length": "size_t current_user_reserve = 400;",
     "Live history has a byte ceiling": "#define MAX_LIVE_MESSAGE_BYTES (32U * 1024U * 1024U)",
     "Autonomous reflection uses the background scheduler": "previous_background_mode = ollama_background_mode",
     "cgroup RAM reads distinguish zero from unreadable": "static unsigned long long read_uint_file(const char *path, int *valid)",
