@@ -242,9 +242,9 @@ static void seed_legacy_diary_entries(void)
     assert(sqlite3_exec(db,
         "CREATE TABLE diary_entries ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-        "entry TEXT NOT NULL,"
+        "content TEXT NOT NULL,"
         "timestamp TEXT NOT NULL);"
-        "INSERT INTO diary_entries(entry,timestamp) "
+        "INSERT INTO diary_entries(content,timestamp) "
         "VALUES('legacy schema migration fixture','2001-02-03 04:05:06');",
         NULL, NULL, NULL) == SQLITE_OK);
     sqlite3_close(db);
@@ -286,7 +286,10 @@ int main(void)
     assert(r2_diary_write("Legacy diary entry about learning.") == 0);
     assert(scalar_int("SELECT COUNT(*) FROM diary_entries;") == 1);
     assert(scalar_int("SELECT COUNT(*) FROM diary_entries "
-                      "WHERE timestamp=created_at AND timestamp<>'';") == 1);
+                      "WHERE timestamp=created_at AND timestamp<>'';
+    /* The legacy content column stays NOT NULL after migration; writes must fill it. */
+    assert(scalar_int("SELECT COUNT(*) FROM diary_entries "
+                      "WHERE content=entry AND content<>'';") == 1);") == 1);
 
     log_ready = 1;
     assert(r2_diary_reconnect_history(10) >= 1);
