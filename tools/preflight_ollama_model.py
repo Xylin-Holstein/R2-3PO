@@ -81,6 +81,39 @@ def _is_complete_assistant_turn(reply: dict[str, Any]) -> bool:
     )
 
 
+def _gpu_placement_status(api_base: str, timeout: float) -> tuple[bool, bool]:
+    """Read Ollama's loaded-model report and return (any GPU, mixed CPU/GPU)."""
+    try:
+        ps = _read_json(f"{api_base}/api/ps", timeout=min(8, max(1, timeout)))
+        loaded = ps.get("models", [])
+        active = next((item for item in loaded
+                       if isinstance(item, dict)
+                       and (item.get("name") == MODEL
+                            or str(item.get("name", "")).startswith(MODEL + "-"))), None)
+        if active is None:
+            print("GPU verification: model not present in /api/ps; placement remains unverified.")
+            return False, False
+        try:
+            vram = int(active.get("size_vram", 0))
+        except (TypeError, ValueError):
+            vram = 0
+        if vram <= 0:
+            print("GPU verification: Ollama reports no VRAM allocation; inference may be CPU-only.")
+            return False, False
+        print(f"GPU verification: Ollama reports {vram / (1024 ** 3):.2f} GiB allocated in GPU VRAM.")
+        try:
+            total_size = int(active.get("size", 0))
+        except (TypeError, ValueError):
+            total_size = 0
+        mixed = total_size > vram
+        if mixed:
+            print(f"Mixed placement: model process reports {total_size / (1024 ** 3):.2f} GiB total with {vram / (1024 ** 3):.2f} GiB in VRAM; remaining model/runtime memory is outside GPU VRAM.")
+        return True, mixed
+    except (OSError, ValueError, urllib.error.URLError, TimeoutError) as exc:
+        print(f"GPU verification unavailable: could not query Ollama /api/ps ({exc}).")
+        return False, False
+
+
 def _png_chunk(kind: bytes, payload: bytes) -> bytes:
     return (
         struct.pack(">I", len(payload))
@@ -225,6 +258,27 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
         )
         return False
 
+    # Verify GPU placement immediately after the successful text request when
+    # mixed placement is launch-critical. The optional image probe can OOM and
+    # unload Ollama's runner; it must not erase proof that text inference worked.
+    gpu_offload_verified = False
+    mixed_placement_verified = False
+    gpu_placement_checked = False
+    if require_gpu_offload:
+        if gpu_layers == 0:
+            print("GPU policy: automatic placement (no explicit layer count sent).")
+        else:
+            print(f"GPU policy: requested {gpu_layers} model layers on the GPU.")
+        gpu_offload_verified, mixed_placement_verified = _gpu_placement_status(api_base, timeout)
+        gpu_placement_checked = True
+        if not gpu_offload_verified or not mixed_placement_verified:
+            print(
+                "ERROR: mixed CPU/GPU placement was required but Ollama did not report "
+                "both positive VRAM allocation and total model memory greater than VRAM.",
+                file=sys.stderr,
+            )
+            return False
+
     # Exercise the same 640x480 image dimensions, JSON response mode, GPU/context
     # policy and context-dependent output cap used by Visual.c. This catches
     # image-encoder/KV-cache OOMs that text-only readiness can miss.
@@ -301,50 +355,13 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
             )
             vision_ready = False
 
-    gpu_offload_verified = False
-    mixed_placement_verified = False
-    if gpu_layers == 0:
-        print("GPU policy: automatic placement (no explicit layer count sent).")
-    else:
-        print(f"GPU policy: requested {gpu_layers} model layers on the GPU.")
-
-    # Keep the model warm during this check, then inspect Ollama's own process
-    # report. A successful API request alone does not prove GPU offload.
-    try:
-        ps = _read_json(f"{api_base}/api/ps", timeout=min(8, max(1, timeout)))
-        loaded = ps.get("models", [])
-        active = next((item for item in loaded
-                       if isinstance(item, dict)
-                       and (item.get("name") == MODEL
-                            or str(item.get("name", "")).startswith(MODEL + "-"))), None)
-        if active is None:
-            print("GPU verification: model not present in /api/ps; placement remains unverified.")
+    if not gpu_placement_checked:
+        if gpu_layers == 0:
+            print("GPU policy: automatic placement (no explicit layer count sent).")
         else:
-            vram = active.get("size_vram", 0)
-            try:
-                vram = int(vram)
-            except (TypeError, ValueError):
-                vram = 0
-            if vram > 0:
-                gpu_offload_verified = True
-                print(f"GPU verification: Ollama reports {vram / (1024 ** 3):.2f} GiB allocated in GPU VRAM.")
-                total_size = active.get("size", 0)
-                try:
-                    total_size = int(total_size)
-                except (TypeError, ValueError):
-                    total_size = 0
-                if total_size > vram:
-                    mixed_placement_verified = True
-                    print(f"Mixed placement: model process reports {total_size / (1024 ** 3):.2f} GiB total with {vram / (1024 ** 3):.2f} GiB in VRAM; remaining model/runtime memory is outside GPU VRAM.")
-            else:
-                print("GPU verification: Ollama reports no VRAM allocation; inference may be CPU-only.")
-    except (OSError, ValueError, urllib.error.URLError, TimeoutError) as exc:
-        print(f"GPU verification unavailable: could not query Ollama /api/ps ({exc}).")
+            print(f"GPU policy: requested {gpu_layers} model layers on the GPU.")
+        gpu_offload_verified, mixed_placement_verified = _gpu_placement_status(api_base, timeout)
 
-    # When the host explicitly requests GPU layers, a successful text reply is
-    # not enough: require Ollama's process report to confirm that some model
-    # memory really landed in VRAM. CPU-only success must not masquerade as a
-    # successful GTX 1050 Ti policy preflight.
     if require_gpu_offload and (
         not gpu_offload_verified or not mixed_placement_verified
     ):
