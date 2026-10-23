@@ -66,7 +66,7 @@ require(
     and "IDENTITY AND PERSISTENT MEMORY" in retry_builder
     and "RESPONSE CORRECTION:" in retry_builder
     and "snprintf(retry_system_prompt, prompt_size" in retry_builder,
-    "corrective retry uses a compact self-contained relationship policy and preserves the correction within the serializer budget",
+    "corrective retry combines the complete identity and conversation policies with its correction",
 )
 
 require(
