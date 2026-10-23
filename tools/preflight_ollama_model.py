@@ -216,6 +216,11 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
     vision_context = int(options.get("num_ctx", 4096))
     vision_options = dict(options)
     vision_options["num_predict"] = 512 if vision_context >= 8192 else 256
+    # Vision is exercised here to report capability, but typed conversation is
+    # the launch-critical path. A vision OOM or bad image answer must not prevent
+    # R2 from starting its text conversation; keep the failure visible for later
+    # visual-subsystem debugging.
+    vision_ready = True
     try:
         vision_reply = _read_json(
             f"{api_base}/api/chat",
@@ -242,36 +247,40 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
         )
     except urllib.error.HTTPError as exc:
         print(
-            f"ERROR: {MODEL} passed text generation but image-bearing chat failed: {_http_error_detail(exc)}",
+            f"WARNING: {MODEL} passed text generation but image-bearing chat failed: {_http_error_detail(exc)}",
             file=sys.stderr,
         )
-        return False
+        vision_ready = False
     except (OSError, ValueError, urllib.error.URLError, TimeoutError) as exc:
-        print(f"ERROR: {MODEL} passed text generation but image-bearing chat failed: {exc}", file=sys.stderr)
-        return False
-
-    if not _is_complete_assistant_turn(vision_reply):
         print(
-            f"ERROR: {MODEL} returned an incomplete or invalid assistant turn for the image-bearing probe "
-            "(expected message.role=assistant and done=true).",
+            f"WARNING: {MODEL} passed text generation but image-bearing chat failed: {exc}",
             file=sys.stderr,
         )
-        return False
+        vision_ready = False
 
-    vision_message = vision_reply.get("message")
-    vision_content = vision_message.get("content") if isinstance(vision_message, dict) else None
-    try:
-        vision_data = json.loads(vision_content) if isinstance(vision_content, str) else {}
-    except json.JSONDecodeError:
-        vision_data = {}
-    vision_color = vision_data.get("color") if isinstance(vision_data, dict) else None
-    if not isinstance(vision_color, str) or not re.search(r"\bblue\b", vision_color, re.IGNORECASE):
+    if vision_ready and not _is_complete_assistant_turn(vision_reply):
         print(
-            f"ERROR: {MODEL} passed text generation but failed the JSON known-color vision probe "
-            "(expected the image-bearing reply to report color=blue).",
+            f"WARNING: {MODEL} returned an incomplete or invalid assistant turn for the image-bearing probe "
+            "(expected message.role=assistant and done=true); visual inference is not verified.",
             file=sys.stderr,
         )
-        return False
+        vision_ready = False
+
+    if vision_ready:
+        vision_message = vision_reply.get("message")
+        vision_content = vision_message.get("content") if isinstance(vision_message, dict) else None
+        try:
+            vision_data = json.loads(vision_content) if isinstance(vision_content, str) else {}
+        except json.JSONDecodeError:
+            vision_data = {}
+        vision_color = vision_data.get("color") if isinstance(vision_data, dict) else None
+        if not isinstance(vision_color, str) or not re.search(r"\\bblue\\b", vision_color, re.IGNORECASE):
+            print(
+                f"WARNING: {MODEL} passed text generation but failed the JSON known-color vision probe "
+                "(expected the image-bearing reply to report color=blue); visual inference is not verified.",
+                file=sys.stderr,
+            )
+            vision_ready = False
 
     gpu_offload_verified = False
     mixed_placement_verified = False
@@ -327,7 +336,10 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
         )
         return False
 
-    print(f"Local Ollama is ready: {MODEL} passed real text and image-bearing chat generations (replies omitted).")
+    if vision_ready:
+        print(f"Local Ollama is ready: {MODEL} passed real text and image-bearing chat generations (replies omitted).")
+    else:
+        print(f"Local Ollama text chat is ready: {MODEL} passed real text generation; vision probe failed and visual inference is not verified.")
 
     # Host-side diagnostic; lack of nvidia-smi access does not fail preflight.
     try:
