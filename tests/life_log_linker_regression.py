@@ -38,4 +38,23 @@ if missing:
     print("\n".join(missing), file=sys.stderr)
     raise SystemExit(1)
 
+activity_start = source[source.index("int64_t r2_log_activity_start("):source.index("int64_t r2_log_activity_end(")]
+assert "int step_rc = sqlite3_step(statement);" in activity_start, (
+    "activity-start lookup must inspect the SQLite step result"
+)
+for required_status in ("step_rc == SQLITE_ROW", "step_rc == SQLITE_DONE", "rc = step_rc;"):
+    assert required_status in activity_start, (
+        f"activity-start lookup missing status branch: {required_status}"
+    )
+assert "        char summary[1024];" not in activity_start, (
+    "activity-start insert must not retain an unused local summary buffer"
+)
+
+query_start = source.index("static char *query_events(")
+query_end = source.index("char *r2_log_recent(", query_start)
+query_impl = source[query_start:query_end]
+for required_text in ("FROM r2_log_links l JOIN r2_log_events", "l.relationship", "l.notes", "Linked event", "event_id_seen"):
+    if required_text not in query_impl:
+        missing.append(f"link-aware search missing: {required_text}")
+
 print("Life Log structured API regression checks passed.")
