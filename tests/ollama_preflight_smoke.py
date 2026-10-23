@@ -169,7 +169,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
     def test_image_inference_failure_does_not_block_typed_chat_with_verified_gpu(self) -> None:
         errors = io.StringIO()
         output = io.StringIO()
-        with patch.dict(probe.os.environ, {"R2_OLLAMA_NUM_GPU": "20"}), \\
+        with patch.dict(probe.os.environ, {"R2_OLLAMA_NUM_GPU": "20"}), \
              patch.object(probe, "_read_json", side_effect=[
                  {"models": [{"name": "qwen3.5:9b"}]},
                  {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
