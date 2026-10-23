@@ -166,18 +166,19 @@ class OllamaPreflightSmoke(unittest.TestCase):
         self.assertEqual(read.call_count, 4)
         self.assertIn("failed the JSON known-color vision probe", errors.getvalue())
 
-    def test_image_inference_failure_does_not_block_typed_chat(self) -> None:
+    def test_image_inference_failure_does_not_block_typed_chat_with_verified_gpu(self) -> None:
         errors = io.StringIO()
         output = io.StringIO()
-        with patch.object(probe, "_read_json", side_effect=[
-            {"models": [{"name": "qwen3.5:9b"}]},
-            {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
-            OSError("simulated CUDA out of memory during image inference"),
-            {"models": [{"name": "qwen3.5:9b", "size_vram": 123456}]},
-        ]) as read, patch.object(probe.subprocess, "run", return_value=SimpleNamespace(
-            returncode=0, stdout="Test GPU, 4096 MiB, 123 MiB", stderr=""
-        )), contextlib.redirect_stderr(errors), contextlib.redirect_stdout(output):
-            self.assertTrue(probe.preflight(timeout=1))
+        with patch.dict(probe.os.environ, {"R2_OLLAMA_NUM_GPU": "20"}), \\
+             patch.object(probe, "_read_json", side_effect=[
+                 {"models": [{"name": "qwen3.5:9b"}]},
+                 {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
+                 OSError("simulated CUDA out of memory during image inference"),
+                 {"models": [{"name": "qwen3.5:9b", "size": 500000, "size_vram": 123456}]},
+             ]) as read, patch.object(probe.subprocess, "run", return_value=SimpleNamespace(
+                 returncode=0, stdout="Test GPU, 4096 MiB, 123 MiB", stderr=""
+             )), contextlib.redirect_stderr(errors), contextlib.redirect_stdout(output):
+            self.assertTrue(probe.preflight(timeout=1, require_gpu_offload=True))
         self.assertEqual(read.call_count, 4)
         self.assertIn("image-bearing chat failed", errors.getvalue())
         self.assertIn("CUDA out of memory", errors.getvalue())
