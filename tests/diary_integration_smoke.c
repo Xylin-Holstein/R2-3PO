@@ -285,7 +285,7 @@ int main(void)
     assert(scalar_int("SELECT COUNT(*) FROM diary_entries "
                       "WHERE entry='legacy schema migration fixture' "
                       "AND created_at='2001-02-03 04:05:06';") == 1);
-    assert(scalar_int("SELECT COUNT(*) FROM diary_entries;") == 3);
+    assert(scalar_int("SELECT COUNT(*) FROM diary_entries;") == 2);
     assert(scalar_int("SELECT COUNT(*) FROM diary_entries "
                       "WHERE timestamp=created_at AND timestamp<>'';") == 2);
     /* Legacy NOT NULL aliases remain populated on every new write. */
@@ -297,7 +297,7 @@ int main(void)
     assert(r2_reward_reconnect_history(10) >= 1);
 
     assert(r2_diary_write("New reflection connected to history.") == 0);
-    assert(scalar_int("SELECT COUNT(*) FROM diary_entries;") == 2);
+    assert(scalar_int("SELECT COUNT(*) FROM diary_entries;") == 3);
 
     /* Diary review applies generic +1 feedback without name-specific rules. */
     assert(r2_reward_review_diary(100, "I learned something from this experience.") == 0);
@@ -335,7 +335,7 @@ int main(void)
     /* Reconciliation is idempotent: a second pass must not duplicate events. */
     assert(r2_diary_reconnect_history(10) == 0);
     assert(scalar_int("SELECT COUNT(*) FROM r2_log_events "
-                      "WHERE event_type='diary_entry_linked';") == 2);
+                      "WHERE event_type='diary_entry_linked';") == 3);
 
     /* The old key-only table is migrated lazily when the idempotent API is
        first used. Replaying the same reward must not increment totals twice. */
