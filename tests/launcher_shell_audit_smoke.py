@@ -61,6 +61,16 @@ if model_match:
 
 require('R2_OLLAMA_TIMEOUT_SECONDS="${R2_OLLAMA_TIMEOUT_SECONDS:-}"' in launcher,
         "launcher passes the configured long-running inference timeout")
+preflight_start = launcher.find("r2_run_ollama_preflight() {")
+preflight_end = launcher.find("\\n}", preflight_start)
+preflight_helper = launcher[preflight_start:preflight_end] if preflight_start >= 0 and preflight_end > preflight_start else ""
+require(
+    '2>&1 | sudo -n -u r2 -- tee -a "$R2_ROOT/R2_Log/Debug.txt"' in preflight_helper
+    and 'pipeline_status=("${PIPESTATUS[@]}")' in preflight_helper
+    and 'return "${pipeline_status[0]:-1}"' in preflight_helper
+    and launcher.count("if ! r2_run_ollama_preflight; then") == 4,
+    "all four Ollama preflight attempts stream full diagnostics to Debug.txt while preserving the model-check exit status",
+)
 require('R2_FX_DIR="$R2_FX_DIR"' in launcher
         and 'R2_FX_DIR="${R2_FX_DIR:-$R2_ROOT/R2_sounds/FX}"' in launcher,
         "launcher uses the canonical, overridable sound-effects directory")
