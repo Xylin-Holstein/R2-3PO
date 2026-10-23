@@ -160,7 +160,6 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
         "min_p": 0.0,
         "presence_penalty": 1.5,
         "repeat_penalty": 1.0,
-        "num_predict": 512,
     }
     configured_context = os.environ.get("R2_OLLAMA_NUM_CTX", "").strip()
     if configured_context:
@@ -172,6 +171,11 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
         # by both paths so preflight does not test a context R2 will not use.
         if 2048 <= context_tokens <= 16384:
             options["num_ctx"] = context_tokens
+    # A reasoning-mode probe needs enough generation budget to finish its
+    # thinking phase and emit the user-facing answer. Match the core's context
+    # ceiling instead of testing every context with an artificially tiny 512.
+    effective_context = int(options.get("num_ctx", 4096))
+    options["num_predict"] = 1024 if effective_context >= 4096 else 512
     if gpu_layers != 0:
         options["num_gpu"] = gpu_layers
 
