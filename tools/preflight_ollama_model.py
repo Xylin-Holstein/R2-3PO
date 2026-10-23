@@ -150,7 +150,18 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
         print("ERROR: R2_OLLAMA_NUM_GPU must be between -1 and 999.", file=sys.stderr)
         return False
 
-    options: dict[str, Any] = {"temperature": 0, "num_predict": 128}
+    # Exercise the same reasoning-mode sampler as foreground conversation.
+    # A non-thinking token probe can pass while R2's actual think=true request
+    # still fails under the same context/GPU allocation.
+    options: dict[str, Any] = {
+        "temperature": 1.0,
+        "top_p": 0.95,
+        "top_k": 20,
+        "min_p": 0.0,
+        "presence_penalty": 1.5,
+        "repeat_penalty": 1.0,
+        "num_predict": 512,
+    }
     configured_context = os.environ.get("R2_OLLAMA_NUM_CTX", "").strip()
     if configured_context:
         try:
@@ -175,7 +186,7 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
                     "content": "Reply with exactly this token and no other text: R2_READY",
                 }],
                 "stream": False,
-                "think": False,
+                "think": True,
                 "keep_alive": "10m",
                 "options": options,
             },
