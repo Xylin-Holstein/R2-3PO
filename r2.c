@@ -11710,25 +11710,33 @@ int r2_init(void)
         R2_INIT_FAIL("could not initialize R2 Life Log");
     }
 
-    /* Index original Life Log event IDs without copying raw sensory data. */
-    if (r2_sj_init() != 0)
+    /* Sensory indexing is part of the configured persistent-history path.
+       Do not advertise a complete R2 session if its journal database failed. */
+    if (r2_sj_init() != 0) {
         r2_log_event(R2_LOG_ERROR, "sensory_journal_init_failed",
                      "R2 Sensory Journal could not initialize.",
-                     "The Life Log remains available; sensory indexing/search are disabled.",
+                     "Core startup stopped because the configured sensory-history subsystem is unavailable.",
                      "r2_init");
+        r2_shutdown();
+        R2_INIT_FAIL("could not initialize R2 Sensory Journal");
+    }
 
     /* The reinforcement ledger is separate durable state, bridged to the
        Life Log and existing habit evaluator through the shared API. */
     if (r2_reward_init() != 0) {
-        fprintf(stderr, "[R2 Reward] Initialization failed; reinforcement will retry lazily.\n");
-    } else {
-        int reward_links = r2_reward_reconnect_history(100);
-        if (reward_links < 0)
-            fprintf(stderr, "[R2 Reward] History reconciliation is pending.\n");
-        else if (reward_links > 0)
-            fprintf(stderr, "[R2 Reward] Reconnected %d reward events to the Life Log.\n",
-                    reward_links);
+        r2_log_event(R2_LOG_ERROR, "reward_init_failed",
+                     "R2 reward ledger could not initialize.",
+                     "Core startup stopped because the configured persistent reward database is unavailable.",
+                     "r2_init");
+        r2_shutdown();
+        R2_INIT_FAIL("could not initialize R2 reward ledger");
     }
+    int reward_links = r2_reward_reconnect_history(100);
+    if (reward_links < 0)
+        fprintf(stderr, "[R2 Reward] History reconciliation is pending.\n");
+    else if (reward_links > 0)
+        fprintf(stderr, "[R2 Reward] Reconnected %d reward events to the Life Log.\n",
+                reward_links);
 
     /* Reconnect older diary history in bounded, restart-safe batches. The
        original diary rows and Markdown mirrors are preserved unchanged. */
@@ -11823,30 +11831,37 @@ int r2_init(void)
     if (r2_visual_init(DB_PATH, R2_ROOT "/Visual_Library") != 0) {
         r2_log_event(R2_LOG_ERROR, "visual_library_init_failed",
                      "R2 Visual Experience Library could not initialize.",
-                     "Text conversation remains available; visual analysis is disabled.",
+                     "Core startup stopped because the configured visual-experience store is unavailable.",
                      "r2_init");
+        r2_shutdown();
+        R2_INIT_FAIL("could not initialize R2 Visual Experience Library");
     }
 
     /* The Alternate-Self Lab uses the existing Life Log database. */
-    if (r2_altself_init() != 0)
+    if (r2_altself_init() != 0) {
         r2_log_event(R2_LOG_ERROR, "alternate_self_init_failed",
                      "Alternate-Self Lab could not initialize.",
-                     "Factual memory and the Life Log remain available.",
+                     "Core startup stopped because the configured counterfactual state store is unavailable.",
                      "r2_init");
-    else
-        r2_log_continuity("r2_alternate_self_lab", "subsystem",
-                          "Alternate-Self Lab",
-                          "What-if branches are kept distinct from factual events and memories.",
-                          "completed",
-                          "Counterfactual sensory reasoning receives learned preferences and self-facts; imagined sensations remain predictions and do not update experiential preferences.",
-                          "r2_init");
+        r2_shutdown();
+        R2_INIT_FAIL("could not initialize R2 Alternate-Self Lab");
+    }
+    r2_log_continuity("r2_alternate_self_lab", "subsystem",
+                      "Alternate-Self Lab",
+                      "What-if branches are kept distinct from factual events and memories.",
+                      "completed",
+                      "Counterfactual sensory reasoning receives learned preferences and self-facts; imagined sensations remain predictions and do not update experiential preferences.",
+                      "r2_init");
 
     /* Counterfactual exploration remains separate from factual memory and Reality. */
-    if (r2_imagination_init() != 0)
+    if (r2_imagination_init() != 0) {
         r2_log_event(R2_LOG_ERROR, "imagination_init_failed",
                      "R2 Imagination could not initialize.",
-                     "Ordinary conversation and real-world state remain available.",
+                     "Core startup stopped because the configured Imagination subsystem is unavailable.",
                      "r2_init");
+        r2_shutdown();
+        R2_INIT_FAIL("could not initialize R2 Imagination");
+    }
 
     /* --------------------------------------------------------
        INITIAL SYSTEM MESSAGE
