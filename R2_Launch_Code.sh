@@ -313,10 +313,29 @@ if ! sudo -n -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
             R2_OLLAMA_NUM_GPU="$R2_OLLAMA_NUM_GPU" \
             R2_OLLAMA_TIMEOUT_SECONDS="${R2_OLLAMA_TIMEOUT_SECONDS:-}" \
             python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --timeout 180 "${R2_OLLAMA_PREFLIGHT_ARGS[@]}"; then
-            echo "ERROR: Default and conservative GPU/context preflights both failed."
-            echo "R2 was NOT launched; check the local model/server logs."
-            read -p "Press Enter to exit..."
-            exit 1
+            echo "[GPU] 12-layer/4096-context attempt failed; reducing both model allocations and retrying with 8 GPU layers and 2048 context tokens."
+            export R2_OLLAMA_NUM_GPU=8
+            export R2_OLLAMA_NUM_CTX=2048
+            if ! sudo -n -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
+                R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
+                R2_OLLAMA_NUM_CTX="$R2_OLLAMA_NUM_CTX" \
+                R2_OLLAMA_NUM_GPU="$R2_OLLAMA_NUM_GPU" \
+                R2_OLLAMA_TIMEOUT_SECONDS="${R2_OLLAMA_TIMEOUT_SECONDS:-}" \
+                python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --timeout 180 "${R2_OLLAMA_PREFLIGHT_ARGS[@]}"; then
+                echo "[GPU] 8-layer/2048-context attempt failed; retrying with 4 GPU layers and 2048 context tokens."
+                export R2_OLLAMA_NUM_GPU=4
+                if ! sudo -n -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
+                    R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
+                    R2_OLLAMA_NUM_CTX="$R2_OLLAMA_NUM_CTX" \
+                    R2_OLLAMA_NUM_GPU="$R2_OLLAMA_NUM_GPU" \
+                    R2_OLLAMA_TIMEOUT_SECONDS="${R2_OLLAMA_TIMEOUT_SECONDS:-}" \
+                    python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --timeout 180 "${R2_OLLAMA_PREFLIGHT_ARGS[@]}"; then
+                    echo "ERROR: Default, 12-layer/4096, 8-layer/2048, and 4-layer/2048 inference preflights all failed."
+                    echo "R2 was NOT launched; preserve the full Ollama error above and inspect the server/model logs."
+                    read -p "Press Enter to exit..."
+                    exit 1
+                fi
+            fi
         fi
     else
         echo
