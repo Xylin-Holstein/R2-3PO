@@ -63,8 +63,8 @@ class OllamaPreflightSmoke(unittest.TestCase):
         replies = [
             {"models": [{"name": "qwen3.5:9b"}]},
             {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
-            {"done": True, "message": {"role": "assistant", "content": "{\"color\":\"blue\"}"}},
             {"models": [{"name": "qwen3.5:9b", "size": 500000, "size_vram": 123456}]},
+            {"done": True, "message": {"role": "assistant", "content": "{\"color\":\"blue\"}"}},
         ]
         with patch.dict(probe.os.environ, {
             "R2_OLLAMA_NUM_GPU": "20",
@@ -78,7 +78,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         self.assertEqual(options["num_gpu"], 20)
         self.assertEqual(options["num_ctx"], 8192)
         self.assertEqual(options["num_predict"], 1024)
-        vision_payload = read.call_args_list[2].kwargs["payload"]
+        vision_payload = read.call_args_list[3].kwargs["payload"]
         self.assertEqual(vision_payload["options"]["num_gpu"], 20)
         self.assertEqual(vision_payload["options"]["num_ctx"], 8192)
         self.assertEqual(vision_payload["options"]["num_predict"], 512)
@@ -146,8 +146,8 @@ class OllamaPreflightSmoke(unittest.TestCase):
         replies = [
             {"models": [{"name": "qwen3.5:9b"}]},
             {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
-            {"done": True, "message": {"role": "assistant", "content": "{\"color\":\"blue\"}"}},
             {"models": [{"name": "qwen3.5:9b", "size": 500000, "size_vram": 123456}]},
+            {"done": True, "message": {"role": "assistant", "content": "{\"color\":\"blue\"}"}},
         ]
         with patch.dict(probe.os.environ, {"R2_OLLAMA_NUM_GPU": "0", "R2_OLLAMA_NUM_CTX": "8192"}), \
              patch.object(probe, "_read_json", side_effect=replies) as read, \
@@ -156,7 +156,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
              )):
             self.assertTrue(probe.preflight(timeout=1, require_gpu_offload=True))
         self.assertNotIn("num_gpu", read.call_args_list[1].kwargs["payload"]["options"])
-        self.assertEqual(read.call_args_list[2].kwargs["payload"]["options"]["num_predict"], 512)
+        self.assertEqual(read.call_args_list[3].kwargs["payload"]["options"]["num_predict"], 512)
 
     def test_unapproved_non_loopback_endpoint_is_rejected(self) -> None:
         errors = io.StringIO()
@@ -203,8 +203,8 @@ class OllamaPreflightSmoke(unittest.TestCase):
              patch.object(probe, "_read_json", side_effect=[
                  {"models": [{"name": "qwen3.5:9b"}]},
                  {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
-                 OSError("simulated CUDA out of memory during image inference"),
                  {"models": [{"name": "qwen3.5:9b", "size": 500000, "size_vram": 123456}]},
+                 OSError("simulated CUDA out of memory during image inference"),
              ]) as read, patch.object(probe.subprocess, "run", return_value=SimpleNamespace(
                  returncode=0, stdout="Test GPU, 4096 MiB, 123 MiB", stderr=""
              )), contextlib.redirect_stderr(errors), contextlib.redirect_stdout(output):
