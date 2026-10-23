@@ -137,6 +137,30 @@ def allocation_for_context(num_ctx: int, num_predict: int, override_length: int,
             retrieval_reserve, capabilities_reserve, current_user_reserve,
             input_budget, identity_minimum)
 
+# The compact retry must fit intact in the smallest supported context; otherwise
+# sentence-boundary clipping would silently remove the corrective instruction.
+compact_match = re.search(
+    r'static const char r2_conversation_system_prompt_compact\[\] =\s*("(?:\\.|[^"\\])*");',
+    core,
+)
+retry_match = re.search(
+    r'static const char compact_retry_instruction\[\] =\s*("(?:\\.|[^"\\])*");',
+    core,
+)
+if not compact_match or not retry_match:
+    raise SystemExit("Could not locate compact conversation/retry prompt literals")
+compact_length = len(ast.literal_eval(compact_match.group(1)))
+retry_length = len(ast.literal_eval(retry_match.group(1)))
+retry_override_length = compact_length + retry_length + 2
+_, bounded_retry_override, *_ = allocation_for_context(
+    2048, 512, retry_override_length, 400
+)
+if bounded_retry_override < retry_override_length:
+    raise SystemExit(
+        f"Compact corrective retry is clipped at 2048 context: "
+        f"needs {retry_override_length}, receives {bounded_retry_override}"
+    )
+
 # Exercise low-memory, normal, and long-user-message paths. The allocator must
 # leave a system budget and a bounded current-turn reservation at every size.
 for num_ctx, num_predict, override_length, requested_user_reserve in (
