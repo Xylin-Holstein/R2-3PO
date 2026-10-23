@@ -35,10 +35,14 @@ require("struct json_object *options = json_object_new_object();" in function
         "required generation options and optional GPU placement are checked")
 require("ollama_json_object_add_checked(root, \"options\", options) != 0" in function,
         "the complete options object must attach successfully")
+require("if (allow_reasoning && num_ctx <= 2048 && num_predict > 256" in function
+        and "num_predict = 256;" in function
+        and function.index("num_predict = 256;") < function.index("size_t input_budget ="),
+        "long current turns at 2048 context reserve more of the constrained window for the active input")
 require("if (allow_reasoning && num_ctx <= 4096 && num_predict > 1024" in function
         and "strlen(ollama_authoritative_user_query) > 1200" in function
         and function.index("num_predict = 1024;") < function.index("size_t input_budget ="),
-        "long current turns on constrained context reserve more budget for the actual input and conversation instructions")
+        "long current turns on 4096 context reserve more budget for the actual input and conversation instructions")
 require("ollama_json_append_message(arr, \"system\", system_override," in function,
         "the system override uses checked message serialization")
 require("json_object_object_add(root, \"model\", json_object_new_string(MODEL))" not in function
