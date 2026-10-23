@@ -78,6 +78,8 @@ class OllamaPreflightSmoke(unittest.TestCase):
         self.assertEqual(options["num_gpu"], 20)
         self.assertEqual(options["num_ctx"], 8192)
         self.assertEqual(options["num_predict"], 1024)
+        self.assertTrue(read.call_args_list[2].args[0].endswith("/api/ps"))
+        self.assertTrue(read.call_args_list[3].args[0].endswith("/api/chat"))
         vision_payload = read.call_args_list[3].kwargs["payload"]
         self.assertEqual(vision_payload["options"]["num_gpu"], 20)
         self.assertEqual(vision_payload["options"]["num_ctx"], 8192)
