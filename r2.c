@@ -3941,7 +3941,14 @@ static char *ollama_chat_with_limit(
     if (current_user_index == SIZE_MAX)
         current_user_index = fallback_user_index;
 
-    size_t current_user_reserve = 1500;
+    /*
+     * Reserve the actual current-turn size instead of spending 1500 characters
+     * on every message. At 2048 context, that fixed reservation left too little
+     * room for R2's identity and conversation contract even for a short hello.
+     * Keep a 400-character floor for wrapper/boundary overhead; long turns grow
+     * the reservation to their full authoritative length.
+     */
+    size_t current_user_reserve = 400;
     if (authoritative_query && *authoritative_query) {
         size_t query_length = strlen(authoritative_query);
         if (query_length > OLLAMA_MAX_MESSAGE_CHARS)
