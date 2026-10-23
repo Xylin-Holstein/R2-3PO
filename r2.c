@@ -3753,7 +3753,7 @@ static char *ollama_chat_with_limit(
         strlen(ollama_authoritative_user_query) > 1200) {
         num_predict = 1024;
         fprintf(stderr,
-                "[R2 Ollama] Long current turn at constrained context; reserving more tokens for input (num_predict=1024).\\n");
+                "[R2 Ollama] Long current turn at constrained context; reserving more tokens for input (num_predict=1024).\n");
     }
 
     struct json_object *options = json_object_new_object();
