@@ -1379,6 +1379,11 @@ static int init_db(void)
     if (db_exec("PRAGMA journal_mode=WAL;") != 0 ||
         db_exec("PRAGMA synchronous=NORMAL;") != 0 ||
         db_exec("BEGIN IMMEDIATE;") != 0) {
+        /* Initialization can be retried in-process. Do not leave an open
+           handle or transaction behind after a failed PRAGMA/BEGIN. */
+        (void)db_exec("ROLLBACK;");
+        sqlite3_close(db);
+        db = NULL;
         return -1;
     }
 
@@ -1395,10 +1400,14 @@ static int init_db(void)
     if (result == 0) {
         if (db_exec("COMMIT;") != 0) {
             (void)db_exec("ROLLBACK;");
+            sqlite3_close(db);
+            db = NULL;
             return -1;
         }
     } else {
         (void)db_exec("ROLLBACK;");
+        sqlite3_close(db);
+        db = NULL;
     }
     return result;
 }
