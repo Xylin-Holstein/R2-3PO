@@ -4877,6 +4877,8 @@ static int r2_reply_contains_known_failure_phrase(const char *reply)
         "unable to understand your message",
         "cannot understand your message",
         "can't understand what you're saying",
+        "trouble understanding",
+        "having difficulty understanding your message",
         "cannot make sense of your message",
         "can't make sense of your message",
         "not a coherent question",
