@@ -3616,19 +3616,22 @@ static R2SystemContextBudget r2_compute_system_context_budget(size_t system_budg
     /* Reserve distinct shares while leaving a substantial remainder for the
        full conversation contract. These ratios scale smoothly as the active
        user turn consumes more of the available context. */
-    budget.reality_reserve = system_budget / 8;
+    budget.reality_reserve = system_budget / 10;
     if (budget.reality_reserve > 3000)
         budget.reality_reserve = 3000;
 
-    budget.identity_budget = system_budget / 3;
-    if (budget.identity_budget < 1000 &&
-        system_budget > budget.reality_reserve + 2000)
-        budget.identity_budget = 1000;
+    /* At low context, leave enough room for the conversation contract rather
+       than forcing a 1000-byte identity block ahead of it. Persistent startup
+       memory and current Reality are separate prioritized messages. */
+    budget.identity_budget = system_budget / 4;
+    if (budget.identity_budget < 500 &&
+        system_budget > budget.reality_reserve + 1000)
+        budget.identity_budget = 500;
     if (budget.identity_budget > system_budget - budget.reality_reserve)
         budget.identity_budget = system_budget - budget.reality_reserve;
 
-    budget.retrieval_reserve = system_budget / 8;
-    budget.capabilities_reserve = system_budget / 16;
+    budget.retrieval_reserve = system_budget / 10;
+    budget.capabilities_reserve = system_budget / 32;
     size_t reserved = budget.reality_reserve +
                       budget.identity_budget +
                       budget.retrieval_reserve +
