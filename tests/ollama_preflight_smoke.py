@@ -234,6 +234,30 @@ class OllamaPreflightSmoke(unittest.TestCase):
             with contextlib.redirect_stderr(errors):
                 self.assertFalse(probe.preflight(timeout=1))
         self.assertIn("chat generation produced no usable final answer", errors.getvalue())
+        self.assertIn("done_reason=missing", errors.getvalue())
+        self.assertIn("num_predict=1024", errors.getvalue())
+        self.assertIn("thinking_chars=0", errors.getvalue())
+
+    def test_empty_final_answer_reports_metrics_without_private_thinking(self) -> None:
+        errors = io.StringIO()
+        private_thinking = "PRIVATE_THINKING_SHOULD_NOT_BE_LOGGED"
+        with patch.object(probe, "_read_json", side_effect=[
+            {"models": [{"name": "qwen3.5:9b"}]},
+            {
+                "done": True,
+                "done_reason": "length",
+                "prompt_eval_count": 88,
+                "eval_count": 1024,
+                "message": {"role": "assistant", "content": "", "thinking": private_thinking},
+            },
+        ]), contextlib.redirect_stderr(errors):
+            self.assertFalse(probe.preflight(timeout=1))
+        output = errors.getvalue()
+        self.assertIn("done_reason=length", output)
+        self.assertIn("prompt_tokens=88", output)
+        self.assertIn("generated_tokens=1024", output)
+        self.assertIn(f"thinking_chars={len(private_thinking)}", output)
+        self.assertNotIn(private_thinking, output)
 
     def test_incomplete_text_turn_does_not_pass_preflight(self) -> None:
         errors = io.StringIO()
