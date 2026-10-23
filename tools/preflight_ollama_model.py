@@ -210,7 +210,7 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
     if not isinstance(content, str) or not content.strip():
         thinking = message.get("thinking") if isinstance(message, dict) else None
         if isinstance(thinking, str) and thinking.strip():
-            detail = "Ollama returned thinking output but no final answer text, even with think=false."
+            detail = "Ollama returned thinking output but no final answer text before the generation budget ended."
         else:
             detail = "Ollama returned an empty final answer field."
         print(f"ERROR: Ollama listed {MODEL} but chat generation produced no usable final answer. {detail}", file=sys.stderr)
