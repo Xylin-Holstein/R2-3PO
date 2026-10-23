@@ -23,7 +23,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         replies = [
             {"models": [{"name": "qwen3.5:9b"}]},
             {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
-            {"done": True, "message": {"role": "assistant", "content": "{\"color\":\"blue\"}"}},
+            {"done": True, "message": {"role": "assistant", "content": '{"color":"blue"}'}},
             {"models": [{"name": "qwen3.5:9b", "size_vram": 123456}]},
         ]
         gpu_result = SimpleNamespace(
@@ -94,7 +94,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         with patch.dict(probe.os.environ, {
             "R2_OLLAMA_NUM_GPU": "8",
             "R2_OLLAMA_NUM_CTX": "2048",
-        }), patch.object(probe, "_read_json", side_effect=replies) as read, \\
+        }), patch.object(probe, "_read_json", side_effect=replies) as read, \
              patch.object(probe.subprocess, "run", return_value=SimpleNamespace(
                  returncode=0, stdout="NVIDIA GeForce GTX 1050 Ti, 4096 MiB, 123 MiB", stderr=""
              )):
