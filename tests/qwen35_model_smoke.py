@@ -188,12 +188,13 @@ require(
 )
 
 require(
-    "budget.identity_budget = system_budget / 3;" in core
-    and "budget.retrieval_reserve = system_budget / 8;" in core
-    and "budget.capabilities_reserve = system_budget / 16;" in core
+    "budget.override_budget = override_length < system_budget" in core
+    and "size_t share = remaining / 4;" in core
+    and "size_t remainder = remaining % 4;" in core
+    and "r2_compute_system_context_budget(system_budget, override_length)" in core
+    and "input_fitted_output" in core
     and "message_add_system_prompt_sections_locked() != 0" in core
     and "return 7;" in core
-    and "r2_compute_system_context_budget(system_budget)" in core
     and "length > reality_reserve" in core
     and "length > retrieval_reserve" in core
     and "capabilities_reserve > capabilities_used" in core
