@@ -143,11 +143,11 @@ def allocation_for_context(num_ctx: int, num_predict: int, override_length: int,
 # conversation override at the smallest context. Do not concatenate a longer
 # retry instruction after a compact prompt: that silently clips the correction.
 compact_match = re.search(
-    r'static const char r2_conversation_system_prompt_compact\\[\\] =\\s*(\"(?:\\\\.|[^\"\\\\])*\");',
+    r'static const char r2_conversation_system_prompt_compact\[\] =\s*("(?:\\.|[^"\\])*");',
     core,
 )
 retry_match = re.search(
-    r'static const char compact_retry_system_prompt\\[\\] =\\s*(\"(?:\\\\.|[^\"\\\\])*\");',
+    r'static const char compact_retry_system_prompt\[\] =\s*("(?:\\.|[^"\\])*");',
     core,
 )
 if not compact_match or not retry_match:
