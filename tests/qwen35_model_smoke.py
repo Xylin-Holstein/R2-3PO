@@ -201,8 +201,7 @@ require(
     and "category_remaining = retrieval_reserve > retrieval_used" in core
     and "message_add_system_prompt_sections_locked() != 0" in core
     and "return 7;" in core
-    and "length > reality_reserve" in core
-    and "length > retrieval_reserve" in core
+    and "length > category_remaining" in core
     and "capabilities_reserve > capabilities_used" in core
     and "capability_remaining" in core
     and "r2_capability_section_matches_query" in core
