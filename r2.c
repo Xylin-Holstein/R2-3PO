@@ -4679,6 +4679,9 @@ static int r2_reply_contains_known_failure_phrase(const char *reply)
         "unable to understand your message",
         "cannot understand your message",
         "can't understand what you're saying",
+        "trouble understanding your message",
+        "having trouble understanding",
+        "having difficulty understanding your message",
         "cannot make sense of your message",
         "can't make sense of your message",
         "not a coherent question",
@@ -4753,12 +4756,23 @@ static int r2_reply_misclassifies_plain_text(const char *query, const char *repl
          strcasestr(query, "cannot understand"));
 
     /*
+     * A known nonresponsive answer is evidence about R2's output, regardless
+     * of whether the user happens to be discussing audio, sounds, or
+     * transcription. Check the reply before topic filtering; otherwise a
+     * legitimate sound-related question can suppress recovery from this failure.
+     */
+    int reply_has_failure_phrase = r2_reply_contains_known_failure_phrase(reply);
+    if (!reports_r2_output_problem && reply_has_failure_phrase)
+        return 1;
+
+    /*
      * User feedback that R2's previous output was garbled is itself a clear,
      * meaningful message. Do not let the words "gibberish" or "unintelligible"
      * accidentally disable recovery for that case.
      */
-    /* Keep legitimate audio/transcription discussions out of this guard,
-       except when the user is explicitly reporting a problem with R2's output. */
+    /* Keep legitimate audio/transcription discussions out of the remaining
+       heuristic checks, except when the user explicitly reports a problem
+       with R2's output or the reply itself matches a known failure phrase. */
     static const char *const topic_terms[] = {
         "audio", "sound", "sounds", "noise", "signal", "gibberish",
         "unintelligible", "jumbled", "transcribe", "transcription"
@@ -4769,10 +4783,6 @@ static int r2_reply_misclassifies_plain_text(const char *query, const char *repl
                 return 0;
         }
     }
-
-    int reply_has_failure_phrase = r2_reply_contains_known_failure_phrase(reply);
-    if (!reports_r2_output_problem && reply_has_failure_phrase)
-        return 1;
 
     if (!reports_r2_output_problem && strlen(query) < 24)
         return 0;
