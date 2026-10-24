@@ -303,15 +303,18 @@ if ! sudo -n -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
     R2_OLLAMA_TIMEOUT_SECONDS="${R2_OLLAMA_TIMEOUT_SECONDS:-}" \
     python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --timeout 180 "${R2_OLLAMA_PREFLIGHT_ARGS[@]}"; then
     if [[ "$R2_OLLAMA_NUM_GPU_DEFAULTED" == "1" &&
-          "$R2_OLLAMA_NUM_CTX_DEFAULTED" == "1" ]]; then
+          "$R2_NVIDIA_QUERY_OK" == "1" ]] &&
+       printf '%s\n' "$R2_NVIDIA_GPU_NAMES" | grep -qi 'GTX 1050 Ti'; then
         R2_OLLAMA_PREFLIGHT_OK=0
-        # Keep the 8192-token host-RAM context while progressively reducing
-        # GPU offload. The 16 GB host can carry more of the model on CPU;
-        # shrinking context at the same time would hide the actual VRAM limit.
+        # Progressively reduce GPU offload on the 4 GiB GTX 1050 Ti. Retain an
+        # explicitly configured context; only restore 8192 when the launcher
+        # selected that context itself for this card.
         for GPU_LAYERS in 12 8 4; do
-            echo "[GPU] Default inference preflight failed; retrying with ${GPU_LAYERS} GPU layers and 8192 context tokens."
+            echo "[GPU] Default inference preflight failed; retrying with ${GPU_LAYERS} GPU layers and the configured context."
             export R2_OLLAMA_NUM_GPU="$GPU_LAYERS"
-            export R2_OLLAMA_NUM_CTX=8192
+            if [[ "$R2_OLLAMA_NUM_CTX_DEFAULTED" == "1" ]]; then
+                export R2_OLLAMA_NUM_CTX=8192
+            fi
             if sudo -n -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
                 R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
                 R2_OLLAMA_NUM_CTX="$R2_OLLAMA_NUM_CTX" \
