@@ -535,9 +535,36 @@ static int diary_entry_ensure_column(const char *column, const char *definition)
 
 static int diary_entries_migrate_schema(void)
 {
-    /* CREATE TABLE IF NOT EXISTS does not upgrade old diary_entries tables.
-       Add the chronology field before creating its index or writing new rows. */
-    if (diary_entry_ensure_column("created_at", "TEXT NOT NULL DEFAULT ''") != SQLITE_OK)
+    /*
+     * CREATE TABLE IF NOT EXISTS does not upgrade old diary_entries tables.
+     * Older builds used different names for both the entry text and timestamp.
+     * Add canonical columns first, then backfill from existing aliases without
+     * deleting or rebuilding the legacy table (which would risk losing rows,
+     * indexes, or application-specific columns).
+     */
+    if (diary_entry_ensure_column("entry", "TEXT NOT NULL DEFAULT ''") != SQLITE_OK ||
+        diary_entry_ensure_column("created_at", "TEXT NOT NULL DEFAULT ''") != SQLITE_OK)
+        return SQLITE_ERROR;
+
+    const char *legacy_entry_columns[] = {
+        "content", "text", "body", "description", "diary"
+    };
+    for (size_t i = 0; i < sizeof(legacy_entry_columns) / sizeof(legacy_entry_columns[0]); ++i) {
+        const char *legacy = legacy_entry_columns[i];
+        if (!diary_table_column_exists("diary_entries", legacy)) continue;
+        char sql[512];
+        int n = snprintf(sql, sizeof(sql),
+                         "UPDATE diary_entries SET entry=COALESCE(NULLIF(%s,''),'') "
+                         "WHERE entry IS NULL OR entry='';", legacy);
+        if (n < 0 || (size_t)n >= sizeof(sql) ||
+            sqlite3_exec(r2_diary_db, sql, NULL, NULL, NULL) != SQLITE_OK)
+            return SQLITE_ERROR;
+        /* Keep checking aliases: a legacy row can have an empty first alias
+           and useful content in a later one. */
+    }
+    if (sqlite3_exec(r2_diary_db,
+            "UPDATE diary_entries SET entry='' WHERE entry IS NULL;",
+            NULL, NULL, NULL) != SQLITE_OK)
         return SQLITE_ERROR;
 
     const char *legacy_time_columns[] = {
@@ -548,12 +575,11 @@ static int diary_entries_migrate_schema(void)
         if (!diary_table_column_exists("diary_entries", legacy)) continue;
         char sql[512];
         int n = snprintf(sql, sizeof(sql),
-                         "UPDATE diary_entries SET created_at=%s "
+                         "UPDATE diary_entries SET created_at=COALESCE(NULLIF(%s,''),'') "
                          "WHERE created_at IS NULL OR created_at='';", legacy);
         if (n < 0 || (size_t)n >= sizeof(sql) ||
             sqlite3_exec(r2_diary_db, sql, NULL, NULL, NULL) != SQLITE_OK)
             return SQLITE_ERROR;
-        break;
     }
     if (sqlite3_exec(r2_diary_db,
             "UPDATE diary_entries SET created_at=CURRENT_TIMESTAMP "
@@ -1059,15 +1085,25 @@ int r2_diary_reconnect_history(int limit)
 
 static int64_t diary_insert_entry_row(const char *entry, const char *timestamp)
 {
-    static const char *const aliases[] = {
+    static const char *const entry_aliases[] = {
+        "content", "text", "body", "description", "diary"
+    };
+    static const char *const time_aliases[] = {
         "timestamp", "created", "date_created", "created_utc"
     };
-    char sql[1024] = "INSERT INTO diary_entries(entry,created_at";
+    char sql[2048] = "INSERT INTO diary_entries(entry,created_at";
     size_t used = strlen(sql);
     int bind_count = 2;
-    for (size_t i = 0; i < sizeof(aliases) / sizeof(aliases[0]); ++i) {
-        if (!diary_table_column_exists("diary_entries", aliases[i])) continue;
-        int n = snprintf(sql + used, sizeof(sql) - used, ",%s", aliases[i]);
+    for (size_t i = 0; i < sizeof(entry_aliases) / sizeof(entry_aliases[0]); ++i) {
+        if (!diary_table_column_exists("diary_entries", entry_aliases[i])) continue;
+        int n = snprintf(sql + used, sizeof(sql) - used, ",%s", entry_aliases[i]);
+        if (n < 0 || (size_t)n >= sizeof(sql) - used) return -1;
+        used += (size_t)n;
+        bind_count++;
+    }
+    for (size_t i = 0; i < sizeof(time_aliases) / sizeof(time_aliases[0]); ++i) {
+        if (!diary_table_column_exists("diary_entries", time_aliases[i])) continue;
+        int n = snprintf(sql + used, sizeof(sql) - used, ",%s", time_aliases[i]);
         if (n < 0 || (size_t)n >= sizeof(sql) - used) return -1;
         used += (size_t)n;
         bind_count++;
@@ -1089,12 +1125,20 @@ static int64_t diary_insert_entry_row(const char *entry, const char *timestamp)
     sqlite3_bind_text(st, 1, entry, -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(st, 2, timestamp, -1, SQLITE_TRANSIENT);
     int bind_index = 3;
-    for (size_t i = 0; i < sizeof(aliases) / sizeof(aliases[0]); ++i) {
-        if (!diary_table_column_exists("diary_entries", aliases[i])) continue;
+    /* Legacy text columns can remain NOT NULL after additive migration. Keep
+       them populated on every new write so old constraints remain compatible. */
+    for (size_t i = 0; i < sizeof(entry_aliases) / sizeof(entry_aliases[0]); ++i) {
+        if (!diary_table_column_exists("diary_entries", entry_aliases[i])) continue;
+        sqlite3_bind_text(st, bind_index++, entry, -1, SQLITE_TRANSIENT);
+    }
+    for (size_t i = 0; i < sizeof(time_aliases) / sizeof(time_aliases[0]); ++i) {
+        if (!diary_table_column_exists("diary_entries", time_aliases[i])) continue;
         sqlite3_bind_text(st, bind_index++, timestamp, -1, SQLITE_TRANSIENT);
     }
     int rc = sqlite3_step(st);
     int64_t id = rc == SQLITE_DONE ? sqlite3_last_insert_rowid(r2_diary_db) : -1;
+    if (rc != SQLITE_DONE)
+        fprintf(stderr, "[R2 DIARY] Insert failed: %s\n", sqlite3_errmsg(r2_diary_db));
     sqlite3_finalize(st);
     return id;
 }

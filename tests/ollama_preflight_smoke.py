@@ -23,7 +23,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         replies = [
             {"models": [{"name": "qwen3.5:9b"}]},
             {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
-            {"done": True, "message": {"role": "assistant", "content": "{\"color\":\"blue\"}"}},
+            {"done": True, "message": {"role": "assistant", "content": '{"color":"blue"}'}},
             {"models": [{"name": "qwen3.5:9b", "size_vram": 123456}]},
         ]
         gpu_result = SimpleNamespace(
@@ -37,8 +37,14 @@ class OllamaPreflightSmoke(unittest.TestCase):
         self.assertTrue(read.call_args_list[1].args[0].endswith("/api/chat"))
         payload = read.call_args_list[1].kwargs["payload"]
         self.assertEqual(payload["model"], "qwen3.5:9b")
-        self.assertIs(payload["think"], False)
-        self.assertEqual(payload["options"]["num_predict"], 128)
+        self.assertIs(payload["think"], True)
+        self.assertEqual(payload["options"]["num_predict"], 1024)
+        self.assertEqual(payload["options"]["temperature"], 1.0)
+        self.assertEqual(payload["options"]["top_p"], 0.95)
+        self.assertEqual(payload["options"]["top_k"], 20)
+        self.assertEqual(payload["options"]["min_p"], 0.0)
+        self.assertEqual(payload["options"]["presence_penalty"], 1.5)
+        self.assertEqual(payload["options"]["repeat_penalty"], 1.0)
         self.assertTrue(read.call_args_list[2].args[0].endswith("/api/chat"))
         vision_payload = read.call_args_list[2].kwargs["payload"]
         png_bytes = base64.b64decode(vision_payload["messages"][1]["images"][0])
@@ -48,7 +54,8 @@ class OllamaPreflightSmoke(unittest.TestCase):
         self.assertEqual(vision_payload["format"], "json")
         self.assertEqual(vision_payload["messages"][0]["role"], "system")
         self.assertEqual(vision_payload["options"]["num_predict"], 256)
-        self.assertEqual(vision_payload["options"]["temperature"], payload["options"]["temperature"])
+        self.assertEqual(vision_payload["options"]["temperature"], 0.7)
+        self.assertEqual(vision_payload["options"]["top_p"], 0.8)
         self.assertTrue(read.call_args_list[3].args[0].endswith("/api/ps"))
         self.assertEqual(gpu.call_count, 1)
 
@@ -56,8 +63,8 @@ class OllamaPreflightSmoke(unittest.TestCase):
         replies = [
             {"models": [{"name": "qwen3.5:9b"}]},
             {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
-            {"done": True, "message": {"role": "assistant", "content": "{\"color\":\"blue\"}"}},
             {"models": [{"name": "qwen3.5:9b", "size": 500000, "size_vram": 123456}]},
+            {"done": True, "message": {"role": "assistant", "content": "{\"color\":\"blue\"}"}},
         ]
         with patch.dict(probe.os.environ, {
             "R2_OLLAMA_NUM_GPU": "20",
@@ -70,11 +77,36 @@ class OllamaPreflightSmoke(unittest.TestCase):
         options = read.call_args_list[1].kwargs["payload"]["options"]
         self.assertEqual(options["num_gpu"], 20)
         self.assertEqual(options["num_ctx"], 8192)
-        vision_payload = read.call_args_list[2].kwargs["payload"]
+        self.assertEqual(options["num_predict"], 1024)
+        self.assertTrue(read.call_args_list[2].args[0].endswith("/api/ps"))
+        self.assertTrue(read.call_args_list[3].args[0].endswith("/api/chat"))
+        vision_payload = read.call_args_list[3].kwargs["payload"]
         self.assertEqual(vision_payload["options"]["num_gpu"], 20)
         self.assertEqual(vision_payload["options"]["num_ctx"], 8192)
         self.assertEqual(vision_payload["options"]["num_predict"], 512)
         self.assertIn("images", vision_payload["messages"][1])
+
+    def test_low_context_preflight_uses_core_generation_ceiling(self) -> None:
+        replies = [
+            {"models": [{"name": "qwen3.5:9b"}]},
+            {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
+            {"done": True, "message": {"role": "assistant", "content": '{"color":"blue"}'}},
+            {"models": [{"name": "qwen3.5:9b", "size_vram": 123456}]},
+        ]
+        with patch.dict(probe.os.environ, {
+            "R2_OLLAMA_NUM_GPU": "8",
+            "R2_OLLAMA_NUM_CTX": "2048",
+        }), patch.object(probe, "_read_json", side_effect=replies) as read, \
+             patch.object(probe.subprocess, "run", return_value=SimpleNamespace(
+                 returncode=0, stdout="NVIDIA GeForce GTX 1050 Ti, 4096 MiB, 123 MiB", stderr=""
+             )):
+            self.assertTrue(probe.preflight(timeout=1))
+        text_options = read.call_args_list[1].kwargs["payload"]["options"]
+        self.assertEqual(text_options["num_ctx"], 2048)
+        self.assertEqual(text_options["num_predict"], 512)
+        vision_options = read.call_args_list[2].kwargs["payload"]["options"]
+        self.assertEqual(vision_options["num_ctx"], 2048)
+        self.assertEqual(vision_options["num_predict"], 256)
 
     def test_overnight_endpoint_is_used_for_tags_chat_and_process_checks(self) -> None:
         replies = [
@@ -104,8 +136,8 @@ class OllamaPreflightSmoke(unittest.TestCase):
              patch.object(probe, "_read_json", side_effect=[
                  {"models": [{"name": "qwen3.5:9b"}]},
                  {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
-                 {"done": True, "message": {"role": "assistant", "content": "{\"color\":\"blue\"}"}},
                  {"models": [{"name": "qwen3.5:9b", "size_vram": 0}]},
+                 {"done": True, "message": {"role": "assistant", "content": "{\"color\":\"blue\"}"}},
              ]), patch.object(probe.subprocess, "run", return_value=SimpleNamespace(
                  returncode=0, stdout="NVIDIA GeForce GTX 1050 Ti, 4096 MiB, 0 MiB", stderr=""
              )), contextlib.redirect_stderr(errors):
@@ -116,8 +148,8 @@ class OllamaPreflightSmoke(unittest.TestCase):
         replies = [
             {"models": [{"name": "qwen3.5:9b"}]},
             {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
-            {"done": True, "message": {"role": "assistant", "content": "{\"color\":\"blue\"}"}},
             {"models": [{"name": "qwen3.5:9b", "size": 500000, "size_vram": 123456}]},
+            {"done": True, "message": {"role": "assistant", "content": "{\"color\":\"blue\"}"}},
         ]
         with patch.dict(probe.os.environ, {"R2_OLLAMA_NUM_GPU": "0", "R2_OLLAMA_NUM_CTX": "8192"}), \
              patch.object(probe, "_read_json", side_effect=replies) as read, \
@@ -126,7 +158,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
              )):
             self.assertTrue(probe.preflight(timeout=1, require_gpu_offload=True))
         self.assertNotIn("num_gpu", read.call_args_list[1].kwargs["payload"]["options"])
-        self.assertEqual(read.call_args_list[2].kwargs["payload"]["options"]["num_predict"], 512)
+        self.assertEqual(read.call_args_list[3].kwargs["payload"]["options"]["num_predict"], 512)
 
     def test_unapproved_non_loopback_endpoint_is_rejected(self) -> None:
         errors = io.StringIO()
@@ -151,33 +183,39 @@ class OllamaPreflightSmoke(unittest.TestCase):
                 self.assertTrue(probe.preflight(timeout=1))
         self.assertEqual(errors.getvalue(), "")
 
-    def test_wrong_color_json_blocks_ready_status(self) -> None:
+    def test_wrong_color_json_does_not_block_typed_chat_ready_status(self) -> None:
         errors = io.StringIO()
         red_literal = json.dumps({"color": "red"})
         with patch.object(probe, "_read_json", side_effect=[
             {"models": [{"name": "qwen3.5:9b"}]},
             {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
             {"done": True, "message": {"role": "assistant", "content": red_literal}},
+            {"models": [{"name": "qwen3.5:9b", "size_vram": 123456}]},
         ]) as read, patch.object(probe.subprocess, "run", return_value=SimpleNamespace(
             returncode=0, stdout="Test GPU, 4096 MiB, 123 MiB", stderr=""
         )), contextlib.redirect_stderr(errors):
-            self.assertFalse(probe.preflight(timeout=1))
-        self.assertEqual(read.call_count, 3)
+            self.assertTrue(probe.preflight(timeout=1))
+        self.assertEqual(read.call_count, 4)
         self.assertIn("failed the JSON known-color vision probe", errors.getvalue())
 
-    def test_image_inference_failure_blocks_ready_status(self) -> None:
+    def test_image_inference_failure_does_not_block_typed_chat_with_verified_gpu(self) -> None:
         errors = io.StringIO()
-        with patch.object(probe, "_read_json", side_effect=[
-            {"models": [{"name": "qwen3.5:9b"}]},
-            {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
-            OSError("simulated CUDA out of memory during image inference"),
-        ]) as read, patch.object(probe.subprocess, "run", return_value=SimpleNamespace(
-            returncode=0, stdout="Test GPU, 4096 MiB, 123 MiB", stderr=""
-        )), contextlib.redirect_stderr(errors):
-            self.assertFalse(probe.preflight(timeout=1))
-        self.assertEqual(read.call_count, 3)
+        output = io.StringIO()
+        with patch.dict(probe.os.environ, {"R2_OLLAMA_NUM_GPU": "20"}), \
+             patch.object(probe, "_read_json", side_effect=[
+                 {"models": [{"name": "qwen3.5:9b"}]},
+                 {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
+                 {"models": [{"name": "qwen3.5:9b", "size": 500000, "size_vram": 123456}]},
+                 OSError("simulated CUDA out of memory during image inference"),
+             ]) as read, patch.object(probe.subprocess, "run", return_value=SimpleNamespace(
+                 returncode=0, stdout="Test GPU, 4096 MiB, 123 MiB", stderr=""
+             )), contextlib.redirect_stderr(errors), contextlib.redirect_stdout(output):
+            self.assertTrue(probe.preflight(timeout=1, require_gpu_offload=True))
+        self.assertEqual(read.call_count, 4)
         self.assertIn("image-bearing chat failed", errors.getvalue())
         self.assertIn("CUDA out of memory", errors.getvalue())
+        self.assertIn("text chat is ready", output.getvalue())
+        self.assertIn("vision probe failed", output.getvalue())
 
     def test_missing_model_fails_without_waiting_or_network(self) -> None:
         errors = io.StringIO()
@@ -196,6 +234,30 @@ class OllamaPreflightSmoke(unittest.TestCase):
             with contextlib.redirect_stderr(errors):
                 self.assertFalse(probe.preflight(timeout=1))
         self.assertIn("chat generation produced no usable final answer", errors.getvalue())
+        self.assertIn("done_reason=missing", errors.getvalue())
+        self.assertIn("num_predict=1024", errors.getvalue())
+        self.assertIn("thinking_chars=0", errors.getvalue())
+
+    def test_empty_final_answer_reports_metrics_without_private_thinking(self) -> None:
+        errors = io.StringIO()
+        private_thinking = "PRIVATE_THINKING_SHOULD_NOT_BE_LOGGED"
+        with patch.object(probe, "_read_json", side_effect=[
+            {"models": [{"name": "qwen3.5:9b"}]},
+            {
+                "done": True,
+                "done_reason": "length",
+                "prompt_eval_count": 88,
+                "eval_count": 1024,
+                "message": {"role": "assistant", "content": "", "thinking": private_thinking},
+            },
+        ]), contextlib.redirect_stderr(errors):
+            self.assertFalse(probe.preflight(timeout=1))
+        output = errors.getvalue()
+        self.assertIn("done_reason=length", output)
+        self.assertIn("prompt_tokens=88", output)
+        self.assertIn("generated_tokens=1024", output)
+        self.assertIn(f"thinking_chars={len(private_thinking)}", output)
+        self.assertNotIn(private_thinking, output)
 
     def test_incomplete_text_turn_does_not_pass_preflight(self) -> None:
         errors = io.StringIO()
@@ -207,15 +269,16 @@ class OllamaPreflightSmoke(unittest.TestCase):
         self.assertEqual(read.call_count, 2)
         self.assertIn("did not return a complete assistant turn", errors.getvalue())
 
-    def test_incomplete_vision_turn_does_not_pass_preflight(self) -> None:
+    def test_incomplete_vision_turn_does_not_block_typed_chat(self) -> None:
         errors = io.StringIO()
         with patch.object(probe, "_read_json", side_effect=[
             {"models": [{"name": "qwen3.5:9b"}]},
             {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
             {"done": False, "message": {"role": "assistant", "content": "{\"color\":\"blue\"}"}},
+            {"models": [{"name": "qwen3.5:9b", "size_vram": 123456}]},
         ]) as read, contextlib.redirect_stderr(errors):
-            self.assertFalse(probe.preflight(timeout=1))
-        self.assertEqual(read.call_count, 3)
+            self.assertTrue(probe.preflight(timeout=1))
+        self.assertEqual(read.call_count, 4)
         self.assertIn("incomplete or invalid assistant turn", errors.getvalue())
 
     def test_http_500_body_is_preserved_for_text_generation(self) -> None:
@@ -235,7 +298,7 @@ class OllamaPreflightSmoke(unittest.TestCase):
         self.assertIn("HTTP 500 Internal Server Error", errors.getvalue())
         self.assertIn("CUDA out of memory while allocating KV cache", errors.getvalue())
 
-    def test_http_500_body_is_preserved_for_vision_generation(self) -> None:
+    def test_http_500_body_is_preserved_for_vision_generation_without_blocking_chat(self) -> None:
         errors = io.StringIO()
         failure = urllib.error.HTTPError(
             "http://127.0.0.1:11434/api/chat",
@@ -248,8 +311,9 @@ class OllamaPreflightSmoke(unittest.TestCase):
             {"models": [{"name": "qwen3.5:9b"}]},
             {"done": True, "message": {"role": "assistant", "content": "R2_READY"}},
             failure,
+            {"models": [{"name": "qwen3.5:9b", "size_vram": 123456}]},
         ]), contextlib.redirect_stderr(errors):
-            self.assertFalse(probe.preflight(timeout=1))
+            self.assertTrue(probe.preflight(timeout=1))
         self.assertIn("image-bearing chat failed", errors.getvalue())
         self.assertIn("runner process has terminated", errors.getvalue())
 

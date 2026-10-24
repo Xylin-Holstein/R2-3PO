@@ -34,9 +34,9 @@ budget_end = core.find("\n}\n", budget_start)
 if budget_start < 0 or budget_end < 0:
     raise SystemExit("Could not locate the prompt-budget allocator.")
 budget = core[budget_start:budget_end + 3]
-require("budget.retrieval_reserve = system_budget / 8;" in budget,
+require("budget.retrieval_reserve = system_budget / 10;" in budget,
         "the serializer explicitly reserves a share for current-turn retrieval")
-require("budget.capabilities_reserve = system_budget / 16;" in budget,
+require("budget.capabilities_reserve = system_budget / 32;" in budget,
         "the serializer reserves space for capability instructions after active-turn evidence")
 require("r2_compute_system_context_budget(system_budget)" in core,
         "the actual Ollama serializer uses the tested prompt-budget allocator")

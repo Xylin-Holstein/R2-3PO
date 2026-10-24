@@ -188,9 +188,13 @@ require(
 )
 
 require(
-    "budget.identity_budget = system_budget / 3;" in core
-    and "budget.retrieval_reserve = system_budget / 8;" in core
-    and "budget.capabilities_reserve = system_budget / 16;" in core
+    "budget.identity_budget = system_budget / 4;" in core
+    and "budget.reality_reserve = system_budget / 10;" in core
+    and "size_t current_user_reserve = 400;" in core
+    and "static const char r2_conversation_system_prompt_compact[]" in core
+    and "r2_conversation_prompt_for_context()" in core
+    and "budget.retrieval_reserve = system_budget / 10;" in core
+    and "budget.capabilities_reserve = system_budget / 32;" in core
     and "message_add_system_prompt_sections_locked() != 0" in core
     and "return 7;" in core
     and "r2_compute_system_context_budget(system_budget)" in core

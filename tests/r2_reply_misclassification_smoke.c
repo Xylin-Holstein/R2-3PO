@@ -70,6 +70,18 @@ int main(void)
                     "That appears to be a random assortment of sounds."),
                 "known unintelligibility response to ordinary typed language triggers a corrective retry");
     ok &= check(r2_reply_misclassifies_plain_text(
+                    "Can you explain what I meant about the room and pockets?",
+                    "I'm having trouble understanding your message."),
+                "the observed trouble-understanding reply triggers a corrective retry");
+    ok &= check(r2_reply_misclassifies_plain_text(
+                    "That sounds like the kind of thing I was talking about earlier.",
+                    "I'm having trouble understanding your message."),
+                "a known nonresponsive answer still triggers recovery when the user message contains ordinary sound-related wording");
+    ok &= check(!r2_reply_misclassifies_plain_text(
+                    "Can you explain why people sometimes have trouble understanding each other?",
+                    "People can have trouble understanding each other when they lack shared context."),
+                "ordinary discussion of understanding does not trigger the corrective retry");
+    ok &= check(r2_reply_misclassifies_plain_text(
                     "Hello R2, this is your mother speaking to you.",
                     "Hello R2! How can I help you today?"),
                 "speaker-role reversal in a direct greeting triggers a corrective retry");

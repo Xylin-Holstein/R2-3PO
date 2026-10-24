@@ -242,9 +242,9 @@ static void seed_legacy_diary_entries(void)
     assert(sqlite3_exec(db,
         "CREATE TABLE diary_entries ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-        "entry TEXT NOT NULL,"
+        "content TEXT NOT NULL,"
         "timestamp TEXT NOT NULL);"
-        "INSERT INTO diary_entries(entry,timestamp) "
+        "INSERT INTO diary_entries(content,timestamp) "
         "VALUES('legacy schema migration fixture','2001-02-03 04:05:06');",
         NULL, NULL, NULL) == SQLITE_OK);
     sqlite3_close(db);
@@ -264,9 +264,6 @@ static void verify_legacy_diary_migration(void)
     assert(entry && strcmp((const char *)entry, "legacy schema migration fixture") == 0);
     assert(created && strcmp((const char *)created, "2001-02-03 04:05:06") == 0);
     sqlite3_finalize(st);
-    assert(sqlite3_exec(db,
-        "DELETE FROM diary_entries WHERE entry='legacy schema migration fixture'",
-        NULL, NULL, NULL) == SQLITE_OK);
     sqlite3_close(db);
 }
 
@@ -284,16 +281,23 @@ int main(void)
     /* This entry is written before the Life Log starts; it must remain
        intact and be linked later rather than being dropped or rewritten. */
     assert(r2_diary_write("Legacy diary entry about learning.") == 0);
-    assert(scalar_int("SELECT COUNT(*) FROM diary_entries;") == 1);
+    /* The original legacy row must survive both migration and subsequent writes. */
     assert(scalar_int("SELECT COUNT(*) FROM diary_entries "
-                      "WHERE timestamp=created_at AND timestamp<>'';") == 1);
+                      "WHERE entry='legacy schema migration fixture' "
+                      "AND created_at='2001-02-03 04:05:06';") == 1);
+    assert(scalar_int("SELECT COUNT(*) FROM diary_entries;") == 2);
+    assert(scalar_int("SELECT COUNT(*) FROM diary_entries "
+                      "WHERE timestamp=created_at AND timestamp<>'';") == 2);
+    /* Legacy NOT NULL aliases remain populated on every new write. */
+    assert(scalar_int("SELECT COUNT(*) FROM diary_entries "
+                      "WHERE content=entry AND content<>'';") == 2);
 
     log_ready = 1;
     assert(r2_diary_reconnect_history(10) >= 1);
     assert(r2_reward_reconnect_history(10) >= 1);
 
     assert(r2_diary_write("New reflection connected to history.") == 0);
-    assert(scalar_int("SELECT COUNT(*) FROM diary_entries;") == 2);
+    assert(scalar_int("SELECT COUNT(*) FROM diary_entries;") == 3);
 
     /* Diary review applies generic +1 feedback without name-specific rules. */
     assert(r2_reward_review_diary(100, "I learned something from this experience.") == 0);
@@ -308,11 +312,11 @@ int main(void)
     assert(r2_reward_current_modifier("diary_writing") >= 0);
     assert(r2_reward_current_modifier("diary_writing") <= 10);
     assert(scalar_int("SELECT COUNT(*) FROM r2_diary_entry_links "
-                      "WHERE log_event_id IS NOT NULL;") == 2);
+                      "WHERE log_event_id IS NOT NULL;") == 3);
     assert(scalar_int("SELECT COUNT(*) FROM r2_diary_entry_links "
-                      "WHERE memory_indexed=1;") == 2);
+                      "WHERE memory_indexed=1;") == 3);
     assert(scalar_int("SELECT COUNT(*) FROM r2_log_events "
-                      "WHERE event_type='diary_entry_linked';") == 2);
+                      "WHERE event_type='diary_entry_linked';") == 3);
     /* The event contains only a pointer; private diary prose is not copied
        into the factual Life Log or Observer-facing summaries. */
     assert(scalar_int("SELECT COUNT(*) FROM r2_log_events "
@@ -320,6 +324,7 @@ int main(void)
                       "OR summary LIKE '%Legacy diary entry about learning%';") == 0);
     context = r2_diary_build_reflection_context(10);
     assert(context != NULL);
+    assert(strstr(context, "legacy schema migration fixture") != NULL);
     assert(strstr(context, "Legacy diary entry about learning.") != NULL);
     assert(strstr(context, "New reflection connected to history.") != NULL);
     assert(strstr(context, "RECENT LIFE LOG EVENTS") != NULL);
@@ -330,7 +335,7 @@ int main(void)
     /* Reconciliation is idempotent: a second pass must not duplicate events. */
     assert(r2_diary_reconnect_history(10) == 0);
     assert(scalar_int("SELECT COUNT(*) FROM r2_log_events "
-                      "WHERE event_type='diary_entry_linked';") == 2);
+                      "WHERE event_type='diary_entry_linked';") == 3);
 
     /* The old key-only table is migrated lazily when the idempotent API is
        first used. Replaying the same reward must not increment totals twice. */

@@ -81,6 +81,55 @@ def _is_complete_assistant_turn(reply: dict[str, Any]) -> bool:
     )
 
 
+def _response_diagnostics(reply: dict[str, Any], options: dict[str, Any]) -> str:
+    """Report completion metrics without exposing the model's private thinking text."""
+    message = reply.get("message")
+    thinking = message.get("thinking") if isinstance(message, dict) else None
+    done_reason = str(reply.get("done_reason", "missing")).replace("\\n", " ")[:80]
+    prompt_tokens = reply.get("prompt_eval_count", "unknown")
+    generated_tokens = reply.get("eval_count", "unknown")
+    thinking_chars = len(thinking) if isinstance(thinking, str) else 0
+    return (
+        f"done_reason={done_reason}; prompt_tokens={prompt_tokens}; "
+        f"generated_tokens={generated_tokens}; thinking_chars={thinking_chars}; "
+        f"num_ctx={options.get('num_ctx', 'model-default')}; "
+        f"num_predict={options.get('num_predict', 'unset')}"
+    )
+
+
+def _gpu_placement_status(api_base: str, timeout: float) -> tuple[bool, bool]:
+    """Read Ollama's loaded-model report and return (any GPU, mixed CPU/GPU)."""
+    try:
+        ps = _read_json(f"{api_base}/api/ps", timeout=min(8, max(1, timeout)))
+        loaded = ps.get("models", [])
+        active = next((item for item in loaded
+                       if isinstance(item, dict)
+                       and (item.get("name") == MODEL
+                            or str(item.get("name", "")).startswith(MODEL + "-"))), None)
+        if active is None:
+            print("GPU verification: model not present in /api/ps; placement remains unverified.")
+            return False, False
+        try:
+            vram = int(active.get("size_vram", 0))
+        except (TypeError, ValueError):
+            vram = 0
+        if vram <= 0:
+            print("GPU verification: Ollama reports no VRAM allocation; inference may be CPU-only.")
+            return False, False
+        print(f"GPU verification: Ollama reports {vram / (1024 ** 3):.2f} GiB allocated in GPU VRAM.")
+        try:
+            total_size = int(active.get("size", 0))
+        except (TypeError, ValueError):
+            total_size = 0
+        mixed = total_size > vram
+        if mixed:
+            print(f"Mixed placement: model process reports {total_size / (1024 ** 3):.2f} GiB total with {vram / (1024 ** 3):.2f} GiB in VRAM; remaining model/runtime memory is outside GPU VRAM.")
+        return True, mixed
+    except (OSError, ValueError, urllib.error.URLError, TimeoutError) as exc:
+        print(f"GPU verification unavailable: could not query Ollama /api/ps ({exc}).")
+        return False, False
+
+
 def _png_chunk(kind: bytes, payload: bytes) -> bytes:
     return (
         struct.pack(">I", len(payload))
@@ -150,7 +199,17 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
         print("ERROR: R2_OLLAMA_NUM_GPU must be between -1 and 999.", file=sys.stderr)
         return False
 
-    options: dict[str, Any] = {"temperature": 0, "num_predict": 128}
+    # Exercise the same reasoning-mode sampler as foreground conversation.
+    # A non-thinking token probe can pass while R2's actual think=true request
+    # still fails under the same context/GPU allocation.
+    options: dict[str, Any] = {
+        "temperature": 1.0,
+        "top_p": 0.95,
+        "top_k": 20,
+        "min_p": 0.0,
+        "presence_penalty": 1.5,
+        "repeat_penalty": 1.0,
+    }
     configured_context = os.environ.get("R2_OLLAMA_NUM_CTX", "").strip()
     if configured_context:
         try:
@@ -161,6 +220,11 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
         # by both paths so preflight does not test a context R2 will not use.
         if 2048 <= context_tokens <= 16384:
             options["num_ctx"] = context_tokens
+    # A reasoning-mode probe needs enough generation budget to finish its
+    # thinking phase and emit the user-facing answer. Match the core's context
+    # ceiling instead of testing every context with an artificially tiny 512.
+    effective_context = int(options.get("num_ctx", 4096))
+    options["num_predict"] = 1024 if effective_context >= 4096 else 512
     if gpu_layers != 0:
         options["num_gpu"] = gpu_layers
 
@@ -175,7 +239,7 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
                     "content": "Reply with exactly this token and no other text: R2_READY",
                 }],
                 "stream": False,
-                "think": False,
+                "think": True,
                 "keep_alive": "10m",
                 "options": options,
             },
@@ -195,27 +259,62 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
     if not isinstance(content, str) or not content.strip():
         thinking = message.get("thinking") if isinstance(message, dict) else None
         if isinstance(thinking, str) and thinking.strip():
-            detail = "Ollama returned thinking output but no final answer text, even with think=false."
+            detail = "Ollama returned thinking output but no final answer text before the generation budget ended."
         else:
             detail = "Ollama returned an empty final answer field."
-        print(f"ERROR: Ollama listed {MODEL} but chat generation produced no usable final answer. {detail}", file=sys.stderr)
+        diagnostics = _response_diagnostics(reply, options)
+        print(
+            f"ERROR: Ollama listed {MODEL} but chat generation produced no usable final answer. "
+            f"{detail} {diagnostics}",
+            file=sys.stderr,
+        )
         return False
 
 
     if not _is_complete_assistant_turn(reply):
         print(
             f"ERROR: Ollama listed {MODEL} but text generation did not return a complete assistant turn "
-            "(expected message.role=assistant and done=true).",
+            f"(expected message.role=assistant and done=true). {_response_diagnostics(reply, options)}",
             file=sys.stderr,
         )
         return False
+
+    # Verify GPU placement immediately after the successful text request when
+    # mixed placement is launch-critical. The optional image probe can OOM and
+    # unload Ollama's runner; it must not erase proof that text inference worked.
+    gpu_offload_verified = False
+    mixed_placement_verified = False
+    gpu_placement_checked = False
+    if require_gpu_offload:
+        if gpu_layers == 0:
+            print("GPU policy: automatic placement (no explicit layer count sent).")
+        else:
+            print(f"GPU policy: requested {gpu_layers} model layers on the GPU.")
+        gpu_offload_verified, mixed_placement_verified = _gpu_placement_status(api_base, timeout)
+        gpu_placement_checked = True
+        if not gpu_offload_verified or not mixed_placement_verified:
+            print(
+                "ERROR: mixed CPU/GPU placement was required but Ollama did not report "
+                "both positive VRAM allocation and total model memory greater than VRAM.",
+                file=sys.stderr,
+            )
+            return False
 
     # Exercise the same 640x480 image dimensions, JSON response mode, GPU/context
     # policy and context-dependent output cap used by Visual.c. This catches
     # image-encoder/KV-cache OOMs that text-only readiness can miss.
     vision_context = int(options.get("num_ctx", 4096))
     vision_options = dict(options)
+    # Match Visual.c's non-thinking sampler rather than reusing the text
+    # conversation's reasoning-mode temperature/top-p values.
+    vision_options["temperature"] = 0.7
+    vision_options["top_p"] = 0.8
     vision_options["num_predict"] = 512 if vision_context >= 8192 else 256
+    # Vision is exercised here to report capability, but typed conversation is
+    # the launch-critical path. A vision OOM or bad image answer must not prevent
+    # R2 from starting its text conversation; keep the failure visible for later
+    # visual-subsystem debugging.
+    vision_ready = True
     try:
         vision_reply = _read_json(
             f"{api_base}/api/chat",
@@ -242,81 +341,48 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
         )
     except urllib.error.HTTPError as exc:
         print(
-            f"ERROR: {MODEL} passed text generation but image-bearing chat failed: {_http_error_detail(exc)}",
+            f"WARNING: {MODEL} passed text generation but image-bearing chat failed: {_http_error_detail(exc)}",
             file=sys.stderr,
         )
-        return False
+        vision_ready = False
     except (OSError, ValueError, urllib.error.URLError, TimeoutError) as exc:
-        print(f"ERROR: {MODEL} passed text generation but image-bearing chat failed: {exc}", file=sys.stderr)
-        return False
-
-    if not _is_complete_assistant_turn(vision_reply):
         print(
-            f"ERROR: {MODEL} returned an incomplete or invalid assistant turn for the image-bearing probe "
-            "(expected message.role=assistant and done=true).",
+            f"WARNING: {MODEL} passed text generation but image-bearing chat failed: {exc}",
             file=sys.stderr,
         )
-        return False
+        vision_ready = False
 
-    vision_message = vision_reply.get("message")
-    vision_content = vision_message.get("content") if isinstance(vision_message, dict) else None
-    try:
-        vision_data = json.loads(vision_content) if isinstance(vision_content, str) else {}
-    except json.JSONDecodeError:
-        vision_data = {}
-    vision_color = vision_data.get("color") if isinstance(vision_data, dict) else None
-    if not isinstance(vision_color, str) or not re.search(r"\bblue\b", vision_color, re.IGNORECASE):
+    if vision_ready and not _is_complete_assistant_turn(vision_reply):
         print(
-            f"ERROR: {MODEL} passed text generation but failed the JSON known-color vision probe "
-            "(expected the image-bearing reply to report color=blue).",
+            f"WARNING: {MODEL} returned an incomplete or invalid assistant turn for the image-bearing probe "
+            "(expected message.role=assistant and done=true); visual inference is not verified.",
             file=sys.stderr,
         )
-        return False
+        vision_ready = False
 
-    gpu_offload_verified = False
-    mixed_placement_verified = False
-    if gpu_layers == 0:
-        print("GPU policy: automatic placement (no explicit layer count sent).")
-    else:
-        print(f"GPU policy: requested {gpu_layers} model layers on the GPU.")
+    if vision_ready:
+        vision_message = vision_reply.get("message")
+        vision_content = vision_message.get("content") if isinstance(vision_message, dict) else None
+        try:
+            vision_data = json.loads(vision_content) if isinstance(vision_content, str) else {}
+        except json.JSONDecodeError:
+            vision_data = {}
+        vision_color = vision_data.get("color") if isinstance(vision_data, dict) else None
+        if not isinstance(vision_color, str) or not re.search(r"\bblue\b", vision_color, re.IGNORECASE):
+            print(
+                f"WARNING: {MODEL} passed text generation but failed the JSON known-color vision probe "
+                "(expected the image-bearing reply to report color=blue); visual inference is not verified.",
+                file=sys.stderr,
+            )
+            vision_ready = False
 
-    # Keep the model warm during this check, then inspect Ollama's own process
-    # report. A successful API request alone does not prove GPU offload.
-    try:
-        ps = _read_json(f"{api_base}/api/ps", timeout=min(8, max(1, timeout)))
-        loaded = ps.get("models", [])
-        active = next((item for item in loaded
-                       if isinstance(item, dict)
-                       and (item.get("name") == MODEL
-                            or str(item.get("name", "")).startswith(MODEL + "-"))), None)
-        if active is None:
-            print("GPU verification: model not present in /api/ps; placement remains unverified.")
+    if not gpu_placement_checked:
+        if gpu_layers == 0:
+            print("GPU policy: automatic placement (no explicit layer count sent).")
         else:
-            vram = active.get("size_vram", 0)
-            try:
-                vram = int(vram)
-            except (TypeError, ValueError):
-                vram = 0
-            if vram > 0:
-                gpu_offload_verified = True
-                print(f"GPU verification: Ollama reports {vram / (1024 ** 3):.2f} GiB allocated in GPU VRAM.")
-                total_size = active.get("size", 0)
-                try:
-                    total_size = int(total_size)
-                except (TypeError, ValueError):
-                    total_size = 0
-                if total_size > vram:
-                    mixed_placement_verified = True
-                    print(f"Mixed placement: model process reports {total_size / (1024 ** 3):.2f} GiB total with {vram / (1024 ** 3):.2f} GiB in VRAM; remaining model/runtime memory is outside GPU VRAM.")
-            else:
-                print("GPU verification: Ollama reports no VRAM allocation; inference may be CPU-only.")
-    except (OSError, ValueError, urllib.error.URLError, TimeoutError) as exc:
-        print(f"GPU verification unavailable: could not query Ollama /api/ps ({exc}).")
+            print(f"GPU policy: requested {gpu_layers} model layers on the GPU.")
+        gpu_offload_verified, mixed_placement_verified = _gpu_placement_status(api_base, timeout)
 
-    # When the host explicitly requests GPU layers, a successful text reply is
-    # not enough: require Ollama's process report to confirm that some model
-    # memory really landed in VRAM. CPU-only success must not masquerade as a
-    # successful GTX 1050 Ti policy preflight.
     if require_gpu_offload and (
         not gpu_offload_verified or not mixed_placement_verified
     ):
@@ -327,7 +393,10 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
         )
         return False
 
-    print(f"Local Ollama is ready: {MODEL} passed real text and image-bearing chat generations (replies omitted).")
+    if vision_ready:
+        print(f"Local Ollama is ready: {MODEL} passed real text and image-bearing chat generations (replies omitted).")
+    else:
+        print(f"Local Ollama text chat is ready: {MODEL} passed real text generation; vision probe failed and visual inference is not verified.")
 
     # Host-side diagnostic; lack of nvidia-smi access does not fail preflight.
     try:

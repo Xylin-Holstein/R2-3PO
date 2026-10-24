@@ -184,6 +184,28 @@ if [[ "$R2_NVIDIA_PCI_PRESENT" == "1" || "$R2_OLLAMA_NUM_GPU" != "0" ]]; then
     R2_OLLAMA_PREFLIGHT_ARGS=(--require-gpu-offload)
 fi
 
+# Persist preflight diagnostics even when R2 never reaches main(). The output
+# is still streamed to the terminal, while the r2 account appends it to the
+# same Debug.txt used by runtime diagnostics.
+r2_run_ollama_preflight() {
+    local -a pipeline_status
+    {
+        printf '[launcher] Ollama preflight attempt: num_ctx=%s num_gpu=%s probe_timeout=600s\n' \
+            "${R2_OLLAMA_NUM_CTX:-auto}" "${R2_OLLAMA_NUM_GPU:-auto}"
+        sudo -n -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
+            R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
+            R2_OLLAMA_NUM_CTX="${R2_OLLAMA_NUM_CTX:-}" \
+            R2_OLLAMA_NUM_GPU="$R2_OLLAMA_NUM_GPU" \
+            R2_OLLAMA_TIMEOUT_SECONDS="${R2_OLLAMA_TIMEOUT_SECONDS:-}" \
+            python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --timeout 600 "${R2_OLLAMA_PREFLIGHT_ARGS[@]}"
+    } 2>&1 | sudo -n -u r2 -- tee -a "$R2_ROOT/R2_Log/Debug.txt"
+    pipeline_status=("${PIPESTATUS[@]}")
+    if [[ "${pipeline_status[1]:-1}" -ne 0 ]]; then
+        echo "WARNING: Could not append Ollama preflight output to Debug.txt; output remains visible above." >&2
+    fi
+    return "${pipeline_status[0]:-1}"
+}
+
 # The interactive launcher and the overnight service share persistent databases.
 # Never start a second core against those same files.
 if command -v systemctl >/dev/null 2>&1 &&
@@ -296,27 +318,26 @@ if [[ ! -r "$R2_SOURCE/tools/preflight_ollama_model.py" ]]; then
     read -p "Press Enter to exit..."
     exit 1
 fi
-if ! sudo -n -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
-    R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
-    R2_OLLAMA_NUM_CTX="${R2_OLLAMA_NUM_CTX:-}" \
-    R2_OLLAMA_NUM_GPU="$R2_OLLAMA_NUM_GPU" \
-    R2_OLLAMA_TIMEOUT_SECONDS="${R2_OLLAMA_TIMEOUT_SECONDS:-}" \
-    python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --timeout 180 "${R2_OLLAMA_PREFLIGHT_ARGS[@]}"; then
+if ! r2_run_ollama_preflight; then
     if [[ "$R2_OLLAMA_NUM_GPU_DEFAULTED" == "1" &&
           "$R2_OLLAMA_NUM_CTX_DEFAULTED" == "1" ]]; then
         echo "[GPU] Default inference preflight failed; retrying with 12 GPU layers and 4096 context tokens."
         export R2_OLLAMA_NUM_GPU=12
         export R2_OLLAMA_NUM_CTX=4096
-        if ! sudo -n -u r2 -- env HOME="$R2_ROOT" USER=r2 LOGNAME=r2 \
-            R2_OLLAMA_BASE_URL="$R2_OLLAMA_BASE_URL" \
-            R2_OLLAMA_NUM_CTX="$R2_OLLAMA_NUM_CTX" \
-            R2_OLLAMA_NUM_GPU="$R2_OLLAMA_NUM_GPU" \
-            R2_OLLAMA_TIMEOUT_SECONDS="${R2_OLLAMA_TIMEOUT_SECONDS:-}" \
-            python3 "$R2_SOURCE/tools/preflight_ollama_model.py" --timeout 180 "${R2_OLLAMA_PREFLIGHT_ARGS[@]}"; then
-            echo "ERROR: Default and conservative GPU/context preflights both failed."
-            echo "R2 was NOT launched; check the local model/server logs."
-            read -p "Press Enter to exit..."
-            exit 1
+        if ! r2_run_ollama_preflight; then
+            echo "[GPU] 12-layer/4096-context attempt failed; reducing both model allocations and retrying with 8 GPU layers and 2048 context tokens."
+            export R2_OLLAMA_NUM_GPU=8
+            export R2_OLLAMA_NUM_CTX=2048
+            if ! r2_run_ollama_preflight; then
+                echo "[GPU] 8-layer/2048-context attempt failed; retrying with 4 GPU layers and 2048 context tokens."
+                export R2_OLLAMA_NUM_GPU=4
+                if ! r2_run_ollama_preflight; then
+                    echo "ERROR: Default, 12-layer/4096, 8-layer/2048, and 4-layer/2048 inference preflights all failed."
+                    echo "R2 was NOT launched; preserve the full Ollama error above and inspect the server/model logs."
+                    read -p "Press Enter to exit..."
+                    exit 1
+                fi
+            fi
         fi
     else
         echo
