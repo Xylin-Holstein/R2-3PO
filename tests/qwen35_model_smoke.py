@@ -2,6 +2,7 @@
 """Static contract tests for R2's unified Qwen 3.5 conversation/vision path."""
 
 from pathlib import Path
+import ast
 import re
 import sys
 
@@ -224,6 +225,19 @@ require(
     and "conversation_reply_token_budget(query)" in core,
     "ordinary replies use a bounded, task-sensitive generation budget",
 )
+require(
+    (lambda match: match is not None and
+     len("".join(ast.literal_eval(item) for item in
+                 re.findall(r'"(?:\\.|[^"\\])*"', match.group("body")))) <= 2200)(
+        re.search(
+            r"static const char r2_conversation_system_prompt\\[\\] =(?P<body>.*?);",
+            core,
+            re.DOTALL,
+        )
+    ),
+    "core conversation policy stays compact enough to survive the 4K context budget",
+)
+
 require(
     "Lead with the direct answer." in core
     and "Do not become terse at the cost of correctness" in core,
