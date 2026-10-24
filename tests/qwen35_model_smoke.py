@@ -193,6 +193,12 @@ require(
     and "size_t remainder = remaining % 4;" in core
     and "r2_compute_system_context_budget(system_budget, override_length)" in core
     and "input_fitted_output" in core
+    and "size_t identity_used = 0;" in core
+    and "size_t reality_used = 0;" in core
+    and "size_t retrieval_used = 0;" in core
+    and "category_remaining = identity_budget > identity_used" in core
+    and "category_remaining = reality_reserve > reality_used" in core
+    and "category_remaining = retrieval_reserve > retrieval_used" in core
     and "message_add_system_prompt_sections_locked() != 0" in core
     and "return 7;" in core
     and "length > reality_reserve" in core
