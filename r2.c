@@ -3831,6 +3831,9 @@ static char *ollama_chat_with_limit(
      * startup memory, learning summaries, and finally archived dialogue.
      * Every category has a cap so one long block cannot crowd the others out.
      */
+    size_t identity_used = 0;
+    size_t reality_used = 0;
+    size_t retrieval_used = 0;
     size_t capabilities_used = 0;
     for (int priority = 0; priority < 8 &&
          total_chars < system_budget; ++priority) {
@@ -3846,12 +3849,27 @@ static char *ollama_chat_with_limit(
             if (length > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS)
                 length = r2_utf8_safe_prefix_length(
                     content, OLLAMA_MAX_SYSTEM_MESSAGE_CHARS);
-            if (message_priority == 0 && length > identity_budget)
-                length = r2_safe_prompt_prefix_length(content, identity_budget, 0);
-            if (message_priority == 1 && length > reality_reserve)
-                length = r2_safe_prompt_prefix_length(content, reality_reserve, 1);
-            if (message_priority == 2 && length > retrieval_reserve)
-                length = r2_safe_prompt_prefix_length(content, retrieval_reserve, 1);
+            /* Category limits are cumulative across every message in that
+               category; applying a full share independently to each message
+               lets duplicate/fragmented sections overlap their allocations. */
+            if (message_priority == 0) {
+                size_t category_remaining = identity_budget > identity_used
+                    ? identity_budget - identity_used : 0;
+                if (length > category_remaining)
+                    length = r2_safe_prompt_prefix_length(content, category_remaining, 0);
+            }
+            if (message_priority == 1) {
+                size_t category_remaining = reality_reserve > reality_used
+                    ? reality_reserve - reality_used : 0;
+                if (length > category_remaining)
+                    length = r2_safe_prompt_prefix_length(content, category_remaining, 1);
+            }
+            if (message_priority == 2) {
+                size_t category_remaining = retrieval_reserve > retrieval_used
+                    ? retrieval_reserve - retrieval_used : 0;
+                if (length > category_remaining)
+                    length = r2_safe_prompt_prefix_length(content, category_remaining, 1);
+            }
             if (message_priority == 3 || message_priority == 4) {
                 size_t capability_remaining =
                     capabilities_reserve > capabilities_used
@@ -3865,6 +3883,9 @@ static char *ollama_chat_with_limit(
             include[i] = 1;
             limits[i] = length;
             total_chars += length;
+            if (message_priority == 0) identity_used += length;
+            if (message_priority == 1) reality_used += length;
+            if (message_priority == 2) retrieval_used += length;
             if (message_priority == 3 || message_priority == 4)
                 capabilities_used += length;
         }
