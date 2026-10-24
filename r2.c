@@ -3392,32 +3392,27 @@ typedef struct {
 /* Reserve separate shares for core identity, live Reality, current-turn
    retrieval, and the split capability prompt. The conversation contract gets
    the remainder; broad startup memory and archive history use only spare room. */
-static R2SystemContextBudget r2_compute_system_context_budget(size_t system_budget)
+static R2SystemContextBudget r2_compute_system_context_budget(
+    size_t system_budget, size_t override_length)
 {
     R2SystemContextBudget budget = {0};
-    /* Reserve distinct shares while leaving a substantial remainder for the
-       full conversation contract. These ratios scale smoothly as the active
-       user turn consumes more of the available context. */
-    budget.reality_reserve = system_budget / 8;
-    if (budget.reality_reserve > 3000)
-        budget.reality_reserve = 3000;
 
-    budget.identity_budget = system_budget / 3;
-    if (budget.identity_budget < 1000 &&
-        system_budget > budget.reality_reserve + 2000)
-        budget.identity_budget = 1000;
-    if (budget.identity_budget > system_budget - budget.reality_reserve)
-        budget.identity_budget = system_budget - budget.reality_reserve;
+    /*
+     * Keep the complete live conversation contract first. Divide the actual
+     * remaining character budget evenly among identity, Reality, retrieval,
+     * and capabilities; integer remainder is assigned in priority order.
+     * Any unused share remains available to the lower-priority context pass.
+     */
+    budget.override_budget = override_length < system_budget
+        ? override_length : system_budget;
+    size_t remaining = system_budget - budget.override_budget;
+    size_t share = remaining / 4;
+    size_t remainder = remaining % 4;
 
-    budget.retrieval_reserve = system_budget / 8;
-    budget.capabilities_reserve = system_budget / 16;
-    size_t reserved = budget.reality_reserve +
-                      budget.identity_budget +
-                      budget.retrieval_reserve +
-                      budget.capabilities_reserve;
-    budget.override_budget = system_budget > reserved
-        ? system_budget - reserved
-        : system_budget / 2;
+    budget.identity_budget = share + (remainder > 0 ? 1 : 0);
+    budget.reality_reserve = share + (remainder > 1 ? 1 : 0);
+    budget.retrieval_reserve = share + (remainder > 2 ? 1 : 0);
+    budget.capabilities_reserve = share;
     return budget;
 }
 
@@ -3522,6 +3517,32 @@ static char *ollama_chat_with_limit(
        complexity-based budget and can use the full context-dependent ceiling. */
     if (num_predict < 1) num_predict = num_ctx >= 12288 ? 2048 : 1024;
     if (num_predict > max_predict) num_predict = max_predict;
+
+    /*
+     * Live conversation must budget input and output together. At a small
+     * context window, reserve enough room for the full conversation contract,
+     * the current user turn, and the existing 1500-character live-turn reserve
+     * before choosing the generation ceiling. Larger contexts retain their
+     * normal task-sensitive output budget.
+     */
+    if (system_override && *system_override && ollama_audit_stage &&
+        (strcmp(ollama_audit_stage, "conversation-answer") == 0 ||
+         strcmp(ollama_audit_stage, "conversation-retry") == 0)) {
+        size_t prompt_chars = strlen(system_override);
+        if (prompt_chars > OLLAMA_MAX_SYSTEM_MESSAGE_CHARS)
+            prompt_chars = OLLAMA_MAX_SYSTEM_MESSAGE_CHARS;
+        size_t query_chars = ollama_authoritative_user_query
+            ? strlen(ollama_authoritative_user_query) : 0;
+        if (query_chars > OLLAMA_MAX_MESSAGE_CHARS)
+            query_chars = OLLAMA_MAX_MESSAGE_CHARS;
+        if (query_chars < 1500)
+            query_chars = 1500;
+        size_t required_chars = prompt_chars + query_chars + 1500;
+        size_t required_tokens = (required_chars * 10U + 31U) / 32U;
+        int input_fitted_output = num_ctx - 512 - (int)required_tokens;
+        if (input_fitted_output >= 256 && num_predict > input_fitted_output)
+            num_predict = input_fitted_output;
+    }
 
     struct json_object *options = json_object_new_object();
     if (!options) {
@@ -3753,7 +3774,7 @@ static char *ollama_chat_with_limit(
      * conversation contract. Lower-priority startup/archive context yields first.
      */
     R2SystemContextBudget context_budgets =
-        r2_compute_system_context_budget(system_budget);
+        r2_compute_system_context_budget(system_budget, override_length);
     size_t reality_reserve = context_budgets.reality_reserve;
     size_t identity_budget = context_budgets.identity_budget;
     size_t retrieval_reserve = context_budgets.retrieval_reserve;
