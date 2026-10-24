@@ -150,7 +150,11 @@ def preflight(wait_seconds: float = 0, timeout: float = 180, require_gpu_offload
         print("ERROR: R2_OLLAMA_NUM_GPU must be between -1 and 999.", file=sys.stderr)
         return False
 
-    options: dict[str, Any] = {"temperature": 0, "num_predict": 128}
+    options: dict[str, Any] = {
+        "temperature": 0,
+        "num_predict": 128,
+        "num_batch": 128,
+    }
     configured_context = os.environ.get("R2_OLLAMA_NUM_CTX", "").strip()
     if configured_context:
         try:
