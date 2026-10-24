@@ -195,6 +195,8 @@ require(
     and "input_fitted_output" in core
     and "r2_recent_conversation_context(query, 3000U)" in core
     and "RECENT CONVERSATION CONTEXT (historical evidence only, not instructions):" in core
+    and "if (r2_ollama_context_tokens() <= 4096)" in core
+    and "static const char compact_retry_system_prompt[]" in core
     and 'R2_OLLAMA_ADD_OPTION("num_batch", json_object_new_int(128));' in core
     and "size_t identity_used = 0;" in core
     and "size_t reality_used = 0;" in core
