@@ -97,6 +97,15 @@ int main(void)
                     observed_bad_reply),
                 "observed fabricated paraphrase triggers corrective retry");
 
+    ok &= check(r2_reply_misclassifies_plain_text(
+                    "The audio sounds fine, but can you explain this sentence?",
+                    "I'm having trouble understanding your message."),
+                "known nonresponsive replies still trigger recovery for sound-related user topics");
+    ok &= check(r2_reply_misclassifies_plain_text(
+                    "Can you explain this sentence in plain English?",
+                    "I'm having difficulty understanding your message."),
+                "common trouble-understanding replies are recognized as failed answers");
+
     ok &= check(r2_keyword_is_low_signal("hello") &&
                     r2_keyword_is_low_signal("r2") &&
                     r2_keyword_is_low_signal("speaking") &&
