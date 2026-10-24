@@ -137,29 +137,38 @@ def allocation_for_context(num_ctx: int, num_predict: int, override_length: int,
             retrieval_reserve, capabilities_reserve, current_user_reserve,
             input_budget, identity_minimum)
 
-# The compact retry must fit intact in the smallest supported context; otherwise
-# sentence-boundary clipping would silently remove the corrective instruction.
+# Both compact contracts must fit the minimum override share left by a long
+# current turn. The serializer intentionally reserves 1000 characters for all
+# system context and 500 for boundary overhead, which leaves 519 for the
+# conversation override at the smallest context. Do not concatenate a longer
+# retry instruction after a compact prompt: that silently clips the correction.
 compact_match = re.search(
-    r'static const char r2_conversation_system_prompt_compact\[\] =\s*("(?:\\.|[^"\\])*");',
+    r'static const char r2_conversation_system_prompt_compact\\[\\] =\\s*(\"(?:\\\\.|[^\"\\\\])*\");',
     core,
 )
 retry_match = re.search(
-    r'static const char compact_retry_instruction\[\] =\s*("(?:\\.|[^"\\])*");',
+    r'static const char compact_retry_system_prompt\\[\\] =\\s*(\"(?:\\\\.|[^\"\\\\])*\");',
     core,
 )
 if not compact_match or not retry_match:
-    raise SystemExit("Could not locate compact conversation/retry prompt literals")
+    raise SystemExit("Could not locate compact conversation and retry prompt literals")
 compact_length = len(ast.literal_eval(compact_match.group(1)))
 retry_length = len(ast.literal_eval(retry_match.group(1)))
-retry_override_length = compact_length + retry_length + 2
-_, bounded_retry_override, *_ = allocation_for_context(
-    2048, 512, retry_override_length, 400
-)
-if bounded_retry_override < retry_override_length:
-    raise SystemExit(
-        f"Compact corrective retry is clipped at 2048 context: "
-        f"needs {retry_override_length}, receives {bounded_retry_override}"
-    )
+if compact_length > 519:
+    raise SystemExit(f"Compact conversation contract is clipped for long turns: {compact_length} > 519")
+if retry_length > 519:
+    raise SystemExit(f"Compact corrective contract is clipped for long turns: {retry_length} > 519")
+
+for num_ctx, num_predict in ((2048, 512), (4096, 1024)):
+    for label, prompt_length in (("conversation", compact_length), ("retry", retry_length)):
+        _, bounded_override, *_ = allocation_for_context(
+            num_ctx, num_predict, prompt_length, 12000
+        )
+        if bounded_override < prompt_length:
+            raise SystemExit(
+                f"Long-turn {label} contract is clipped at context={num_ctx}: "
+                f"needs {prompt_length}, receives {bounded_override}"
+            )
 
 # Exercise low-memory, normal, and long-user-message paths. The allocator must
 # leave a system budget and a bounded current-turn reservation at every size.
