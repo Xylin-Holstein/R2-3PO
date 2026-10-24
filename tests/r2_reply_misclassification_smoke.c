@@ -23,6 +23,33 @@ int main(void)
 {
     int ok = 1;
 
+    R2SystemContextBudget prompt_first_budget =
+        r2_compute_system_context_budget(10000U, 5698U);
+    size_t allocated_context =
+        prompt_first_budget.override_budget +
+        prompt_first_budget.identity_budget +
+        prompt_first_budget.reality_reserve +
+        prompt_first_budget.retrieval_reserve +
+        prompt_first_budget.capabilities_reserve;
+    ok &= check(prompt_first_budget.override_budget == 5698U &&
+                    allocated_context == 10000U &&
+                    prompt_first_budget.identity_budget ==
+                        prompt_first_budget.reality_reserve &&
+                    prompt_first_budget.identity_budget -
+                        prompt_first_budget.capabilities_reserve <= 1U &&
+                    prompt_first_budget.retrieval_reserve -
+                        prompt_first_budget.capabilities_reserve <= 1U,
+                "prompt-first allocation uses the full budget with four non-overlapping near-equal shares");
+
+    R2SystemContextBudget constrained_budget =
+        r2_compute_system_context_budget(4000U, 5698U);
+    ok &= check(constrained_budget.override_budget == 4000U &&
+                    constrained_budget.identity_budget == 0U &&
+                    constrained_budget.reality_reserve == 0U &&
+                    constrained_budget.retrieval_reserve == 0U &&
+                    constrained_budget.capabilities_reserve == 0U,
+                "a system budget smaller than the conversation contract is never over-allocated");
+
     ok &= check(ollama_response_contract_valid("assistant", 1),
                 "a complete assistant response satisfies the Ollama completion contract");
     ok &= check(!ollama_response_contract_valid("user", 1),
