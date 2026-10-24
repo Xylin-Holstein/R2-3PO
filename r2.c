@@ -3540,8 +3540,14 @@ static char *ollama_chat_with_limit(
         size_t required_chars = prompt_chars + query_chars + 1500;
         size_t required_tokens = (required_chars * 10U + 31U) / 32U;
         int input_fitted_output = num_ctx - 512 - (int)required_tokens;
-        if (input_fitted_output >= 256 && num_predict > input_fitted_output)
+        if (input_fitted_output < 256) {
+            /* Preserve the full prompt and current turn as far as the context
+               permits before spending tokens on a long generated answer. */
+            if (num_predict > 256)
+                num_predict = 256;
+        } else if (num_predict > input_fitted_output) {
             num_predict = input_fitted_output;
+        }
     }
 
     struct json_object *options = json_object_new_object();
