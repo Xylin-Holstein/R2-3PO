@@ -3558,6 +3558,9 @@ static char *ollama_chat_with_limit(
         } \
     } while (0)
     R2_OLLAMA_ADD_OPTION("num_ctx", json_object_new_int(num_ctx));
+    /* Smaller prompt-evaluation batches reduce peak VRAM during long system
+       prompts on partial-offload cards such as the 4 GiB GTX 1050 Ti. */
+    R2_OLLAMA_ADD_OPTION("num_batch", json_object_new_int(128));
     R2_OLLAMA_ADD_OPTION("num_predict", json_object_new_int(num_predict));
 
     /*
