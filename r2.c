@@ -3009,13 +3009,18 @@ int r2_ollama_context_tokens(void)
                    available >= 2ULL * GiB ? 4096 : 2048;
 
     const char *configured = getenv("R2_OLLAMA_NUM_CTX");
+    int context_is_configured = 0;
     if (configured && *configured) {
         errno = 0;
         char *end = NULL;
         long requested = strtol(configured, &end, 10);
         if (!errno && end != configured && *end == '\0' &&
             requested >= 2048 && requested <= 16384) {
-            if (requested < safe_max) safe_max = (int)requested;
+            /* A configured context is the requested runtime context, not just
+               a ceiling. Keep it identical to the context tested by launcher
+               preflight; RAM-based sizing applies only when it is unspecified. */
+            safe_max = (int)requested;
+            context_is_configured = 1;
         } else {
             fprintf(stderr, "[R2 Ollama] Ignoring invalid R2_OLLAMA_NUM_CTX value.\n");
         }
@@ -3023,7 +3028,11 @@ int r2_ollama_context_tokens(void)
     static atomic_int last_context_tokens = ATOMIC_VAR_INIT(0);
     int previous_context = atomic_exchange(&last_context_tokens, safe_max);
     if (previous_context != safe_max) {
-        if (available) {
+        if (context_is_configured) {
+            fprintf(stderr,
+                    "[R2 Ollama] Configured context=%d tokens; available RAM≈%.1f GiB.\n",
+                    safe_max, (double)available / (1024.0 * 1024.0 * 1024.0));
+        } else if (available) {
             fprintf(stderr,
                     "[R2 Ollama] Adaptive context=%d tokens; available RAM≈%.1f GiB. "
                     "Context is capped to preserve host headroom.\n",
