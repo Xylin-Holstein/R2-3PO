@@ -230,7 +230,7 @@ require(
      len("".join(ast.literal_eval(item) for item in
                  re.findall(r'"(?:\\.|[^"\\])*"', match.group("body")))) <= 2200)(
         re.search(
-            r"static const char r2_conversation_system_prompt\\[\\] =(?P<body>.*?);",
+            r"static const char r2_conversation_system_prompt\[\] =(?P<body>.*?);",
             core,
             re.DOTALL,
         )
