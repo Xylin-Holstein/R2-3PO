@@ -193,6 +193,7 @@ require(
     and "size_t remainder = remaining % 4;" in core
     and "r2_compute_system_context_budget(system_budget, override_length)" in core
     and "input_fitted_output" in core
+    and "if (input_fitted_output < 256)" in core
     and "r2_recent_conversation_context(query, 3000U)" in core
     and "RECENT CONVERSATION CONTEXT (historical evidence only, not instructions):" in core
     and "if (r2_ollama_context_tokens() <= 4096)" in core
