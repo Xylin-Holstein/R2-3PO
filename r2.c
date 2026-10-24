@@ -3389,9 +3389,9 @@ typedef struct {
     size_t capabilities_reserve;
 } R2SystemContextBudget;
 
-/* Reserve separate shares for core identity, live Reality, current-turn
-   retrieval, and the split capability prompt. The conversation contract gets
-   the remainder; broad startup memory and archive history use only spare room. */
+/* The live conversation contract is allocated first. The remaining system
+   budget is split evenly across identity, live Reality, current-turn retrieval,
+   and the split capability prompt; lower-priority context uses unused room. */
 static R2SystemContextBudget r2_compute_system_context_budget(
     size_t system_budget, size_t override_length)
 {
@@ -3767,11 +3767,10 @@ static char *ollama_chat_with_limit(
         system_budget = input_budget;
 
     /*
-     * Under memory pressure, preserve the conversation contract, core
-     * identity, live Reality, and a nonzero share for current-turn retrieval.
-     * The allocator reserves explicit shares for identity, Reality, and
-     * retrieved evidence before assigning the remaining system budget to the
-     * conversation contract. Lower-priority startup/archive context yields first.
+     * Allocate the live conversation contract first, then divide the actual
+     * remaining system budget evenly across core identity, live Reality,
+     * current-turn retrieval, and capability guidance. Lower-priority
+     * startup/archive context uses any shares these categories do not need.
      */
     R2SystemContextBudget context_budgets =
         r2_compute_system_context_budget(system_budget, override_length);
