@@ -3517,7 +3517,7 @@ static char *ollama_chat_with_limit(
     int max_predict = num_ctx >= 16384 ? 8192 :
                       num_ctx >= 12288 ? 6144 :
                       num_ctx >= 8192 ? 4096 :
-                      num_ctx >= 4096 ? 1536 : 512;
+                      num_ctx >= 4096 ? 1400 : 512;
     int context_output_ceiling = num_ctx > 1536 ? num_ctx - 1536 : 256;
     if (max_predict > context_output_ceiling)
         max_predict = context_output_ceiling;
